@@ -1,0 +1,67 @@
+# Local development stack. Mirrors production topology (blueprint §33):
+# Postgres 16, Redis 7, S3 (MinIO stands in for Cloudflare R2), ClamAV.
+# Production runs the same containers under Coolify on the Contabo VPS,
+# except object storage is Cloudflare R2 (S3-compatible) instead of MinIO.
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: school-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: school
+    ports:
+      # Host 5433 (5432 is commonly taken by another local project, e.g. Goex).
+      - '5433:5432'
+    volumes:
+      - ./.data/postgres:/var/lib/postgresql/data
+      # Bootstraps the two non-superuser roles (app_user, platform_admin) + extensions.
+      - ./scripts/postgres-init.sql:/docker-entrypoint-initdb.d/00-init.sql:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d school']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: school-redis
+    restart: unless-stopped
+    command: ['redis-server', '--appendonly', 'no']
+    ports:
+      - '6380:6379'
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Local stand-in for Cloudflare R2. The app talks S3 API to both.
+  minio:
+    image: minio/minio:latest
+    container_name: school-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - '9002:9000'
+      - '9003:9001'
+    volumes:
+      - ./.data/minio:/data
+
+  # Virus scanning for the upload pipeline (blueprint §22.6).
+  clamav:
+    image: clamav/clamav:stable
+    container_name: school-clamav
+    restart: unless-stopped
+    ports:
+      - '3310:3310'
+    healthcheck:
+      test: ['CMD-SHELL', 'echo PING | nc -w 5 localhost 3310 | grep -q PONG']
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s

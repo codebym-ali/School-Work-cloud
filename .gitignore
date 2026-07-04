@@ -1,0 +1,40 @@
+# dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# builds
+dist/
+build/
+*.tsbuildinfo
+
+# env & secrets
+.env
+.env.*
+!.env.example
+
+# prisma generated client
+libs/database/src/prisma/generated/
+prisma/generated/
+
+# logs
+logs/
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# test / coverage
+coverage/
+.nyc_output/
+test-results/
+playwright-report/
+
+# editor / os
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+
+# docker volumes (local)
+.data/

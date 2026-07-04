@@ -23,10 +23,10 @@
     "db:check-rls": "node --env-file-if-exists=.env scripts/check-rls-coverage.mjs",
     "db:setup": "prisma migrate deploy && pnpm db:sql && pnpm db:check-rls",
     "db:seed": "ts-node prisma/seed.ts",
-    "test": "jest",
-    "test:unit": "jest --selectProjects unit",
-    "test:integration": "jest --selectProjects integration",
-    "test:isolation": "jest --selectProjects isolation --runInBand",
+    "test": "jest --passWithNoTests --forceExit",
+    "test:unit": "jest --selectProjects unit --passWithNoTests",
+    "test:integration": "jest --selectProjects integration --runInBand --forceExit",
+    "test:isolation": "jest --selectProjects isolation --runInBand --forceExit",
     "test:e2e": "playwright test"
   },
   "dependencies": {
@@ -78,6 +78,7 @@
     "source-map-support": "^0.5.21",
     "supertest": "^7.0.0",
     "ts-jest": "^29.2.5",
+    "ts-loader": "^9.6.2",
     "ts-node": "^10.9.2",
     "tsconfig-paths": "^4.2.0",
     "typescript": "^5.5.4"

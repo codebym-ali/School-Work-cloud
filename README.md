@@ -74,6 +74,22 @@ pnpm db:check-rls              # CI gate: every tenant table is RLS-covered
 Migrations/DDL run as the superuser (`MIGRATION_DATABASE_URL` → Prisma `directUrl`) because
 `FORCE` RLS and `GRANT` require table ownership.
 
+### Run & test
+
+```bash
+pnpm start:api:dev            # API on :3000 (webpack watch)
+pnpm start:worker:dev         # background worker (BullMQ consumers land per milestone)
+
+pnpm test:isolation          # merge-blocking tenant-isolation suite (§21.6)
+pnpm test:integration        # auth + tenancy pipeline e2e
+pnpm lint && npx tsc --noEmit # boundaries + strict typecheck
+pnpm build                   # api + worker production bundles
+```
+
+Auth (blueprint §22): argon2id passwords, JWT in httpOnly/SameSite=Strict cookies,
+single-use refresh-token rotation with family-reuse detection, account lockout, TOTP MFA,
+double-submit CSRF. Endpoints under `/api/v1/auth/*`.
+
 ## Roadmap
 
 Milestone-gated (blueprint §34, `docs/10-project-milestones-roadmap.md`). **M1 must be green before

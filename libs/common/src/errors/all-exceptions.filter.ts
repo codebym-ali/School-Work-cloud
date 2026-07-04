@@ -41,9 +41,9 @@ export class AllExceptionsFilter implements ExceptionFilter {
     const { status, body } = this.normalize(exception, requestId);
 
     if (status >= 500) {
+      const err = exception as Error;
       this.logger.error(
-        { requestId, path: req.url, err: exception },
-        'Unhandled error',
+        `Unhandled error on ${req.method} ${req.url} [${requestId}]: ${err?.stack ?? String(exception)}`,
       );
     }
     res.status(status).json(body);

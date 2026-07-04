@@ -1,7 +1,7 @@
 import { HttpStatus, Inject, Injectable, NestMiddleware } from '@nestjs/common';
 import type { NextFunction, Request, Response } from 'express';
 import { ClsService } from 'nestjs-cls';
-import { AppError, CLS_KEYS, ENV, ErrorCodes, type Env } from '@common';
+import { CLS_KEYS, ENV, ErrorCodes, type Env } from '@common';
 import { PrismaService } from '@database';
 
 interface CachedTenant {
@@ -40,18 +40,26 @@ export class TenantResolutionMiddleware implements NestMiddleware {
     this.reserved = new Set(env.RESERVED_SUBDOMAINS);
   }
 
-  async use(req: Request, _res: Response, next: NextFunction): Promise<void> {
+  async use(req: Request, res: Response, next: NextFunction): Promise<void> {
     const host = (req.headers.host ?? '').split(':')[0].toLowerCase();
     const tenant = await this.resolve(host);
+    // Errors thrown in middleware bypass Nest's exception filter, so we emit the
+    // standard error envelope (§25.1) directly here rather than throwing.
     if (!tenant) {
-      throw new AppError(ErrorCodes.TENANT_NOT_FOUND, HttpStatus.NOT_FOUND, 'Unknown tenant');
+      this.deny(res, HttpStatus.NOT_FOUND, ErrorCodes.TENANT_NOT_FOUND, 'Unknown tenant');
+      return;
     }
     if (!tenant.isActive) {
-      throw new AppError(ErrorCodes.TENANT_SUSPENDED, HttpStatus.FORBIDDEN, 'Tenant suspended');
+      this.deny(res, HttpStatus.FORBIDDEN, ErrorCodes.TENANT_SUSPENDED, 'Tenant suspended');
+      return;
     }
     this.cls.set(CLS_KEYS.schoolId, tenant.id);
     this.cls.set(CLS_KEYS.planTier, tenant.planTier);
     next();
+  }
+
+  private deny(res: Response, status: number, code: string, message: string): void {
+    res.status(status).json({ error: { code, message, requestId: this.cls.getId() } });
   }
 
   private async resolve(host: string): Promise<CachedTenant | null> {

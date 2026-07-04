@@ -1,6 +1,6 @@
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
-import { ClsModule } from 'nestjs-cls';
+import { ClsMiddleware, ClsModule } from 'nestjs-cls';
 import { randomUUID } from 'node:crypto';
 import {
   AllExceptionsFilter,
@@ -27,7 +27,9 @@ import { TenantResolutionMiddleware } from './tenant/tenant-resolution.middlewar
   imports: [
     ClsModule.forRoot({
       global: true,
-      middleware: { mount: true, generateId: true, idGenerator: () => randomUUID() },
+      // mount: false — we apply ClsMiddleware explicitly (below) so it is guaranteed
+      // to run BEFORE TenantResolutionMiddleware, which sets tenant context on CLS.
+      middleware: { mount: false, generateId: true, idGenerator: () => randomUUID() },
     }),
     CommonModule,
     RedisModule,
@@ -47,7 +49,8 @@ import { TenantResolutionMiddleware } from './tenant/tenant-resolution.middlewar
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
-    // Tenant resolution runs on every route except the host-exempt health checks.
+    // CLS context first (all routes), then tenant resolution (all but health).
+    consumer.apply(ClsMiddleware).forRoutes('*');
     consumer
       .apply(TenantResolutionMiddleware)
       .exclude('health/(.*)', 'health')

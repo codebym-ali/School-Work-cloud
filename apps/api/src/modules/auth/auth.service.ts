@@ -9,14 +9,12 @@ import {
   ErrorCodes,
   FIELD_ENCRYPTION,
   FieldEncryption,
-  TenantContext,
   type Env,
   type RequestUser,
 } from '@common';
 import { TenantPrismaService } from '@database';
 import { PasswordService } from './password.service';
 import { TokenService } from './token.service';
-import { AccessDenylist } from './access-denylist.service';
 import {
   clearAuthCookies,
   setAccessCookie,
@@ -51,8 +49,6 @@ export class AuthService {
     private readonly tenantPrisma: TenantPrismaService,
     private readonly passwords: PasswordService,
     private readonly tokens: TokenService,
-    private readonly denylist: AccessDenylist,
-    private readonly tenant: TenantContext,
     @Inject(FIELD_ENCRYPTION) private readonly crypto: FieldEncryption,
     @Inject(ENV) private readonly env: Env,
   ) {}

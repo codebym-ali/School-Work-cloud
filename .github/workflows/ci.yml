@@ -1,0 +1,100 @@
+name: CI
+
+# Pipeline order mirrors blueprint §34:
+#   lint -> typecheck -> unit -> integration -> RLS-coverage + isolation -> build
+# The RLS-coverage gate and the tenant-isolation suite are MERGE-BLOCKING (§21.6):
+# a new tenant table shipped without a policy, or any cross-tenant leak, fails here.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: school
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres -d school"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 3s --health-retries 10
+
+    env:
+      NODE_ENV: test
+      API_PORT: '3000'
+      APP_APEX_DOMAIN: localhost:3000
+      RESERVED_SUBDOMAINS: www,api,admin,app
+      DATABASE_URL: postgresql://app_user:app_pw@localhost:5432/school?schema=public
+      PLATFORM_DATABASE_URL: postgresql://platform_admin:platform_pw@localhost:5432/school?schema=public
+      MIGRATION_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/school?schema=public
+      REDIS_URL: redis://localhost:6379
+      JWT_ACTIVE_KID: k1
+      JWT_KEYS: '{"k1":"ci-secret-k1-please-change","k2":"ci-secret-k2-please-change"}'
+      JWT_ACCESS_TTL: 15m
+      JWT_REFRESH_TTL: 30d
+      COOKIE_SECURE: 'false'
+      COOKIE_DOMAIN: localhost
+      # Deterministic 32-byte base64 key for CI only.
+      ENCRYPTION_MASTER_KEY: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
+      S3_ENDPOINT: http://localhost:9000
+      S3_BUCKET: school-uploads
+      S3_ACCESS_KEY_ID: ci
+      S3_SECRET_ACCESS_KEY: ci
+      SMS_PROVIDER: console
+      SMS_WEBHOOK_HMAC_SECRET: ci-webhook-secret
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.14.4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Bootstrap DB roles + extensions
+        run: psql "$MIGRATION_DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/postgres-init.sql
+
+      - name: Prisma generate
+        run: pnpm prisma:generate
+
+      - name: Migrate + SQL companions + RLS coverage gate
+        run: |
+          pnpm prisma:deploy
+          pnpm db:sql
+          pnpm db:check-rls
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: npx tsc -p tsconfig.json --noEmit
+
+      - name: Unit tests
+        run: pnpm test:unit
+
+      - name: Integration tests
+        run: pnpm test:integration
+
+      - name: Tenant-isolation suite (merge-blocking, §21.6)
+        run: pnpm test:isolation
+
+      - name: Build (api + worker bundles)
+        run: pnpm build

@@ -30,7 +30,8 @@ services:
     restart: unless-stopped
     command: ['redis-server', '--appendonly', 'no']
     ports:
-      - '6380:6379'
+      # Host 6381 (6379/6380 are taken by other local projects, e.g. Goex).
+      - '6381:6379'
     healthcheck:
       test: ['CMD', 'redis-cli', 'ping']
       interval: 5s

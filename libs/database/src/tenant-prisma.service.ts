@@ -23,15 +23,18 @@ export type TenantTx = Prisma.TransactionClient;
  */
 @Injectable()
 export class TenantPrismaService {
-  private readonly xprisma: ReturnType<PrismaService['$extends']>;
+  // Type inferred from the extension application so `$transaction`/delegates stay typed.
+  private readonly xprisma: ReturnType<TenantPrismaService['buildClient']>;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly cls: ClsService,
   ) {
-    this.xprisma = this.prisma.$extends(tenantExtension(this.cls)) as ReturnType<
-      PrismaService['$extends']
-    >;
+    this.xprisma = this.buildClient();
+  }
+
+  private buildClient() {
+    return this.prisma.$extends(tenantExtension(this.cls));
   }
 
   /** The tenant-bound client for the current request (the active tx if inside withTenant). */

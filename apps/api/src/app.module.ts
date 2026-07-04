@@ -15,6 +15,11 @@ import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard';
 import { CsrfGuard } from './modules/auth/guards/csrf.guard';
 import { HealthController } from './health/health.controller';
 import { TenantResolutionMiddleware } from './tenant/tenant-resolution.middleware';
+import { PlatformModule } from './modules/platform/platform.module';
+import { SetupModule } from './modules/setup/setup.module';
+import { StudentsModule } from './modules/students/students.module';
+import { AdmissionsModule } from './modules/admissions/admissions.module';
+import { EnrollmentModule } from './modules/enrollment/enrollment.module';
 
 /**
  * API composition root. Global pipeline order (blueprint §19, §22, §25):
@@ -35,6 +40,11 @@ import { TenantResolutionMiddleware } from './tenant/tenant-resolution.middlewar
     RedisModule,
     DatabaseModule,
     AuthModule,
+    PlatformModule,
+    SetupModule,
+    StudentsModule,
+    AdmissionsModule,
+    EnrollmentModule,
   ],
   controllers: [HealthController],
   providers: [

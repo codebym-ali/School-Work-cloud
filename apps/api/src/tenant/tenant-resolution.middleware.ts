@@ -41,6 +41,9 @@ export class TenantResolutionMiddleware implements NestMiddleware {
   }
 
   async use(req: Request, res: Response, next: NextFunction): Promise<void> {
+    // Capture request metadata for audit trails (§31) while we have the request.
+    this.cls.set(CLS_KEYS.ip, req.ip);
+    this.cls.set(CLS_KEYS.userAgent, req.headers['user-agent']);
     const host = (req.headers.host ?? '').split(':')[0].toLowerCase();
     const tenant = await this.resolve(host);
     // Errors thrown in middleware bypass Nest's exception filter, so we emit the

@@ -1,5 +1,8 @@
 // Public API of @common — feature modules import only from here (ESLint boundaries §16).
 export * from './common.module';
+export * from './audit/audit-actions';
+export * from './dto/pagination.dto';
+export * from './util/phone';
 export * from './config/config.module';
 export * from './config/env.schema';
 export * from './config/school-settings.schema';

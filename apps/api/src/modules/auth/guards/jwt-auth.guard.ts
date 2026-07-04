@@ -1,7 +1,7 @@
 import { CanActivate, ExecutionContext, HttpStatus, Injectable } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import type { Request } from 'express';
-import { AppError, ErrorCodes, IS_PUBLIC, type RequestUser } from '@common';
+import { AppError, ErrorCodes, IS_PUBLIC, TenantContext, type RequestUser } from '@common';
 import { TokenService } from '../token.service';
 import { ACCESS_COOKIE } from '../auth.cookies';
 import { AccessDenylist } from '../access-denylist.service';
@@ -17,6 +17,7 @@ export class JwtAuthGuard implements CanActivate {
     private readonly reflector: Reflector,
     private readonly tokens: TokenService,
     private readonly denylist: AccessDenylist,
+    private readonly tenant: TenantContext,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -43,7 +44,15 @@ export class JwtAuthGuard implements CanActivate {
       throw new AppError(ErrorCodes.UNAUTHENTICATED, HttpStatus.UNAUTHORIZED, 'Session revoked');
     }
 
-    req.user = { userId: claims.sub, schoolId: claims.sid, roles: claims.roles, campusId: claims.cid };
+    const principal: RequestUser = {
+      userId: claims.sub,
+      schoolId: claims.sid,
+      roles: claims.roles,
+      campusId: claims.cid,
+    };
+    req.user = principal;
+    // Mirror onto CLS so services/AuditService can read the actor without plumbing it.
+    this.tenant.user = principal;
     return true;
   }
 }

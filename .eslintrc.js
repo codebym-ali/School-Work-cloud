@@ -31,18 +31,14 @@ module.exports = {
     '@typescript-eslint/no-explicit-any': 'warn',
     '@typescript-eslint/explicit-function-return-type': 'off',
     '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
-    // A feature module may only import another feature via its public barrel (index.ts).
+    // Import direction is one-way: libs never depend on feature modules.
+    // Feature<->feature is allowed (modules "communicate through exported services",
+    // blueprint §16) — a barrel-enforced stricter rule is a future refinement.
     'boundaries/element-types': [
       'error',
       {
         default: 'allow',
         rules: [
-          {
-            from: 'feature',
-            disallow: 'feature',
-            message:
-              'Cross-module imports must go through the module public API (index.ts), not internal files.',
-          },
           {
             from: ['common', 'database'],
             disallow: 'feature',

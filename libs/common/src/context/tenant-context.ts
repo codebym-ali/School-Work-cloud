@@ -15,6 +15,8 @@ export const CLS_KEYS = {
   schoolId: 'schoolId',
   planTier: 'planTier',
   user: 'user',
+  ip: 'ip',
+  userAgent: 'userAgent',
   /** the active tenant-bound Prisma transaction client for this request (§21.4) */
   tx: 'tx',
 } as const;
@@ -50,6 +52,22 @@ export class TenantContext {
 
   set user(value: RequestUser) {
     this.cls.set(CLS_KEYS.user, value);
+  }
+
+  get ip(): string | undefined {
+    return this.cls.get(CLS_KEYS.ip);
+  }
+
+  set ip(value: string | undefined) {
+    this.cls.set(CLS_KEYS.ip, value);
+  }
+
+  get userAgent(): string | undefined {
+    return this.cls.get(CLS_KEYS.userAgent);
+  }
+
+  set userAgent(value: string | undefined) {
+    this.cls.set(CLS_KEYS.userAgent, value);
   }
 
   /** Correlation id for logs/audit (blueprint §31). */

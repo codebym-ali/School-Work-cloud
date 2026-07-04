@@ -5,3 +5,4 @@ export * from './platform-prisma.service';
 export * from './tenant-prisma.service';
 export * from './tenant.extension';
 export * from './tenant-transaction.interceptor';
+export * from './audit.service';

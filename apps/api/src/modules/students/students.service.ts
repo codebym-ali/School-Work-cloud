@@ -1,0 +1,236 @@
+import { HttpStatus, Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
+import {
+  AppError,
+  ErrorCodes,
+  normalizePkPhone,
+  paginate,
+  parseSchoolSettings,
+  TenantContext,
+  toSkipTake,
+  type Paginated,
+} from '@common';
+import { TenantPrismaService } from '@database';
+import { SetupService } from '../setup/setup.service';
+import { GuardiansService } from './guardians.service';
+import type { CreateStudentDto, GuardianResolutionDto, StudentSearchQuery, UpdateStudentDto } from './dto/student.dto';
+
+export interface CreateStudentCoreInput {
+  fullName: string;
+  gender: CreateStudentDto['gender'];
+  dateOfBirth: string;
+  classId: string;
+  sectionId: string;
+  guardian: GuardianResolutionDto;
+  grNumber?: string;
+}
+
+export interface CreatedStudent {
+  studentId: string;
+  enrollmentId: string;
+  parentId: string;
+  grNumber: string;
+}
+
+/**
+ * Students directory + the shared "create student + guardian + enrollment" core
+ * used by both direct add (POST /students) and admissions admit (§8). Placement is
+ * ALWAYS via an enrollment scoped to the current academic year (§7) — students are
+ * never linked directly to a section.
+ */
+@Injectable()
+export class StudentsService {
+  constructor(
+    private readonly tenantPrisma: TenantPrismaService,
+    private readonly ctx: TenantContext,
+    private readonly setup: SetupService,
+    private readonly guardians: GuardiansService,
+  ) {}
+
+  private get db() {
+    return this.tenantPrisma.client;
+  }
+
+  /**
+   * Create a Student with its primary guardian and an ACTIVE enrollment in the
+   * current year. Runs inside the request transaction (interceptor withTenant),
+   * so the whole operation is atomic (blueprint §8 admit transaction).
+   */
+  async createStudentCore(input: CreateStudentCoreInput): Promise<CreatedStudent> {
+    const klass = await this.db.class.findFirst({ where: { id: input.classId } });
+    if (!klass) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'Class not found');
+    const section = await this.db.section.findFirst({ where: { id: input.sectionId } });
+    if (!section || section.classId !== input.classId) {
+      throw new AppError(ErrorCodes.VALIDATION_FAILED, HttpStatus.UNPROCESSABLE_ENTITY, 'Section does not belong to class');
+    }
+
+    const academicYearId = await this.setup.requireCurrentYearId();
+    await this.assertSectionCapacity(input.sectionId, academicYearId, section.capacity);
+
+    const parentId = await this.guardians.resolveParent(input.guardian);
+    const grNumber = await this.nextGrNumber(input.grNumber);
+
+    let student;
+    try {
+      student = await this.db.student.create({
+        data: {
+          schoolId: this.ctx.requireSchoolId(),
+          grNumber,
+          fullName: input.fullName,
+          gender: input.gender,
+          dateOfBirth: new Date(input.dateOfBirth),
+          createdById: this.ctx.user?.userId,
+        },
+      });
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        throw new AppError(ErrorCodes.GR_NUMBER_TAKEN, HttpStatus.CONFLICT, `GR number ${grNumber} already exists`);
+      }
+      throw e;
+    }
+
+    await this.guardians.link(student.id, parentId, input.guardian.relation, true);
+
+    const enrollment = await this.db.studentEnrollment.create({
+      data: {
+        schoolId: this.ctx.requireSchoolId(),
+        studentId: student.id,
+        academicYearId,
+        campusId: klass.campusId,
+        classId: input.classId,
+        sectionId: input.sectionId,
+        status: 'ACTIVE',
+      },
+    });
+
+    return { studentId: student.id, enrollmentId: enrollment.id, parentId, grNumber };
+  }
+
+  async createStudent(dto: CreateStudentDto): Promise<CreatedStudent> {
+    return this.createStudentCore(dto);
+  }
+
+  // ── Directory ────────────────────────────────────────────────────────────────
+  async search(q: StudentSearchQuery): Promise<Paginated<unknown>> {
+    const where: Prisma.StudentWhereInput = { deletedAt: null };
+    if (q.status) where.isActive = q.status === 'ACTIVE';
+
+    const enroll: Prisma.StudentEnrollmentWhereInput = { status: 'ACTIVE' };
+    if (q.campusId) enroll.campusId = q.campusId;
+    if (q.classId) enroll.classId = q.classId;
+    if (q.sectionId) enroll.sectionId = q.sectionId;
+    if (q.campusId || q.classId || q.sectionId) where.enrollments = { some: enroll };
+
+    if (q.search) {
+      const phone = normalizePkPhone(q.search);
+      if (phone) {
+        where.guardians = { some: { parent: { phone } } };
+      } else {
+        where.OR = [
+          { grNumber: q.search },
+          { fullName: { contains: q.search, mode: 'insensitive' } },
+        ];
+      }
+    }
+
+    const { skip, take } = toSkipTake(q);
+    const [rows, total] = await Promise.all([
+      this.db.student.findMany({
+        where,
+        skip,
+        take,
+        orderBy: { fullName: 'asc' },
+        include: {
+          enrollments: {
+            where: { status: 'ACTIVE' },
+            select: { id: true, classId: true, sectionId: true, campusId: true, rollNumber: true },
+            take: 1,
+          },
+        },
+      }),
+      this.db.student.count({ where }),
+    ]);
+    return paginate(rows, total, q);
+  }
+
+  async getOne(id: string) {
+    const student = await this.db.student.findFirst({
+      where: { id, deletedAt: null },
+      include: {
+        guardians: { include: { parent: { select: { id: true, fullName: true, phone: true } } } },
+        enrollments: { orderBy: { startedAt: 'desc' } },
+      },
+    });
+    if (!student) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'Student not found');
+    return student;
+  }
+
+  async update(id: string, dto: UpdateStudentDto) {
+    await this.getOne(id);
+    return this.db.student.update({
+      where: { id },
+      data: {
+        fullName: dto.fullName,
+        gender: dto.gender,
+        dateOfBirth: dto.dateOfBirth ? new Date(dto.dateOfBirth) : undefined,
+      },
+    });
+  }
+
+  /** Soft delete (blueprint §17 — no hard cascade delete exists in the product). */
+  async softDelete(id: string): Promise<void> {
+    await this.getOne(id);
+    await this.db.student.update({ where: { id }, data: { deletedAt: new Date(), isActive: false } });
+  }
+
+  // ── GR number + capacity ─────────────────────────────────────────────────────
+  private async nextGrNumber(manual?: string): Promise<string> {
+    const schoolId = this.ctx.requireSchoolId();
+    const school = await this.db.school.findFirst({ where: { id: schoolId } });
+    if (!school) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'School not found');
+
+    if (school.grNumberMode === 'MANUAL') {
+      if (!manual) throw new AppError(ErrorCodes.VALIDATION_FAILED, HttpStatus.UNPROCESSABLE_ENTITY, 'grNumber is required in MANUAL mode');
+      return manual;
+    }
+    // AUTO: atomic increment; the assigned number is the pre-increment value.
+    const updated = await this.db.school.update({
+      where: { id: schoolId },
+      data: { nextGrNumber: { increment: 1 } },
+    });
+    return `${school.grPrefix}${updated.nextGrNumber - 1}`;
+  }
+
+  private async assertSectionCapacity(sectionId: string, academicYearId: string, capacity: number): Promise<void> {
+    const settings = parseSchoolSettings((await this.currentSchoolSettings()) ?? {});
+    if (settings.sectionCapacityMode !== 'HARD') return; // ADVISORY: allow (UI warns)
+    const count = await this.db.studentEnrollment.count({
+      where: { sectionId, academicYearId, status: 'ACTIVE' },
+    });
+    if (count >= capacity) {
+      throw new AppError(ErrorCodes.SECTION_FULL, HttpStatus.UNPROCESSABLE_ENTITY, 'Section is at capacity');
+    }
+  }
+
+  private async currentSchoolSettings(): Promise<unknown> {
+    const school = await this.db.school.findFirst({ where: { id: this.ctx.requireSchoolId() } });
+    return school?.settings;
+  }
+
+  // ── Guardian passthroughs (student-scoped) ───────────────────────────────────
+  async addGuardian(studentId: string, res: GuardianResolutionDto, isPrimary: boolean): Promise<void> {
+    await this.getOne(studentId);
+    const parentId = await this.guardians.resolveParent(res);
+    await this.guardians.link(studentId, parentId, res.relation, isPrimary);
+  }
+
+  async setPrimaryGuardian(studentId: string, linkId: string): Promise<void> {
+    await this.getOne(studentId);
+    await this.guardians.setPrimary(studentId, linkId);
+  }
+
+  async removeGuardian(studentId: string, linkId: string): Promise<void> {
+    await this.getOne(studentId);
+    await this.guardians.remove(studentId, linkId);
+  }
+}

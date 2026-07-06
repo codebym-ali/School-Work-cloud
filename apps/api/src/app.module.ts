@@ -20,6 +20,9 @@ import { SetupModule } from './modules/setup/setup.module';
 import { StudentsModule } from './modules/students/students.module';
 import { AdmissionsModule } from './modules/admissions/admissions.module';
 import { EnrollmentModule } from './modules/enrollment/enrollment.module';
+import { CommsModule } from './modules/comms/comms.module';
+import { AttendanceModule } from './modules/attendance/attendance.module';
+import { LeavesModule } from './modules/leaves/leaves.module';
 
 /**
  * API composition root. Global pipeline order (blueprint §19, §22, §25):
@@ -45,6 +48,9 @@ import { EnrollmentModule } from './modules/enrollment/enrollment.module';
     StudentsModule,
     AdmissionsModule,
     EnrollmentModule,
+    CommsModule,
+    AttendanceModule,
+    LeavesModule,
   ],
   controllers: [HealthController],
   providers: [
@@ -63,7 +69,8 @@ export class AppModule implements NestModule {
     consumer.apply(ClsMiddleware).forRoutes('*');
     consumer
       .apply(TenantResolutionMiddleware)
-      .exclude('health/(.*)', 'health')
+      // Host-exempt (blueprint §19): health checks and HMAC-authenticated webhooks.
+      .exclude('health/(.*)', 'health', 'webhooks/(.*)')
       .forRoutes('*');
   }
 }

@@ -30,9 +30,9 @@ describe('Admit journey (e2e, §8)', () => {
   const csrfOf = (setCookies: string[]) =>
     (setCookies.find((c) => c.startsWith('csrf=')) ?? '').split(';')[0].slice('csrf='.length);
 
-  const post = (path: string, body: unknown) =>
+  const post = (path: string, body: object) =>
     request(server()).post(path).set('Host', host).set('Cookie', cookies).set('X-CSRF-Token', csrf).send(body);
-  const patch = (path: string, body: unknown) =>
+  const patch = (path: string, body: object) =>
     request(server()).patch(path).set('Host', host).set('Cookie', cookies).set('X-CSRF-Token', csrf).send(body);
   const get = (path: string) => request(server()).get(path).set('Host', host).set('Cookie', cookies);
 

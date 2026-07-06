@@ -2,6 +2,10 @@ import { HttpStatus, Injectable } from '@nestjs/common';
 import * as argon2 from 'argon2';
 import { AppError, ErrorCodes, parseSchoolSettings } from '@common';
 import { PlatformPrismaService } from '@database';
+import { DEFAULT_TEMPLATES, SMS_TRIGGER_KEYS } from '../comms/sms/sms-templates.defaults';
+
+// Monthly included SMS credits per plan tier (blueprint §14).
+const PLAN_CREDITS = { BASIC: 1000, PLUS: 5000, PRO: 20000 } as const;
 
 export interface ProvisionInput {
   name: string;
@@ -57,6 +61,14 @@ export class ProvisioningService {
           : null,
         status: input.ownerPassword ? 'ACTIVE' : 'INVITED',
       },
+    });
+
+    // Seed default SMS templates and the plan's monthly credit grant (§14).
+    await this.platform.smsTemplate.createMany({
+      data: SMS_TRIGGER_KEYS.map((k) => ({ schoolId: school.id, triggerKey: k, body: DEFAULT_TEMPLATES[k] })),
+    });
+    await this.platform.smsCreditLedger.create({
+      data: { schoolId: school.id, delta: PLAN_CREDITS.BASIC, refType: 'PLAN_MONTHLY' },
     });
 
     return { schoolId: school.id, campusId: campus.id, ownerUserId: owner.id };

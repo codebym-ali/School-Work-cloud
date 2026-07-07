@@ -8,6 +8,11 @@ dist/
 build/
 *.tsbuildinfo
 
+# next.js (apps/web)
+.next/
+next-env.d.ts
+out/
+
 # env & secrets
 .env
 .env.*

@@ -15,15 +15,15 @@ updated: 2026-07-06
 - **PII guard:** unverified numbers never receive student PII (only the invite OTP).
 - Runs via the **BullMQ `sms` queue** → `worker` `SmsProcessor`.
 
-## Staff HR & Payroll (§13) — planned (M6)
+## Staff HR & Payroll (§13) — ✅ built (M6)
 - `StaffProfile` covers **all** employees (`staffType`), `employeeCode` unique per school, employment status.
 - `SalaryStructure` (effective-dated): basic + allowances + fixed deductions.
 - **Payroll run** (monthly/campus, OWNER_ADMIN, queued): `gross = basic + Σ allowances`; **attendance-linked deduction** = `(unpaidLeave + unexcusedAbsent) × basic/workingDays`; `net = gross − fixed − attendance`. Payslips DRAFT → run APPROVED locks them. Bank numbers encrypted. → [[Attendance & Leaves]], [[Security & Compliance]].
 
-## Documents & Certificates (§15) — planned (M6)
+## Documents & Certificates (§15) — ✅ built (M6)
 - `Document` types: `LEAVING_CERT, CHARACTER_CERT, FEE_CLEARANCE, REPORT_CARD, PAYSLIP, RECEIPT`.
 - LEAVING_CERT blocked while unpaid invoices exist (OWNER_ADMIN override + reason). Withdrawal workflow: check fees → FEE_CLEARANCE → LEAVING_CERT → close enrollment WITHDRAWN → deactivate portal.
 - All files on R2 (versioned); access only via 10-min pre-signed URLs after an ownership check.
 
 **Source:** [[03-database-schema-erd]], blueprint §13–§15, §26.
-**Implementation status:** SMS/comms ✅ built and green (M3). HR/payroll/documents ⬜ planned (M6) → [[Progress Tracker]].
+**Implementation status:** SMS/comms ✅ built (M3); HR/payroll/documents ✅ built (M6) — modules `hr/` (staff, payroll) + `documents/`. Promotion (§7) in `enrollment/`; reports/dashboard/audit in `reports/`. Deferred: PDF render + R2 upload for certificates/payslips (fileKey placeholders, needs §22.6 pipeline), report PDF format. → [[Progress Tracker]].

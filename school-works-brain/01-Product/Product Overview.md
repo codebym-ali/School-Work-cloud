@@ -34,8 +34,8 @@ One person = one User row per school; `roles` is an array; effective permission 
 
 **No half-features ship.** Descoped modules carry no flags.
 
-## UI/UX (not built yet)
-Screens per role, global rules (loading/empty/error states, confirm dialogs for irreversible actions, field-level 422 inline, mobile-first, WCAG 2.1 AA), all times Asia/Karachi. → [[05-ui-ux-specification]].
+## UI/UX (frontend scaffold started)
+Screens per role, global rules (loading/empty/error states, confirm dialogs for irreversible actions, field-level 422 inline, mobile-first, WCAG 2.1 AA), all times Asia/Karachi. → [[05-ui-ux-specification]]. Frontend lives in `apps/web` (Next.js 14) — login + dashboard wired; role-based screens next.
 
 **Source:** [[01-product-requirements-document]], [[05-ui-ux-specification]], blueprint §1–§5.
-**Implementation status:** backend for all v1 GA domains is in progress (M1–M3 done); **no frontend built** → [[Progress Tracker]].
+**Implementation status:** backend for all v1 GA domains is **built (M1–M6 + hardening)**; frontend **scaffold started** (`apps/web` — login + dashboard) → [[Progress Tracker]].

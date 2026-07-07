@@ -9,6 +9,7 @@ import {
   RolesGuard,
   TenantScopeGuard,
 } from '@common';
+import { StorageModule } from '@common';
 import { DatabaseModule, TenantTransactionInterceptor } from '@database';
 import { AuthModule } from './modules/auth/auth.module';
 import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard';
@@ -25,6 +26,10 @@ import { AttendanceModule } from './modules/attendance/attendance.module';
 import { LeavesModule } from './modules/leaves/leaves.module';
 import { FeesModule } from './modules/fees/fees.module';
 import { ExamsModule } from './modules/exams/exams.module';
+import { HrModule } from './modules/hr/hr.module';
+import { DocumentsModule } from './modules/documents/documents.module';
+import { ReportsModule } from './modules/reports/reports.module';
+import { UploadsModule } from './modules/uploads/uploads.module';
 
 /**
  * API composition root. Global pipeline order (blueprint §19, §22, §25):
@@ -43,6 +48,7 @@ import { ExamsModule } from './modules/exams/exams.module';
     }),
     CommonModule,
     RedisModule,
+    StorageModule,
     DatabaseModule,
     AuthModule,
     PlatformModule,
@@ -55,6 +61,10 @@ import { ExamsModule } from './modules/exams/exams.module';
     LeavesModule,
     FeesModule,
     ExamsModule,
+    HrModule,
+    DocumentsModule,
+    ReportsModule,
+    UploadsModule,
   ],
   controllers: [HealthController],
   providers: [

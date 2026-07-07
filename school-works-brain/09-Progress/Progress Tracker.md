@@ -2,8 +2,8 @@
 title: Progress Tracker
 type: status
 updated: 2026-07-07
-current_milestone: M5 complete → M6 next
-overall: 5 of 7 milestones (GA)
+current_milestone: M6 complete → M7 next (hardening/pilot)
+overall: 6 of 7 milestones (GA) — full v1 domain built
 ---
 
 # 📊 Progress Tracker
@@ -22,11 +22,20 @@ overall: 5 of 7 milestones (GA)
 | **M3 — Attendance, Leaves & SMS core** | ✅ Done | Mark attendance E2E + absence SMS verified | 2026-07-06 |
 | **M4 — Fees end-to-end** | ✅ Done | Collect-fee E2E + `fee-integrity-check` clean | 2026-07-07 |
 | **M5 — Exams & Report Cards** | ✅ Done | Enter/publish marks + parent views report card | 2026-07-07 |
-| **M6 — HR, Payroll, Docs, Reports** | ⏳ Next | Promotion E2E + all 7 reports export | — |
-| **M7 — Hardening & Pilot → GA** | ⬜ Planned | Load + pen test + DR drill + pilot live | — |
+| **M6 — HR, Payroll, Docs, Reports** | ✅ Done | Promotion E2E + all 7 reports export | 2026-07-07 |
+| **M7 — Hardening & Pilot → GA** | ⏳ Next | Load + pen test + DR drill + pilot live | — |
 
 **Quality gates (always green):** ✅ tenant-isolation suite · ✅ RLS-coverage check · ✅ lint + strict typecheck · ✅ api + worker builds.
-**Test count:** **55 passing** across 10 suites (unit + integration/e2e + isolation).
+**Test count:** **64 passing** across 12 suites (unit + integration/e2e + isolation).
+
+## 🔧 M7 / hardening progress (in flight)
+- [x] **Object storage + real PDFs** (§22.6, §11/§15): `StorageService` (AWS SDK v3 — MinIO dev, R2 prod) + `PdfService` (pdfkit). Report cards & certificates now render **real PDFs → uploaded → served via 10-min presigned GET**. e2e verifies `%PDF` bytes over MinIO.
+- [x] **Upload pipeline** (§22.6): presigned PUT → magic-byte/MIME allowlist validate → move quarantine→permanent. *(ClamAV scan still a TODO — docker service exists.)*
+- [x] **Backups**: `scripts/backup-postgres.sh` (pg_dump→R2) + `scripts/restore-verify.sh` (weekly restore smoke). *(Wire to Coolify cron on deploy; add WAL archiving for PITR.)*
+- [x] **Swagger explorer** at `/api/docs` (dev only; CSP relaxed off-prod; `csrf` apiKey scheme; `withCredentials`). 104 paths.
+- [x] **Next.js frontend scaffold** (`apps/web`, Next 14 App Router): login + dashboard wired to the API (cookie auth + CSRF via `lib/api.ts`); dev proxy preserves the tenant host. Typechecks + `next build` green. Separate install (`cd apps/web && pnpm install`).
+- [ ] Frontend: role-based screens (admissions, students, attendance, fees counter, exams, reports) — generate from OpenAPI
+- [ ] Rate limiting, observability (Sentry), production Coolify deploy, ClamAV wiring, payslip PDF, WAL archiving/PITR
 
 ---
 
@@ -86,11 +95,20 @@ Blueprint §11. See [[Exams & Report Cards]]. Gate met: enter/publish marks + re
 - **Findings:** `ReportCard` has no `enrollment` relation in the schema — resolve enrollment ids first when querying by student. Added `RESULT_READY` to the SMS job union + dispatcher.
 - **M5 deferred:** actual **PDF render + R2 upload** (`Document.fileKey` is a placeholder; needs upload pipeline §22.6), post-publish mark **correction** flow (OWNER_ADMIN + regen + "Corrected" SMS), per-subject grade breakdown on the card.
 
-## ⏳ M6 — HR, Payroll, Documents, Reports (Next)
-Blueprint §13, §15, §28. See [[HR, Payroll, Comms & Documents]]. Includes promotion workflow (§7).
+## ✅ M6 — HR, Payroll, Documents, Reports (Done)
+Blueprint §13, §15, §28, §7. See [[HR, Payroll, Comms & Documents]], [[Enrollment & Admissions]]. Gate met: promotion E2E + all seven reports export.
+- [x] **Staff HR:** staff CRUD (User+StaffProfile, employeeCode unique), salary structures (effective-dated), teacher assignments
+- [x] **Payroll:** run compute (gross = basic + Σ allowances; attendance-linked deduction = (unpaidLeaveDays+absentDays) × basic/workingDays; net), DRAFT payslips → approve (locks) → mark-paid; my-payslips
+- [x] **Promotion (§7):** batch close-old/open-new to the next class (by `Class.order`) in the target year; fee-clearance precondition (override + `PROMOTION_OVERRIDE` audit); idempotent (already-in-target-year skipped)
+- [x] **Documents/certificates:** issue LEAVING/CHARACTER/FEE_CLEARANCE (LEAVING_CERT fee-clearance gate + override); **withdrawal workflow** (FEE_CLEARANCE → LEAVING_CERT → close enrollment WITHDRAWN → disable portal)
+- [x] **Seven reports** (daily-collection, fee-ledger, attendance-register, class-strength, defaulters, exam-summary, sms-usage) with **JSON + CSV** export
+- [x] **Dashboard** (owner-view metrics) + **audit-log browser** (filters + pagination)
+- **Tests:** m6 e2e (promotion idempotent + all 7 reports json/csv + payroll compute 60000 + certificates + dashboard + audit) green.
+- **Findings:** after promotion the source section has no ACTIVE enrollments, so a re-run is a natural no-op (the already-in-target guard is a belt-and-suspenders for partial re-runs).
+- **M6 deferred:** PDF render + R2 upload for certificates/payslips (fileKey placeholders; needs §22.6 upload pipeline), report **PDF** format (json+csv only), sibling-discount/report-card promotion precondition, role-shaping the dashboard per non-owner roles, wiring `payroll`/report jobs to worker cron.
 
-## ⬜ M7 — Hardening & Pilot → GA
-Load (k6), pen test, DR drill, pilot onboarding via feature flags.
+## ⏳ M7 — Hardening & Pilot → GA (Next)
+Load (k6), pen test, DR drill, pilot onboarding via feature flags. **Plus the cross-cutting backlog below** — several items are now prerequisites for a real pilot.
 
 ---
 

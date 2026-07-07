@@ -1,9 +1,9 @@
 ---
 title: Progress Tracker
 type: status
-updated: 2026-07-06
-current_milestone: M3 complete → M4 next
-overall: 3 of 7 milestones (GA)
+updated: 2026-07-07
+current_milestone: M4 complete → M5 next
+overall: 4 of 7 milestones (GA)
 ---
 
 # 📊 Progress Tracker
@@ -11,7 +11,7 @@ overall: 3 of 7 milestones (GA)
 > [!info] Living document — update at the **end of every phase**.
 > Procedure at the bottom. Related: [[Roadmap & Milestones]] · [[Testing & Quality]].
 
-**Last updated:** 2026-07-06 · **Stack:** Contabo VPS + Coolify + self-hosted Postgres 16 + Redis + Cloudflare R2 (see [[Deployment & Operations]]) · **Repo:** NestJS monorepo (`apps/api`, `apps/worker`, `libs/common`, `libs/database`).
+**Last updated:** 2026-07-07 · **Stack:** Contabo VPS + Coolify + self-hosted Postgres 16 + Redis + Cloudflare R2 (see [[Deployment & Operations]]) · **Repo:** NestJS monorepo (`apps/api`, `apps/worker`, `libs/common`, `libs/database`).
 
 ## Milestone status
 
@@ -20,13 +20,13 @@ overall: 3 of 7 milestones (GA)
 | **M1 — Foundations** (tenancy, auth, CI) | ✅ Done | Tenant-isolation suite green before any feature | 2026-07-04 |
 | **M2 — Students & Admissions** | ✅ Done | Admit journey E2E green | 2026-07-04 |
 | **M3 — Attendance, Leaves & SMS core** | ✅ Done | Mark attendance E2E + absence SMS verified | 2026-07-06 |
-| **M4 — Fees end-to-end** | ⏳ Next | Collect-fee E2E + `fee-integrity-check` clean | — |
-| **M5 — Exams & Report Cards** | ⬜ Planned | Enter/publish marks + parent views report card | — |
+| **M4 — Fees end-to-end** | ✅ Done | Collect-fee E2E + `fee-integrity-check` clean | 2026-07-07 |
+| **M5 — Exams & Report Cards** | ⏳ Next | Enter/publish marks + parent views report card | — |
 | **M6 — HR, Payroll, Docs, Reports** | ⬜ Planned | Promotion E2E + all 7 reports export | — |
 | **M7 — Hardening & Pilot → GA** | ⬜ Planned | Load + pen test + DR drill + pilot live | — |
 
 **Quality gates (always green):** ✅ tenant-isolation suite · ✅ RLS-coverage check · ✅ lint + strict typecheck · ✅ api + worker builds.
-**Test count:** **39 passing** across 7 suites (unit + integration/e2e + isolation).
+**Test count:** **46 passing** across 8 suites (unit + integration/e2e + isolation).
 
 ---
 
@@ -62,17 +62,21 @@ Blueprint §9, §10, §14, §26–§27. See [[Attendance & Leaves]], [[HR, Payro
 
 ---
 
-## ⏳ M4 — Fees end-to-end (Next)
-Blueprint §12. See [[Fees & Payments]]. Gate: collect-fee E2E + nightly `fee-integrity-check` clean.
-- [ ] Fee heads / structures / late-fee policy
-- [ ] Idempotent invoice batches (`[schoolId, classId, month, year]`)
-- [ ] Discounts (sibling, stacking) + fines (`mark-overdue` job)
-- [ ] Payments: `Idempotency-Key`, `SELECT … FOR UPDATE`, gap-free receipts, partial/paid status
-- [ ] Advances/credits, reversals (OWNER_ADMIN), waivers, defaulters
-- [ ] Receipt SMS, reconciliation (CSV), `fee-integrity-check` nightly job
+## ✅ M4 — Fees end-to-end (Done)
+Blueprint §12. See [[Fees & Payments]]. Gate met: collect-fee E2E green + `fee-integrity-check` clean throughout.
+- [x] Fee heads / structures / late-fee policy CRUD
+- [x] **Idempotent invoice batches** (`[schoolId, classId, month, year]`; duplicate → existing, `generated:0`) — synchronous generation in the request tx *(async batching = later scale optimisation)*
+- [x] Discounts (PERCENT then FIXED, capped at base) applied as negative line items; **fines** via `mark-overdue` (FLAT/PER_DAY, single upserted FINE line, total recomputed)
+- [x] **Payments:** reusable **IdempotencyService** (reserve-then-run, replay, 409 on hash mismatch) + `SELECT … FOR UPDATE` row lock + **gap-free per-school receiptNo** + partial→paid status; overpayment → `OVERPAYMENT_USE_ADVANCE`
+- [x] **Reversals** (OWNER_ADMIN, `RV-` receipt, invoice recomputed), **waivers** (WAIVER line zeroes remaining), advances (GuardianCredit deposit + balance), defaulters
+- [x] **Receipt SMS** (FEE_RECEIPT) via the BullMQ pipeline (critical send, overdraft-eligible)
+- [x] `fee-integrity-check` (totalAmount = Σ items; paidAmount = Σ payments − Σ reversals)
+- **Tests:** fees e2e (batch → idempotent payment replay → overpay guard → PAID → integrity → receipt SMS → reversal → mark-overdue+fine → waiver → advance) green.
+- **Findings:** in a **nested** `items.create` under an invoice, do NOT pass `schoolId` — it's part of the invoice's composite relation FK and Prisma derives it (passing it → `Unknown argument schoolId`). See [[Key Decisions]]. Money uses JS-number arithmetic rounded to 2dp; switch to decimal.js for production rigor (noted).
+- **M4 deferred:** advance **auto-application** to new invoices (oldest-first), sibling-discount auto-calc, reconciliation CSV import, wiring `mark-overdue`/`fee-integrity-check` to the worker cron (currently service methods + admin triggers).
 
-## ⬜ M5 — Exams & Report Cards
-Blueprint §11. See [[Exams & Report Cards]].
+## ⏳ M5 — Exams & Report Cards (Next)
+Blueprint §11. See [[Exams & Report Cards]]. Gate: enter/publish marks + parent views report card.
 
 ## ⬜ M6 — HR, Payroll, Documents, Reports
 Blueprint §13, §15, §28. See [[HR, Payroll, Comms & Documents]]. Includes promotion workflow (§7).

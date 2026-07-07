@@ -23,6 +23,7 @@ import { EnrollmentModule } from './modules/enrollment/enrollment.module';
 import { CommsModule } from './modules/comms/comms.module';
 import { AttendanceModule } from './modules/attendance/attendance.module';
 import { LeavesModule } from './modules/leaves/leaves.module';
+import { FeesModule } from './modules/fees/fees.module';
 
 /**
  * API composition root. Global pipeline order (blueprint §19, §22, §25):
@@ -51,6 +52,7 @@ import { LeavesModule } from './modules/leaves/leaves.module';
     CommsModule,
     AttendanceModule,
     LeavesModule,
+    FeesModule,
   ],
   controllers: [HealthController],
   providers: [

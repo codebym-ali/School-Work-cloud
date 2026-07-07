@@ -1,13 +1,13 @@
 ---
 title: Fees & Payments
 type: domain
-updated: 2026-07-06
-status: next (M4)
+updated: 2026-07-07
+status: built (M4)
 ---
 
 # Fees & Payments
 
-> [!warning] Not built yet — **M4 (next)**. The largest, most correctness-critical module. This note is the spec map.
+> [!success] Built — **M4 done** (2026-07-07). Collect-fee E2E green + `fee-integrity-check` clean. This note maps the spec; current build state is at the bottom + [[Progress Tracker]].
 
 ## Structures & invoices (§12)
 - `FeeStructure` per (school, campus, class, feeHead, year): amount + `frequency (MONTHLY|ANNUAL|ONE_TIME|ADMISSION)`. Editing never mutates already-generated invoices.
@@ -29,4 +29,4 @@ status: next (M4)
 **Status machine:** `PENDING → PARTIAL → PAID`; `→ OVERDUE` (job) `→` back on payment; `→ WAIVED` (terminal); `PAID` terminal except reversal reopening.
 
 **Source:** [[03-database-schema-erd]], blueprint §12. Idempotency & concurrency: [[API Contract]].
-**Implementation status:** ⏳ **M4 next** → [[Progress Tracker]]. Gate: collect-fee E2E + `fee-integrity-check` clean.
+**Implementation status:** ✅ **built (M4)** → [[Progress Tracker]]. Modules: `fees/` (fee-setup, invoicing, payments, fee-jobs) + reusable `IdempotencyService` in `libs/database`. Deferred: advance auto-application, sibling-discount auto-calc, reconciliation CSV, worker-cron wiring for `mark-overdue`/`fee-integrity-check` (currently service methods + admin triggers).

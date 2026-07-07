@@ -4,6 +4,7 @@ import { PlatformPrismaService } from './platform-prisma.service';
 import { TenantPrismaService } from './tenant-prisma.service';
 import { TenantTransactionInterceptor } from './tenant-transaction.interceptor';
 import { AuditService } from './audit.service';
+import { IdempotencyService } from './idempotency.service';
 
 /**
  * Database providers shared by api + worker. Exposes:
@@ -19,6 +20,7 @@ import { AuditService } from './audit.service';
     TenantPrismaService,
     TenantTransactionInterceptor,
     AuditService,
+    IdempotencyService,
   ],
   exports: [
     PrismaService,
@@ -26,6 +28,7 @@ import { AuditService } from './audit.service';
     TenantPrismaService,
     TenantTransactionInterceptor,
     AuditService,
+    IdempotencyService,
   ],
 })
 export class DatabaseModule {}

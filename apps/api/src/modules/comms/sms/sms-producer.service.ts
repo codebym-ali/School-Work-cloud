@@ -19,6 +19,11 @@ export class SmsProducer {
     await this.queue.add('LEAVE_STATUS', job);
   }
 
+  /** key receipt:{invoiceId}:{receiptNo} — dedups accidental re-enqueue of a receipt. */
+  async enqueueReceipt(job: Extract<SmsJob, { type: 'FEE_RECEIPT' }>): Promise<void> {
+    await this.queue.add('FEE_RECEIPT', job, { jobId: `receipt:${job.invoiceId}:${job.receiptNo}` });
+  }
+
   async enqueueManual(job: Extract<SmsJob, { type: 'MANUAL' }>): Promise<void> {
     await this.queue.add('MANUAL', job);
   }

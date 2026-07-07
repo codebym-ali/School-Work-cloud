@@ -41,6 +41,8 @@ export class SmsService {
         return this.dispatchLeaveStatus(job);
       case 'FEE_RECEIPT':
         return this.dispatchReceipt(job);
+      case 'RESULT_READY':
+        return this.dispatchResultReady(job);
       case 'MANUAL':
         for (const to of job.recipients) await this.sendOne(to, job.body, 'MANUAL', {}, false);
         return;
@@ -97,6 +99,22 @@ export class SmsService {
     });
     // Transactional (critical) send — overdraft buffer applies.
     await this.sendOne(guardian.phone, body, 'FEE_RECEIPT', { studentId: job.studentId, invoiceId: job.invoiceId }, true);
+  }
+
+  private async dispatchResultReady(job: Extract<SmsJob, { type: 'RESULT_READY' }>): Promise<void> {
+    const student = await this.db.student.findFirst({ where: { id: job.studentId } });
+    const guardian = await this.primaryGuardian(job.studentId);
+    if (!student || !guardian) return;
+    if (!guardian.phoneVerifiedAt) {
+      await this.logUnverified(guardian.phone, 'RESULT_READY', { studentId: job.studentId });
+      return;
+    }
+    const body = renderTemplate(await this.templateBody('RESULT_READY'), {
+      studentName: student.fullName,
+      term: job.term,
+      schoolName: await this.schoolName(),
+    });
+    await this.sendOne(guardian.phone, body, 'RESULT_READY', { studentId: job.studentId }, false);
   }
 
   /** The atomic single send: credit gate -> SmsLog -> gateway -> SENT/FAILED + debit. */

@@ -2,8 +2,8 @@
 title: Progress Tracker
 type: status
 updated: 2026-07-07
-current_milestone: M4 complete → M5 next
-overall: 4 of 7 milestones (GA)
+current_milestone: M5 complete → M6 next
+overall: 5 of 7 milestones (GA)
 ---
 
 # 📊 Progress Tracker
@@ -21,12 +21,12 @@ overall: 4 of 7 milestones (GA)
 | **M2 — Students & Admissions** | ✅ Done | Admit journey E2E green | 2026-07-04 |
 | **M3 — Attendance, Leaves & SMS core** | ✅ Done | Mark attendance E2E + absence SMS verified | 2026-07-06 |
 | **M4 — Fees end-to-end** | ✅ Done | Collect-fee E2E + `fee-integrity-check` clean | 2026-07-07 |
-| **M5 — Exams & Report Cards** | ⏳ Next | Enter/publish marks + parent views report card | — |
-| **M6 — HR, Payroll, Docs, Reports** | ⬜ Planned | Promotion E2E + all 7 reports export | — |
+| **M5 — Exams & Report Cards** | ✅ Done | Enter/publish marks + parent views report card | 2026-07-07 |
+| **M6 — HR, Payroll, Docs, Reports** | ⏳ Next | Promotion E2E + all 7 reports export | — |
 | **M7 — Hardening & Pilot → GA** | ⬜ Planned | Load + pen test + DR drill + pilot live | — |
 
 **Quality gates (always green):** ✅ tenant-isolation suite · ✅ RLS-coverage check · ✅ lint + strict typecheck · ✅ api + worker builds.
-**Test count:** **46 passing** across 8 suites (unit + integration/e2e + isolation).
+**Test count:** **55 passing** across 10 suites (unit + integration/e2e + isolation).
 
 ---
 
@@ -75,10 +75,18 @@ Blueprint §12. See [[Fees & Payments]]. Gate met: collect-fee E2E green + `fee-
 - **Findings:** in a **nested** `items.create` under an invoice, do NOT pass `schoolId` — it's part of the invoice's composite relation FK and Prisma derives it (passing it → `Unknown argument schoolId`). See [[Key Decisions]]. Money uses JS-number arithmetic rounded to 2dp; switch to decimal.js for production rigor (noted).
 - **M4 deferred:** advance **auto-application** to new invoices (oldest-first), sibling-discount auto-calc, reconciliation CSV import, wiring `mark-overdue`/`fee-integrity-check` to the worker cron (currently service methods + admin triggers).
 
-## ⏳ M5 — Exams & Report Cards (Next)
-Blueprint §11. See [[Exams & Report Cards]]. Gate: enter/publish marks + parent views report card.
+## ✅ M5 — Exams & Report Cards (Done)
+Blueprint §11. See [[Exams & Report Cards]]. Gate met: enter/publish marks + report card served (parent view).
+- [x] **Pure grading module** (`exam-grading.ts`): grade-from-scale, subject term percent (weighted, absent→0), overall = mean, **dense rank** — unit-tested with the worked example
+- [x] Grade scales (set/replace bands per year), terms CRUD
+- [x] Exam definitions + `open-marks-entry` + **publish** with the **completeness gate** (`RESULTS_INCOMPLETE` lists missing student×subject) and weightage-sum check at generation (`WEIGHTAGE_SUM_INVALID`)
+- [x] **Marks entry** bulk (partial-failure; `marks ≤ total`; absent XOR marks; teacher assigned-subject check in-service)
+- [x] **Report cards generate**: compute term results + dense rank per section → `ReportCard` + `Document` rows → **RESULT_READY SMS**; read by term and by student
+- **Tests:** grading unit (worked example) + exams e2e (define → marks partial-failure → publish gate → generate → overall 85 / grade A / rank 1 → parent read → result SMS) green.
+- **Findings:** `ReportCard` has no `enrollment` relation in the schema — resolve enrollment ids first when querying by student. Added `RESULT_READY` to the SMS job union + dispatcher.
+- **M5 deferred:** actual **PDF render + R2 upload** (`Document.fileKey` is a placeholder; needs upload pipeline §22.6), post-publish mark **correction** flow (OWNER_ADMIN + regen + "Corrected" SMS), per-subject grade breakdown on the card.
 
-## ⬜ M6 — HR, Payroll, Documents, Reports
+## ⏳ M6 — HR, Payroll, Documents, Reports (Next)
 Blueprint §13, §15, §28. See [[HR, Payroll, Comms & Documents]]. Includes promotion workflow (§7).
 
 ## ⬜ M7 — Hardening & Pilot → GA

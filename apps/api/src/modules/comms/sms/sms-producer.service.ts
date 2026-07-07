@@ -24,6 +24,10 @@ export class SmsProducer {
     await this.queue.add('FEE_RECEIPT', job, { jobId: `receipt:${job.invoiceId}:${job.receiptNo}` });
   }
 
+  async enqueueResultReady(job: Extract<SmsJob, { type: 'RESULT_READY' }>): Promise<void> {
+    await this.queue.add('RESULT_READY', job);
+  }
+
   async enqueueManual(job: Extract<SmsJob, { type: 'MANUAL' }>): Promise<void> {
     await this.queue.add('MANUAL', job);
   }

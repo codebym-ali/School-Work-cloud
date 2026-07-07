@@ -1,13 +1,13 @@
 ---
 title: Exams & Report Cards
 type: domain
-updated: 2026-07-06
-status: planned (M5)
+updated: 2026-07-07
+status: built (M5)
 ---
 
 # Exams & Report Cards
 
-> [!warning] Not built yet — **M5**. This note is the spec map.
+> [!success] Built — **M5 done** (2026-07-07). Enter/publish marks + report card served (parent view). Build state at the bottom + [[Progress Tracker]].
 
 ## Grading (§11)
 - `GradeScale` per school/year (label, minPercent, maxPercent, gradePoint). **Grades are computed at read/publish** from the scale — no stored `grade` column.
@@ -26,4 +26,4 @@ Per subject: `termPercent = Σ over exams (marksObtained/totalMarks × weightage
 Queued job per term → PDF to R2 → `Document` (REPORT_CARD) + `ReportCard` row per student → "result ready" SMS to primary guardian. Parents access via short-lived pre-signed URLs.
 
 **Source:** [[03-database-schema-erd]], blueprint §11.
-**Implementation status:** ⬜ planned (M5) → [[Progress Tracker]]. Depends on [[Enrollment & Admissions|enrollment]] (M2 ✅) and [[HR, Payroll, Comms & Documents|SMS]] (M3 ✅).
+**Implementation status:** ✅ **built (M5)** → [[Progress Tracker]]. Module `exams/` (exam-setup, exams, report-cards + pure `exam-grading.ts`). Deferred: PDF render + R2 upload (fileKey is a placeholder — needs upload pipeline §22.6), post-publish mark correction flow, per-subject grade breakdown.

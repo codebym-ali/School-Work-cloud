@@ -2,6 +2,7 @@
 export type SmsJob =
   | { type: 'ABSENCE'; schoolId: string; enrollmentId: string; studentId: string; date: string }
   | { type: 'LEAVE_STATUS'; schoolId: string; studentId: string; status: string }
+  | { type: 'RESULT_READY'; schoolId: string; studentId: string; term: string }
   | { type: 'FEE_RECEIPT'; schoolId: string; studentId: string; invoiceId: string; amount: number; receiptNo: number }
   | { type: 'MANUAL'; schoolId: string; recipients: string[]; body: string };
 

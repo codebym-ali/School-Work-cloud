@@ -34,4 +34,4 @@ Field-level **AES-256-GCM** for `cnic`, `bank_account`, `mfa_secret` (in a Prism
 PLATFORM_ADMIN tenant access needs an explicit **support session**: reason, 4-hour expiry, visible to the school's OWNER_ADMIN, every action logged.
 
 **Source:** [[06-security-compliance-specification]], blueprint §18–§22, §32.
-**Implementation status:** auth + isolation ✅ (M1); uploads/erasure/rate-limits ⬜ later → [[Progress Tracker]].
+**Implementation status:** auth + isolation ✅ (M1); **rate limits ✅ (M7 — Redis sliding-window `RateLimitGuard`, §29; 429 + `Retry-After`)**; **upload AV scan ✅ (M7 — clamd INSTREAM, fail-closed, §22.6)**; erasure ⬜ later → [[Progress Tracker]].

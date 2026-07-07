@@ -5,6 +5,7 @@ import { TenantContext } from './context/tenant-context';
 import { FieldEncryption } from './crypto/field-encryption';
 import { RolesGuard } from './guards/roles.guard';
 import { TenantScopeGuard } from './guards/tenant-scope.guard';
+import { ClamAvService } from './antivirus/clamav.service';
 
 /** DI token for the AES-256-GCM field encryptor. */
 export const FIELD_ENCRYPTION = Symbol('FIELD_ENCRYPTION');
@@ -20,12 +21,13 @@ export const FIELD_ENCRYPTION = Symbol('FIELD_ENCRYPTION');
     TenantContext,
     RolesGuard,
     TenantScopeGuard,
+    ClamAvService,
     {
       provide: FIELD_ENCRYPTION,
       inject: [ENV],
       useFactory: (env: Env) => new FieldEncryption(env.ENCRYPTION_MASTER_KEY),
     },
   ],
-  exports: [ConfigModule, TenantContext, RolesGuard, TenantScopeGuard, FIELD_ENCRYPTION],
+  exports: [ConfigModule, TenantContext, RolesGuard, TenantScopeGuard, ClamAvService, FIELD_ENCRYPTION],
 })
 export class CommonModule {}

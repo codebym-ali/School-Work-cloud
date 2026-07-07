@@ -10,6 +10,8 @@ import type { Request, Response } from 'express';
 import { ClsService } from 'nestjs-cls';
 import { AppError, type ErrorDetail } from './app.error';
 import { ErrorCodes, type ErrorCode } from './error-codes';
+import { captureError } from '../observability/sentry';
+import { CLS_KEYS, type RequestUser } from '../context/tenant-context';
 
 interface ErrorBody {
   error: {
@@ -45,6 +47,15 @@ export class AllExceptionsFilter implements ExceptionFilter {
       this.logger.error(
         `Unhandled error on ${req.method} ${req.url} [${requestId}]: ${err?.stack ?? String(exception)}`,
       );
+      // Report to Sentry with tenant/request context (§31). No-op without SENTRY_DSN.
+      const user = this.cls?.get?.(CLS_KEYS.user) as RequestUser | undefined;
+      captureError(exception, {
+        requestId,
+        schoolId: this.cls?.get?.(CLS_KEYS.schoolId) ?? user?.schoolId,
+        userId: user?.userId,
+        method: req.method,
+        url: req.url,
+      });
     }
     res.status(status).json(body);
   }

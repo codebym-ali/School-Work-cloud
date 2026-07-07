@@ -5,6 +5,8 @@ import { randomUUID } from 'node:crypto';
 import {
   AllExceptionsFilter,
   CommonModule,
+  RateLimitGuard,
+  RateLimitModule,
   RedisModule,
   RolesGuard,
   TenantScopeGuard,
@@ -48,6 +50,7 @@ import { UploadsModule } from './modules/uploads/uploads.module';
     }),
     CommonModule,
     RedisModule,
+    RateLimitModule,
     StorageModule,
     DatabaseModule,
     AuthModule,
@@ -69,8 +72,11 @@ import { UploadsModule } from './modules/uploads/uploads.module';
   controllers: [HealthController],
   providers: [
     // Guard order matters — Nest runs global guards in registration order.
+    // RateLimitGuard runs after JwtAuthGuard so req.user is set (authenticated
+    // routes key per user; @Public routes key per IP) — blueprint §29.
     { provide: APP_GUARD, useClass: CsrfGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
+    { provide: APP_GUARD, useClass: RateLimitGuard },
     { provide: APP_GUARD, useClass: TenantScopeGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
     { provide: APP_INTERCEPTOR, useClass: TenantTransactionInterceptor },

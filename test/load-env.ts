@@ -29,3 +29,8 @@ if (existsSync(envPath)) {
     if (!(key in process.env)) process.env[key] = value;
   }
 }
+
+// The integration suites share one Redis and log in many times from the loopback IP;
+// the §29 login limit (5/IP/15min) would make them flaky. Disable the global guard in
+// tests — the limiter is covered directly by rate-limit.service/guard unit specs.
+process.env.RATE_LIMIT_ENABLED = 'false';

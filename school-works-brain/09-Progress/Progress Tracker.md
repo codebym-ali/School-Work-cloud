@@ -26,16 +26,20 @@ overall: 6 of 7 milestones (GA) — full v1 domain built
 | **M7 — Hardening & Pilot → GA** | ⏳ Next | Load + pen test + DR drill + pilot live | — |
 
 **Quality gates (always green):** ✅ tenant-isolation suite · ✅ RLS-coverage check · ✅ lint + strict typecheck · ✅ api + worker builds.
-**Test count:** **64 passing** across 12 suites (unit + integration/e2e + isolation).
+**Test count:** **86 passing** — unit 36 · integration 43 · isolation 7. `pnpm test` now green (runs the 3 projects serially, matching CI).
+> [!note] Fixed a test-infra issue while adding rate limiting: the aggregate **`pnpm test`** ran the integration project **in parallel**, so the SMS e2e suites contended over the shared BullMQ `sms` queue (a job drained/dispatched by the wrong suite → duplicate `SmsLog`). Changed `package.json` `test` to chain `test:unit → test:integration → test:isolation` (integration/isolation `--runInBand`), matching CI exactly. Also note: a **stray `worker` process** (from `pnpm start:worker:dev` whose children survived the parent kill) will consume the queue and cause the same duplicate-dispatch — always confirm no `dist/apps/worker/main` is running before an integration run. Not a product bug (prod jobs have deterministic ids + a single worker fleet).
 
 ## 🔧 M7 / hardening progress (in flight)
 - [x] **Object storage + real PDFs** (§22.6, §11/§15): `StorageService` (AWS SDK v3 — MinIO dev, R2 prod) + `PdfService` (pdfkit). Report cards & certificates now render **real PDFs → uploaded → served via 10-min presigned GET**. e2e verifies `%PDF` bytes over MinIO.
-- [x] **Upload pipeline** (§22.6): presigned PUT → magic-byte/MIME allowlist validate → move quarantine→permanent. *(ClamAV scan still a TODO — docker service exists.)*
+- [x] **Upload pipeline** (§22.6): presigned PUT → magic-byte/MIME allowlist validate → **ClamAV scan** → move quarantine→permanent.
+- [x] **ClamAV scan wiring** (§22.6): `ClamAvService` speaks clamd **INSTREAM** over TCP (no new dep). `confirmUpload` fetches the object once, magic-byte-validates, then scans (when `CLAMAV_ENABLED=true`); infected → object deleted + **422 `FILE_INFECTED`**; scanner outage → **fail-closed 503 `VIRUS_SCAN_UNAVAILABLE`**. Opt-in (off in dev/test). **Verified against real clamd**: EICAR → FOUND, clean → OK, dead port → 503. Pure `parseResponse` + config covered by unit spec.
 - [x] **Backups**: `scripts/backup-postgres.sh` (pg_dump→R2) + `scripts/restore-verify.sh` (weekly restore smoke). *(Wire to Coolify cron on deploy; add WAL archiving for PITR.)*
-- [x] **Swagger explorer** at `/api/docs` (dev only; CSP relaxed off-prod; `csrf` apiKey scheme; `withCredentials`). 104 paths.
+- [x] **Rate limiting** (§29): Redis **sliding-window** limiter (atomic Lua over a sorted set) + `RateLimitGuard` (global, runs right after `JwtAuthGuard` so authed routes key per-user, `@Public` per-IP). Named policies: login 5/IP/15min **and** 10/email/1h, refresh 60/token/1h, parent-read 600/user/1h, public 60/IP/min, authenticated default 600/user/min. `@RateLimit(name)` / `@SkipRateLimit()` decorators; **429 + `Retry-After`** via the §25.1 envelope; tenant-scoped breaches logged as a compromise signal. Verified live (6th login → 429). Gated by `RATE_LIMIT_ENABLED` (on by default; **off in the test env** so shared-Redis suites stay deterministic). Covered by service + guard unit specs.
 - [x] **Next.js frontend scaffold** (`apps/web`, Next 14 App Router): login + dashboard wired to the API (cookie auth + CSRF via `lib/api.ts`); dev proxy preserves the tenant host. Typechecks + `next build` green. Separate install (`cd apps/web && pnpm install`).
 - [ ] Frontend: role-based screens (admissions, students, attendance, fees counter, exams, reports) — generate from OpenAPI
-- [ ] Rate limiting, observability (Sentry), production Coolify deploy, ClamAV wiring, payslip PDF, WAL archiving/PITR
+- [x] **Sentry error monitoring** (§31): `@sentry/node` initialised at both api + worker bootstrap; `AllExceptionsFilter` reports unhandled **500s** with tenant/request tags (`schoolId`/`userId`/`requestId` + method/url, never PII); worker captures **exhausted** SMS jobs (final attempt only). Opt-in — **no-op unless `SENTRY_DSN` is set** (dev/test/CI untouched). `flushSentry()` on worker shutdown. Covered by a mocked-SDK unit spec.
+- [x] **Payslip PDF** (§13, §15): `PayrollService.payslipPdf()` renders via `PdfService.payslip`, uploads to `payslips/{sid}/{id}.pdf`, returns a 10-min presigned GET. `GET /payslips/:id/pdf` — **owner-or-admin check in the service** (§22.8, reads inside the RLS tx, not a guard). Verified e2e: real `%PDF` bytes fetched over MinIO.
+- [ ] Production Coolify deploy, WAL archiving/PITR
 
 ---
 
@@ -105,7 +109,7 @@ Blueprint §13, §15, §28, §7. See [[HR, Payroll, Comms & Documents]], [[Enrol
 - [x] **Dashboard** (owner-view metrics) + **audit-log browser** (filters + pagination)
 - **Tests:** m6 e2e (promotion idempotent + all 7 reports json/csv + payroll compute 60000 + certificates + dashboard + audit) green.
 - **Findings:** after promotion the source section has no ACTIVE enrollments, so a re-run is a natural no-op (the already-in-target guard is a belt-and-suspenders for partial re-runs).
-- **M6 deferred:** PDF render + R2 upload for certificates/payslips (fileKey placeholders; needs §22.6 upload pipeline), report **PDF** format (json+csv only), sibling-discount/report-card promotion precondition, role-shaping the dashboard per non-owner roles, wiring `payroll`/report jobs to worker cron.
+- **M6 deferred:** ~~PDF render + R2 upload for certificates/payslips~~ **✅ done in M7** (certificates & report cards via the storage/PDF pipeline; payslips via `payslipPdf()`), report **PDF** format (json+csv only), sibling-discount/report-card promotion precondition, role-shaping the dashboard per non-owner roles, wiring `payroll`/report jobs to worker cron.
 
 ## ⏳ M7 — Hardening & Pilot → GA (Next)
 Load (k6), pen test, DR drill, pilot onboarding via feature flags. **Plus the cross-cutting backlog below** — several items are now prerequisites for a real pilot.
@@ -119,7 +123,9 @@ Load (k6), pen test, DR drill, pilot onboarding via feature flags. **Plus the cr
 - [ ] Swagger/OpenAPI explorer + generated typed client
 - [ ] Frontend (Next.js) — not started; UI/UX in [[05-ui-ux-specification]]
 - [ ] Vendor console (PLATFORM_ADMIN) HTTP surface + auth
-- [ ] Rate limiting (Redis sliding window, §29), observability (Sentry + Coolify logs)
+- [x] Rate limiting (Redis sliding window, §29) — done (see M7 in-flight above)
+- [ ] Observability (Sentry + Coolify logs)
+- [ ] **Test infra fix:** `jest.config.js` unit `testMatch` changed from a `{apps,libs}` brace glob (matched **0** tests on Windows) to two explicit patterns — the unit project now actually runs. Worth verifying CI counts.
 
 ---
 

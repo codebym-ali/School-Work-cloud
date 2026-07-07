@@ -4,10 +4,11 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
-import { ENV, loadDotenv, type Env } from '@common';
+import { ENV, initSentry, loadDotenv, type Env } from '@common';
 
 async function bootstrap(): Promise<void> {
   loadDotenv(); // dev: populate process.env from .env before config validation
+  initSentry('api'); // §31 — early, so bootstrap failures are captured (no-op without SENTRY_DSN)
   const app = await NestFactory.create(AppModule, { bufferLogs: false });
   const env = app.get<Env>(ENV);
   const isProd = env.NODE_ENV === 'production';

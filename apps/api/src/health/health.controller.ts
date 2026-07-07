@@ -1,11 +1,12 @@
 import { Controller, Get } from '@nestjs/common';
-import { Public } from '@common';
+import { Public, SkipRateLimit } from '@common';
 import { PrismaService } from '@database';
 
 /**
  * Liveness/readiness (blueprint §19 public list, §31). Host-exempt (no tenant),
  * reveal nothing internal. `ready` checks the DB is reachable.
  */
+@SkipRateLimit()
 @Controller('health')
 export class HealthController {
   constructor(private readonly prisma: PrismaService) {}

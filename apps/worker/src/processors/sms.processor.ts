@@ -1,7 +1,7 @@
 import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { Worker } from 'bullmq';
 import { ClsService } from 'nestjs-cls';
-import { bullConnection, CLS_KEYS, ENV, type Env } from '@common';
+import { bullConnection, captureError, CLS_KEYS, ENV, flushSentry, type Env } from '@common';
 import { TenantPrismaService } from '@database';
 import { SmsService } from '../../../api/src/modules/comms/sms/sms.service';
 import { SMS_QUEUE_NAME, type SmsJob } from '../../../api/src/modules/comms/sms/sms.types';
@@ -37,13 +37,22 @@ export class SmsProcessor implements OnModuleInit, OnModuleDestroy {
       },
       { connection: bullConnection(this.env.REDIS_URL), concurrency: 10 },
     );
-    this.worker.on('failed', (job, err) =>
-      this.logger.warn(`SMS job ${job?.id} failed: ${err.message}`),
-    );
+    this.worker.on('failed', (job, err) => {
+      this.logger.warn(`SMS job ${job?.id} failed: ${err.message}`);
+      // Only the final attempt (exhausted retries) is worth alerting on (§27, §31).
+      if (!job || job.attemptsMade >= (job.opts.attempts ?? 1)) {
+        captureError(err, {
+          queue: SMS_QUEUE_NAME,
+          jobId: job?.id,
+          schoolId: (job?.data as SmsJob | undefined)?.schoolId,
+        });
+      }
+    });
     this.logger.log('SMS processor listening on queue "sms"');
   }
 
   async onModuleDestroy(): Promise<void> {
     await this.worker?.close();
+    await flushSentry();
   }
 }

@@ -1,10 +1,11 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { AttendanceStatus, LeaveStatus, PayrollRunStatus, Prisma } from '@prisma/client';
-import { AppError, ErrorCodes, parseSchoolSettings, TenantContext } from '@common';
+import { AppError, ErrorCodes, parseSchoolSettings, PdfService, StorageService, TenantContext } from '@common';
 import { TenantPrismaService } from '@database';
 import type { MarkPaidDto, RunPayrollDto } from './dto/hr.dto';
 
 const money = (n: number): number => Math.round(n * 100) / 100;
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const sumValues = (o: unknown): number =>
   o && typeof o === 'object' ? Object.values(o as Record<string, number>).reduce((s, v) => s + Number(v), 0) : 0;
 const WEEKDAYS = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'];
@@ -20,6 +21,8 @@ export class PayrollService {
   constructor(
     private readonly tenantPrisma: TenantPrismaService,
     private readonly ctx: TenantContext,
+    private readonly pdf: PdfService,
+    private readonly storage: StorageService,
   ) {}
 
   private get db() {
@@ -114,6 +117,42 @@ export class PayrollService {
     const staff = await this.db.staffProfile.findFirst({ where: { userId: this.ctx.user!.userId } });
     if (!staff) return [];
     return this.db.payslip.findMany({ where: { staffId: staff.id }, orderBy: { id: 'desc' } });
+  }
+
+  /**
+   * Render the payslip PDF (§13, §15), upload it to storage, and return a short-lived
+   * presigned GET. The staff owner or an admin may fetch it — the ownership check runs
+   * here (not a guard) so it reads inside the RLS-scoped tx (§22.8).
+   */
+  async payslipPdf(payslipId: string): Promise<{ fileKey: string; url: string; expiresInSeconds: number }> {
+    const payslip = await this.db.payslip.findFirst({
+      where: { id: payslipId },
+      include: { run: true, staff: { include: { user: { select: { email: true } } } } },
+    });
+    if (!payslip) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'Payslip not found');
+
+    const caller = this.ctx.user!;
+    const isAdmin = caller.roles.some((r) => r === 'OWNER_ADMIN' || r === 'CAMPUS_ADMIN');
+    if (!isAdmin && payslip.staff.userId !== caller.userId) {
+      throw new AppError(ErrorCodes.FORBIDDEN, HttpStatus.FORBIDDEN, 'Not your payslip');
+    }
+
+    const schoolName = (await this.db.school.findFirst({ where: { id: this.sid } }))?.name ?? 'School';
+    const period = `${MONTHS[payslip.run.month - 1]} ${payslip.run.year}`;
+    const buffer = await this.pdf.payslip({
+      schoolName,
+      staffName: payslip.staff.user.email,
+      employeeCode: payslip.staff.employeeCode,
+      period,
+      gross: Number(payslip.gross),
+      attendanceDeduction: Number(payslip.attendanceDeduction),
+      otherDeductions: Number(payslip.otherDeductions),
+      netPay: Number(payslip.netPay),
+    });
+    const fileKey = `payslips/${this.sid}/${payslipId}.pdf`;
+    await this.storage.putObject(fileKey, buffer, 'application/pdf');
+    const url = await this.storage.presignGet(fileKey, 600, `payslip-${period.replace(' ', '-')}.pdf`);
+    return { fileKey, url, expiresInSeconds: 600 };
   }
 
   // ── helpers ──────────────────────────────────────────────────────────────────

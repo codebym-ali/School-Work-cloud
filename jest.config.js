@@ -20,7 +20,9 @@ module.exports = {
     {
       ...base,
       displayName: 'unit',
-      testMatch: ['<rootDir>/{apps,libs}/**/*.spec.ts'],
+      // Two explicit patterns rather than a `{apps,libs}` brace — brace expansion in
+      // testMatch is unreliable across OS path separators (matches 0 tests on Windows).
+      testMatch: ['<rootDir>/apps/**/*.spec.ts', '<rootDir>/libs/**/*.spec.ts'],
     },
     {
       ...base,

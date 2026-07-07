@@ -61,13 +61,31 @@ export const envSchema = z.object({
     .default('true')
     .transform((s) => s.toLowerCase() === 'true'),
 
+  // Antivirus scan for uploads (§22.6). Off by default (dev/test); when on, the clamd
+  // service must be reachable or uploads fail closed.
+  CLAMAV_ENABLED: z
+    .string()
+    .default('false')
+    .transform((s) => s.toLowerCase() === 'true'),
+  CLAMAV_HOST: z.string().default('localhost'),
+  CLAMAV_PORT: z.coerce.number().int().positive().default(3310),
+
   SMS_PROVIDER: z.enum(['console', 'telenor', 'jazz']).default('console'),
   SMS_API_KEY: z.string().optional(),
   SMS_SENDER_ID: z.string().optional(),
   SMS_WEBHOOK_HMAC_SECRET: z.string().min(1),
 
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
+  // Error monitoring (§31). Unset ⇒ Sentry stays off (dev/test/CI).
   SENTRY_DSN: z.string().optional(),
+  SENTRY_TRACES_SAMPLE_RATE: z.coerce.number().min(0).max(1).optional(),
+
+  // Redis sliding-window rate limits (§29). On by default; disabled in the test
+  // env so the shared-Redis integration suites stay deterministic across many logins.
+  RATE_LIMIT_ENABLED: z
+    .string()
+    .default('true')
+    .transform((s) => s.toLowerCase() === 'true'),
 });
 
 export type Env = z.infer<typeof envSchema>;

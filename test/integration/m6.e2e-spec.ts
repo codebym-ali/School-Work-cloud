@@ -137,6 +137,16 @@ describe('M6 — HR, payroll, documents, reports, promotion (e2e)', () => {
 
     const approve = await post(`/api/v1/payroll-runs/${run.body.runId}/approve`);
     expect(approve.body.status).toBe('APPROVED');
+
+    // Payslip PDF: rendered, uploaded to storage, served via a presigned GET (§13/§15).
+    const payslipId = detail.body.payslips[0].id;
+    const pdf = await get(`/api/v1/payslips/${payslipId}/pdf`);
+    expect(pdf.status).toBe(200);
+    expect(pdf.body.url).toContain('http');
+    const fetched = await fetch(pdf.body.url);
+    expect(fetched.status).toBe(200);
+    const buf = Buffer.from(await fetched.arrayBuffer());
+    expect(buf.subarray(0, 4).toString()).toBe('%PDF'); // real PDF bytes over MinIO
   });
 
   it('issues certificates (fee clearance passes with no invoices)', async () => {

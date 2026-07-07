@@ -88,4 +88,9 @@ export class StorageService implements OnModuleInit {
     await this.client.send(new CopyObjectCommand({ Bucket: this.bucket, CopySource: `${this.bucket}/${fromKey}`, Key: toKey }));
     await this.client.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: fromKey }));
   }
+
+  /** Delete an object (e.g. purge an infected upload from quarantine, §22.6). */
+  async delete(key: string): Promise<void> {
+    await this.client.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: key }));
+  }
 }

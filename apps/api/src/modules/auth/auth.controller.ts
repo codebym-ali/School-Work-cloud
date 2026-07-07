@@ -10,7 +10,7 @@ import {
   Res,
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
-import { CurrentUser, Public, type RequestUser } from '@common';
+import { CurrentUser, Public, RateLimit, type RequestUser } from '@common';
 import { AuthService } from './auth.service';
 import { REFRESH_COOKIE } from './auth.cookies';
 import {
@@ -29,6 +29,7 @@ export class AuthController {
   constructor(private readonly auth: AuthService) {}
 
   @Public()
+  @RateLimit('login')
   @Post('login')
   @HttpCode(HttpStatus.OK)
   login(@Body() dto: LoginDto, @Res({ passthrough: true }) res: Response) {
@@ -36,6 +37,7 @@ export class AuthController {
   }
 
   @Public()
+  @RateLimit('login')
   @Post('mfa/challenge')
   @HttpCode(HttpStatus.OK)
   mfaChallenge(@Body() dto: MfaChallengeDto, @Res({ passthrough: true }) res: Response) {
@@ -43,6 +45,7 @@ export class AuthController {
   }
 
   @Public()
+  @RateLimit('refresh')
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
   refresh(@Req() req: Request, @Res({ passthrough: true }) res: Response) {

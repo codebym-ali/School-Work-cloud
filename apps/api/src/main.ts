@@ -4,9 +4,10 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
-import { ENV, type Env } from '@common';
+import { ENV, loadDotenv, type Env } from '@common';
 
 async function bootstrap(): Promise<void> {
+  loadDotenv(); // dev: populate process.env from .env before config validation
   const app = await NestFactory.create(AppModule, { bufferLogs: false });
   const env = app.get<Env>(ENV);
   const isProd = env.NODE_ENV === 'production';

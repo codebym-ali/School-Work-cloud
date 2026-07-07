@@ -54,10 +54,15 @@ services:
       - ./.data/minio:/data
 
   # Virus scanning for the upload pipeline (blueprint §22.6).
+  # Opt-in only (`docker compose --profile scan up -d`): ClamAV has no arm64 image,
+  # and the scan step isn't wired into the pipeline yet. `platform` forces amd64
+  # emulation on Apple Silicon when you do enable it.
   clamav:
     image: clamav/clamav:stable
     container_name: school-clamav
     restart: unless-stopped
+    profiles: ['scan']
+    platform: linux/amd64
     ports:
       - '3310:3310'
     healthcheck:

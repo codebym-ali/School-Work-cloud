@@ -54,5 +54,5 @@ module.exports = {
       rules: { 'boundaries/element-types': 'off' },
     },
   ],
-  ignorePatterns: ['dist/', 'node_modules/', '**/generated/**', '*.js'],
+  ignorePatterns: ['dist/', 'node_modules/', '**/generated/**', '*.js', 'apps/web/'],
 };

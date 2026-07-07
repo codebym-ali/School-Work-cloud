@@ -1,5 +1,6 @@
 import { NestFactory } from '@nestjs/core';
 import { Logger } from '@nestjs/common';
+import { loadDotenv } from '@common';
 import { WorkerModule } from './worker.module';
 
 /**
@@ -7,6 +8,7 @@ import { WorkerModule } from './worker.module';
  * Queue processors register themselves via DI as they are added per milestone.
  */
 async function bootstrap(): Promise<void> {
+  loadDotenv(); // dev: populate process.env from .env before config validation
   const app = await NestFactory.createApplicationContext(WorkerModule, { bufferLogs: false });
   app.enableShutdownHooks();
   new Logger('Worker').log('Worker started — awaiting BullMQ jobs');

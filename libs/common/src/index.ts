@@ -8,6 +8,7 @@ export * from './storage/storage.service';
 export * from './storage/storage.module';
 export * from './pdf/pdf.service';
 export * from './config/config.module';
+export * from './config/load-env';
 export * from './config/env.schema';
 export * from './config/school-settings.schema';
 export * from './context/tenant-context';

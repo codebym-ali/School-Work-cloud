@@ -28,11 +28,14 @@ decisions there. The authoritative spec is the root `school-management-master-bl
 ```bash
 docker compose up -d                 # pg (5433) · redis (6381) · minio · clamav
 pnpm db:setup                        # prisma migrate + SQL companions + RLS-coverage check
-pnpm db:seed                         # demo tenant → demo.localhost / owner@demo.pk / Owner!Secret12
-pnpm start:api:dev                   # API on :3000 (prefix /api/v1)
+pnpm db:seed                         # demo tenant → demo.localhost:4000 / owner@demo.pk / Owner!Secret12
+pnpm start:api:dev                   # API on :4000 (prefix /api/v1)
 pnpm start:worker:dev                # BullMQ worker
 pnpm test:isolation                  # merge-blocking tenant-isolation suite
 pnpm test && pnpm lint && pnpm build # full green check
+# Frontend: cd apps/web && pnpm install && pnpm dev   → http://localhost:3001
 ```
-Local dev ports are shifted off the user's other project "Goex": Postgres **5433**, Redis **6381**.
+Local dev ports are shifted off the user's other project "Goex" (which uses :3000 / :5432 /
+:6379-6380 / :9000-9001): our **API :4000**, web **:3001**, Postgres **5433**, Redis **6381**,
+MinIO **9002/9003**. ClamAV is opt-in (`docker compose --profile scan up -d`; no arm64 image).
 ```

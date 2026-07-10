@@ -252,6 +252,22 @@ model School {
   @@map("schools")
 }
 
+/// Vendor-side operator (blueprint §5, §24) — NOT a tenant user. Lives outside RLS
+/// (no school_id); the platform/vendor console authenticates against this table and
+/// acts across tenants via the platform_admin (BYPASSRLS) connection.
+model PlatformUser {
+  id           String     @id @default(uuid()) @db.Uuid
+  email        String     @unique
+  passwordHash String     @map("password_hash")
+  name         String     @default("")
+  status       UserStatus @default(ACTIVE)
+  lastLoginAt  DateTime?  @map("last_login_at")
+  createdAt    DateTime   @default(now()) @map("created_at")
+  updatedAt    DateTime   @updatedAt @map("updated_at")
+
+  @@map("platform_users")
+}
+
 model Campus {
   id        String   @id @default(uuid()) @db.Uuid
   schoolId  String   @map("school_id") @db.Uuid

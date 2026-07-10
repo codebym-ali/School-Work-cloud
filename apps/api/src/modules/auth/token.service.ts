@@ -77,6 +77,29 @@ export class TokenService {
     return { sub: payload.sub, sid: payload.sid };
   }
 
+  /**
+   * Platform (vendor console) access token — cross-tenant, so it carries NO `sid`.
+   * `typ:'platform'` keeps it structurally distinct from tenant access tokens so one
+   * can never be accepted where the other is expected (§24).
+   */
+  signPlatform(platformUserId: string): string {
+    return jwt.sign({ sub: platformUserId, typ: 'platform' }, this.keys[this.activeKid], {
+      algorithm: 'HS256',
+      expiresIn: '8h',
+      keyid: this.activeKid,
+    });
+  }
+
+  verifyPlatform(token: string): { sub: string } {
+    const decoded = jwt.decode(token, { complete: true });
+    const kid = decoded?.header?.kid;
+    const secret = kid ? this.keys[kid] : undefined;
+    if (!secret) throw new Error('Unknown or missing key id');
+    const payload = jwt.verify(token, secret, { algorithms: ['HS256'] }) as { sub: string; typ?: string };
+    if (payload.typ !== 'platform') throw new Error('Not a platform token');
+    return { sub: payload.sub };
+  }
+
   /** Opaque refresh token: return the raw value (cookie) + its hash (DB). */
   generateRefreshToken(): { raw: string; hash: string } {
     const raw = randomBytes(48).toString('base64url');

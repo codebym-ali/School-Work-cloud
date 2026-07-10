@@ -1,13 +1,22 @@
 import { Module } from '@nestjs/common';
+import { AuthModule } from '../auth/auth.module';
 import { ProvisioningService } from './provisioning.service';
+import { PlatformAuthService } from './platform-auth.service';
+import { PlatformService } from './platform.service';
+import { PlatformAuthGuard } from './platform-auth.guard';
+import { PlatformAuthController } from './platform-auth.controller';
+import { PlatformController } from './platform.controller';
 
 /**
- * Platform / vendor-side module (blueprint §5, §24). For now exposes the
- * ProvisioningService used to bootstrap tenants; the PLATFORM_ADMIN vendor
- * console (suspend/reactivate, SMS credits, analytics, export) is a later milestone.
+ * Platform / vendor-side module (blueprint §5, §24). Provides tenant provisioning and
+ * the vendor console: cross-tenant auth (`platform_users`, no RLS) + tenant management
+ * (list / suspend / reactivate) on the platform_admin BYPASSRLS connection. Imports
+ * AuthModule for TokenService + PasswordService (shared JWT/crypto).
  */
 @Module({
-  providers: [ProvisioningService],
+  imports: [AuthModule],
+  controllers: [PlatformAuthController, PlatformController],
+  providers: [ProvisioningService, PlatformAuthService, PlatformService, PlatformAuthGuard],
   exports: [ProvisioningService],
 })
 export class PlatformModule {}

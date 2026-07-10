@@ -26,7 +26,7 @@ overall: 6 of 7 milestones (GA) — full v1 domain built
 | **M7 — Hardening & Pilot → GA** | ⏳ Next | Load + pen test + DR drill + pilot live | — |
 
 **Quality gates (always green):** ✅ tenant-isolation suite · ✅ RLS-coverage check · ✅ lint + strict typecheck · ✅ api + worker builds.
-**Test count:** **86 passing** — unit 36 · integration 43 · isolation 7. `pnpm test` now green (runs the 3 projects serially, matching CI).
+**Test count:** **93 passing** — unit 36 · integration 50 · isolation 7. `pnpm test` now green (runs the 3 projects serially, matching CI).
 > [!note] Fixed a test-infra issue while adding rate limiting: the aggregate **`pnpm test`** ran the integration project **in parallel**, so the SMS e2e suites contended over the shared BullMQ `sms` queue (a job drained/dispatched by the wrong suite → duplicate `SmsLog`). Changed `package.json` `test` to chain `test:unit → test:integration → test:isolation` (integration/isolation `--runInBand`), matching CI exactly. Also note: a **stray `worker` process** (from `pnpm start:worker:dev` whose children survived the parent kill) will consume the queue and cause the same duplicate-dispatch — always confirm no `dist/apps/worker/main` is running before an integration run. Not a product bug (prod jobs have deterministic ids + a single worker fleet).
 
 ## 🔧 M7 / hardening progress (in flight)
@@ -123,7 +123,7 @@ Load (k6), pen test, DR drill, pilot onboarding via feature flags. **Plus the cr
 - [ ] Phone OTP verification flow (§14) — deferred from M3
 - [ ] Swagger/OpenAPI explorer + generated typed client
 - [x] Frontend (Next.js) — scaffold + role-based screens + Playwright E2E done (see M7 in-flight above); UI/UX in [[05-ui-ux-specification]]. Remaining: OpenAPI-generated typed client (kept hand-written types in `lib/api.ts` for now).
-- [ ] Vendor console (PLATFORM_ADMIN) HTTP surface + auth
+- [x] **Vendor console (PLATFORM_ADMIN) — auth + tenant management API done** (§24): new `PlatformUser` table (no RLS), cross-tenant auth on the host-exempt `platform/*` routes (separate `platform_access_token`/`platform_csrf` cookies, `typ:'platform'` JWT, `PlatformAuthGuard` + CSRF), and `GET /platform/tenants` · `POST /platform/tenants/:id/suspend|reactivate` (BYPASSRLS reads + host-cache invalidation → suspend is immediate). Seed adds `admin@platform.pk` / `Admin!Secret12`. 7-test e2e (login → list → suspend → tenant login 403 → reactivate) green. **Remaining:** vendor-console UI (`/admin/*` in apps/web), SMS-credit grants, analytics/export, §22.9 break-glass support sessions, platform refresh-token rotation (currently an 8h access token, no refresh).
 - [x] Rate limiting (Redis sliding window, §29) — done (see M7 in-flight above)
 - [ ] Observability (Sentry + Coolify logs)
 - [ ] **Test infra fix:** `jest.config.js` unit `testMatch` changed from a `{apps,libs}` brace glob (matched **0** tests on Windows) to two explicit patterns — the unit project now actually runs. Worth verifying CI counts.

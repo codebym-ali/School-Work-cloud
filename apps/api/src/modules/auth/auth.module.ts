@@ -21,6 +21,6 @@ import { CsrfGuard } from './guards/csrf.guard';
     JwtAuthGuard,
     CsrfGuard,
   ],
-  exports: [TokenService, AccessDenylist, JwtAuthGuard, CsrfGuard],
+  exports: [TokenService, PasswordService, AccessDenylist, JwtAuthGuard, CsrfGuard],
 })
 export class AuthModule {}

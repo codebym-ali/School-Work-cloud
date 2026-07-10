@@ -29,12 +29,31 @@ if (existsSync(envPath)) {
 const SUBDOMAIN = 'demo';
 const OWNER_EMAIL = 'owner@demo.pk';
 const OWNER_PASSWORD = 'Owner!Secret12';
+const PLATFORM_EMAIL = 'admin@platform.pk';
+const PLATFORM_PASSWORD = 'Admin!Secret12';
 
 async function main(): Promise<void> {
   const prisma = new PrismaClient({
     datasourceUrl: process.env.PLATFORM_DATABASE_URL ?? process.env.DATABASE_URL,
   });
   try {
+    // Platform (vendor) admin — a cross-tenant operator, seeded independently of the
+    // demo tenant so re-running always ensures it exists.
+    const platformAdmin = await prisma.platformUser.findUnique({ where: { email: PLATFORM_EMAIL } });
+    if (platformAdmin) {
+      console.log(`Platform admin "${PLATFORM_EMAIL}" already exists — nothing to do.`);
+    } else {
+      await prisma.platformUser.create({
+        data: {
+          email: PLATFORM_EMAIL,
+          name: 'Platform Admin',
+          status: 'ACTIVE',
+          passwordHash: await argon2.hash(PLATFORM_PASSWORD, { type: argon2.argon2id }),
+        },
+      });
+      console.log(`✔ Seeded platform admin: ${PLATFORM_EMAIL} / ${PLATFORM_PASSWORD} (vendor console)`);
+    }
+
     const existing = await prisma.school.findFirst({ where: { subdomain: SUBDOMAIN } });
     if (existing) {
       console.log(`Demo tenant "${SUBDOMAIN}" already exists — nothing to do.`);

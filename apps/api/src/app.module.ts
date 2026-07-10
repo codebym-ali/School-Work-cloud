@@ -89,8 +89,9 @@ export class AppModule implements NestModule {
     consumer.apply(ClsMiddleware).forRoutes('*');
     consumer
       .apply(TenantResolutionMiddleware)
-      // Host-exempt (blueprint §19): health checks and HMAC-authenticated webhooks.
-      .exclude('health/(.*)', 'health', 'webhooks/(.*)')
+      // Host-exempt (blueprint §19, §24): health checks, HMAC webhooks, and the
+      // vendor console (cross-tenant; runs on the reserved `admin` host).
+      .exclude('health/(.*)', 'health', 'webhooks/(.*)', 'platform/(.*)')
       .forRoutes('*');
   }
 }

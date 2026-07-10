@@ -1,0 +1,49 @@
+'use client';
+
+import { useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { ApiError } from '@/lib/api';
+import { platformApi } from '@/lib/platform-api';
+
+export default function PlatformLoginPage() {
+  const router = useRouter();
+  const [email, setEmail] = useState('admin@platform.pk');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function onSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      await platformApi.login(email, password);
+      router.push('/admin');
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Login failed');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <main className="center">
+      <form className="card stack" style={{ width: 360 }} onSubmit={onSubmit}>
+        <div>
+          <h1>Vendor console</h1>
+          <p className="sub">Platform administration</p>
+        </div>
+        <div>
+          <label htmlFor="email">Email</label>
+          <input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="username" required />
+        </div>
+        <div>
+          <label htmlFor="password">Password</label>
+          <input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required />
+        </div>
+        {error && <p className="error">{error}</p>}
+        <button type="submit" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}</button>
+      </form>
+    </main>
+  );
+}

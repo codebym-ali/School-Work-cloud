@@ -1,7 +1,7 @@
 ---
 title: Key Decisions
 type: meta
-updated: 2026-07-08
+updated: 2026-07-10
 ---
 
 # Key Decisions
@@ -66,6 +66,17 @@ Copy verbatim from [[consistency-register]] §6. The load-bearing ones:
 
 ## Our stack deviation (approved)
 Blueprint's AWS reference (RDS/ECS/S3/KMS…) is replaced by **Contabo + Coolify + self-hosted Postgres + Cloudflare R2**. App code is unchanged; only infra differs. → [[Deployment & Operations]]
+
+## Vendor console (`/admin`) gotchas
+- **Platform writes use the `platform_csrf` cookie, NOT `csrf`.** The vendor console has its own session (`platform_access_token` + `platform_csrf`, distinct names so a platform and a tenant session coexist in one browser). The tenant `lib/api.ts` reads `csrf`; a separate `lib/platform-api.ts` reads `platform_csrf` and posts `X-CSRF-Token` from it. Don't reuse the tenant client for `/platform/*` — it would send the wrong CSRF token and 403.
+- **`POST /platform/tenants` delegates to the shared `ProvisioningService`** (School + first Campus + OWNER_ADMIN on the BYPASSRLS platform client). Duplicate subdomain surfaces as **409 CONFLICT** from there; a malformed subdomain is a class-validator failure → **400 VALIDATION_FAILED** (not 422 — class-validator throws `BadRequestException`; only *service-level* `AppError(VALIDATION_FAILED, 422)` is 422). The console UI never suspends `demo` (other E2E specs log into it).
+- **The `/admin/*` routes live outside the tenant `(app)` route group**, so they get the minimal root layout + their own `app/admin/layout.tsx` (platform-session check via `GET /platform/auth/me`), not the tenant sidebar. Platform routes are host-exempt, so the existing `/api` dev proxy forwards them unchanged.
+
+## Playwright auth / login-limiter (E2E infra)
+- **The §29 login limiter (5/IP/15min) is enforced in dev**, and a suite that logs in per-test blows it fast (our 8-spec suite hit 8 logins/run → the later specs got 429 and failed). Fix: **authenticate once per session via Playwright "setup projects" that save a `storageState`**, and have feature specs reuse it (`config.use.storageState`) instead of logging in. Only the smoke *login-flow* test does a real form login (it opts out with `test.use({ storageState: { cookies: [], origins: [] } })`). Net logins/run ≈ 3 (tenant setup + platform setup + smoke).
+- **Two sessions ⇒ two setup projects + two storageStates.** `auth.setup.ts` → tenant-owner state (default for feature specs); `platform-auth.setup.ts` → platform-admin state (`admin.spec.ts` opts in with `test.use({ storageState: PLATFORM_STORAGE_STATE })`).
+- **Anchor `testMatch` regexes for setup projects.** `testMatch: /auth\.setup\.ts/` is a substring match and *also* matches `platform-auth.setup.ts`, so the platform setup ran twice (an extra wasted login). Anchor it: `/[\\/]auth\.setup\.ts$/` vs `/platform-auth\.setup\.ts$/`.
+- **`next build` corrupts a running `pnpm dev`.** Running `npx next build` against the same `apps/web` while the dev server is up rewrites `.next/` and 500s the live server (`Cannot find module './xxx.js'`). If it happens: kill the dev process, `rm -rf apps/web/.next`, restart `pnpm dev`. Prefer `pnpm typecheck` over a full `build` while the dev server is running for the E2E suite.
 
 ## Frontend + Playwright E2E gotchas (added while building admissions/exams screens)
 - **Most app forms have no label↔input association** (`<label>Text</label>` immediately followed by a sibling `<input>`/`<select>`, no `htmlFor`/`id`) — only the login page does. So Playwright's `getByLabel` only works on `/login`; everywhere else use a CSS adjacent-sibling locator (`label:text-is("X") + input`). See `test/e2e/helpers.ts` (`fieldInput`/`fieldSelect`).

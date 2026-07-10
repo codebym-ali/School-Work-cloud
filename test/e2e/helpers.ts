@@ -1,7 +1,8 @@
 import { expect, type Locator, type Page } from '@playwright/test';
 
-/** Where the setup project saves the shared authenticated session (gitignored). */
+/** Where the setup projects save the shared authenticated sessions (gitignored). */
 export const STORAGE_STATE = 'test/e2e/.auth/owner.json';
+export const PLATFORM_STORAGE_STATE = 'test/e2e/.auth/platform.json';
 
 /** Logs in via the /login form and waits for the app shell to land on /dashboard. */
 export async function login(page: Page, email = 'owner@demo.pk', password = 'Owner!Secret12'): Promise<void> {
@@ -11,6 +12,22 @@ export async function login(page: Page, email = 'owner@demo.pk', password = 'Own
   await page.getByRole('button', { name: /sign in/i }).click();
   await page.waitForURL('**/dashboard');
   await expect(page.locator('.sidebar')).toBeVisible();
+}
+
+/** Logs in to the vendor console via the /admin/login form and lands on /admin. */
+export async function platformLogin(page: Page, email = 'admin@platform.pk', password = 'Admin!Secret12'): Promise<void> {
+  await page.goto('/admin/login');
+  await page.getByLabel('Email').fill(email);
+  await page.getByLabel('Password').fill(password);
+  await page.getByRole('button', { name: /sign in/i }).click();
+  await page.waitForURL('**/admin');
+  await expect(page.getByRole('heading', { name: 'Tenants' })).toBeVisible();
+}
+
+/** Enter the vendor console already authenticated (via the platform storageState). */
+export async function gotoAdmin(page: Page): Promise<void> {
+  await page.goto('/admin');
+  await expect(page.getByRole('heading', { name: 'Tenants' })).toBeVisible();
 }
 
 /**

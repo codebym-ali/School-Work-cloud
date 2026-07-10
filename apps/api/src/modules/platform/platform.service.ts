@@ -2,6 +2,8 @@ import { HttpStatus, Inject, Injectable } from '@nestjs/common';
 import { AppError, ENV, ErrorCodes, type Env } from '@common';
 import { PlatformPrismaService } from '@database';
 import { TenantResolutionMiddleware } from '../../tenant/tenant-resolution.middleware';
+import { ProvisioningService } from './provisioning.service';
+import type { ProvisionTenantDto } from './dto/platform.dto';
 
 export interface TenantSummary {
   id: string;
@@ -28,9 +30,25 @@ export class PlatformService {
 
   constructor(
     private readonly platform: PlatformPrismaService,
+    private readonly provisioning: ProvisioningService,
     @Inject(ENV) env: Env,
   ) {
     this.apexHost = env.APP_APEX_DOMAIN.split(':')[0].toLowerCase();
+  }
+
+  /**
+   * Provision a new tenant from the console (blueprint §24). Delegates to the shared
+   * ProvisioningService (School + first Campus + OWNER_ADMIN, on the BYPASSRLS client);
+   * a duplicate subdomain surfaces as 409 CONFLICT from there.
+   */
+  async provisionTenant(dto: ProvisionTenantDto): Promise<{ id: string; subdomain: string }> {
+    const { schoolId } = await this.provisioning.provisionSchool({
+      name: dto.name,
+      subdomain: dto.subdomain,
+      ownerEmail: dto.ownerEmail,
+      ownerPassword: dto.ownerPassword,
+    });
+    return { id: schoolId, subdomain: dto.subdomain.toLowerCase() };
   }
 
   async listTenants(): Promise<TenantSummary[]> {

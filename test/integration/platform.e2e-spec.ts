@@ -26,6 +26,12 @@ describe('Platform vendor console (e2e, §24)', () => {
   const ownerEmail = 'owner-plat@example.com';
   const ownerPassword = 'Sup3rSecret!pw';
 
+  // A second tenant provisioned via the console endpoint (POST /platform/tenants).
+  const provSub = `prov-${randomUUID().slice(0, 8)}`;
+  const provOwnerEmail = `owner-${provSub}@example.com`;
+  const provOwnerPassword = 'Pr0visioned!pw';
+  let provSchoolId: string;
+
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
     app = moduleRef.createNestApplication();
@@ -62,10 +68,14 @@ describe('Platform vendor console (e2e, §24)', () => {
   });
 
   afterAll(async () => {
-    await platform.refreshToken.deleteMany({ where: { schoolId } });
-    await platform.user.deleteMany({ where: { schoolId } });
-    await platform.campus.deleteMany({ where: { schoolId } });
-    await platform.school.deleteMany({ where: { id: schoolId } });
+    for (const sid of [schoolId, provSchoolId].filter(Boolean) as string[]) {
+      await platform.refreshToken.deleteMany({ where: { schoolId: sid } });
+      await platform.smsCreditLedger.deleteMany({ where: { schoolId: sid } });
+      await platform.smsTemplate.deleteMany({ where: { schoolId: sid } });
+      await platform.user.deleteMany({ where: { schoolId: sid } });
+      await platform.campus.deleteMany({ where: { schoolId: sid } });
+      await platform.school.deleteMany({ where: { id: sid } });
+    }
     await platform.platformUser.deleteMany({ where: { id: platformUserId } });
     await app.close();
   });
@@ -114,6 +124,55 @@ describe('Platform vendor console (e2e, §24)', () => {
     expect(res.status).toBe(200);
     const ours = (res.body as Array<{ id: string; subdomain: string }>).find((t) => t.id === schoolId);
     expect(ours?.subdomain).toBe(sub);
+  });
+
+  const provOwnerLogin = () =>
+    request(server())
+      .post('/api/v1/auth/login')
+      .set('Host', `${provSub}.localhost`)
+      .send({ email: provOwnerEmail, password: provOwnerPassword });
+
+  it('provisions a new tenant → it appears in the list and its owner can log in', async () => {
+    const res = await request(server())
+      .post('/api/v1/platform/tenants')
+      .set('Host', 'admin.localhost')
+      .set('Cookie', cookieHeader(sessionCookies))
+      .set('X-CSRF-Token', csrfOf(sessionCookies))
+      .send({ name: 'Provisioned School', subdomain: provSub, ownerEmail: provOwnerEmail, ownerPassword: provOwnerPassword });
+    expect(res.status).toBe(201);
+    expect(res.body.subdomain).toBe(provSub);
+    provSchoolId = res.body.id;
+
+    const list = await request(server())
+      .get('/api/v1/platform/tenants')
+      .set('Host', 'admin.localhost')
+      .set('Cookie', cookieHeader(sessionCookies));
+    expect((list.body as Array<{ id: string }>).some((t) => t.id === provSchoolId)).toBe(true);
+
+    // The provisioned OWNER_ADMIN can authenticate against their new tenant host.
+    expect((await provOwnerLogin()).status).toBe(200);
+  });
+
+  it('rejects provisioning a duplicate subdomain (409 CONFLICT)', async () => {
+    const res = await request(server())
+      .post('/api/v1/platform/tenants')
+      .set('Host', 'admin.localhost')
+      .set('Cookie', cookieHeader(sessionCookies))
+      .set('X-CSRF-Token', csrfOf(sessionCookies))
+      .send({ name: 'Dupe', subdomain: provSub, ownerEmail: `dupe-${provSub}@example.com`, ownerPassword: provOwnerPassword });
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('CONFLICT');
+  });
+
+  it('rejects an invalid subdomain (400 VALIDATION_FAILED)', async () => {
+    const res = await request(server())
+      .post('/api/v1/platform/tenants')
+      .set('Host', 'admin.localhost')
+      .set('Cookie', cookieHeader(sessionCookies))
+      .set('X-CSRF-Token', csrfOf(sessionCookies))
+      .send({ name: 'Bad', subdomain: 'Bad_Sub Domain', ownerEmail: 'x@example.com', ownerPassword: provOwnerPassword });
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('VALIDATION_FAILED');
   });
 
   it('rejects a suspend without the CSRF header (403)', async () => {

@@ -4,15 +4,8 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { api, ApiError, type Me } from '@/lib/api';
-
-const NAV = [
-  { href: '/dashboard', label: 'Dashboard' },
-  { href: '/setup', label: 'Setup' },
-  { href: '/students', label: 'Students' },
-  { href: '/attendance', label: 'Attendance' },
-  { href: '/fees', label: 'Fees' },
-  { href: '/reports', label: 'Reports' },
-];
+import { MeContext } from '@/lib/me-context';
+import { NAV, hasAnyRole, navItemFor } from '@/lib/roles';
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -30,25 +23,37 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   if (!ready) return <main className="container"><p className="muted">Loading…</p></main>;
   if (!me) return null;
 
+  // Show only the screens this role can use; gate the routed page centrally.
+  const nav = NAV.filter((n) => hasAnyRole(me.roles, n.roles));
+  const current = navItemFor(pathname);
+  const authorized = !current || hasAnyRole(me.roles, current.roles);
+
   return (
-    <div className="shell">
-      <aside className="sidebar">
-        <div className="brand">🏫 School Admin</div>
-        {NAV.map((n) => (
-          <Link key={n.href} href={n.href} className={pathname.startsWith(n.href) ? 'active' : ''}>
-            {n.label}
-          </Link>
-        ))}
-      </aside>
-      <div className="content">
-        <div className="topbar">
-          <div className="who">{me.email} · {me.roles.join(', ')}</div>
-          <button className="ghost small" onClick={async () => { await api.logout().catch(() => {}); router.replace('/login'); }}>
-            Sign out
-          </button>
+    <MeContext.Provider value={me}>
+      <div className="shell">
+        <aside className="sidebar">
+          <div className="brand">🏫 School Admin</div>
+          {nav.map((n) => (
+            <Link key={n.href} href={n.href} className={pathname.startsWith(n.href) ? 'active' : ''}>
+              {n.label}
+            </Link>
+          ))}
+        </aside>
+        <div className="content">
+          <div className="topbar">
+            <div className="who">{me.email} · {me.roles.join(', ')}</div>
+            <button className="ghost small" onClick={async () => { await api.logout().catch(() => {}); router.replace('/login'); }}>
+              Sign out
+            </button>
+          </div>
+          {authorized ? children : (
+            <div className="card stack">
+              <h1>Not authorized</h1>
+              <p className="muted">Your role ({me.roles.join(', ')}) doesn’t have access to this screen.</p>
+            </div>
+          )}
         </div>
-        {children}
       </div>
-    </div>
+    </MeContext.Provider>
   );
 }

@@ -1,7 +1,7 @@
 ---
 title: Progress Tracker
 type: status
-updated: 2026-07-07
+updated: 2026-07-08
 current_milestone: M6 complete → M7 next (hardening/pilot)
 overall: 6 of 7 milestones (GA) — full v1 domain built
 ---
@@ -11,7 +11,7 @@ overall: 6 of 7 milestones (GA) — full v1 domain built
 > [!info] Living document — update at the **end of every phase**.
 > Procedure at the bottom. Related: [[Roadmap & Milestones]] · [[Testing & Quality]].
 
-**Last updated:** 2026-07-07 · **Stack:** Contabo VPS + Coolify + self-hosted Postgres 16 + Redis + Cloudflare R2 (see [[Deployment & Operations]]) · **Repo:** NestJS monorepo (`apps/api`, `apps/worker`, `libs/common`, `libs/database`).
+**Last updated:** 2026-07-08 · **Stack:** Contabo VPS + Coolify + self-hosted Postgres 16 + Redis + Cloudflare R2 (see [[Deployment & Operations]]) · **Repo:** NestJS monorepo (`apps/api`, `apps/worker`, `libs/common`, `libs/database`).
 
 ## Milestone status
 
@@ -36,7 +36,8 @@ overall: 6 of 7 milestones (GA) — full v1 domain built
 - [x] **Backups**: `scripts/backup-postgres.sh` (pg_dump→R2) + `scripts/restore-verify.sh` (weekly restore smoke). *(Wire to Coolify cron on deploy; add WAL archiving for PITR.)*
 - [x] **Rate limiting** (§29): Redis **sliding-window** limiter (atomic Lua over a sorted set) + `RateLimitGuard` (global, runs right after `JwtAuthGuard` so authed routes key per-user, `@Public` per-IP). Named policies: login 5/IP/15min **and** 10/email/1h, refresh 60/token/1h, parent-read 600/user/1h, public 60/IP/min, authenticated default 600/user/min. `@RateLimit(name)` / `@SkipRateLimit()` decorators; **429 + `Retry-After`** via the §25.1 envelope; tenant-scoped breaches logged as a compromise signal. Verified live (6th login → 429). Gated by `RATE_LIMIT_ENABLED` (on by default; **off in the test env** so shared-Redis suites stay deterministic). Covered by service + guard unit specs.
 - [x] **Next.js frontend scaffold** (`apps/web`, Next 14 App Router): login + dashboard wired to the API (cookie auth + CSRF via `lib/api.ts`); dev proxy preserves the tenant host. Typechecks + `next build` green. Separate install (`cd apps/web && pnpm install`).
-- [ ] Frontend: role-based screens (admissions, students, attendance, fees counter, exams, reports) — generate from OpenAPI
+- [x] **Frontend: role-based screens** — central nav/page gating (`lib/roles.ts`, `(app)/layout.tsx`) covers Dashboard/Setup/Students/Admissions/Attendance/Fees/Exams/Reports per role. **Admissions** (`app/(app)/admissions/page.tsx`): inquiry list+filter, new-inquiry form, per-row schedule/record-entry-test/admit/reject/withdraw following the inquiry state machine. **Exams** (`app/(app)/exams/page.tsx`): subjects, grade scale editor, terms, exam CRUD, open-marks-entry, bulk marks entry (section roster × class subjects), results view, publish (completeness gate), report-card generate/list. `lib/api.ts` gained `apiPatch` + `Inquiry/EntryTest/Subject/Term/GradeBand/Exam/ExamResult/ReportCard` types.
+- [x] **Playwright E2E** (`playwright.config.ts`, `test/e2e/`): `smoke.spec.ts` (login, role nav, students table), `admissions.spec.ts` (inquiry → entry test → admit → shows in Students), `exams.spec.ts` (dedicated class/section/student → subject+term+exam → open marks entry → enter marks → results → publish → generate report cards). All 5 pass together (`npx playwright test`, ~12–14s), verified stable across 3 consecutive full runs. The exams spec asserts the `/results/bulk` payload at the network layer, which caught + now guards a real marks-entry state-clobber race (marks posted as 0 — see [[Key Decisions]]). Reports/attendance/fees screens unchanged from prior session.
 - [x] **Sentry error monitoring** (§31): `@sentry/node` initialised at both api + worker bootstrap; `AllExceptionsFilter` reports unhandled **500s** with tenant/request tags (`schoolId`/`userId`/`requestId` + method/url, never PII); worker captures **exhausted** SMS jobs (final attempt only). Opt-in — **no-op unless `SENTRY_DSN` is set** (dev/test/CI untouched). `flushSentry()` on worker shutdown. Covered by a mocked-SDK unit spec.
 - [x] **Payslip PDF** (§13, §15): `PayrollService.payslipPdf()` renders via `PdfService.payslip`, uploads to `payslips/{sid}/{id}.pdf`, returns a 10-min presigned GET. `GET /payslips/:id/pdf` — **owner-or-admin check in the service** (§22.8, reads inside the RLS tx, not a guard). Verified e2e: real `%PDF` bytes fetched over MinIO.
 - [ ] Production Coolify deploy, WAL archiving/PITR
@@ -121,7 +122,7 @@ Load (k6), pen test, DR drill, pilot onboarding via feature flags. **Plus the cr
 - [ ] Students CSV import (needs upload pipeline §22.6) — deferred from M2
 - [ ] Phone OTP verification flow (§14) — deferred from M3
 - [ ] Swagger/OpenAPI explorer + generated typed client
-- [ ] Frontend (Next.js) — not started; UI/UX in [[05-ui-ux-specification]]
+- [x] Frontend (Next.js) — scaffold + role-based screens + Playwright E2E done (see M7 in-flight above); UI/UX in [[05-ui-ux-specification]]. Remaining: OpenAPI-generated typed client (kept hand-written types in `lib/api.ts` for now).
 - [ ] Vendor console (PLATFORM_ADMIN) HTTP surface + auth
 - [x] Rate limiting (Redis sliding window, §29) — done (see M7 in-flight above)
 - [ ] Observability (Sentry + Coolify logs)

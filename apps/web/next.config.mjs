@@ -4,10 +4,13 @@
  * same-origin. In dev we proxy `/api/*` to the API — the destination host carries the
  * tenant subdomain so the API's TenantResolutionMiddleware resolves the right school.
  *
- *   NEXT_API_ORIGIN=http://demo.localhost:4000  (default; matches `pnpm db:seed`)
- *   (API runs on :4000 in dev to coexist with the user's Goex project on :3000)
+ *   NEXT_API_ORIGIN=http://demo.localhost:3000  (default; matches API_PORT + `pnpm db:seed`)
+ *
+ * The destination host carries the tenant subdomain (`demo`) so the API resolves the
+ * right school. `pnpm dev` runs through `dev.mjs`, which preloads `dev-dns.cjs` to map
+ * `*.localhost` → 127.0.0.1 (Node, unlike browsers, won't resolve it otherwise).
  */
-const API_ORIGIN = process.env.NEXT_API_ORIGIN || 'http://demo.localhost:4000';
+const API_ORIGIN = process.env.NEXT_API_ORIGIN || 'http://demo.localhost:3000';
 
 /** @type {import('next').NextConfig} */
 export default {

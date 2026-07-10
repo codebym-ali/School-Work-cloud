@@ -47,6 +47,7 @@ export const apiGet = <T>(path: string) => request<T>(path);
 export const apiPost = <T>(path: string, body?: unknown, headers?: Record<string, string>) =>
   request<T>(path, { method: 'POST', body, headers });
 export const apiPut = <T>(path: string, body?: unknown) => request<T>(path, { method: 'PUT', body });
+export const apiPatch = <T>(path: string, body?: unknown) => request<T>(path, { method: 'PATCH', body });
 
 export function idemKey(): Record<string, string> {
   return { 'Idempotency-Key': crypto.randomUUID() };
@@ -66,6 +67,25 @@ export interface Section { id: string; name: string; classId: string }
 export interface Student { id: string; fullName: string; grNumber: string; gender: string; isActive: boolean }
 export interface Enrollment { id: string; studentId: string; sectionId: string; classId: string; academicYearId: string; status: string; student?: { fullName: string; grNumber: string } }
 export interface Invoice { id: string; studentId: string; totalAmount: string; paidAmount: string; status: string; month: number | null; year: number; dueDate: string }
+export interface EntryTest { id: string; inquiryId: string; scheduledAt: string; score: string | null; remarks: string | null }
+export interface Inquiry {
+  id: string; campusId: string; guardianName: string; guardianPhone: string; studentName: string;
+  desiredClassId: string; status: string; statusReason: string | null; createdAt: string;
+  entryTest?: EntryTest | null; admission?: { id: string; studentId: string } | null;
+}
+export interface Subject { id: string; name: string; classId: string }
+export interface Term { id: string; name: string; academicYearId: string; startDate: string; endDate: string }
+export interface GradeBand { label: string; minPercent: string; maxPercent: string; gradePoint: string }
+export interface Exam { id: string; termId: string; classId: string; name: string; examType: string; weightagePercent: string; examDate: string; status: string }
+export interface ExamResult {
+  id: string; examId: string; enrollmentId: string; subjectId: string;
+  marksObtained: string | null; totalMarks: string; isAbsent: boolean;
+  subject?: { name: string }; enrollment?: { studentId: string; sectionId: string };
+}
+export interface ReportCard {
+  id: string; termId: string; enrollmentId: string;
+  overallPercent: string; gradeLabel: string; sectionRank: number | null; documentId: string;
+}
 
 export const api = {
   login: (email: string, password: string) =>

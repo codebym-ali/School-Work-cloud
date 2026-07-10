@@ -24,12 +24,16 @@ export default function AttendancePage() {
   async function loadRoster() {
     if (!sectionId) return;
     const enr = await apiGet<{ data: Enrollment[] }>(`/enrollments?sectionId=${sectionId}&status=ACTIVE`);
-    setRows(enr.data);
     const existing = await apiGet<Array<{ enrollmentId: string; status: string }>>(`/attendance?sectionId=${sectionId}&date=${date}`);
     const m: Record<string, string> = {};
     for (const e of enr.data) m[e.id] = 'PRESENT';
     for (const a of existing) m[a.enrollmentId] = a.status;
+    // Set marks BEFORE rows: the editable table renders on `rows.length > 0`, so seeding
+    // marks first ensures the <select>s never render (and can't be changed then clobbered)
+    // before their backing state exists — otherwise a status picked during the gap between
+    // these two setState calls is overwritten by this setMarks. (Same race we fixed in exams.)
     setMarks(m);
+    setRows(enr.data);
     setMsg(null);
   }
 
@@ -71,7 +75,7 @@ export default function AttendancePage() {
                   <td>{r.student?.grNumber}</td>
                   <td>{r.student?.fullName}</td>
                   <td>
-                    <select value={marks[r.id] ?? 'PRESENT'} onChange={(e) => setMarks({ ...marks, [r.id]: e.target.value })}>
+                    <select value={marks[r.id] ?? 'PRESENT'} onChange={(e) => setMarks((prev) => ({ ...prev, [r.id]: e.target.value }))}>
                       {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
                     </select>
                   </td>

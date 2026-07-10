@@ -33,6 +33,7 @@ coverage/
 .nyc_output/
 test-results/
 playwright-report/
+test/e2e/.auth/
 
 # editor / os
 .DS_Store

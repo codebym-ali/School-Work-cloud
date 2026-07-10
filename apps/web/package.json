@@ -4,7 +4,8 @@
   "private": true,
   "description": "Frontend (Next.js 14 App Router) for the school-management SaaS",
   "scripts": {
-    "dev": "next dev -p 3001",
+    "dev": "node dev.mjs",
+    "dev:plain": "next dev -p 3001",
     "build": "next build",
     "start": "next start -p 3001",
     "lint": "next lint",

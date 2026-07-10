@@ -2,10 +2,13 @@ import { HttpStatus, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
   AppError,
+  assertCampusAccess,
+  effectiveCampusFilter,
   ErrorCodes,
   normalizePkPhone,
   paginate,
   parseSchoolSettings,
+  restrictedCampusId,
   TenantContext,
   toSkipTake,
   type Paginated,
@@ -59,6 +62,8 @@ export class StudentsService {
   async createStudentCore(input: CreateStudentCoreInput): Promise<CreatedStudent> {
     const klass = await this.db.class.findFirst({ where: { id: input.classId } });
     if (!klass) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'Class not found');
+    // Campus scoping (§22.8, P1.7): a campus-bound admin may only admit into their campus.
+    assertCampusAccess(this.ctx.user, klass.campusId);
     const section = await this.db.section.findFirst({ where: { id: input.sectionId } });
     if (!section || section.classId !== input.classId) {
       throw new AppError(ErrorCodes.VALIDATION_FAILED, HttpStatus.UNPROCESSABLE_ENTITY, 'Section does not belong to class');
@@ -115,11 +120,14 @@ export class StudentsService {
     const where: Prisma.StudentWhereInput = { deletedAt: null };
     if (q.status) where.isActive = q.status === 'ACTIVE';
 
+    // Campus scoping (§22.8, P1.7): a campus-bound admin's campus is FORCED here,
+    // overriding any client-supplied `campusId`; OWNER_ADMIN keeps the client filter.
+    const campusId = effectiveCampusFilter(this.ctx.user, q.campusId);
     const enroll: Prisma.StudentEnrollmentWhereInput = { status: 'ACTIVE' };
-    if (q.campusId) enroll.campusId = q.campusId;
+    if (campusId) enroll.campusId = campusId;
     if (q.classId) enroll.classId = q.classId;
     if (q.sectionId) enroll.sectionId = q.sectionId;
-    if (q.campusId || q.classId || q.sectionId) where.enrollments = { some: enroll };
+    if (campusId || q.classId || q.sectionId) where.enrollments = { some: enroll };
 
     if (q.search) {
       const phone = normalizePkPhone(q.search);
@@ -162,6 +170,13 @@ export class StudentsService {
       },
     });
     if (!student) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'Student not found');
+    // Campus scoping (§22.8, P1.7): a campus-bound admin may only reach a student who
+    // has an ACTIVE enrollment in their campus. Gates detail read + update/delete +
+    // every guardian op (all route through getOne).
+    const restricted = restrictedCampusId(this.ctx.user);
+    if (restricted !== null && !student.enrollments.some((e) => e.status === 'ACTIVE' && e.campusId === restricted)) {
+      throw new AppError(ErrorCodes.FORBIDDEN, HttpStatus.FORBIDDEN, 'Student belongs to another campus');
+    }
     return student;
   }
 

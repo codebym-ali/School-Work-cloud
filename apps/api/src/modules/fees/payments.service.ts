@@ -3,9 +3,11 @@ import { HttpStatus, Injectable } from '@nestjs/common';
 import { FeeInvoiceStatus, PaymentMethod, Prisma } from '@prisma/client';
 import {
   AppError,
+  assertCampusAccess,
   AuditActions,
   ErrorCodes,
   paginate,
+  restrictedCampusId,
   TenantContext,
   toSkipTake,
   type Paginated,
@@ -48,8 +50,13 @@ export class PaymentsService {
       // Lock the invoice row for the life of the transaction (§25.5).
       await this.db.$queryRaw(Prisma.sql`SELECT id FROM fee_invoices WHERE id = ${invoiceId}::uuid FOR UPDATE`);
 
-      const invoice = await this.db.feeInvoice.findFirst({ where: { id: invoiceId } });
+      const invoice = await this.db.feeInvoice.findFirst({
+        where: { id: invoiceId },
+        include: { enrollment: { select: { campusId: true } } },
+      });
       if (!invoice) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'Invoice not found');
+      // Campus scoping (§22.8, P1.7): a campus-bound cashier may only collect for their campus.
+      assertCampusAccess(this.ctx.user, invoice.enrollment.campusId);
       if (invoice.status === FeeInvoiceStatus.WAIVED || invoice.status === FeeInvoiceStatus.PAID) {
         throw new AppError(ErrorCodes.CONFLICT, HttpStatus.CONFLICT, `Invoice is ${invoice.status}`);
       }
@@ -142,6 +149,9 @@ export class PaymentsService {
     if (q.method) where.method = q.method;
     if (q.collectedById) where.collectedById = q.collectedById;
     if (q.from || q.to) where.paidAt = { ...(q.from ? { gte: q.from } : {}), ...(q.to ? { lte: q.to } : {}) };
+    // Campus scoping (§22.8, P1.7): confine a campus-bound cashier to their campus's payments.
+    const restricted = restrictedCampusId(this.ctx.user);
+    if (restricted !== null) where.invoice = { enrollment: { campusId: restricted } };
     const { skip, take } = toSkipTake(q);
     const [rows, total] = await Promise.all([
       this.db.feePayment.findMany({ where, skip, take, orderBy: { paidAt: 'desc' } }),

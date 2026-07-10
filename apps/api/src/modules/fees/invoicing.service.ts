@@ -2,7 +2,9 @@ import { HttpStatus, Injectable } from '@nestjs/common';
 import { FeeInvoiceStatus, Prisma } from '@prisma/client';
 import {
   AppError,
+  assertCampusAccess,
   AuditActions,
+  effectiveCampusFilter,
   ErrorCodes,
   paginate,
   parseSchoolSettings,
@@ -47,6 +49,11 @@ export class InvoicingService {
    * request transaction. (Async batching is a later scale optimisation.)
    */
   async createBatch(dto: CreateInvoiceBatchDto) {
+    // Campus scoping (§22.8, P1.7): a campus-bound admin may only bill their own campus.
+    const klass = await this.db.class.findFirst({ where: { id: dto.classId }, select: { campusId: true } });
+    if (!klass) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'Class not found');
+    assertCampusAccess(this.ctx.user, klass.campusId);
+
     const existing = await this.db.feeInvoiceBatch.findFirst({
       where: { classId: dto.classId, month: dto.month, year: dto.year },
     });
@@ -142,7 +149,9 @@ export class InvoicingService {
     if (q.status) where.status = q.status as FeeInvoiceStatus;
     if (q.month) where.month = q.month;
     if (q.year) where.year = q.year;
-    if (q.campusId) where.enrollment = { campusId: q.campusId };
+    // Campus scoping (§22.8, P1.7): force a campus-bound admin's campus, overriding the client's.
+    const campusId = effectiveCampusFilter(this.ctx.user, q.campusId);
+    if (campusId) where.enrollment = { campusId };
     const { skip, take } = toSkipTake(q);
     const [rows, total] = await Promise.all([
       this.db.feeInvoice.findMany({ where, skip, take, orderBy: { createdAt: 'desc' } }),
@@ -152,8 +161,13 @@ export class InvoicingService {
   }
 
   async get(id: string) {
-    const inv = await this.db.feeInvoice.findFirst({ where: { id }, include: { items: true, payments: true } });
+    const inv = await this.db.feeInvoice.findFirst({
+      where: { id },
+      include: { items: true, payments: true, enrollment: { select: { campusId: true } } },
+    });
     if (!inv) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'Invoice not found');
+    // Campus scoping (§22.8, P1.7): a campus-bound admin may only read their campus's invoice.
+    assertCampusAccess(this.ctx.user, inv.enrollment?.campusId ?? null);
     return inv;
   }
 

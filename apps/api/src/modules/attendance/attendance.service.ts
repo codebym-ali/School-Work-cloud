@@ -2,9 +2,11 @@ import { HttpStatus, Injectable } from '@nestjs/common';
 import { AttendanceStatus, type Prisma } from '@prisma/client';
 import {
   AppError,
+  assertCampusAccess,
   AuditActions,
   ErrorCodes,
   parseSchoolSettings,
+  restrictedCampusId,
   TenantContext,
   type RequestUser,
 } from '@common';
@@ -65,6 +67,8 @@ export class AttendanceService {
       include: { class: { select: { campusId: true } } },
     });
     if (!section) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'Section not found');
+    // Campus scoping (§22.8, P1.7): a campus-bound admin may only mark their own campus.
+    assertCampusAccess(user, section.class.campusId);
 
     const off = await this.isNonWorkingDay(date, section.class.campusId, settings.weeklyOffDays);
     if (off && !dto.allowHolidayOverride) {
@@ -144,10 +148,14 @@ export class AttendanceService {
   async query(q: AttendanceQuery) {
     const where: Prisma.AttendanceRecordWhereInput = {};
     if (q.date) where.date = new Date(q.date);
+    // Campus scoping (§22.8, P1.7): force a campus-bound admin's campus onto the
+    // enrollment relation so the list can never spill another campus's records.
+    const restricted = restrictedCampusId(this.ctx.user);
     const enroll: Prisma.StudentEnrollmentWhereInput = {};
     if (q.sectionId) enroll.sectionId = q.sectionId;
     if (q.studentId) enroll.studentId = q.studentId;
-    if (q.sectionId || q.studentId) where.enrollment = enroll;
+    if (restricted !== null) enroll.campusId = restricted;
+    if (q.sectionId || q.studentId || restricted !== null) where.enrollment = enroll;
     if (q.from || q.to) {
       where.date = {
         ...(q.from ? { gte: new Date(q.from) } : {}),
@@ -159,8 +167,13 @@ export class AttendanceService {
 
   /** Admin post-window edit (blueprint §9): requires a reason, writes AuditLog. */
   async patch(id: string, dto: PatchAttendanceDto) {
-    const existing = await this.db.attendanceRecord.findFirst({ where: { id } });
+    const existing = await this.db.attendanceRecord.findFirst({
+      where: { id },
+      include: { enrollment: { select: { campusId: true } } },
+    });
     if (!existing) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'Attendance record not found');
+    // Campus scoping (§22.8, P1.7): a campus-bound admin may only edit their campus.
+    assertCampusAccess(this.ctx.user, existing.enrollment.campusId);
     const updated = await this.db.attendanceRecord.update({
       where: { id },
       data: { status: dto.status, markedById: this.ctx.user!.userId },

@@ -212,4 +212,41 @@ describe('Platform vendor console (e2e, §24)', () => {
 
     expect((await tenantLogin()).status).toBe(200);
   });
+
+  it('revokes an operator immediately when disabled (unexpired token rejected)', async () => {
+    const tmp = await platform.platformUser.create({
+      data: {
+        email: `disable-${randomUUID().slice(0, 8)}@platform.pk`,
+        name: 'Temp',
+        status: 'ACTIVE',
+        passwordHash: await argon2.hash('Temp!Secret12', { type: argon2.argon2id }),
+      },
+    });
+    try {
+      const login = await request(server())
+        .post('/api/v1/platform/auth/login')
+        .set('Host', 'admin.localhost')
+        .send({ email: tmp.email, password: 'Temp!Secret12' });
+      expect(login.status).toBe(200);
+      const cookies = cookiesOf(login);
+
+      // Works while ACTIVE.
+      const before = await request(server())
+        .get('/api/v1/platform/tenants')
+        .set('Host', 'admin.localhost')
+        .set('Cookie', cookieHeader(cookies));
+      expect(before.status).toBe(200);
+
+      // Disable the operator — the SAME (unexpired) token must now be rejected.
+      await platform.platformUser.update({ where: { id: tmp.id }, data: { status: 'DISABLED' } });
+      const after = await request(server())
+        .get('/api/v1/platform/tenants')
+        .set('Host', 'admin.localhost')
+        .set('Cookie', cookieHeader(cookies));
+      expect(after.status).toBe(401);
+      expect(after.body.error.code).toBe('UNAUTHENTICATED');
+    } finally {
+      await platform.platformUser.delete({ where: { id: tmp.id } });
+    }
+  });
 });

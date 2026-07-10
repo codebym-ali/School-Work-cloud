@@ -26,7 +26,7 @@ overall: 6 of 7 milestones (GA) — full v1 domain built
 | **M7 — Hardening & Pilot → GA** | ⏳ Next | Load + pen test + DR drill + pilot live | — |
 
 **Quality gates (always green):** ✅ tenant-isolation suite · ✅ RLS-coverage check · ✅ lint + strict typecheck · ✅ api + worker builds.
-**Test count:** **96 passing** — unit 36 · integration 53 · isolation 7 (+ **11 Playwright e2e** across the 6 tenant screens + the /admin vendor console). `pnpm test` green (3 projects serial, matching CI).
+**Test count:** **97 passing** — unit 36 · integration 54 · isolation 7 (+ **11 Playwright e2e** across the 6 tenant screens + the /admin vendor console). `pnpm test` green (3 projects serial, matching CI).
 > [!note] Fixed a test-infra issue while adding rate limiting: the aggregate **`pnpm test`** ran the integration project **in parallel**, so the SMS e2e suites contended over the shared BullMQ `sms` queue (a job drained/dispatched by the wrong suite → duplicate `SmsLog`). Changed `package.json` `test` to chain `test:unit → test:integration → test:isolation` (integration/isolation `--runInBand`), matching CI exactly. Also note: a **stray `worker` process** (from `pnpm start:worker:dev` whose children survived the parent kill) will consume the queue and cause the same duplicate-dispatch — always confirm no `dist/apps/worker/main` is running before an integration run. Not a product bug (prod jobs have deterministic ids + a single worker fleet).
 
 ## 🔧 M7 / hardening progress (in flight)

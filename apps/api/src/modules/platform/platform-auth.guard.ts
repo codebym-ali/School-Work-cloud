@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import type { Request } from 'express';
 import { AppError, ErrorCodes } from '@common';
+import { PlatformPrismaService } from '@database';
 import { TokenService } from '../auth/token.service';
 import { PLATFORM_ACCESS_COOKIE, PLATFORM_CSRF_COOKIE } from './platform.cookies';
 
@@ -26,9 +27,12 @@ type PlatformRequest = Request & { platformUser?: PlatformActor };
  */
 @Injectable()
 export class PlatformAuthGuard implements CanActivate {
-  constructor(private readonly tokens: TokenService) {}
+  constructor(
+    private readonly tokens: TokenService,
+    private readonly platform: PlatformPrismaService,
+  ) {}
 
-  canActivate(context: ExecutionContext): boolean {
+  async canActivate(context: ExecutionContext): Promise<boolean> {
     const req = context.switchToHttp().getRequest<PlatformRequest>();
     const cookies = (req.cookies as Record<string, string> | undefined) ?? {};
     const token = cookies[PLATFORM_ACCESS_COOKIE];
@@ -47,6 +51,16 @@ export class PlatformAuthGuard implements CanActivate {
       if (!header || !cookie || header !== cookie) {
         throw new AppError(ErrorCodes.CSRF_INVALID, HttpStatus.FORBIDDEN, 'CSRF token missing or invalid');
       }
+    }
+
+    // Re-check status every request so disabling an operator revokes access immediately
+    // (rather than waiting out the 8h token). The console is low-traffic — one small read.
+    const actor = await this.platform.platformUser.findUnique({
+      where: { id: claims.sub },
+      select: { status: true },
+    });
+    if (!actor || actor.status !== 'ACTIVE') {
+      throw new AppError(ErrorCodes.UNAUTHENTICATED, HttpStatus.UNAUTHORIZED, 'Session revoked');
     }
 
     req.platformUser = { id: claims.sub };

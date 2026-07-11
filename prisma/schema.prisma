@@ -268,6 +268,22 @@ model PlatformUser {
   @@map("platform_users")
 }
 
+/// Single-use rotating refresh tokens for the vendor console (blueprint §22.4, §24).
+/// Mirrors RefreshToken but for platform operators (no school_id). Raw token is never
+/// stored — only its SHA-256 hash; reuse of a revoked token revokes the whole family.
+model PlatformRefreshToken {
+  id             String    @id @default(uuid()) @db.Uuid
+  platformUserId String    @map("platform_user_id") @db.Uuid
+  tokenHash      String    @unique @map("token_hash")
+  familyId       String    @map("family_id") @db.Uuid
+  expiresAt      DateTime  @map("expires_at")
+  revokedAt      DateTime? @map("revoked_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  @@index([platformUserId, familyId])
+  @@map("platform_refresh_tokens")
+}
+
 model Campus {
   id        String   @id @default(uuid()) @db.Uuid
   schoolId  String   @map("school_id") @db.Uuid

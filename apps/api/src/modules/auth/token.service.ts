@@ -85,7 +85,7 @@ export class TokenService {
   signPlatform(platformUserId: string): string {
     return jwt.sign({ sub: platformUserId, typ: 'platform' }, this.keys[this.activeKid], {
       algorithm: 'HS256',
-      expiresIn: '8h',
+      expiresIn: this.accessTtl as jwt.SignOptions['expiresIn'], // short (15m) — a refresh token now rotates the session
       keyid: this.activeKid,
     });
   }

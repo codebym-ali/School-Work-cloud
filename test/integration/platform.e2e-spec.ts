@@ -76,6 +76,7 @@ describe('Platform vendor console (e2e, §24)', () => {
       await platform.campus.deleteMany({ where: { schoolId: sid } });
       await platform.school.deleteMany({ where: { id: sid } });
     }
+    await platform.platformRefreshToken.deleteMany({ where: { platformUserId } });
     await platform.platformUser.deleteMany({ where: { id: platformUserId } });
     await app.close();
   });
@@ -248,5 +249,42 @@ describe('Platform vendor console (e2e, §24)', () => {
     } finally {
       await platform.platformUser.delete({ where: { id: tmp.id } });
     }
+  });
+
+  const refreshCookieOf = (cs: string[]) => (cs.find((c) => c.startsWith('platform_refresh_token=')) ?? '').split(';')[0];
+  const platformLogin = () =>
+    request(server()).post('/api/v1/platform/auth/login').set('Host', 'admin.localhost').send({ email: platformEmail, password: platformPassword });
+  const platformRefresh = (cookie: string) =>
+    request(server()).post('/api/v1/platform/auth/refresh').set('Host', 'admin.localhost').set('Cookie', cookie);
+
+  it('login issues a rotating refresh token', async () => {
+    const res = await platformLogin();
+    expect(res.status).toBe(200);
+    expect(refreshCookieOf(cookiesOf(res))).toContain('platform_refresh_token=');
+  });
+
+  it('single-use rotation: the used refresh token is rejected, and reuse revokes the whole family', async () => {
+    const refresh1 = refreshCookieOf(cookiesOf(await platformLogin()));
+
+    // Rotate once → a NEW refresh token; refresh1 is now revoked.
+    const rotated = await platformRefresh(refresh1);
+    expect(rotated.status).toBe(200);
+    const refresh2 = refreshCookieOf(cookiesOf(rotated));
+    expect(refresh2).not.toBe(refresh1);
+
+    // Reuse of the already-rotated refresh1 → 401 + theft response (revoke the family).
+    const reuse = await platformRefresh(refresh1);
+    expect(reuse.status).toBe(401);
+    expect(reuse.body.error.code).toBe('REFRESH_INVALID');
+
+    // Because the family was revoked, the previously-valid refresh2 no longer works either.
+    expect((await platformRefresh(refresh2)).status).toBe(401);
+  });
+
+  it('logout revokes the refresh family', async () => {
+    const refresh = refreshCookieOf(cookiesOf(await platformLogin()));
+    const out = await request(server()).post('/api/v1/platform/auth/logout').set('Host', 'admin.localhost').set('Cookie', refresh);
+    expect(out.status).toBe(204);
+    expect((await platformRefresh(refresh)).status).toBe(401);
   });
 });

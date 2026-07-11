@@ -15,7 +15,7 @@ function platformCsrf(): string {
   return m ? decodeURIComponent(m[1]) : '';
 }
 
-async function request<T>(path: string, opts: { method?: string; body?: unknown } = {}): Promise<T> {
+async function request<T>(path: string, opts: { method?: string; body?: unknown } = {}, retry = true): Promise<T> {
   const method = opts.method ?? 'GET';
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (method !== 'GET') headers['X-CSRF-Token'] = platformCsrf();
@@ -26,6 +26,12 @@ async function request<T>(path: string, opts: { method?: string; body?: unknown 
     credentials: 'include',
     body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
   });
+
+  // Access token expired (15m): silently rotate via the refresh cookie once, then retry.
+  if (res.status === 401 && retry && path !== '/platform/auth/refresh' && path !== '/platform/auth/login') {
+    const refreshed = await fetch(`${BASE}/platform/auth/refresh`, { method: 'POST', credentials: 'include' });
+    if (refreshed.ok) return request<T>(path, opts, false);
+  }
 
   const data = res.status === 204 ? null : await res.json().catch(() => null);
   if (!res.ok) {

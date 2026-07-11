@@ -13,6 +13,7 @@ export * from './config/env.schema';
 export * from './config/school-settings.schema';
 export * from './context/tenant-context';
 export * from './authz/campus-scope';
+export * from './authz/ownership';
 export * from './crypto/field-encryption';
 export * from './decorators/public.decorator';
 export * from './decorators/roles.decorator';

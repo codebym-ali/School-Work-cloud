@@ -3,6 +3,7 @@ import { AttendanceStatus, LeaveStatus, StaffLeaveType } from '@prisma/client';
 import {
   AppError,
   ErrorCodes,
+  isAdminRole,
   paginate,
   parseSchoolSettings,
   TenantContext,
@@ -42,6 +43,13 @@ export class LeavesService {
 
   // ── Student leaves ─────────────────────────────────────────────────────────
   async createStudentLeave(dto: CreateStudentLeaveDto) {
+    // GuardianOfStudent (§22.8, P1.7): a PARENT may only file leave for their own child;
+    // admins and teachers act on behalf of students in their scope.
+    const user = this.ctx.user!;
+    if (!isAdminRole(user) && !user.roles.includes('TEACHER')) {
+      const link = await this.db.studentGuardian.findFirst({ where: { studentId: dto.studentId, parent: { userId: user.userId } } });
+      if (!link) throw new AppError(ErrorCodes.FORBIDDEN, HttpStatus.FORBIDDEN, 'Not a guardian of this student');
+    }
     const from = new Date(dto.fromDate);
     const to = new Date(dto.toDate);
     if (to < from) throw new AppError(ErrorCodes.VALIDATION_FAILED, HttpStatus.UNPROCESSABLE_ENTITY, 'toDate before fromDate');
@@ -100,9 +108,13 @@ export class LeavesService {
   }
 
   async listStudentLeaves(q: LeaveListQuery): Promise<Paginated<unknown>> {
+    // A PARENT sees only their own children's leaves (force-scoped, deny-by-default).
+    const user = this.ctx.user!;
+    const parentScope = !isAdminRole(user) && !user.roles.includes('TEACHER');
     const where = {
       ...(q.status ? { status: q.status } : {}),
       ...(q.studentId ? { studentId: q.studentId } : {}),
+      ...(parentScope ? { student: { guardians: { some: { parent: { userId: user.userId } } } } } : {}),
     };
     const { skip, take } = toSkipTake(q);
     const [rows, total] = await Promise.all([

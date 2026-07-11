@@ -4,7 +4,10 @@ import { LoggerModule } from 'nestjs-pino';
 import { CommonModule, ConfigModule, ENV, pinoConfig, RedisModule, type Env } from '@common';
 import { DatabaseModule } from '@database';
 import { CommsModule } from '../../api/src/modules/comms/comms.module';
+import { FeeJobsService } from '../../api/src/modules/fees/fee-jobs.service';
 import { SmsProcessor } from './processors/sms.processor';
+import { MaintenanceService } from './maintenance/maintenance.service';
+import { MaintenanceProcessor } from './processors/maintenance.processor';
 
 /**
  * Background worker composition root (blueprint §16, §27). Shares the codebase with
@@ -20,6 +23,6 @@ import { SmsProcessor } from './processors/sms.processor';
     DatabaseModule,
     CommsModule,
   ],
-  providers: [SmsProcessor],
+  providers: [SmsProcessor, MaintenanceService, MaintenanceProcessor, FeeJobsService],
 })
 export class WorkerModule {}

@@ -1,0 +1,98 @@
+# Production-style stack (blueprint §33). One image → api + worker; a one-shot `migrate`
+# runs `prisma migrate deploy` + the SQL companions + the RLS-coverage gate before the
+# apps start. Self-contained (bundled postgres/redis/minio) so it runs on a single VPS or
+# locally; on Coolify you'd point DATABASE_URL/REDIS_URL/S3_* at managed services instead.
+#
+#   cp .env.example .env   # set ENCRYPTION_MASTER_KEY, JWT_KEYS, real S3/SMS secrets
+#   docker compose -f docker-compose.prod.yml up -d --build
+#
+# Secrets come from .env (env_file); only the in-network service URLs are overridden here.
+
+x-app-env: &app-env
+  DATABASE_URL: postgres://app_user:app_pw@postgres:5432/school
+  PLATFORM_DATABASE_URL: postgres://platform_admin:platform_pw@postgres:5432/school
+  MIGRATION_DATABASE_URL: postgres://postgres:postgres@postgres:5432/school
+  REDIS_URL: redis://redis:6379
+  S3_ENDPOINT: http://minio:9000
+  NODE_ENV: production
+  TZ: Asia/Karachi
+
+services:
+  migrate:
+    build: .
+    command: sh -c "prisma migrate deploy && node scripts/apply-sql-companions.mjs && node scripts/check-rls-coverage.mjs"
+    env_file: .env
+    environment: *app-env
+    depends_on:
+      postgres: { condition: service_healthy }
+    restart: 'no'
+
+  api:
+    build: .
+    command: node dist/apps/api/main
+    env_file: .env
+    environment: *app-env
+    ports:
+      - '3000:3000'
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+    healthcheck:
+      test: ['CMD', 'node', '-e', "require('http').get('http://localhost:3000/api/v1/health/ready',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  worker:
+    build: .
+    command: node dist/apps/worker/main
+    env_file: .env
+    environment: *app-env
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: school
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./scripts/postgres-init.sql:/docker-entrypoint-initdb.d/00-init.sql:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d school']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    command: ['redis-server', '--appendonly', 'yes']
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - miniodata:/data
+
+volumes:
+  pgdata:
+  redisdata:
+  miniodata:

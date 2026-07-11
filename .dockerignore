@@ -1,0 +1,35 @@
+# Never copy host artifacts into the build — deps are installed fresh in the image
+# (host node_modules carry the wrong-platform native binaries: argon2, prisma engine).
+node_modules
+**/node_modules
+dist
+build
+*.tsbuildinfo
+
+# frontend (separate deploy) + its build output
+apps/web/.next
+apps/web/out
+
+# local infra volumes, env, git, editor
+.data
+.git
+.gitignore
+.env
+.env.*
+!.env.example
+.vscode
+.idea
+
+# tests / coverage / e2e artifacts (not needed in the runtime image)
+test
+coverage
+.nyc_output
+test-results
+playwright-report
+playwright.config.ts
+
+# docs / brain / scratch
+docs
+school-works-brain
+*.md
+!README.md

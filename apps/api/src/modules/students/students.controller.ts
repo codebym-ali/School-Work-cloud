@@ -21,6 +21,8 @@ import {
   UpdateStudentDto,
 } from './dto/student.dto';
 
+// Directory is admin-only (§23, P2.1): parents/students use scoped child/self reads.
+@Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
 @Controller('students')
 export class StudentsController {
   constructor(

@@ -2,6 +2,7 @@ import { Controller, Get, Query, Res } from '@nestjs/common';
 import type { Response } from 'express';
 import { IsIn, IsOptional, IsString } from 'class-validator';
 import { Type } from 'class-transformer';
+import { Roles } from '@common';
 import { ReportsService } from './reports.service';
 
 class ReportQuery {
@@ -21,6 +22,7 @@ class ReportQuery {
 type Row = Record<string, unknown>;
 
 /** The seven reports (blueprint §28, §24). Each supports `format=json|csv` (pdf deferred). */
+@Roles('OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT')
 @Controller('reports')
 export class ReportsController {
   constructor(private readonly reports: ReportsService) {}

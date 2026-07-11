@@ -3,6 +3,7 @@ import { IsOptional, IsString } from 'class-validator';
 import { PaginationQuery, Roles } from '@common';
 import { AuditQueryService, DashboardService } from './insights.service';
 
+@Roles('OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT')
 @Controller('dashboard')
 export class DashboardController {
   constructor(private readonly dashboard: DashboardService) {}

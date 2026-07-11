@@ -72,11 +72,13 @@ export class FeesController {
     return this.invoicing.createBatch(dto);
   }
 
+  @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT')
   @Get('invoices')
   listInvoices(@Query() q: InvoiceListQuery) {
     return this.invoicing.list(q);
   }
 
+  @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT')
   @Get('invoices/:id')
   getInvoice(@Param('id') id: string) {
     return this.invoicing.get(id);
@@ -94,6 +96,7 @@ export class FeesController {
     return this.payments.pay(id, dto, key);
   }
 
+  @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT')
   @Get('payments')
   listPayments(@Query() q: PaymentListQuery) {
     return this.payments.listPayments(q);
@@ -111,11 +114,13 @@ export class FeesController {
     return this.payments.deposit(dto, key);
   }
 
+  @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT')
   @Get('advances')
   advances(@Query('parentId') parentId: string) {
     return this.payments.creditBalance(parentId).then((balance) => ({ parentId, balance }));
   }
 
+  @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT')
   @Get('defaulters')
   defaulters(@Query() q: DefaultersQuery) {
     return this.invoicing.defaulters(q);

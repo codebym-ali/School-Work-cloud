@@ -1,5 +1,6 @@
 import { NestFactory } from '@nestjs/core';
 import { Logger } from '@nestjs/common';
+import { Logger as PinoLogger } from 'nestjs-pino';
 import { initSentry, loadDotenv } from '@common';
 import { WorkerModule } from './worker.module';
 
@@ -10,7 +11,8 @@ import { WorkerModule } from './worker.module';
 async function bootstrap(): Promise<void> {
   loadDotenv(); // dev: populate process.env from .env before config validation
   initSentry('worker'); // §31 — no-op without SENTRY_DSN
-  const app = await NestFactory.createApplicationContext(WorkerModule, { bufferLogs: false });
+  const app = await NestFactory.createApplicationContext(WorkerModule, { bufferLogs: true });
+  app.useLogger(app.get(PinoLogger));
   app.enableShutdownHooks(); // SmsProcessor.onModuleDestroy flushes Sentry + closes the worker
   new Logger('Worker').log('Worker started — awaiting BullMQ jobs');
 }

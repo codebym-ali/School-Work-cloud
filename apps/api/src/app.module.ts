@@ -1,18 +1,26 @@
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ClsMiddleware, ClsModule } from 'nestjs-cls';
+import { LoggerModule } from 'nestjs-pino';
 import { randomUUID } from 'node:crypto';
 import {
   AllExceptionsFilter,
   CommonModule,
+  ConfigModule,
+  ENV,
+  MetricsMiddleware,
+  MetricsModule,
+  pinoConfig,
   RateLimitGuard,
   RateLimitModule,
   RedisModule,
   RolesGuard,
   TenantScopeGuard,
+  type Env,
 } from '@common';
 import { StorageModule } from '@common';
 import { DatabaseModule, TenantTransactionInterceptor } from '@database';
+import { MetricsController } from './metrics/metrics.controller';
 import { AuthModule } from './modules/auth/auth.module';
 import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard';
 import { CsrfGuard } from './modules/auth/guards/csrf.guard';
@@ -42,6 +50,12 @@ import { UploadsModule } from './modules/uploads/uploads.module';
  */
 @Module({
   imports: [
+    // Structured JSON logging (§31) — requestId/schoolId/userId + PII redaction.
+    LoggerModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ENV],
+      useFactory: (env: Env) => pinoConfig(env),
+    }),
     ClsModule.forRoot({
       global: true,
       // mount: false — we apply ClsMiddleware explicitly (below) so it is guaranteed
@@ -51,6 +65,7 @@ import { UploadsModule } from './modules/uploads/uploads.module';
     CommonModule,
     RedisModule,
     RateLimitModule,
+    MetricsModule,
     StorageModule,
     DatabaseModule,
     AuthModule,
@@ -69,7 +84,7 @@ import { UploadsModule } from './modules/uploads/uploads.module';
     ReportsModule,
     UploadsModule,
   ],
-  controllers: [HealthController],
+  controllers: [HealthController, MetricsController],
   providers: [
     // Guard order matters — Nest runs global guards in registration order.
     // RateLimitGuard runs after JwtAuthGuard so req.user is set (authenticated
@@ -85,13 +100,14 @@ import { UploadsModule } from './modules/uploads/uploads.module';
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
-    // CLS context first (all routes), then tenant resolution (all but health).
+    // CLS context first (all routes); metrics records every response; then tenant resolution.
     consumer.apply(ClsMiddleware).forRoutes('*');
+    consumer.apply(MetricsMiddleware).forRoutes('*');
     consumer
       .apply(TenantResolutionMiddleware)
-      // Host-exempt (blueprint §19, §24): health checks, HMAC webhooks, and the
-      // vendor console (cross-tenant; runs on the reserved `admin` host).
-      .exclude('health/(.*)', 'health', 'webhooks/(.*)', 'platform/(.*)')
+      // Host-exempt (blueprint §19, §24, §31): health checks, HMAC webhooks, the vendor
+      // console (cross-tenant; reserved `admin` host), and the metrics scrape.
+      .exclude('health/(.*)', 'health', 'webhooks/(.*)', 'platform/(.*)', 'metrics')
       .forRoutes('*');
   }
 }

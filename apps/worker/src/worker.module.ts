@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ClsModule } from 'nestjs-cls';
-import { CommonModule, RedisModule } from '@common';
+import { LoggerModule } from 'nestjs-pino';
+import { CommonModule, ConfigModule, ENV, pinoConfig, RedisModule, type Env } from '@common';
 import { DatabaseModule } from '@database';
 import { CommsModule } from '../../api/src/modules/comms/comms.module';
 import { SmsProcessor } from './processors/sms.processor';
@@ -12,6 +13,7 @@ import { SmsProcessor } from './processors/sms.processor';
  */
 @Module({
   imports: [
+    LoggerModule.forRootAsync({ imports: [ConfigModule], inject: [ENV], useFactory: (env: Env) => pinoConfig(env) }),
     ClsModule.forRoot({ global: true }),
     CommonModule,
     RedisModule,

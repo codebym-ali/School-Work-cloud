@@ -30,4 +30,8 @@ export * from './rate-limit/rate-limit.service';
 export * from './rate-limit/rate-limit.guard';
 export * from './rate-limit/rate-limit.module';
 export * from './observability/sentry';
+export * from './observability/logger.config';
+export * from './observability/metrics.service';
+export * from './observability/metrics.middleware';
+export * from './observability/metrics.module';
 export * from './antivirus/clamav.service';

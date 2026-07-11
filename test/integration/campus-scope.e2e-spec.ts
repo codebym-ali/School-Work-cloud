@@ -229,6 +229,40 @@ describe('Campus scoping (e2e, §22.8 / P1.7)', () => {
     expect(ownPay.status).toBe(201);
   });
 
+  // ── Admissions / Exams / Setup / HR (rolled-out surfaces) ───────────────────
+  const adminCsrf = () => csrfOf(adminCookies);
+
+  it('CAMPUS_ADMIN cannot create an inquiry in another campus', async () => {
+    const res = await authed('post', '/api/v1/inquiries', adminCookies, adminCsrf())
+      .send({ campusId: campusB, guardianName: 'G', guardianPhone: '03007770007', studentName: 'S', desiredClassId: classB });
+    expect(res.status).toBe(403);
+    expect(res.body.error.code).toBe('FORBIDDEN');
+  });
+
+  it('CAMPUS_ADMIN cannot create an exam for another campus class', async () => {
+    const res = await authed('post', '/api/v1/exams', adminCookies, adminCsrf())
+      .send({ termId: randomUUID(), classId: classB, name: 'X', examType: 'MID_TERM', weightagePercent: 50, examDate: '2026-07-08' });
+    expect(res.status).toBe(403);
+  });
+
+  it('CAMPUS_ADMIN /classes is scoped to A; class/section create in B → 403', async () => {
+    const list = await authed('get', '/api/v1/classes', adminCookies);
+    const ids = (list.body as Array<{ id: string }>).map((c) => c.id);
+    expect(ids).toContain(classA);
+    expect(ids).not.toContain(classB);
+
+    expect((await authed('post', '/api/v1/classes', adminCookies, adminCsrf()).send({ campusId: campusB, name: 'Nope', order: 9 })).status).toBe(403);
+    expect((await authed('post', '/api/v1/sections', adminCookies, adminCsrf()).send({ classId: classB, name: 'Z' })).status).toBe(403);
+  });
+
+  it('CAMPUS_ADMIN cannot create staff in another campus', async () => {
+    const res = await authed('post', '/api/v1/staff', adminCookies, adminCsrf()).send({
+      email: `t-${randomUUID().slice(0, 8)}@cs.pk`, staffType: 'TEACHER',
+      employeeCode: `E-${randomUUID().slice(0, 6)}`, designation: 'Teacher', joinedAt: '2026-01-01', campusId: campusB,
+    });
+    expect(res.status).toBe(403);
+  });
+
   // ── OWNER_ADMIN (no regression) ──────────────────────────────────────────────
   it('OWNER_ADMIN still sees both campuses', async () => {
     const students = await authed('get', '/api/v1/students', ownerCookies);

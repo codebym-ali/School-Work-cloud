@@ -2,7 +2,9 @@ import { HttpStatus, Injectable } from '@nestjs/common';
 import { InquiryStatus } from '@prisma/client';
 import {
   AppError,
+  assertCampusAccess,
   AuditActions,
+  effectiveCampusFilter,
   ErrorCodes,
   normalizePkPhone,
   paginate,
@@ -47,6 +49,7 @@ export class AdmissionsService {
   async createInquiry(dto: CreateInquiryDto) {
     const phone = normalizePkPhone(dto.guardianPhone);
     if (!phone) throw new AppError(ErrorCodes.VALIDATION_FAILED, HttpStatus.UNPROCESSABLE_ENTITY, 'Invalid guardian phone');
+    assertCampusAccess(this.ctx.user, dto.campusId); // a campus-bound user can't create for another campus
     return this.db.inquiry.create({
       data: {
         schoolId: this.sid,
@@ -62,8 +65,10 @@ export class AdmissionsService {
   }
 
   async list(q: InquiryListQuery): Promise<Paginated<unknown>> {
+    // Campus-bound users are forced to their own campus (client campusId ignored, §22.8).
+    const campusId = effectiveCampusFilter(this.ctx.user, q.campusId);
     const where = {
-      ...(q.campusId ? { campusId: q.campusId } : {}),
+      ...(campusId ? { campusId } : {}),
       ...(q.status ? { status: q.status } : {}),
     };
     const { skip, take } = toSkipTake(q);
@@ -80,6 +85,8 @@ export class AdmissionsService {
       include: { entryTest: true, admission: true },
     });
     if (!inquiry) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'Inquiry not found');
+    // Gates every inquiry action (schedule/record/reject/withdraw/admit route through here).
+    assertCampusAccess(this.ctx.user, inquiry.campusId);
     return inquiry;
   }
 

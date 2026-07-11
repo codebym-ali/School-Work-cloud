@@ -1,6 +1,13 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { ExamStatus } from '@prisma/client';
-import { AppError, ErrorCodes, TenantContext, type RequestUser } from '@common';
+import {
+  AppError,
+  assertCampusAccess,
+  ErrorCodes,
+  restrictedCampusId,
+  TenantContext,
+  type RequestUser,
+} from '@common';
 import { TenantPrismaService } from '@database';
 import type { BulkMarksDto, CreateExamDto, MarkRowDto } from './dto/exams.dto';
 
@@ -25,7 +32,11 @@ export class ExamsService {
     return this.ctx.requireSchoolId();
   }
 
-  createExam(dto: CreateExamDto) {
+  async createExam(dto: CreateExamDto) {
+    // The exam's campus is its class's campus — a campus-bound user can't create for another.
+    const klass = await this.db.class.findFirst({ where: { id: dto.classId }, select: { campusId: true } });
+    if (!klass) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'Class not found');
+    assertCampusAccess(this.ctx.user, klass.campusId);
     return this.db.examDefinition.create({
       data: {
         schoolId: this.sid,
@@ -41,8 +52,14 @@ export class ExamsService {
   }
 
   listExams(classId?: string, termId?: string) {
+    // Campus-bound users only see exams for classes in their campus.
+    const restricted = restrictedCampusId(this.ctx.user);
     return this.db.examDefinition.findMany({
-      where: { ...(classId ? { classId } : {}), ...(termId ? { termId } : {}) },
+      where: {
+        ...(classId ? { classId } : {}),
+        ...(termId ? { termId } : {}),
+        ...(restricted ? { class: { campusId: restricted } } : {}),
+      },
       orderBy: { examDate: 'asc' },
     });
   }
@@ -88,7 +105,8 @@ export class ExamsService {
     return { succeeded, failed: errors.length, errors };
   }
 
-  getResults(examId: string) {
+  async getResults(examId: string) {
+    await this.getExam(examId); // asserts campus access
     return this.db.examResult.findMany({
       where: { examId },
       include: { subject: { select: { name: true } }, enrollment: { select: { studentId: true, sectionId: true } } },
@@ -124,8 +142,13 @@ export class ExamsService {
 
   // ── helpers ──────────────────────────────────────────────────────────────────
   private async getExam(id: string) {
-    const exam = await this.db.examDefinition.findFirst({ where: { id } });
+    const exam = await this.db.examDefinition.findFirst({
+      where: { id },
+      include: { class: { select: { campusId: true } } },
+    });
     if (!exam) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'Exam not found');
+    // Gates openMarksEntry / enterMarks / getResults / publish (all route through here).
+    assertCampusAccess(this.ctx.user, exam.class.campusId);
     return exam;
   }
 

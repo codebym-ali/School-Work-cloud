@@ -1,5 +1,13 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
-import { AppError, AuditActions, ErrorCodes, TenantContext } from '@common';
+import {
+  AppError,
+  assertCampusAccess,
+  AuditActions,
+  effectiveCampusFilter,
+  ErrorCodes,
+  restrictedCampusId,
+  TenantContext,
+} from '@common';
 import { AuditService, TenantPrismaService } from '@database';
 import type {
   CreateAcademicYearDto,
@@ -92,12 +100,14 @@ export class SetupService {
 
   async updateCampus(id: string, dto: UpdateCampusDto) {
     await this.mustExist('campus', id);
+    assertCampusAccess(this.ctx.user, id); // a campus-bound admin may only edit their own campus
     return this.db.campus.update({ where: { id }, data: dto });
   }
 
   // ── Classes ────────────────────────────────────────────────────────────────
   async createClass(dto: CreateClassDto) {
     await this.mustExist('campus', dto.campusId);
+    assertCampusAccess(this.ctx.user, dto.campusId);
     if (dto.minAgeYears != null && dto.maxAgeYears != null && dto.maxAgeYears < dto.minAgeYears) {
       throw new AppError(ErrorCodes.VALIDATION_FAILED, HttpStatus.UNPROCESSABLE_ENTITY, 'maxAgeYears < minAgeYears');
     }
@@ -114,41 +124,51 @@ export class SetupService {
   }
 
   listClasses(campusId?: string) {
+    const effective = effectiveCampusFilter(this.ctx.user, campusId);
     return this.db.class.findMany({
-      where: campusId ? { campusId } : {},
+      where: effective ? { campusId: effective } : {},
       orderBy: { order: 'asc' },
     });
   }
 
   // ── Sections ───────────────────────────────────────────────────────────────
   async createSection(dto: CreateSectionDto) {
-    await this.mustExist('class', dto.classId);
+    await this.assertClassCampus(dto.classId);
     return this.db.section.create({
       data: { schoolId: this.sid, classId: dto.classId, name: dto.name, capacity: dto.capacity ?? 40 },
     });
   }
 
   listSections(classId?: string) {
+    const restricted = restrictedCampusId(this.ctx.user);
     return this.db.section.findMany({
-      where: classId ? { classId } : {},
+      where: { ...(classId ? { classId } : {}), ...(restricted ? { class: { campusId: restricted } } : {}) },
       orderBy: { name: 'asc' },
     });
   }
 
   // ── Subjects ───────────────────────────────────────────────────────────────
   async createSubject(dto: CreateSubjectDto) {
-    await this.mustExist('class', dto.classId);
+    await this.assertClassCampus(dto.classId);
     return this.db.subject.create({ data: { schoolId: this.sid, classId: dto.classId, name: dto.name } });
   }
 
   listSubjects(classId?: string) {
+    const restricted = restrictedCampusId(this.ctx.user);
     return this.db.subject.findMany({
-      where: classId ? { classId } : {},
+      where: { ...(classId ? { classId } : {}), ...(restricted ? { class: { campusId: restricted } } : {}) },
       orderBy: { name: 'asc' },
     });
   }
 
   // ── helpers ──────────────────────────────────────────────────────────────────
+  /** A class exists and (for campus-bound users) belongs to the caller's campus. */
+  private async assertClassCampus(classId: string): Promise<void> {
+    const klass = await this.db.class.findFirst({ where: { id: classId }, select: { campusId: true } });
+    if (!klass) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'class not found');
+    assertCampusAccess(this.ctx.user, klass.campusId);
+  }
+
   private async mustExist(model: 'campus' | 'class' | 'section', id: string): Promise<void> {
     const row = await (this.db[model] as { findFirst: (a: unknown) => Promise<unknown> }).findFirst({
       where: { id },

@@ -26,9 +26,12 @@ export class MaintenanceProcessor implements OnModuleInit, OnModuleDestroy {
     const connection = bullConnection(this.env.REDIS_URL);
     this.queue = new Queue(QUEUE, { connection });
 
-    // Idempotent nightly schedules — BullMQ dedupes repeatables by their repeat key.
-    await this.queue.add('mark-overdue', {}, { repeat: { pattern: '0 1 * * *' }, removeOnComplete: true, removeOnFail: 100 });
-    await this.queue.add('fee-integrity-check', {}, { repeat: { pattern: '30 1 * * *' }, removeOnComplete: true, removeOnFail: 100 });
+    // Idempotent schedules — BullMQ dedupes repeatables by their repeat key.
+    const opts = { removeOnComplete: true as const, removeOnFail: 100 };
+    await this.queue.add('mark-overdue', {}, { repeat: { pattern: '0 1 * * *' }, ...opts });
+    await this.queue.add('fee-integrity-check', {}, { repeat: { pattern: '30 1 * * *' }, ...opts });
+    await this.queue.add('idempotency-purge', {}, { repeat: { pattern: '0 * * * *' }, ...opts }); // hourly
+    await this.queue.add('sms-log-purge', {}, { repeat: { pattern: '0 2 * * *' }, ...opts }); // nightly 02:00
 
     this.worker = new Worker(
       QUEUE,

@@ -4,14 +4,29 @@ import { captureError, CLS_KEYS } from '@common';
 import { PlatformPrismaService, TenantPrismaService } from '@database';
 import { FeeJobsService } from '../../../api/src/modules/fees/fee-jobs.service';
 
-export type MaintenanceJob = 'mark-overdue' | 'fee-integrity-check';
+export type MaintenanceJob =
+  | 'mark-overdue'
+  | 'fee-integrity-check'
+  | 'idempotency-purge'
+  | 'sms-log-purge';
+
+export interface MaintenanceResult {
+  /** Tenants processed (per-tenant fee jobs). */
+  schools?: number;
+  /** Rows deleted (global purge jobs). */
+  deleted?: number;
+}
+
+/** Idempotency keys expire after 48h (blueprint §25.4). */
+const IDEMPOTENCY_TTL_MS = 48 * 60 * 60 * 1000;
+/** SMS logs retained ~180 days (billing/audit) then purged (§27). */
+const SMS_LOG_RETENTION_MS = 180 * 24 * 60 * 60 * 1000;
 
 /**
- * Cross-tenant nightly maintenance (blueprint §27). The fee-job LOGIC lives in the
- * request-path `FeeJobsService` (tested via the fees e2e); this runs it for EVERY active
- * tenant, each inside its own CLS context + RLS-bound `withTenant` tx — exactly like a
- * request, so RLS and the tenant extension apply. A failure in one tenant is logged +
- * reported and does not abort the others.
+ * Cross-tenant nightly maintenance (blueprint §27). Fee jobs run per active tenant
+ * (each in its own CLS + RLS-bound `withTenant` tx, like a request); global purges run
+ * once across all tenants on the platform_admin (BYPASSRLS) connection. A failure in one
+ * tenant is logged + Sentry-reported and doesn't abort the rest.
  */
 @Injectable()
 export class MaintenanceService {
@@ -24,7 +39,20 @@ export class MaintenanceService {
     private readonly feeJobs: FeeJobsService,
   ) {}
 
-  async run(job: MaintenanceJob): Promise<{ schools: number }> {
+  async run(job: MaintenanceJob): Promise<MaintenanceResult> {
+    switch (job) {
+      case 'mark-overdue':
+      case 'fee-integrity-check':
+        return { schools: await this.runFeeJobPerTenant(job) };
+      case 'idempotency-purge':
+        return { deleted: await this.purgeIdempotencyKeys() };
+      case 'sms-log-purge':
+        return { deleted: await this.purgeSmsLogs() };
+    }
+  }
+
+  /** Run a fee job for every ACTIVE tenant, isolated per school. */
+  private async runFeeJobPerTenant(job: 'mark-overdue' | 'fee-integrity-check'): Promise<number> {
     const schools = await this.platform.school.findMany({ where: { isActive: true }, select: { id: true } });
     for (const school of schools) {
       await this.cls.run(async () => {
@@ -48,6 +76,21 @@ export class MaintenanceService {
         }
       });
     }
-    return { schools: schools.length };
+    return schools.length;
+  }
+
+  /** Global purge (all tenants, one query) via the BYPASSRLS connection. */
+  private async purgeIdempotencyKeys(): Promise<number> {
+    const cutoff = new Date(Date.now() - IDEMPOTENCY_TTL_MS);
+    const { count } = await this.platform.idempotencyKey.deleteMany({ where: { createdAt: { lt: cutoff } } });
+    this.logger.log(`idempotency-purge: deleted ${count} key(s) older than 48h`);
+    return count;
+  }
+
+  private async purgeSmsLogs(): Promise<number> {
+    const cutoff = new Date(Date.now() - SMS_LOG_RETENTION_MS);
+    const { count } = await this.platform.smsLog.deleteMany({ where: { createdAt: { lt: cutoff } } });
+    this.logger.log(`sms-log-purge: deleted ${count} log(s) older than 180d`);
+    return count;
   }
 }

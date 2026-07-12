@@ -59,12 +59,28 @@ services:
 
   postgres:
     image: postgres:16-alpine
+    # WAL archiving → point-in-time recovery (blueprint §29 RPO ≤30m; archive_timeout=300
+    # forces a segment every 5 min so worst-case data loss is ≤5 min). Locally WAL is
+    # copied into a volume; in prod ship it to R2 (wal-g/pgBackRest) — swap archive_command.
+    command:
+      - postgres
+      - -c
+      - wal_level=replica
+      - -c
+      - archive_mode=on
+      - -c
+      - archive_command=test ! -f /wal-archive/%f && cp %p /wal-archive/%f
+      - -c
+      - archive_timeout=300
+      - -c
+      - max_wal_senders=3
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: school
     volumes:
       - pgdata:/var/lib/postgresql/data
+      - walarchive:/wal-archive
       - ./scripts/postgres-init.sql:/docker-entrypoint-initdb.d/00-init.sql:ro
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U postgres -d school']
@@ -94,5 +110,6 @@ services:
 
 volumes:
   pgdata:
+  walarchive:
   redisdata:
   miniodata:

@@ -1,7 +1,7 @@
 ---
 title: Fees & Payments
 type: domain
-updated: 2026-07-07
+updated: 2026-07-13
 status: built (M4)
 ---
 
@@ -30,3 +30,5 @@ status: built (M4)
 
 **Source:** [[03-database-schema-erd]], blueprint §12. Idempotency & concurrency: [[API Contract]].
 **Implementation status:** ✅ **built (M4)** → [[Progress Tracker]]. Modules: `fees/` (fee-setup, invoicing, payments, fee-jobs) + reusable `IdempotencyService` in `libs/database`. Deferred: advance auto-application, sibling-discount auto-calc, reconciliation CSV, worker-cron wiring for `mark-overdue`/`fee-integrity-check` (currently service methods + admin triggers).
+
+**Concurrency hardened (M7, 2026-07-13):** the `scripts/load-fees.mjs` fee-season load driver (150 concurrent payments + 40-way idempotency replay + 30-way overpay race) passes with **zero 5xx** and all invariants held (unique + gap-free receipts, exactly-once charge, no over-collection, integrity clean). Two contention bugs fixed en route — a too-tight Prisma tx budget and an idempotency-reserve that poisoned its own tx; details in [[Key Decisions]] → *Concurrency / load hardening*. Under a full-payment race the losers correctly return **409 already-PAID** (not always 422).

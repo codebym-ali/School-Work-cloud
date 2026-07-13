@@ -1,7 +1,7 @@
 ---
 title: Key Decisions
 type: meta
-updated: 2026-07-10
+updated: 2026-07-13
 ---
 
 # Key Decisions
@@ -27,6 +27,12 @@ Full ledger: [[consistency-register]] (LOCKED). This is the digest.
 - **Never run the `worker` while running the integration suite** — a live worker (or a **zombie one**: `pnpm start:worker:dev`'s child `dist/apps/worker/main` can outlive a parent `TaskStop`/Ctrl-C on Windows) competes for the BullMQ `sms` queue, so the tests' manual `drainSms()` either fails *"Job … locked by another worker"* or the job gets dispatched twice → duplicate `SmsLog`. Confirm no `dist/apps/worker/main` process is alive before an integration run.
 - **`pnpm test` must run integration serially.** It now chains `test:unit → test:integration → test:isolation` (integration/isolation `--runInBand`), matching CI. The old aggregate ran integration in parallel → SMS suites contended over the shared queue. This is a test-harness constraint, not a product bug (prod: deterministic job ids + one worker fleet).
 - **`.env` gotcha for local run:** the config validator rejects the `S3_ENDPOINT=https://<accountid>…` placeholder (invalid URL) — point it at local MinIO (`http://localhost:9002`, `minioadmin`/`minioadmin`) or the app won't boot. `@aws-sdk/*` + `pdfkit` must be `pnpm install`ed (added for M7 storage/PDF).
+
+### Concurrency / load hardening (learned in M7 fee-season load test → [[Fees & Payments]])
+The §25.5 load driver (`scripts/load-fees.mjs`) proved the correctness invariants (gap-free receiptNo, exactly-once idempotent charge, no over-collection) but surfaced two bugs where correct-but-contended requests returned raw **500s** instead of clean business statuses. Both fixed:
+- **Prisma's default tx budget is too tight for the serializing payment path.** `withTenant` opened every request tx with Prisma defaults (`timeout` 5s / `maxWait` 2s). Payments serialize on `schools.next_receipt_no` (the gap-free-receipt lock), so under burst the queue was deeper than 5s and queued-but-valid txs were **aborted** → 500. Fix: `TenantPrismaService` now passes `{ timeout, maxWait }` (env `DB_TX_TIMEOUT_MS`=20000 / `DB_TX_MAXWAIT_MS`=10000). Pool raised to `connection_limit=25&pool_timeout=15` on `DATABASE_URL` (dev `.env` + prod compose) so **blocked-in-transaction** connections don't starve the pool.
+- **Idempotency reserve poisoned its own transaction.** The old reserve did `create()` → catch `P2002` → `findFirst()` *in the same tx* — but a Postgres unique violation **aborts the whole tx**, so the recovery findFirst 500'd under concurrency. Fix: reserve with **`INSERT … ON CONFLICT (school_id,"key") DO NOTHING`** (raw) — never raises; the loser **blocks on the unique index** until the in-flight winner commits, then reads and **replays** the winner's stored response (true exactly-once, no 500s). See `IdempotencyService.run`.
+- **Test note:** a concurrent *full-payment* race yields exactly one 201 and the rest **409 already-PAID** (or 422 overpay if a loser raced in while still PARTIAL) — both are clean rejections; the invariant is "no double-charge, no 5xx", not "all 422".
 
 ## The 20 immutable business rules
 Copy verbatim from [[consistency-register]] §6. The load-bearing ones:

@@ -26,6 +26,15 @@ export class TenantPrismaService {
   // Type inferred from the extension application so `$transaction`/delegates stay typed.
   private readonly xprisma: ReturnType<TenantPrismaService['buildClient']>;
 
+  // The payment path deliberately serializes on the per-school receipt counter
+  // (`SELECT … FOR UPDATE` + `schools.next_receipt_no++`) to keep receiptNo gap-free
+  // (§25.5). Under a fee-season burst the queue behind that row lock is deeper than
+  // Prisma's default 5s tx timeout / 2s maxWait, so queued-but-correct transactions
+  // were being aborted and surfaced as raw 500s. Give the tx a realistic budget so
+  // contention degrades into slow-but-correct 201/422/409 instead of errors.
+  private readonly txTimeoutMs = Number(process.env.DB_TX_TIMEOUT_MS ?? 20_000);
+  private readonly txMaxWaitMs = Number(process.env.DB_TX_MAXWAIT_MS ?? 10_000);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly cls: ClsService,
@@ -48,16 +57,19 @@ export class TenantPrismaService {
     if (!schoolId || !isUuid(schoolId)) {
       throw new TenantViolationError('No valid tenant context for withTenant');
     }
-    return this.xprisma.$transaction(async (tx) => {
-      // Parameterized set_config; transaction-local (third arg = true).
-      await tx.$executeRaw`SELECT set_config('app.current_school_id', ${schoolId}, true)`;
-      const prev = this.cls.get<TenantTx | undefined>(CLS_KEYS.tx);
-      this.cls.set(CLS_KEYS.tx, tx);
-      try {
-        return await fn(tx as unknown as TenantTx);
-      } finally {
-        this.cls.set(CLS_KEYS.tx, prev);
-      }
-    });
+    return this.xprisma.$transaction(
+      async (tx) => {
+        // Parameterized set_config; transaction-local (third arg = true).
+        await tx.$executeRaw`SELECT set_config('app.current_school_id', ${schoolId}, true)`;
+        const prev = this.cls.get<TenantTx | undefined>(CLS_KEYS.tx);
+        this.cls.set(CLS_KEYS.tx, tx);
+        try {
+          return await fn(tx as unknown as TenantTx);
+        } finally {
+          this.cls.set(CLS_KEYS.tx, prev);
+        }
+      },
+      { timeout: this.txTimeoutMs, maxWait: this.txMaxWaitMs },
+    );
   }
 }

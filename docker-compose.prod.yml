@@ -9,7 +9,10 @@
 # Secrets come from .env (env_file); only the in-network service URLs are overridden here.
 
 x-app-env: &app-env
-  DATABASE_URL: postgres://app_user:app_pw@postgres:5432/school
+  # connection_limit sized for the fee-season payment burst: payments serialize on the
+  # per-school receipt counter, so blocked-in-transaction connections must not starve the
+  # pool (§25.5). pool_timeout aligns with the tx maxWait in TenantPrismaService.
+  DATABASE_URL: postgres://app_user:app_pw@postgres:5432/school?connection_limit=25&pool_timeout=15
   PLATFORM_DATABASE_URL: postgres://platform_admin:platform_pw@postgres:5432/school
   MIGRATION_DATABASE_URL: postgres://postgres:postgres@postgres:5432/school
   REDIS_URL: redis://redis:6379

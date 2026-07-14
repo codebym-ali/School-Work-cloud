@@ -1,7 +1,7 @@
 ---
 title: Roadmap & Milestones
 type: delivery
-updated: 2026-07-06
+updated: 2026-07-14
 ---
 
 # Roadmap & Milestones
@@ -14,10 +14,10 @@ Sequencing and gates are **authoritative** (blueprint §34); durations are plann
 | **M1** | Foundations: tenancy, auth, CI, setup, provisioning | **Isolation suite green before any feature** | ✅ |
 | **M2** | Students, admissions, enrollment | Admit journey E2E green | ✅ |
 | **M3** | Attendance, leaves, SMS core | Mark attendance E2E + absence SMS verified | ✅ |
-| **M4** | Fees end-to-end | Collect-fee E2E + `fee-integrity-check` clean | ⏳ next |
-| **M5** | Exams & report cards | Enter/publish marks + parent views report card | ⬜ |
-| **M6** | HR, payroll, documents, reports, **promotion** | Promotion E2E + all 7 reports export | ⬜ |
-| **M7** | Hardening & pilot → **GA** | Load + pen test + DR drill + pilot live | ⬜ |
+| **M4** | Fees end-to-end | Collect-fee E2E + `fee-integrity-check` clean | ✅ |
+| **M5** | Exams & report cards | Enter/publish marks + parent views report card | ✅ |
+| **M6** | HR, payroll, documents, reports, **promotion** | Promotion E2E + all 7 reports export | ✅ |
+| **M7** | Hardening & pilot → **GA** | Load + pen test + DR drill + pilot live | ⏳ hardening done; VPS deploy/DR-drill/pen-test/pilot remain |
 
 ## Dependency rules (why the order is fixed)
 - **M1 gates everything** — isolation + matrix-conformance are merge-blocking for the whole project.

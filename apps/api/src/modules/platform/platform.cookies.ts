@@ -15,7 +15,10 @@ export const PLATFORM_CSRF_COOKIE = 'platform_csrf';
 export const PLATFORM_REFRESH_PATH = '/api/v1/platform/auth/refresh';
 
 function base(env: Env): CookieOptions {
-  return { httpOnly: true, secure: env.COOKIE_SECURE, sameSite: 'strict', domain: env.COOKIE_DOMAIN, path: '/' };
+  // Host-only when COOKIE_DOMAIN is a single-label domain (e.g. `localhost`) — browsers
+  // reject it as a Domain attribute; see auth.cookies.ts. Real apex keeps its Domain.
+  const domain = env.COOKIE_DOMAIN.includes('.') ? env.COOKIE_DOMAIN : undefined;
+  return { httpOnly: true, secure: env.COOKIE_SECURE, sameSite: 'strict', domain, path: '/' };
 }
 
 export function setPlatformAccessCookie(res: Response, env: Env, token: string, maxAgeMs: number): void {

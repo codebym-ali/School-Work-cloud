@@ -17,9 +17,20 @@ function base(env: Env): CookieOptions {
     httpOnly: true,
     secure: env.COOKIE_SECURE,
     sameSite: 'strict',
-    domain: env.COOKIE_DOMAIN,
+    domain: cookieDomain(env.COOKIE_DOMAIN),
     path: '/',
   };
+}
+
+/**
+ * A single-label domain (e.g. `localhost`) is rejected by browsers as a cookie `Domain`
+ * attribute, so the session cookie is silently dropped and the app bounces back to login.
+ * Emit a HOST-ONLY cookie there (no Domain) — it then works at `localhost` AND any
+ * `*.localhost` tenant host in dev. A real apex (`school.com`) keeps its Domain so the
+ * cookie is shared across tenant subdomains in production (blueprint §22.2).
+ */
+function cookieDomain(configured: string): string | undefined {
+  return configured.includes('.') ? configured : undefined;
 }
 
 export function setAccessCookie(res: Response, env: Env, token: string, maxAgeMs: number): void {

@@ -50,13 +50,33 @@ jobs:
       ENCRYPTION_MASTER_KEY: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
       S3_ENDPOINT: http://localhost:9000
       S3_BUCKET: school-uploads
-      S3_ACCESS_KEY_ID: ci
-      S3_SECRET_ACCESS_KEY: ci
+      # MinIO (below) is the S3 backend in CI; its root creds must be ≥8 chars, and the
+      # storage/PDF integration tests upload+fetch through it. StorageService auto-creates
+      # the bucket (HeadBucket→CreateBucket), so no bucket bootstrap step is needed.
+      S3_ACCESS_KEY_ID: minioadmin
+      S3_SECRET_ACCESS_KEY: minioadmin
       SMS_PROVIDER: console
       SMS_WEBHOOK_HMAC_SECRET: ci-webhook-secret
 
     steps:
       - uses: actions/checkout@v4
+
+      # MinIO is the S3 backend for the storage/PDF integration tests (report-card,
+      # certificate, upload pipeline). It can't be a `services:` entry because that block
+      # can't set the required `server /data` command, so start it here and wait for health.
+      - name: Start MinIO (S3-compatible object storage)
+        run: |
+          docker run -d --name minio -p 9000:9000 \
+            -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin \
+            minio/minio:latest server /data
+          echo "waiting for MinIO to be ready…"
+          for i in $(seq 1 30); do
+            if curl -fs http://localhost:9000/minio/health/live > /dev/null; then echo "MinIO is up"; exit 0; fi
+            sleep 2
+          done
+          echo "MinIO did not become ready in time" >&2
+          docker logs minio || true
+          exit 1
 
       - uses: pnpm/action-setup@v4
         with:

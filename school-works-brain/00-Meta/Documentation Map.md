@@ -33,7 +33,7 @@ register and blueprint agree (register is extracted verbatim); the numbered docs
 | 05 | [[05-ui-ux-specification]] | **UI/UX.** Screens per role, global UX rules (loading/empty/error states, confirmations, WCAG AA), mobile-first. *No frontend built yet.* | [[Product Overview]] |
 | 06 | [[06-security-compliance-specification]] | **Security & compliance.** Threat model, tenant isolation, auth/authz, encryption, PII, retention, right-to-erasure. | [[Security & Compliance]] |
 | 07 | [[07-non-functional-requirements]] | **NFRs.** Latency/uptime/RPO/RTO targets, rate limits, capacity basis, observability requirements. | [[Deployment & Operations]] |
-| 08 | [[08-deployment-infrastructure-plan]] | **Deployment.** Environments, IaC, backups, blue/green, DR. *Written for AWS; we run Contabo + Coolify + R2 — see the note.* | [[Deployment & Operations]] |
+| 08 | [[08-deployment-infrastructure-plan]] | **Deployment.** Environments, IaC, backups, blue/green, DR. *Written for AWS; we run Contabo + Coolify + R2 — see the note.* | [[Deployment & Operations]] · [[DR Runbook]] |
 | 09 | [[09-testing-quality-strategy]] | **Testing.** The pyramid: unit → integration → **tenant-isolation (merge-blocking)** → matrix-conformance → E2E → load. SEV policy. | [[Testing & Quality]] |
 | 10 | [[10-project-milestones-roadmap]] | **Roadmap.** M1→M7, dependency graph, gates, top-5 risks, post-GA (v1.5/v2.0). | [[Roadmap & Milestones]] |
 

@@ -19,8 +19,10 @@ export interface NavItem {
   roles?: Role[];
 }
 
+const NON_STUDENT: Role[] = ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT', 'TEACHER', 'PARENT'];
+
 export const NAV: NavItem[] = [
-  { href: '/dashboard', label: 'Dashboard' },
+  { href: '/dashboard', label: 'Dashboard', roles: NON_STUDENT },
   { href: '/setup', label: 'Setup', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
   { href: '/students', label: 'Students', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
   { href: '/admissions', label: 'Admissions', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
@@ -28,7 +30,20 @@ export const NAV: NavItem[] = [
   { href: '/fees', label: 'Fees', roles: ['OWNER_ADMIN', 'ACCOUNTANT'] },
   { href: '/exams', label: 'Exams', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'TEACHER'] },
   { href: '/reports', label: 'Reports', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
+  // Student self-service portal (§28) — read-only, own data.
+  { href: '/me', label: 'My Dashboard', roles: ['STUDENT'] },
+  { href: '/me/attendance', label: 'My Attendance', roles: ['STUDENT'] },
+  { href: '/me/results', label: 'My Results', roles: ['STUDENT'] },
+  { href: '/me/fees', label: 'My Fees', roles: ['STUDENT'] },
 ];
+
+/** Where a role should land after login. A pure student goes to their portal. */
+export function landingPath(roles: string[] | undefined): string {
+  const r = roles ?? [];
+  if (r.some((x) => (NON_STUDENT as string[]).includes(x))) return '/dashboard';
+  if (r.includes('STUDENT')) return '/me';
+  return '/dashboard';
+}
 
 /** True if the user holds any of the allowed roles (or the item is unrestricted). */
 export function hasAnyRole(userRoles: string[] | undefined, allowed?: Role[]): boolean {

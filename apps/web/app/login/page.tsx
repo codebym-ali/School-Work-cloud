@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { api, ApiError } from '@/lib/api';
+import { landingPath } from '@/lib/roles';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -17,7 +18,8 @@ export default function LoginPage() {
     setError(null);
     try {
       await api.login(email, password);
-      router.push('/dashboard');
+      const me = await api.me();
+      router.push(landingPath(me.roles));
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Login failed');
     } finally {

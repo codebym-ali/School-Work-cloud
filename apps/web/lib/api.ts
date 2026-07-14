@@ -95,10 +95,29 @@ export interface ReportCard {
   overallPercent: string; gradeLabel: string; sectionRank: number | null; documentId: string;
 }
 
+// ── Student self-service portal (§28) ────────────────────────────────────────
+export interface PortalOverview {
+  student: { fullName: string; grNumber: string; gender: string; dateOfBirth: string };
+  enrollment: { className: string; sectionName: string; rollNumber: number | null; year: string } | null;
+  guardians: Array<{ name: string; phone: string; relation: string; isPrimary: boolean }>;
+  attendancePercent: number | null;
+  outstandingFees: number;
+  reportCards: number;
+}
+export interface PortalAttendance { date: string; session: string; status: string }
+export interface PortalResult { term: string; overallPercent: number; grade: string; sectionRank: number | null }
+export interface PortalFee { id: string; month: number | null; year: number; total: number; paid: number; remaining: number; status: string; dueDate: string }
+
 export const api = {
   login: (email: string, password: string) =>
     apiPost<{ user: Me; mfaEnrollmentRequired?: boolean }>('/auth/login', { email, password }),
   logout: () => apiPost<null>('/auth/logout'),
   me: () => apiGet<Me>('/auth/me'),
   dashboard: () => apiGet<Dashboard>('/dashboard'),
+  portal: {
+    overview: () => apiGet<PortalOverview>('/portal/overview'),
+    attendance: () => apiGet<PortalAttendance[]>('/portal/attendance'),
+    results: () => apiGet<PortalResult[]>('/portal/results'),
+    fees: () => apiGet<PortalFee[]>('/portal/fees'),
+  },
 };

@@ -113,10 +113,15 @@ services:
     restart: unless-stopped
 
   postgres:
-    image: postgres:16-alpine
-    # WAL archiving → point-in-time recovery (blueprint §29 RPO ≤30m; archive_timeout=300
-    # forces a segment every 5 min so worst-case data loss is ≤5 min). Locally WAL is
-    # copied into a volume; in prod ship it to R2 (wal-g/pgBackRest) — swap archive_command.
+    # Custom image = postgres:16-alpine + rclone + archive-wal.sh (docker/postgres/Dockerfile).
+    build:
+      context: .
+      dockerfile: docker/postgres/Dockerfile
+    # WAL archiving → point-in-time recovery (blueprint §29 RPO ≤5m via archive_timeout=300;
+    # §33 DR). archive-wal.sh keeps a fast on-box copy in /wal-archive AND, when
+    # WAL_R2_ENABLED=true, durably ships each segment to R2 (rclone) so PITR survives host
+    # loss — it returns non-zero until the R2 upload lands, so Postgres never recycles
+    # un-shipped WAL. Off by default → local runs archive on-box only. See [[DR Runbook]].
     command:
       - postgres
       - -c
@@ -124,7 +129,7 @@ services:
       - -c
       - archive_mode=on
       - -c
-      - archive_command=test ! -f /wal-archive/%f && cp %p /wal-archive/%f
+      - archive_command=/usr/local/bin/archive-wal.sh %p %f
       - -c
       - archive_timeout=300
       - -c
@@ -133,6 +138,17 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: school
+      WAL_LOCAL_DIR: /wal-archive
+      # Set WAL_R2_ENABLED=true + the R2/rclone vars in .env to ship WAL off-box (see .env.example).
+      WAL_R2_ENABLED: ${WAL_R2_ENABLED:-false}
+      R2_BUCKET: ${R2_BUCKET:-}
+      RCLONE_CONFIG_R2_TYPE: s3
+      RCLONE_CONFIG_R2_PROVIDER: ${RCLONE_CONFIG_R2_PROVIDER:-Cloudflare}
+      RCLONE_CONFIG_R2_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID:-}
+      RCLONE_CONFIG_R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY:-}
+      RCLONE_CONFIG_R2_ENDPOINT: ${R2_ENDPOINT:-}
+      RCLONE_CONFIG_R2_REGION: auto
+      RCLONE_CONFIG_R2_NO_CHECK_BUCKET: 'true'
     volumes:
       - pgdata:/var/lib/postgresql/data
       - walarchive:/wal-archive

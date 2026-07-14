@@ -26,7 +26,7 @@ The mechanism, cadence, and stack rationale live in [[Deployment & Operations]];
 | WAL segments | Postgres `archive_command` | prod: ship to R2 `wal/`; local compose: `walarchive` volume | every ≤5 min | **Runbook B** — replay to target |
 | Restore proof | `scripts/restore-verify.sh` (prod) / `restore-verify-local.sh` (dev/CI) | scratch DB | weekly / per-CI | integrity gate |
 
-> [!warning] Prod WAL must go off-box. The compose `archive_command` copies WAL to a **local `walarchive` volume** — fine for the RPO mechanism, useless if the VPS dies. Before pilot, point `archive_command` at R2 (wal-g / a small `aws s3 cp` wrapper) so **base + WAL both live in R2**. Until then, Runbook B only survives a *logical* disaster (bad migration), not host loss.
+> [!check] WAL ships off-box to R2 (implemented 2026-07-14). `scripts/archive-wal.sh` (in the custom `docker/postgres` image, rclone) keeps the fast local copy **and**, when `WAL_R2_ENABLED=true`, durably uploads each segment to `s3://$R2_BUCKET/wal/` — returning non-zero until the upload lands, so Postgres never recycles un-shipped WAL. Verified end-to-end against S3-compatible storage (segments present locally **and** in the bucket; `pg_stat_archiver.failed_count=0`; a forced failure kept `.ready` segments un-recycled). So base + WAL both live in R2 → Runbook B survives **host loss**, not just logical disasters. Flip `WAL_R2_ENABLED=true` + set the R2 vars (`.env.example`).
 
 ## Access you need before you start (keep in the password manager, NOT only on the box)
 - R2 creds: `R2_ENDPOINT` / `R2_BUCKET` / `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY`

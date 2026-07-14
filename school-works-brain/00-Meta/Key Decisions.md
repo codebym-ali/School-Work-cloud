@@ -1,7 +1,7 @@
 ---
 title: Key Decisions
 type: meta
-updated: 2026-07-13
+updated: 2026-07-14
 ---
 
 # Key Decisions
@@ -27,6 +27,12 @@ Full ledger: [[consistency-register]] (LOCKED). This is the digest.
 - **Never run the `worker` while running the integration suite** — a live worker (or a **zombie one**: `pnpm start:worker:dev`'s child `dist/apps/worker/main` can outlive a parent `TaskStop`/Ctrl-C on Windows) competes for the BullMQ `sms` queue, so the tests' manual `drainSms()` either fails *"Job … locked by another worker"* or the job gets dispatched twice → duplicate `SmsLog`. Confirm no `dist/apps/worker/main` process is alive before an integration run.
 - **`pnpm test` must run integration serially.** It now chains `test:unit → test:integration → test:isolation` (integration/isolation `--runInBand`), matching CI. The old aggregate ran integration in parallel → SMS suites contended over the shared queue. This is a test-harness constraint, not a product bug (prod: deterministic job ids + one worker fleet).
 - **`.env` gotcha for local run:** the config validator rejects the `S3_ENDPOINT=https://<accountid>…` placeholder (invalid URL) — point it at local MinIO (`http://localhost:9002`, `minioadmin`/`minioadmin`) or the app won't boot. `@aws-sdk/*` + `pdfkit` must be `pnpm install`ed (added for M7 storage/PDF).
+
+### WAL archiving → R2 (learned in M7 → [[DR Runbook]])
+- **`archive_command` must be non-zero on failure** = the whole durability contract. `scripts/archive-wal.sh` does a fast local copy **then** an rclone upload to R2, and lets the R2 result gate the exit code — Postgres retries and won't recycle un-shipped WAL (back-pressure fills `pg_wal`, monitored via `pg_stat_archiver.failed_count`).
+- **Own the archive dir as `postgres` (uid 70) in the image** (`docker/postgres/Dockerfile`: `chown postgres /wal-archive`), so a fresh named volume inherits writable ownership. Otherwise the volume is root-owned and archiving fails *Permission denied* — the recurring **archive-dir uid gotcha** (also hit in the PITR drill).
+- **Testing gotcha:** don't pass an absolute container path in a `docker run -c "archive_command=/usr/..."` **from Git Bash** — MSYS rewrites it to `C:/Program Files/Git/usr/...` → exit 127. Prefix `MSYS_NO_PATHCONV=1` (or keep it in YAML, which the compose does). Same MSYS class as the `sh -c` container-path rule.
+- rclone gives an env-only S3/R2 remote (`RCLONE_CONFIG_R2_*`, `--config /dev/null`) — no config file, works for R2 (`PROVIDER=Cloudflare`) and MinIO (`PROVIDER=Minio`) alike, so the local S3 test mirrors prod.
 
 ### Concurrency / load hardening (learned in M7 fee-season load test → [[Fees & Payments]])
 The §25.5 load driver (`scripts/load-fees.mjs`) proved the correctness invariants (gap-free receiptNo, exactly-once idempotent charge, no over-collection) but surfaced two bugs where correct-but-contended requests returned raw **500s** instead of clean business statuses. Both fixed:

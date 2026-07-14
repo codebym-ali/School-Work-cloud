@@ -3,18 +3,22 @@ import { ClsService } from 'nestjs-cls';
 import { captureError, CLS_KEYS } from '@common';
 import { PlatformPrismaService, TenantPrismaService } from '@database';
 import { FeeJobsService } from '../../../api/src/modules/fees/fee-jobs.service';
+import { PLAN_MONTHLY_SMS_CREDITS } from '../../../api/src/modules/comms/sms/sms-plan-credits';
 
 export type MaintenanceJob =
   | 'mark-overdue'
   | 'fee-integrity-check'
   | 'idempotency-purge'
-  | 'sms-log-purge';
+  | 'sms-log-purge'
+  | 'sms-monthly-credit';
 
 export interface MaintenanceResult {
   /** Tenants processed (per-tenant fee jobs). */
   schools?: number;
   /** Rows deleted (global purge jobs). */
   deleted?: number;
+  /** Tenants granted this month's SMS plan credit. */
+  credited?: number;
 }
 
 /** Idempotency keys expire after 48h (blueprint §25.4). */
@@ -48,6 +52,8 @@ export class MaintenanceService {
         return { deleted: await this.purgeIdempotencyKeys() };
       case 'sms-log-purge':
         return { deleted: await this.purgeSmsLogs() };
+      case 'sms-monthly-credit':
+        return { credited: await this.grantMonthlySmsCredits() };
     }
   }
 
@@ -92,5 +98,37 @@ export class MaintenanceService {
     const { count } = await this.platform.smsLog.deleteMany({ where: { createdAt: { lt: cutoff } } });
     this.logger.log(`sms-log-purge: deleted ${count} log(s) older than 180d`);
     return count;
+  }
+
+  /**
+   * Refresh each ACTIVE tenant's monthly SMS plan credit (§14). Runs on the 1st; a
+   * cross-tenant billing grant, so it uses the platform (BYPASSRLS) connection (§21.5).
+   * Idempotent per calendar month: skip any tenant that already has a PLAN_MONTHLY grant
+   * this month (the provisioning grant counts, so a tenant onboarded mid-month isn't
+   * double-credited). Safe to re-run — BullMQ fires it once fleet-wide anyway.
+   */
+  private async grantMonthlySmsCredits(): Promise<number> {
+    const now = new Date();
+    const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+    const nextMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
+
+    const schools = await this.platform.school.findMany({
+      where: { isActive: true },
+      select: { id: true, planTier: true },
+    });
+    let credited = 0;
+    for (const school of schools) {
+      const alreadyGranted = await this.platform.smsCreditLedger.findFirst({
+        where: { schoolId: school.id, refType: 'PLAN_MONTHLY', createdAt: { gte: monthStart, lt: nextMonth } },
+        select: { id: true },
+      });
+      if (alreadyGranted) continue;
+      await this.platform.smsCreditLedger.create({
+        data: { schoolId: school.id, delta: PLAN_MONTHLY_SMS_CREDITS[school.planTier], refType: 'PLAN_MONTHLY' },
+      });
+      credited++;
+    }
+    this.logger.log(`sms-monthly-credit: granted this month's SMS plan credit to ${credited} tenant(s)`);
+    return credited;
   }
 }

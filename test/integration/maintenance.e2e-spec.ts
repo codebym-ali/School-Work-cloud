@@ -43,6 +43,7 @@ describe('Maintenance runner (e2e, §27)', () => {
     const ids = { in: [schoolA, schoolB, suspended] };
     await platform.idempotencyKey.deleteMany({ where: { schoolId: ids } });
     await platform.smsLog.deleteMany({ where: { schoolId: ids } });
+    await platform.smsCreditLedger.deleteMany({ where: { schoolId: ids } });
     await platform.school.deleteMany({ where: { id: ids } });
     await app.close();
   });
@@ -91,5 +92,28 @@ describe('Maintenance runner (e2e, §27)', () => {
     expect(await platform.smsLog.findUnique({ where: { id: recentLog } })).not.toBeNull();
 
     await platform.smsLog.deleteMany({ where: { id: { in: [oldLog, recentLog] } } });
+  });
+
+  it('sms-monthly-credit grants each active tenant its plan credit once per month (idempotent)', async () => {
+    const credited = randomUUID();
+    // A fresh active tenant with NO ledger yet (default planTier BASIC → 1000 segments).
+    await platform.school.create({ data: { id: credited, name: 'Maint C', subdomain: `mnt-${credited.slice(0, 8)}` } });
+    try {
+      const monthGrants = () =>
+        platform.smsCreditLedger.findMany({ where: { schoolId: credited, refType: 'PLAN_MONTHLY' } });
+
+      await maintenance.run('sms-monthly-credit');
+      const first = await monthGrants();
+      expect(first).toHaveLength(1);
+      expect(first[0].delta).toBe(1000); // BASIC tier
+
+      // Re-run in the same month → no second grant (idempotent).
+      const res = await maintenance.run('sms-monthly-credit');
+      expect(res.credited).toBe(0);
+      expect(await monthGrants()).toHaveLength(1);
+    } finally {
+      await platform.smsCreditLedger.deleteMany({ where: { schoolId: credited } });
+      await platform.school.delete({ where: { id: credited } });
+    }
   });
 });

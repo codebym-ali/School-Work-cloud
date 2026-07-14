@@ -3,9 +3,7 @@ import * as argon2 from 'argon2';
 import { AppError, ErrorCodes, parseSchoolSettings } from '@common';
 import { PlatformPrismaService } from '@database';
 import { DEFAULT_TEMPLATES, SMS_TRIGGER_KEYS } from '../comms/sms/sms-templates.defaults';
-
-// Monthly included SMS credits per plan tier (blueprint §14).
-const PLAN_CREDITS = { BASIC: 1000, PLUS: 5000, PRO: 20000 } as const;
+import { PLAN_MONTHLY_SMS_CREDITS } from '../comms/sms/sms-plan-credits';
 
 export interface ProvisionInput {
   name: string;
@@ -68,7 +66,7 @@ export class ProvisioningService {
       data: SMS_TRIGGER_KEYS.map((k) => ({ schoolId: school.id, triggerKey: k, body: DEFAULT_TEMPLATES[k] })),
     });
     await this.platform.smsCreditLedger.create({
-      data: { schoolId: school.id, delta: PLAN_CREDITS.BASIC, refType: 'PLAN_MONTHLY' },
+      data: { schoolId: school.id, delta: PLAN_MONTHLY_SMS_CREDITS.BASIC, refType: 'PLAN_MONTHLY' },
     });
 
     return { schoolId: school.id, campusId: campus.id, ownerUserId: owner.id };

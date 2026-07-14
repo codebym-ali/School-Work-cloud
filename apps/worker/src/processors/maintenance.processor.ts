@@ -32,6 +32,7 @@ export class MaintenanceProcessor implements OnModuleInit, OnModuleDestroy {
     await this.queue.add('fee-integrity-check', {}, { repeat: { pattern: '30 1 * * *' }, ...opts });
     await this.queue.add('idempotency-purge', {}, { repeat: { pattern: '0 * * * *' }, ...opts }); // hourly
     await this.queue.add('sms-log-purge', {}, { repeat: { pattern: '0 2 * * *' }, ...opts }); // nightly 02:00
+    await this.queue.add('sms-monthly-credit', {}, { repeat: { pattern: '30 0 1 * *' }, ...opts }); // 1st of month 00:30
 
     this.worker = new Worker(
       QUEUE,

@@ -13,9 +13,11 @@ import {
 import { Roles } from '@common';
 import { StudentsService } from './students.service';
 import { GuardiansService } from './guardians.service';
+import { StudentsImportService } from './students-import.service';
 import {
   AddGuardianDto,
   CreateStudentDto,
+  ImportStudentsDto,
   StudentSearchQuery,
   UpdateGuardianDto,
   UpdateStudentDto,
@@ -28,6 +30,7 @@ export class StudentsController {
   constructor(
     private readonly students: StudentsService,
     private readonly guardians: GuardiansService,
+    private readonly importer: StudentsImportService,
   ) {}
 
   @Get()
@@ -45,6 +48,14 @@ export class StudentsController {
   @Post()
   create(@Body() dto: CreateStudentDto) {
     return this.students.createStudent(dto);
+  }
+
+  /** Bulk import from CSV (§22.6). Validates the whole file first; imports all-or-nothing.
+   *  Returns a per-row error report; `dryRun:true` validates without writing. */
+  @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
+  @Post('import')
+  importCsv(@Body() dto: ImportStudentsDto) {
+    return this.importer.import(dto.csv, dto.dryRun ?? false);
   }
 
   @Get(':id')

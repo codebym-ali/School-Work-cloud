@@ -1,5 +1,6 @@
 import { Type } from 'class-transformer';
 import {
+  IsBoolean,
   IsDateString,
   IsEmail,
   IsEnum,
@@ -70,6 +71,17 @@ export class CreateStudentDto {
   /** Only honoured when the school is in MANUAL GR mode. */
   @IsOptional() @IsString() @MaxLength(40)
   grNumber?: string;
+}
+
+export class ImportStudentsDto {
+  /** Raw CSV text. Required columns: fullName,gender,dateOfBirth,className,sectionName,
+   *  guardianName,guardianPhone,relation. Optional: campusName,guardianCnic,guardianEmail,grNumber. */
+  @IsString() @MinLength(1) @MaxLength(1_000_000)
+  csv!: string;
+
+  /** Validate only — report row errors without importing anything. */
+  @IsOptional() @IsBoolean()
+  dryRun?: boolean;
 }
 
 export class UpdateStudentDto {

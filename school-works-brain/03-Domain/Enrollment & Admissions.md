@@ -1,7 +1,7 @@
 ---
 title: Enrollment & Admissions
 type: domain
-updated: 2026-07-06
+updated: 2026-07-14
 ---
 
 # Enrollment & Admissions
@@ -34,4 +34,4 @@ Server searches existing parents by **normalized phone**; the client makes an **
 Auto-sequenced per school (`nextGrNumber` + prefix) or MANUAL; uniqueness `[schoolId, grNumber]` either way. Dup → `GR_NUMBER_TAKEN`.
 
 **Source:** [[03-database-schema-erd]], blueprint §7–§8.
-**Implementation status:** ✅ built and green (M2), minus promotion (M6) & CSV import (deferred). Directory search (name/GR/phone), transfer, audit all working → [[Progress Tracker]].
+**Implementation status:** ✅ built and green (M2) + promotion (M6) + **CSV bulk import (M7)**. Directory search (name/GR/phone), transfer, audit all working → [[Progress Tracker]]. **CSV import:** `POST /students/import` (`StudentsImportService`) — validate-whole-file-then-write **all-or-nothing** with a per-row error report + `dryRun`; reuses `createStudentCore` (same rules as manual add); guardians resolve by phone (existing → LINK so siblings share one parent, else CREATE); columns `fullName,gender,dateOfBirth,className,sectionName,guardianName,guardianPhone,relation` (+ optional `campusName,guardianCnic,guardianEmail,grNumber`). *(Frontend import page still to add.)*

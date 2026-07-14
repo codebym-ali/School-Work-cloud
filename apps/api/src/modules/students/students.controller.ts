@@ -14,8 +14,10 @@ import { Roles } from '@common';
 import { StudentsService } from './students.service';
 import { GuardiansService } from './guardians.service';
 import { StudentsImportService } from './students-import.service';
+import { PhoneVerificationService } from './phone-verification.service';
 import {
   AddGuardianDto,
+  ConfirmOtpDto,
   CreateStudentDto,
   ImportStudentsDto,
   StudentSearchQuery,
@@ -31,6 +33,7 @@ export class StudentsController {
     private readonly students: StudentsService,
     private readonly guardians: GuardiansService,
     private readonly importer: StudentsImportService,
+    private readonly phoneVerify: PhoneVerificationService,
   ) {}
 
   @Get()
@@ -74,6 +77,20 @@ export class StudentsController {
   @HttpCode(HttpStatus.NO_CONTENT)
   async remove(@Param('id') id: string) {
     await this.students.softDelete(id);
+  }
+
+  /** Send an SMS OTP to a guardian's phone (§14). Verifying turns SMS on for that number. */
+  @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
+  @Post('guardians/:parentId/verify-phone')
+  requestOtp(@Param('parentId') parentId: string) {
+    return this.phoneVerify.request(parentId);
+  }
+
+  /** Confirm the OTP the guardian read back → sets phoneVerifiedAt (§14). */
+  @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
+  @Post('guardians/:parentId/verify-phone/confirm')
+  confirmOtp(@Param('parentId') parentId: string, @Body() dto: ConfirmOtpDto) {
+    return this.phoneVerify.confirm(parentId, dto.code);
   }
 
   @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')

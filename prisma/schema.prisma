@@ -473,6 +473,9 @@ model ParentProfile {
   fullName        String    @map("full_name")
   phone           String // normalized E.164
   phoneVerifiedAt DateTime? @map("phone_verified_at")
+  otpCodeHash     String?   @map("otp_code_hash") // HMAC of the current OTP (§14)
+  otpExpiresAt    DateTime? @map("otp_expires_at")
+  otpAttempts     Int       @default(0) @map("otp_attempts")
   smsOptOut       Boolean   @default(false) @map("sms_opt_out")
   cnicEnc         String?   @map("cnic_enc") // AES-256-GCM, per-tenant KMS data key
   createdAt       DateTime  @default(now()) @map("created_at")

@@ -23,6 +23,6 @@ import { smsGatewayProvider } from './sms/sms-gateway';
     smsQueueProvider,
     smsGatewayProvider,
   ],
-  exports: [SmsService, SmsProducer, CreditsService, smsQueueProvider],
+  exports: [SmsService, SmsProducer, CreditsService, smsQueueProvider, smsGatewayProvider],
 })
 export class CommsModule {}

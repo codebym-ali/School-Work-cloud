@@ -8,6 +8,7 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  Matches,
   MaxLength,
   MinLength,
   ValidateIf,
@@ -82,6 +83,11 @@ export class ImportStudentsDto {
   /** Validate only — report row errors without importing anything. */
   @IsOptional() @IsBoolean()
   dryRun?: boolean;
+}
+
+export class ConfirmOtpDto {
+  @IsString() @Matches(/^\d{6}$/, { message: 'code must be 6 digits' })
+  code!: string;
 }
 
 export class UpdateStudentDto {

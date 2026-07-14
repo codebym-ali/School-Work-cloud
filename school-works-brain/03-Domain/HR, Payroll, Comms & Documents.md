@@ -1,7 +1,7 @@
 ---
 title: HR, Payroll, Comms & Documents
 type: domain
-updated: 2026-07-06
+updated: 2026-07-14
 ---
 
 # HR, Payroll, Comms & Documents
@@ -12,7 +12,7 @@ updated: 2026-07-06
 - **Segments:** GSM-7 (160/153) vs UCS-2 (70/67) for Urdu; charged per segment.
 - **Credits:** `SmsCreditLedger` (plan grants BASIC 1k / PLUS 5k / PRO 20k). Balance ≤ 0 blocks non-critical sends; critical (ABSENCE, FEE_RECEIPT) may use a small **overdraft buffer**.
 - **Delivery:** every send → `SmsLog`; webhook `POST /webhooks/sms/:provider` (HMAC) updates QUEUED→SENT→DELIVERED/FAILED; ×3 backoff → failed-messages screen + re-queue.
-- **PII guard:** unverified numbers never receive student PII (only the invite OTP).
+- **PII guard:** unverified numbers never receive student PII. **Phone verification (§14, M7):** `PhoneVerificationService` — admin sends an SMS OTP to a guardian (`POST /students/guardians/:parentId/verify-phone`), the guardian reads it back and it's confirmed (`…/confirm {code}`) → sets `phoneVerifiedAt`, turning SMS on for that number. Code stored HMAC-only (never plaintext), 10-min TTL, 5-attempt cap, 60s resend cooldown; campus-scoped (a restricted admin can only verify a parent who guardians a student in their campus).
 - Runs via the **BullMQ `sms` queue** → `worker` `SmsProcessor`.
 
 ## Staff HR & Payroll (§13) — ✅ built (M6)

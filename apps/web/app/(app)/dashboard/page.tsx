@@ -22,7 +22,7 @@ export default function DashboardPage() {
       <h1>Dashboard</h1>
       {!data ? <p className="muted">Loading…</p> : (
         <div className="grid">
-          {METRICS.map((m) => {
+          {METRICS.filter((m) => data.visible.includes(m.key)).map((m) => {
             const v = data[m.key];
             const display = v == null ? '—' : m.fmt ? m.fmt(v as number) : String(v);
             return (

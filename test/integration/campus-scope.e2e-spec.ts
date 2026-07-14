@@ -275,4 +275,25 @@ describe('Campus scoping (e2e, §22.8 / P1.7)', () => {
     const invIds = (invoices.body.data as Array<{ id: string }>).map((i) => i.id);
     expect(invIds).toEqual(expect.arrayContaining([invoiceA, invoiceB]));
   });
+
+  // ── Dashboard role-shaping (§28, P1.7) ───────────────────────────────────────
+  it('dashboard is campus-scoped: OWNER sees both students, CAMPUS_ADMIN only campus A', async () => {
+    const owner = await authed('get', '/api/v1/dashboard', ownerCookies);
+    expect(owner.body.enrollmentCount).toBe(2); // one student per campus
+    expect(owner.body.visible).toEqual(expect.arrayContaining(['enrollmentCount', 'todayAttendancePercent', 'pendingLeaves', 'failedSmsCount']));
+
+    const admin = await authed('get', '/api/v1/dashboard', adminCookies);
+    expect(admin.body.enrollmentCount).toBe(1); // campus A only
+  });
+
+  it('dashboard is role-shaped: an ACCOUNTANT sees financial metrics only', async () => {
+    const acct = await authed('get', '/api/v1/dashboard', acctCookies);
+    expect(acct.body.visible).toEqual(['enrollmentCount', 'monthCollections', 'defaulterCount']);
+    // Ops metrics are neither computed nor shown for an accountant.
+    expect(acct.body.todayAttendancePercent).toBeNull();
+    expect(acct.body.pendingLeaves).toBeNull();
+    expect(acct.body.failedSmsCount).toBeNull();
+    // Financial metrics are campus-scoped to A (their one student).
+    expect(acct.body.enrollmentCount).toBe(1);
+  });
 });

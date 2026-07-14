@@ -57,7 +57,9 @@ export function idemKey(): Record<string, string> {
 export interface Me { id: string; email: string; roles: string[]; campusId: string | null }
 export interface Dashboard {
   enrollmentCount: number; todayAttendancePercent: number | null; monthCollections: number;
-  defaulterCount: number; pendingLeaves: number; failedSmsCount: number;
+  defaulterCount: number; pendingLeaves: number | null; failedSmsCount: number | null;
+  /** Metric keys this role should see — the UI renders only these cards (role-shaping). */
+  visible: string[];
 }
 export interface Paged<T> { data: T[]; total: number; page: number; pageSize: number }
 export interface Campus { id: string; name: string }

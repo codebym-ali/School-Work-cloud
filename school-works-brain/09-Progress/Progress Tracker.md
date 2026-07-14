@@ -26,7 +26,7 @@ overall: 6 of 7 milestones (GA) — full v1 domain built; M7 hardening complete
 | **M7 — Hardening & Pilot → GA** | ⏳ In progress | Load + pen test + DR drill + pilot live | hardening done; VPS deploy/pilot pending |
 
 **Quality gates (always green):** ✅ tenant-isolation suite · ✅ RLS-coverage check · ✅ lint + strict typecheck · ✅ api + worker builds.
-**Test count:** **204 passing** — unit 36 · integration 161 · isolation 7 (+ **12 Playwright e2e** across the 6 tenant screens, the CSV-import flow, + the /admin vendor console). `pnpm test` green (3 projects serial, matching CI). *(M7 hardening added: health-probe e2e (4), sms-monthly-credit (1), CSV-import e2e (3), phone-OTP e2e (4), + matrix-conformance rows (+15 across import & OTP); the fee-season load driver `scripts/load-fees.mjs` runs outside jest.)*
+**Test count:** **206 passing** — unit 36 · integration 163 · isolation 7 (+ **12 Playwright e2e** across the 6 tenant screens, the CSV-import flow, + the /admin vendor console). `pnpm test` green (3 projects serial, matching CI). *(M7 hardening added: health-probe e2e (4), sms-monthly-credit (1), CSV-import e2e (3), phone-OTP e2e (4), + matrix-conformance rows (+15 across import & OTP); the fee-season load driver `scripts/load-fees.mjs` runs outside jest.)*
 > [!note] Fixed a test-infra issue while adding rate limiting: the aggregate **`pnpm test`** ran the integration project **in parallel**, so the SMS e2e suites contended over the shared BullMQ `sms` queue (a job drained/dispatched by the wrong suite → duplicate `SmsLog`). Changed `package.json` `test` to chain `test:unit → test:integration → test:isolation` (integration/isolation `--runInBand`), matching CI exactly. Also note: a **stray `worker` process** (from `pnpm start:worker:dev` whose children survived the parent kill) will consume the queue and cause the same duplicate-dispatch — always confirm no `dist/apps/worker/main` is running before an integration run. Not a product bug (prod jobs have deterministic ids + a single worker fleet).
 
 ## 🔧 M7 / hardening progress (in flight)
@@ -122,14 +122,14 @@ Blueprint §13, §15, §28, §7. See [[HR, Payroll, Comms & Documents]], [[Enrol
 - [x] **Dashboard** (owner-view metrics) + **audit-log browser** (filters + pagination)
 - **Tests:** m6 e2e (promotion idempotent + all 7 reports json/csv + payroll compute 60000 + certificates + dashboard + audit) green.
 - **Findings:** after promotion the source section has no ACTIVE enrollments, so a re-run is a natural no-op (the already-in-target guard is a belt-and-suspenders for partial re-runs).
-- **M6 deferred:** ~~PDF render + R2 upload for certificates/payslips~~ **✅ done in M7** (certificates & report cards via the storage/PDF pipeline; payslips via `payslipPdf()`), ~~report **PDF** format~~ **✅ done in M7** (all 7 reports now `format=json|csv|pdf` via `PdfService.table()`), sibling-discount/report-card promotion precondition, role-shaping the dashboard per non-owner roles, wiring `payroll`/report jobs to worker cron.
+- **M6 deferred:** ~~PDF render + R2 upload for certificates/payslips~~ **✅ done in M7** (certificates & report cards via the storage/PDF pipeline; payslips via `payslipPdf()`), ~~report **PDF** format~~ **✅ done in M7** (all 7 reports now `format=json|csv|pdf` via `PdfService.table()`), sibling-discount/report-card promotion precondition, ~~role-shaping the dashboard per non-owner roles~~ **✅ done in M7** (campus-scoped + accountant sees financial metrics only via `visible`), wiring `payroll`/report jobs to worker cron.
 
 ## ⏳ M7 — Hardening & Pilot → GA (In progress)
 **Hardening is complete** (see the checklist above): object storage/PDFs, upload+ClamAV, rate limiting, campus-scope + matrix-conformance + ownership authz, Sentry + Pino + Prometheus + deep readiness probe, worker cron (incl. `sms-monthly-credit`), deploy images (api+worker+web) + Traefik ingress, load/concurrency test, backups + durable WAL→R2, DR runbook + rehearsed PITR.
 
 **What's left for GA — two buckets:**
 - **VPS-bound (not doable from dev):** production Coolify deploy on the Contabo VPS · staging DR drill against real R2 · penetration test · pilot onboarding via feature flags (1 school → 10% → all) · real SMS gateway adapter (Telenor/Jazz — currently the `console` adapter).
-- **Code-side, still open (pilot-useful):** ~~Students CSV import~~ **✅ done (backend + UI)** · ~~phone OTP verification~~ **✅ done (backend; UI TODO)** · ~~report PDF export~~ **✅ done** · dashboard role-shaping for non-owner roles · Swagger/OpenAPI + generated typed client · minor fee items (sibling-discount auto-calc, advance auto-application) · platform §22.9 break-glass support sessions.
+- **Code-side, still open (pilot-useful):** ~~Students CSV import~~ **✅ done (backend + UI)** · ~~phone OTP verification~~ **✅ done (backend; UI TODO)** · ~~report PDF export~~ **✅ done** · ~~dashboard role-shaping~~ **✅ done** · Swagger/OpenAPI + generated typed client · minor fee items (sibling-discount auto-calc, advance auto-application) · platform §22.9 break-glass support sessions.
 
 ---
 

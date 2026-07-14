@@ -28,6 +28,11 @@ Full ledger: [[consistency-register]] (LOCKED). This is the digest.
 - **`pnpm test` must run integration serially.** It now chains `test:unit → test:integration → test:isolation` (integration/isolation `--runInBand`), matching CI. The old aggregate ran integration in parallel → SMS suites contended over the shared queue. This is a test-harness constraint, not a product bug (prod: deterministic job ids + one worker fleet).
 - **`.env` gotcha for local run:** the config validator rejects the `S3_ENDPOINT=https://<accountid>…` placeholder (invalid URL) — point it at local MinIO (`http://localhost:9002`, `minioadmin`/`minioadmin`) or the app won't boot. `@aws-sdk/*` + `pdfkit` must be `pnpm install`ed (added for M7 storage/PDF).
 
+### Readiness probe (learned in M7)
+- **`/health/ready` gates on HARD deps only — Postgres + Redis — and returns 503 when any is down.** S3 is a *soft* dep (only uploads/PDFs) and is deliberately **not** gated, or one object-store blip pulls the whole node out of rotation. `/health/live` never touches deps (restart-on-crash only).
+- **Each check must be timeout-bounded** (2s). The shared ioredis client uses `maxRetriesPerRequest:null`, so a `ping` to a down Redis queues forever — an unbounded probe would hang instead of failing. (Prisma can stall on `pool_timeout` too.)
+- **Set the 503 via a passthrough `@Res`, don't `throw`** — a thrown `HttpException` is reformatted by the global exception filter into the generic `{error:{code:INTERNAL}}` envelope, losing the `{checks:{db,redis}}` detail that makes the probe useful for debugging.
+
 ### WAL archiving → R2 (learned in M7 → [[DR Runbook]])
 - **`archive_command` must be non-zero on failure** = the whole durability contract. `scripts/archive-wal.sh` does a fast local copy **then** an rclone upload to R2, and lets the R2 result gate the exit code — Postgres retries and won't recycle un-shipped WAL (back-pressure fills `pg_wal`, monitored via `pg_stat_archiver.failed_count`).
 - **Own the archive dir as `postgres` (uid 70) in the image** (`docker/postgres/Dockerfile`: `chown postgres /wal-archive`), so a fresh named volume inherits writable ownership. Otherwise the volume is root-owned and archiving fails *Permission denied* — the recurring **archive-dir uid gotcha** (also hit in the PITR drill).

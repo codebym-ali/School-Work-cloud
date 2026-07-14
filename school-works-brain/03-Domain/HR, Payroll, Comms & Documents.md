@@ -26,4 +26,4 @@ updated: 2026-07-14
 - All files on R2 (versioned); access only via 10-min pre-signed URLs after an ownership check.
 
 **Source:** [[03-database-schema-erd]], blueprint §13–§15, §26.
-**Implementation status:** SMS/comms ✅ built (M3); HR/payroll/documents ✅ built (M6) — modules `hr/` (staff, payroll) + `documents/`. Promotion (§7) in `enrollment/`; reports/dashboard/audit in `reports/`. Deferred: PDF render + R2 upload for certificates/payslips (fileKey placeholders, needs §22.6 pipeline), report PDF format. → [[Progress Tracker]].
+**Implementation status:** SMS/comms ✅ built (M3); HR/payroll/documents ✅ built (M6) — modules `hr/` (staff, payroll) + `documents/`. Promotion (§7) in `enrollment/`; reports/dashboard/audit in `reports/`. Deferred → **now done (M7)**: PDF render + R2 upload for certificates/payslips; **report PDF export** — all 7 reports support `format=json|csv|pdf` (`ReportsController.render` streams `PdfService.table()` via `res.send(buffer)`; not a passthrough return, since Nest JSON-serializes a returned Buffer). → [[Progress Tracker]].

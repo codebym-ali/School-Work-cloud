@@ -122,14 +122,14 @@ Blueprint §13, §15, §28, §7. See [[HR, Payroll, Comms & Documents]], [[Enrol
 - [x] **Dashboard** (owner-view metrics) + **audit-log browser** (filters + pagination)
 - **Tests:** m6 e2e (promotion idempotent + all 7 reports json/csv + payroll compute 60000 + certificates + dashboard + audit) green.
 - **Findings:** after promotion the source section has no ACTIVE enrollments, so a re-run is a natural no-op (the already-in-target guard is a belt-and-suspenders for partial re-runs).
-- **M6 deferred:** ~~PDF render + R2 upload for certificates/payslips~~ **✅ done in M7** (certificates & report cards via the storage/PDF pipeline; payslips via `payslipPdf()`), report **PDF** format (json+csv only), sibling-discount/report-card promotion precondition, role-shaping the dashboard per non-owner roles, wiring `payroll`/report jobs to worker cron.
+- **M6 deferred:** ~~PDF render + R2 upload for certificates/payslips~~ **✅ done in M7** (certificates & report cards via the storage/PDF pipeline; payslips via `payslipPdf()`), ~~report **PDF** format~~ **✅ done in M7** (all 7 reports now `format=json|csv|pdf` via `PdfService.table()`), sibling-discount/report-card promotion precondition, role-shaping the dashboard per non-owner roles, wiring `payroll`/report jobs to worker cron.
 
 ## ⏳ M7 — Hardening & Pilot → GA (In progress)
 **Hardening is complete** (see the checklist above): object storage/PDFs, upload+ClamAV, rate limiting, campus-scope + matrix-conformance + ownership authz, Sentry + Pino + Prometheus + deep readiness probe, worker cron (incl. `sms-monthly-credit`), deploy images (api+worker+web) + Traefik ingress, load/concurrency test, backups + durable WAL→R2, DR runbook + rehearsed PITR.
 
 **What's left for GA — two buckets:**
 - **VPS-bound (not doable from dev):** production Coolify deploy on the Contabo VPS · staging DR drill against real R2 · penetration test · pilot onboarding via feature flags (1 school → 10% → all) · real SMS gateway adapter (Telenor/Jazz — currently the `console` adapter).
-- **Code-side, still open (pilot-useful):** ~~Students CSV import~~ **✅ done (backend + UI)** · ~~phone OTP verification~~ **✅ done (backend; UI TODO)** · report **PDF** export (json+csv today) · dashboard role-shaping for non-owner roles · Swagger/OpenAPI + generated typed client · minor fee items (sibling-discount auto-calc, advance auto-application) · platform §22.9 break-glass support sessions.
+- **Code-side, still open (pilot-useful):** ~~Students CSV import~~ **✅ done (backend + UI)** · ~~phone OTP verification~~ **✅ done (backend; UI TODO)** · ~~report PDF export~~ **✅ done** · dashboard role-shaping for non-owner roles · Swagger/OpenAPI + generated typed client · minor fee items (sibling-discount auto-calc, advance auto-application) · platform §22.9 break-glass support sessions.
 
 ---
 

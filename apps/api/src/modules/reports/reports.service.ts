@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { effectiveCampusFilter, restrictedCampusId, TenantContext } from '@common';
+import { effectiveCampusFilter, PdfService, restrictedCampusId, TenantContext } from '@common';
 import { TenantPrismaService } from '@database';
 
 type Row = Record<string, unknown>;
@@ -17,10 +17,23 @@ export class ReportsService {
   constructor(
     private readonly tenantPrisma: TenantPrismaService,
     private readonly ctx: TenantContext,
+    private readonly pdfSvc: PdfService,
   ) {}
 
   private get db() {
     return this.tenantPrisma.client;
+  }
+
+  /** Render any report's rows as a PDF (blueprint §28). Columns are the row keys. */
+  async pdf(title: string, rows: Row[]): Promise<Buffer> {
+    const school = await this.db.school.findFirst({ where: { id: this.ctx.requireSchoolId() }, select: { name: true } });
+    return this.pdfSvc.table({
+      schoolName: school?.name ?? 'School',
+      title,
+      generatedOn: new Date().toISOString().slice(0, 10),
+      columns: rows.length > 0 ? Object.keys(rows[0]) : [],
+      rows,
+    });
   }
 
   /** `{ enrollment: { campusId } }` fragment for a campus-bound user, else `{}`. */

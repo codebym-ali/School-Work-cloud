@@ -103,7 +103,7 @@ describe('M6 — HR, payroll, documents, reports, promotion (e2e)', () => {
     expect(stillActive.body.data).toHaveLength(1);
   });
 
-  it('exports all seven reports as JSON and CSV', async () => {
+  it('exports all seven reports as JSON, CSV and PDF', async () => {
     const reports = [
       `daily-collection?date=2026-07-01`,
       `fee-ledger?studentId=${studentId}`,
@@ -117,9 +117,20 @@ describe('M6 — HR, payroll, documents, reports, promotion (e2e)', () => {
       const json = await get(`/api/v1/reports/${r}`);
       expect(json.status).toBe(200);
       const sep = r.includes('?') ? '&' : '?';
+
       const csv = await get(`/api/v1/reports/${r}${sep}format=csv`);
       expect(csv.status).toBe(200);
       expect(csv.headers['content-type']).toContain('text/csv');
+
+      const pdf = await get(`/api/v1/reports/${r}${sep}format=pdf`).buffer(true).parse((res, cb) => {
+        const chunks: Buffer[] = [];
+        res.on('data', (c: Buffer) => chunks.push(c));
+        res.on('end', () => cb(null, Buffer.concat(chunks)));
+      });
+      expect(pdf.status).toBe(200);
+      expect(pdf.headers['content-type']).toContain('application/pdf');
+      expect(pdf.headers['content-disposition']).toContain('.pdf');
+      expect((pdf.body as Buffer).subarray(0, 4).toString('latin1')).toBe('%PDF'); // real PDF bytes
     }
   });
 

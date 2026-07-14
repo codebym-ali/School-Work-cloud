@@ -33,6 +33,14 @@ export interface PayslipPdf {
   netPay: number;
 }
 
+export interface TablePdf {
+  schoolName: string;
+  title: string;
+  generatedOn: string;
+  columns: string[];
+  rows: Array<Record<string, unknown>>;
+}
+
 /** Server-side PDF rendering (blueprint §11, §13, §15). Returns a Buffer for upload. */
 @Injectable()
 export class PdfService {
@@ -73,6 +81,55 @@ export class PdfService {
       kv(doc, 'Attendance deduction', money(d.attendanceDeduction));
       kv(doc, 'Other deductions', money(d.otherDeductions));
       doc.moveDown(0.5).fontSize(13).text(`Net pay: ${money(d.netPay)}`, { underline: true });
+    });
+  }
+
+  /** Generic tabular report → PDF (blueprint §28). Evenly-sized columns, header repeated
+   *  on each page, cells ellipsized to their column width. Feeds the reports PDF export. */
+  table(d: TablePdf): Promise<Buffer> {
+    return build((doc) => {
+      const cols = d.columns;
+      const left = doc.page.margins.left;
+      const usableW = doc.page.width - left - doc.page.margins.right;
+      const colW = usableW / Math.max(cols.length, 1);
+      const bottom = doc.page.height - doc.page.margins.bottom;
+
+      const title = (): void => {
+        header(doc, d.schoolName, d.title);
+        doc.fontSize(9).fillColor('#666666').text(`Generated ${d.generatedOn}`, left, doc.y, { align: 'right', width: usableW });
+        doc.fillColor('black').moveDown(0.5);
+      };
+      const headerRow = (): void => {
+        const y = doc.y;
+        doc.font('Helvetica-Bold').fontSize(9);
+        cols.forEach((c, i) => doc.text(c, left + i * colW, y, { width: colW - 4, ellipsis: true }));
+        doc.font('Helvetica');
+        doc.moveTo(left, y + 13).lineTo(left + usableW, y + 13).strokeColor('#999999').stroke().strokeColor('black');
+        doc.y = y + 17;
+      };
+
+      title();
+      if (d.rows.length === 0) {
+        doc.fontSize(11).text('No data.');
+        return;
+      }
+      headerRow();
+
+      doc.fontSize(9);
+      for (const row of d.rows) {
+        if (doc.y + 15 > bottom) {
+          doc.addPage();
+          title();
+          headerRow();
+          doc.fontSize(9);
+        }
+        const y = doc.y;
+        cols.forEach((c, i) => {
+          const v = row[c];
+          doc.text(v == null ? '' : String(v), left + i * colW, y, { width: colW - 4, ellipsis: true });
+        });
+        doc.y = y + 15;
+      }
     });
   }
 }

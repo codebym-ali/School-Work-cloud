@@ -14,6 +14,7 @@ import {
 } from '@common';
 import { AuditService, TenantPrismaService } from '@database';
 import { SetupService } from '../setup/setup.service';
+import { PaymentsService } from './payments.service';
 import type { CreateInvoiceBatchDto, DefaultersQuery, InvoiceListQuery, ReasonDto } from './dto/fees.dto';
 
 const money = (n: number): number => Math.round(n * 100) / 100;
@@ -33,6 +34,7 @@ export class InvoicingService {
     private readonly ctx: TenantContext,
     private readonly setup: SetupService,
     private readonly audit: AuditService,
+    private readonly payments: PaymentsService,
   ) {}
 
   private get db() {
@@ -78,6 +80,7 @@ export class InvoicingService {
     });
 
     let generated = 0;
+    const newInvoiceIds: string[] = [];
     for (const enr of enrollments) {
       const dupe = await this.db.feeInvoice.findFirst({ where: { studentId: enr.studentId, month: dto.month, year: dto.year } });
       if (dupe) continue;
@@ -93,7 +96,7 @@ export class InvoicingService {
       for (const d of await this.discountItems(enr.studentId, items)) items.push(d);
 
       const total = money(items.reduce((sum, i) => sum + i.amount, 0));
-      await this.db.feeInvoice.create({
+      const created = await this.db.feeInvoice.create({
         data: {
           schoolId: this.sid,
           studentId: enr.studentId,
@@ -108,7 +111,15 @@ export class InvoicingService {
           items: { create: items.map((i) => ({ type: i.type, feeHeadId: i.feeHeadId, description: i.description, amount: i.amount })) },
         },
       });
+      newInvoiceIds.push(created.id);
       generated++;
+    }
+
+    // Auto-apply any available guardian advance to each newly-generated invoice (§12): a
+    // fresh invoice consumes the primary guardian's standing credit (oldest new invoice
+    // first; sibling invoices share the balance as it draws down).
+    for (const invoiceId of newInvoiceIds) {
+      await this.payments.applyAdvanceToInvoice(invoiceId);
     }
 
     await this.db.feeInvoiceBatch.update({ where: { id: batch.id }, data: { status: 'DONE' } });

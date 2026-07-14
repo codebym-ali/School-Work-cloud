@@ -211,4 +211,22 @@ describe('Fees end-to-end (e2e, §12)', () => {
     const bal = await get(`/api/v1/fees/advances?parentId=${parentId}`);
     expect(bal.body.balance).toBe(2000);
   });
+
+  it('auto-applies the guardian advance to a newly generated invoice (§12)', async () => {
+    // parentId carries a 2000 advance from the previous test. Generate next month's batch.
+    const batch = await post('/api/v1/fees/invoice-batches', { classId, month: 8, year: 2026 });
+    expect(batch.body.generated).toBe(1);
+
+    // Sara's month-8 invoice (tuition 1000 − 10% = 900) is auto-paid from the advance.
+    const invs = await get(`/api/v1/fees/invoices?month=8&year=2026&studentId=${studentId}`);
+    const inv = invs.body.data[0];
+    expect(inv.status).toBe('PAID');
+    expect(Number(inv.paidAmount)).toBe(900);
+
+    // Balance drops by the applied amount; the ADVANCE payment keeps integrity green.
+    const bal = await get(`/api/v1/fees/advances?parentId=${parentId}`);
+    expect(bal.body.balance).toBe(1100);
+    const integ = await get('/api/v1/fees/integrity-check');
+    expect(integ.body.ok).toBe(true);
+  });
 });

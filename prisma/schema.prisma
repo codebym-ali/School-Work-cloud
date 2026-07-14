@@ -105,6 +105,7 @@ enum PaymentMethod {
   JAZZCASH
   CARD
   CHEQUE
+  ADVANCE // guardian advance/credit applied to an invoice (§12)
 }
 
 enum AttendanceStatus {

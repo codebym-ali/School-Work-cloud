@@ -124,7 +124,8 @@ export class PaymentsService {
     return { reversalId: reversal.id, receiptNo: `RV-${receiptNo}` };
   }
 
-  /** Deposit into the guardian credit ledger (auto-application to invoices is a follow-up). */
+  /** Deposit into the guardian credit ledger. The balance is consumed automatically as the
+   *  guardian's invoices are generated (see `applyAdvanceToInvoice`), not retroactively. */
   async deposit(dto: CreateAdvanceDto, idempotencyKey: string) {
     if (!idempotencyKey) {
       throw new AppError(ErrorCodes.VALIDATION_FAILED, HttpStatus.BAD_REQUEST, 'Idempotency-Key header is required');
@@ -142,6 +143,41 @@ export class PaymentsService {
   async creditBalance(parentId: string): Promise<number> {
     const agg = await this.db.guardianCredit.aggregate({ _sum: { amount: true }, where: { parentId } });
     return money(Number(agg._sum.amount ?? 0));
+  }
+
+  /**
+   * Auto-apply the primary guardian's available advance to ONE freshly-generated invoice
+   * (§12). Called from batch generation so a new invoice consumes standing credit. Records
+   * a FeePayment (method ADVANCE, real receipt number) + a negative GuardianCredit entry so
+   * recompute, receipts and the fee-integrity check stay consistent. Returns the amount
+   * applied. Runs inside the caller's request transaction.
+   */
+  async applyAdvanceToInvoice(invoiceId: string): Promise<number> {
+    const invoice = await this.db.feeInvoice.findFirst({
+      where: { id: invoiceId },
+      include: { student: { select: { guardians: { where: { isPrimary: true }, select: { parentId: true } } } } },
+    });
+    if (!invoice) return 0;
+    const parentId = invoice.student.guardians[0]?.parentId;
+    if (!parentId) return 0;
+
+    const remaining = money(Number(invoice.totalAmount) - Number(invoice.paidAmount));
+    if (remaining <= 0) return 0;
+    const balance = await this.creditBalance(parentId);
+    if (balance <= 0) return 0;
+    const apply = money(Math.min(balance, remaining));
+
+    const receiptNo = await this.nextReceiptNo();
+    await this.db.feePayment.create({
+      data: { schoolId: this.sid, invoiceId, receiptNo, amountPaid: apply, method: 'ADVANCE', collectedById: this.ctx.user!.userId },
+    });
+    await this.db.guardianCredit.create({
+      data: { schoolId: this.sid, parentId, amount: -apply, refType: 'APPLIED_TO_INVOICE', refId: invoiceId, createdById: this.ctx.user!.userId },
+    });
+    const paidAmount = money(Number(invoice.paidAmount) + apply);
+    const status = paidAmount >= Number(invoice.totalAmount) ? FeeInvoiceStatus.PAID : FeeInvoiceStatus.PARTIAL;
+    await this.db.feeInvoice.update({ where: { id: invoiceId }, data: { paidAmount, status } });
+    return apply;
   }
 
   async listPayments(q: PaymentListQuery): Promise<Paginated<unknown>> {

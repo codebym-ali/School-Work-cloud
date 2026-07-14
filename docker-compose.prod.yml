@@ -1,10 +1,13 @@
-# Production-style stack (blueprint §33). One image → api + worker; a one-shot `migrate`
-# runs `prisma migrate deploy` + the SQL companions + the RLS-coverage gate before the
-# apps start. Self-contained (bundled postgres/redis/minio) so it runs on a single VPS or
-# locally; on Coolify you'd point DATABASE_URL/REDIS_URL/S3_* at managed services instead.
+# Production-style stack (blueprint §33). Backend image → api + worker; a separate web
+# image (apps/web) serves the Next.js frontend; a one-shot `migrate` runs `prisma migrate
+# deploy` + the SQL companions + the RLS-coverage gate before the apps start. A Traefik
+# edge routes one origin: /api → api, / → web, preserving Host so tenant subdomains resolve.
+# Self-contained (bundled postgres/redis/minio) so it runs on a single VPS or locally; on
+# Coolify you'd point DATABASE_URL/REDIS_URL/S3_* at managed services instead.
 #
 #   cp .env.example .env   # set ENCRYPTION_MASTER_KEY, JWT_KEYS, real S3/SMS secrets
 #   docker compose -f docker-compose.prod.yml up -d --build
+#   # browse a tenant: http://<tenant>.localhost  (e.g. demo.localhost → *.localhost = 127.0.0.1)
 #
 # Secrets come from .env (env_file); only the in-network service URLs are overridden here.
 
@@ -35,8 +38,6 @@ services:
     command: node dist/apps/api/main
     env_file: .env
     environment: *app-env
-    ports:
-      - '3000:3000'
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
@@ -48,6 +49,14 @@ services:
       retries: 5
       start_period: 30s
     restart: unless-stopped
+    # Ingress via Traefik: /api/* → this service, Host preserved so the API's
+    # TenantResolutionMiddleware still resolves the school from the subdomain.
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.api.rule=PathPrefix(`/api`)
+      - traefik.http.routers.api.entrypoints=web
+      - traefik.http.routers.api.priority=100
+      - traefik.http.services.api.loadbalancer.server.port=3000
 
   worker:
     build: .
@@ -58,6 +67,49 @@ services:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
       migrate: { condition: service_completed_successfully }
+    restart: unless-stopped
+
+  web:
+    build: ./apps/web
+    # Same-origin API calls (/api/v1/*) are split off by Traefik before they reach Next,
+    # so NEXT_API_ORIGIN (the dev proxy fallback) is unused in this topology.
+    environment:
+      NODE_ENV: production
+      PORT: '3001'
+      HOSTNAME: 0.0.0.0
+    depends_on:
+      api: { condition: service_healthy }
+    healthcheck:
+      test: ['CMD', 'node', '-e', "require('http').get('http://localhost:3001/',r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+    # Catch-all router (lower priority than the API's /api prefix).
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.web.rule=PathPrefix(`/`)
+      - traefik.http.routers.web.entrypoints=web
+      - traefik.http.routers.web.priority=1
+      - traefik.http.services.web.loadbalancer.server.port=3001
+
+  # Edge router (blueprint §33). Path-routes on one origin: /api → api, / → web, and
+  # forwards the original Host so multi-tenant subdomain resolution works end-to-end.
+  # For TLS in prod, add a websecure :443 entrypoint + a certresolver (Let's Encrypt).
+  traefik:
+    image: traefik:v3.1
+    command:
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --entrypoints.web.address=:80
+    ports:
+      - '80:80'
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      - api
+      - web
     restart: unless-stopped
 
   postgres:

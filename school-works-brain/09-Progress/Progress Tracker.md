@@ -1,7 +1,7 @@
 ---
 title: Progress Tracker
 type: status
-updated: 2026-07-13
+updated: 2026-07-14
 current_milestone: M6 complete → M7 next (hardening/pilot)
 overall: 6 of 7 milestones (GA) — full v1 domain built
 ---
@@ -47,6 +47,7 @@ overall: 6 of 7 milestones (GA) — full v1 domain built
 - [x] **Payslip PDF** (§13, §15): `PayrollService.payslipPdf()` renders via `PdfService.payslip`, uploads to `payslips/{sid}/{id}.pdf`, returns a 10-min presigned GET. `GET /payslips/:id/pdf` — **owner-or-admin check in the service** (§22.8, reads inside the RLS tx, not a guard). Verified e2e: real `%PDF` bytes fetched over MinIO.
 - [x] **Deploy image + PITR backups** (§33): multi-stage `Dockerfile` (node:22-slim, one image → api+worker via two entrypoints) + `docker-compose.prod.yml` (self-contained pg/redis/minio, one-shot `migrate` runs `prisma migrate deploy` + SQL companions + RLS-coverage gate before apps boot). **WAL archiving** on (`wal_level=replica`, `archive_mode=on`, `archive_timeout=300` → ≤5-min RPO) into a `walarchive` volume. `scripts/basebackup.sh` (pg_basebackup → R2 + PITR runbook) and `scripts/restore-verify-local.sh` (dump→scratch-restore→row-count compare — *"a backup you've never restored isn't a backup"*). Verified: restore-verify round-trips 8 tables exactly; standalone WAL test archived 3/failed 0 (surfaced the archive-dir-must-be-writable-by-postgres-uid gotcha). api/worker containers healthy (health 200, login 200).
 - [x] **Fee-season load + concurrency test** (§25.5, 2026-07-13): `scripts/load-fees.mjs` — zero-dep Node driver (150 concurrent payments on distinct invoices + 40-way same-key idempotency replay + 30-way overpay race + integrity check). **ALL INVARIANTS HELD, zero 5xx**: receipts unique + gap-free, charged exactly once, never over-collected, ledger clean. Caught + fixed two contention bugs (too-tight Prisma tx budget → aborts; idempotency reserve poisoning its own tx via P2002) — see [[Key Decisions]] → *Concurrency / load hardening* and [[Fees & Payments]].
+- [x] **Web frontend container + edge ingress** (§33, 2026-07-14): `apps/web/Dockerfile` (Next 14 `output: 'standalone'` → lean runner) + `.dockerignore`; wired into `docker-compose.prod.yml` as a `web` service behind a new **Traefik** edge that path-routes one origin (`/api`→api, `/`→web) **preserving Host** so tenant subdomains resolve, and the browser calls `/api/v1/*` same-origin. Verified: image builds + serves (`/login` 200, right `<title>`); path-split + Host-preservation proven with a `traefik/whoami` file-provider test. (Traefik's docker-provider socket fails on local Docker Desktop/Windows — standard on the Linux VPS; details in [[Deployment & Operations]].)
 - [ ] Production Coolify (VPS) deploy, pen test, DR drill, pilot
 
 ---

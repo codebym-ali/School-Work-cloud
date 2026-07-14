@@ -15,6 +15,9 @@ const API_ORIGIN = process.env.NEXT_API_ORIGIN || 'http://demo.localhost:3000';
 /** @type {import('next').NextConfig} */
 export default {
   reactStrictMode: true,
+  // Emit a self-contained server bundle (`.next/standalone/server.js`) so the Docker
+  // runner stage ships only the traced deps — no full node_modules. See apps/web/Dockerfile.
+  output: 'standalone',
   async rewrites() {
     return [{ source: '/api/:path*', destination: `${API_ORIGIN}/api/:path*` }];
   },

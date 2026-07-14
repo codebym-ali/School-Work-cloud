@@ -66,12 +66,15 @@ jobs:
       # can't set the required `server /data` command, so start it here and wait for health.
       - name: Start MinIO (S3-compatible object storage)
         run: |
+          docker pull -q minio/minio:latest
           docker run -d --name minio -p 9000:9000 \
             -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin \
             minio/minio:latest server /data
           echo "waiting for MinIO to be ready…"
-          for i in $(seq 1 30); do
-            if curl -fs http://localhost:9000/minio/health/live > /dev/null; then echo "MinIO is up"; exit 0; fi
+          for i in $(seq 1 60); do
+            if curl -fs http://localhost:9000/minio/health/ready > /dev/null; then
+              echo "MinIO ready after ~$((i * 2))s"; exit 0
+            fi
             sleep 2
           done
           echo "MinIO did not become ready in time" >&2

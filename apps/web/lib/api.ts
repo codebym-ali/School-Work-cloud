@@ -65,6 +65,12 @@ export interface AcademicYear { id: string; name: string; isCurrent: boolean }
 export interface Klass { id: string; name: string; order: number; campusId: string }
 export interface Section { id: string; name: string; classId: string }
 export interface Student { id: string; fullName: string; grNumber: string; gender: string; isActive: boolean }
+export interface ImportRowError { row: number; field?: string; message: string }
+export interface ImportResult {
+  rows: number; imported: number; failed: number; dryRun: boolean;
+  errors: ImportRowError[];
+  students: { row: number; studentId: string; grNumber: string }[];
+}
 export interface Enrollment { id: string; studentId: string; sectionId: string; classId: string; academicYearId: string; status: string; student?: { fullName: string; grNumber: string } }
 export interface Invoice { id: string; studentId: string; totalAmount: string; paidAmount: string; status: string; month: number | null; year: number; dueDate: string }
 export interface EntryTest { id: string; inquiryId: string; scheduledAt: string; score: string | null; remarks: string | null }

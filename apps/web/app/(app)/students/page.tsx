@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { apiGet, apiPost, ApiError, type Klass, type Paged, type Section, type Student } from '@/lib/api';
+import { type ChangeEvent, useEffect, useState } from 'react';
+import { apiGet, apiPost, ApiError, type ImportResult, type Klass, type Paged, type Section, type Student } from '@/lib/api';
 
 export default function StudentsPage() {
   const [students, setStudents] = useState<Student[]>([]);
@@ -9,6 +9,7 @@ export default function StudentsPage() {
   const [sections, setSections] = useState<Section[]>([]);
   const [search, setSearch] = useState('');
   const [adding, setAdding] = useState(false);
+  const [importing, setImporting] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   async function load() {
@@ -27,9 +28,14 @@ export default function StudentsPage() {
     <div className="stack">
       <div className="row">
         <h1>Students</h1>
-        <button onClick={() => setAdding((v) => !v)}>{adding ? 'Close' : '+ Add student'}</button>
+        <div className="row" style={{ gap: 8 }}>
+          <button className="ghost" onClick={() => setImporting((v) => !v)}>{importing ? 'Close' : 'Import CSV'}</button>
+          <button onClick={() => setAdding((v) => !v)}>{adding ? 'Close' : '+ Add student'}</button>
+        </div>
       </div>
       {msg && <div className={`toast ${msg.ok ? 'ok' : 'err'}`}>{msg.text}</div>}
+
+      {importing && <ImportStudents onImported={async () => { await load(); }} />}
 
       {adding && (
         <AddStudent classes={classes} sections={sections}
@@ -94,4 +100,95 @@ function AddStudent({ classes, sections, onDone }: { classes: Klass[]; sections:
       <div><button onClick={submit}>Admit student</button></div>
     </div>
   );
+}
+
+const CSV_TEMPLATE =
+  'fullName,gender,dateOfBirth,className,sectionName,guardianName,guardianPhone,relation\n' +
+  'Ahmed Khan,MALE,2015-06-10,Grade 1,A,Kamran Khan,03009998877,FATHER\n' +
+  'Ayesha Khan,FEMALE,2017-06-10,Grade 1,A,Kamran Khan,03009998877,FATHER';
+
+function ImportStudents({ onImported }: { onImported: () => void | Promise<void> }) {
+  const [csv, setCsv] = useState('');
+  const [result, setResult] = useState<ImportResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function run(dryRun: boolean) {
+    setBusy(true);
+    setError(null);
+    setResult(null);
+    try {
+      const res = await apiPost<ImportResult>('/students/import', { csv, dryRun });
+      setResult(res);
+      if (!dryRun && res.imported > 0) await onImported();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'Import failed');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function onFile(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => { setCsv(String(reader.result ?? '')); setResult(null); setError(null); };
+    reader.readAsText(file);
+  }
+
+  function downloadTemplate() {
+    const url = URL.createObjectURL(new Blob([CSV_TEMPLATE], { type: 'text/csv' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'students-template.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  return (
+    <div className="card stack">
+      <h2 style={{ margin: 0, fontSize: 17 }}>Import students (CSV)</h2>
+      <p className="muted" style={{ margin: 0 }}>
+        Columns: <code>fullName, gender, dateOfBirth (YYYY-MM-DD), className, sectionName, guardianName, guardianPhone, relation</code>.
+        Optional: <code>campusName, guardianCnic, guardianEmail, grNumber</code>. Siblings sharing a phone are linked to one guardian.
+      </p>
+      <div className="row" style={{ gap: 8 }}>
+        <input type="file" accept=".csv,text/csv" onChange={onFile} aria-label="CSV file" />
+        <button className="ghost" onClick={downloadTemplate}>Download template</button>
+      </div>
+      <textarea
+        value={csv}
+        onChange={(e) => { setCsv(e.target.value); setResult(null); setError(null); }}
+        rows={6}
+        placeholder="…or paste CSV rows here"
+        style={{ fontFamily: 'monospace', width: '100%' }}
+      />
+      <div className="row" style={{ gap: 8 }}>
+        <button className="ghost" disabled={busy || !csv.trim()} onClick={() => run(true)}>Validate</button>
+        <button disabled={busy || !csv.trim()} onClick={() => run(false)}>Import</button>
+      </div>
+      {error && <div className="toast err">{error}</div>}
+      {result && <ImportReport result={result} />}
+    </div>
+  );
+}
+
+function ImportReport({ result }: { result: ImportResult }) {
+  if (result.errors.length > 0) {
+    return (
+      <div className="stack">
+        <div className="toast err">{result.failed} row(s) have errors — nothing was imported. Fix and re-upload.</div>
+        <table>
+          <thead><tr><th>Row</th><th>Field</th><th>Problem</th></tr></thead>
+          <tbody>
+            {result.errors.map((e, i) => (
+              <tr key={i}><td>{e.row}</td><td>{e.field ?? ''}</td><td>{e.message}</td></tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  }
+  if (result.dryRun) return <div className="toast ok">Looks good — {result.rows} row(s) ready to import.</div>;
+  return <div className="toast ok">Imported {result.imported} student(s).</div>;
 }

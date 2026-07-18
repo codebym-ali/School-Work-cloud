@@ -108,12 +108,20 @@ export interface PortalAttendance { date: string; session: string; status: strin
 export interface PortalResult { term: string; overallPercent: number; grade: string; sectionRank: number | null }
 export interface PortalFee { id: string; month: number | null; year: number; total: number; paid: number; remaining: number; status: string; dueDate: string }
 
+export interface ManagedUser { id: string; email: string; roles: string[]; campusId: string | null; campusName: string | null; status: string }
+
 export const api = {
   login: (email: string, password: string) =>
     apiPost<{ user: Me; mfaEnrollmentRequired?: boolean }>('/auth/login', { email, password }),
   logout: () => apiPost<null>('/auth/logout'),
   me: () => apiGet<Me>('/auth/me'),
   dashboard: () => apiGet<Dashboard>('/dashboard'),
+  users: {
+    list: () => apiGet<ManagedUser[]>('/users'),
+    create: (body: { email: string; roles: string[]; campusId?: string; password: string }) => apiPost<ManagedUser>('/users', body),
+    update: (id: string, body: { roles?: string[]; campusId?: string; status?: string }) => apiPatch<ManagedUser>(`/users/${id}`, body),
+    resetPassword: (id: string, password: string) => apiPost<{ ok: boolean }>(`/users/${id}/reset-password`, { password }),
+  },
   portal: {
     overview: () => apiGet<PortalOverview>('/portal/overview'),
     attendance: () => apiGet<PortalAttendance[]>('/portal/attendance'),

@@ -40,6 +40,7 @@ import { HrModule } from './modules/hr/hr.module';
 import { DocumentsModule } from './modules/documents/documents.module';
 import { ReportsModule } from './modules/reports/reports.module';
 import { StudentPortalModule } from './modules/portal/student-portal.module';
+import { UsersModule } from './modules/users/users.module';
 import { UploadsModule } from './modules/uploads/uploads.module';
 
 /**
@@ -85,6 +86,7 @@ import { UploadsModule } from './modules/uploads/uploads.module';
     ReportsModule,
     UploadsModule,
     StudentPortalModule,
+    UsersModule,
   ],
   controllers: [HealthController, MetricsController],
   providers: [

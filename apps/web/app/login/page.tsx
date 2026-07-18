@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { api, ApiError } from '@/lib/api';
 import { landingPath } from '@/lib/roles';
@@ -11,6 +11,14 @@ export default function LoginPage() {
   const [password, setPassword] = useState('Owner!Secret12');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [campus, setCampus] = useState<string | null>(null);
+
+  // A per-campus login link (?campus=<name>) just brands this page; auth is the same for
+  // the whole school — the user is scoped to their campus after they sign in.
+  useEffect(() => {
+    const c = new URLSearchParams(window.location.search).get('campus');
+    if (c) setCampus(c);
+  }, []);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -32,7 +40,7 @@ export default function LoginPage() {
       <form className="card stack" style={{ width: 360 }} onSubmit={onSubmit}>
         <div>
           <h1>Sign in</h1>
-          <p className="sub">School Management</p>
+          <p className="sub">{campus ?? 'School Management'}</p>
         </div>
         <div>
           <label htmlFor="email">Email</label>

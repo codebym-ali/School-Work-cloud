@@ -90,8 +90,12 @@ export class SetupService {
   }
 
   // ── Campuses ───────────────────────────────────────────────────────────────
-  createCampus(dto: CreateCampusDto) {
-    return this.db.campus.create({ data: { schoolId: this.sid, name: dto.name, address: dto.address } });
+  async createCampus(dto: CreateCampusDto) {
+    const name = dto.name.trim();
+    // Campus names are unique per school (case-insensitive) — no two same-named campuses.
+    const dup = await this.db.campus.findFirst({ where: { name: { equals: name, mode: 'insensitive' } }, select: { id: true } });
+    if (dup) throw new AppError(ErrorCodes.CONFLICT, HttpStatus.CONFLICT, `A campus named "${name}" already exists`);
+    return this.db.campus.create({ data: { schoolId: this.sid, name, address: dto.address } });
   }
 
   listCampuses() {

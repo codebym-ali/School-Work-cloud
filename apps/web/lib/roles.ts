@@ -30,7 +30,7 @@ export const NAV: NavItem[] = [
   { href: '/fees', label: 'Fees', roles: ['OWNER_ADMIN', 'ACCOUNTANT'] },
   { href: '/exams', label: 'Exams', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'TEACHER'] },
   { href: '/reports', label: 'Reports', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
-  { href: '/users', label: 'Users', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
+  { href: '/campuses', label: 'Campuses', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
   // Student self-service portal (§28) — read-only, own data.
   { href: '/me', label: 'My Dashboard', roles: ['STUDENT'] },
   { href: '/me/attendance', label: 'My Attendance', roles: ['STUDENT'] },

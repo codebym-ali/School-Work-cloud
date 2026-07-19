@@ -5,9 +5,12 @@ import { useRouter } from 'next/navigation';
 import { ApiError } from '@/lib/api';
 import { platformApi } from '@/lib/platform-api';
 
+// The seed platform-admin email is pre-filled ONLY in `next dev`; prod ships empty.
+const IS_DEV = process.env.NODE_ENV === 'development';
+
 export default function PlatformLoginPage() {
   const router = useRouter();
-  const [email, setEmail] = useState('admin@platform.pk');
+  const [email, setEmail] = useState(IS_DEV ? 'admin@platform.pk' : '');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);

@@ -121,3 +121,37 @@ jobs:
 
       - name: Build (api + worker bundles)
         run: pnpm build
+
+  # Frontend gate — the web app is a standalone package (own lockfile), so it gets its
+  # own parallel job: typecheck -> lint -> build. Without this, a broken frontend can
+  # merge green while the backend job passes.
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.14.4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/web/pnpm-lock.yaml
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Build
+        run: pnpm build
+        env:
+          NEXT_API_ORIGIN: http://demo.localhost:3000

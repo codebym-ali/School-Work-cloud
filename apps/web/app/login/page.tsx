@@ -5,10 +5,13 @@ import { useRouter } from 'next/navigation';
 import { api, ApiError } from '@/lib/api';
 import { landingPath } from '@/lib/roles';
 
+// Demo credentials are pre-filled ONLY in `next dev`; production builds ship empty fields.
+const IS_DEV = process.env.NODE_ENV === 'development';
+
 export default function LoginPage() {
   const router = useRouter();
-  const [email, setEmail] = useState('owner@demo.pk');
-  const [password, setPassword] = useState('Owner!Secret12');
+  const [email, setEmail] = useState(IS_DEV ? 'owner@demo.pk' : '');
+  const [password, setPassword] = useState(IS_DEV ? 'Owner!Secret12' : '');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [campus, setCampus] = useState<string | null>(null);

@@ -116,4 +116,23 @@ Blueprint's AWS reference (RDS/ECS/S3/KMS…) is replaced by **Contabo + Coolify
 - **Playwright must share auth via a setup project + `storageState`, not log in per test.** With every spec doing a form login, the suite blew the 5/IP/15min login limiter within a single run (8 logins). Fix (`playwright.config.ts` + `test/e2e/auth.setup.ts`): a `setup` project logs in once and writes `test/e2e/.auth/owner.json` (gitignored); the `chromium` project sets `use.storageState` and `dependencies: ['setup']`, so specs enter already authenticated via `gotoApp()` (helpers). Only the smoke **login-flow** test opts out (`test.use({ storageState: { cookies: [], origins: [] } })`) to exercise the real form → **~2 logins/run total**. Flush `rl:*` before back-to-back local runs (≥3 runs in 15 min still exceeds 5).
 - **Marks-entry state-clobber race (fixed) — set backing state before the state that gates the editable UI.** The Exams screen's `MarksEntryPanel.loadRoster()` originally did `setEnrollments(...)` *before* a second `await` (the `/exams/:id/results` fetch), then `setRows(...)` after it. The table renders on `enrollments.length > 0`, so there was a window where the inputs were typeable but `rows` was still empty; a mark typed in that window was overwritten when the pending `setRows` ran, and `save()` posted `Number('') === 0`. Flaky by nature (depended on whether `/results` resolved before the user typed). Fix: do all fetches first, then `setRows` + `setEnrollments` together after the final `await` (React 18 batches them into one atomic render). General rule for this codebase's client screens: **never render an editable control off one piece of state while its backing edit-state is still loading behind another `await`.** `updateRow` also switched to the functional `setRows(prev => …)` form so multi-cell edits compose off latest state. The exams E2E now asserts the `/results/bulk` payload's `marksObtained` at the network layer (not just the rendered `88 / 100`) so this regression can't silently return.
 
+## Sellable roadmap — "body over engine" (2026-07-19)
+Backend is enterprise-grade but the **buyer-facing surface** lags. Decided sequencing (dependency +
+sales impact), split into two releases:
+- **R1 (sales demo):** #1 Parent portal → #2 WhatsApp integration → #3 Fee challan printing.
+- **R2:** #4 Admin screens + SMS/comms center → #5 Homework/Diary + Timetable. Transport = v2 (roadmap slide only).
+
+Design specs (frozen) live in `docs/superpowers/specs/2026-07-19-*.md` (one per feature + a
+`sellable-roadmap-overview`). Each spec has an **Open Decisions** block at the top for choices the
+product owner hasn't confirmed — read those before building; nothing there is assumed as final.
+
+**Parent portal (#1) confirmed decisions:** phone+OTP self-service login (schema `ParentProfile`
+already carries OTP columns); read-only mirror + downloads (no write-actions in v1); fee = printable
+challan only, **no payment gateway** in v1; child-scoping via `StudentGuardian` links validated in the
+**service** (§22.8), `:studentId` mismatch → 404. The portal's diary tab ships **dormant** until #5.
+
+**Fold-in security fixes (from the 2026-07-19 audit) — bugs, not features:** SMS GET endpoints
+(`/sms/templates|credits|logs`) are unguarded → fix + matrix rows in #4; `POST /student-leaves`
+over-permissioned + teacher can file for any student (no section check, no `source`) → tighten in #4.
+
 **Source:** [[consistency-register]] · [[school-management-master-blueprint]] §2–§34

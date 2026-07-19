@@ -1,4 +1,5 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import {
   AppError,
   assertCampusAccess,
@@ -96,6 +97,34 @@ export class SetupService {
     const dup = await this.db.campus.findFirst({ where: { name: { equals: name, mode: 'insensitive' } }, select: { id: true } });
     if (dup) throw new AppError(ErrorCodes.CONFLICT, HttpStatus.CONFLICT, `A campus named "${name}" already exists`);
     return this.db.campus.create({ data: { schoolId: this.sid, name, address: dto.address } });
+  }
+
+  /** Delete a campus only when nothing depends on it (no cascade — §17). Blocks with a
+   *  clear reason if classes/users/records still belong to it. */
+  async deleteCampus(id: string): Promise<void> {
+    const campus = await this.db.campus.findFirst({ where: { id }, select: { id: true } });
+    if (!campus) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'Campus not found');
+
+    const [classes, users] = await Promise.all([
+      this.db.class.count({ where: { campusId: id } }),
+      this.db.user.count({ where: { campusId: id } }),
+    ]);
+    const blockers: string[] = [];
+    if (classes) blockers.push(`${classes} class(es)`);
+    if (users) blockers.push(`${users} user(s)`);
+    if (blockers.length) {
+      throw new AppError(ErrorCodes.CONFLICT, HttpStatus.CONFLICT, `Campus is in use — ${blockers.join(' and ')} still belong to it. Remove or reassign them first.`);
+    }
+
+    try {
+      await this.db.campus.delete({ where: { id } });
+    } catch (e) {
+      // Fallback for the rarer references (fee structures, holidays, inquiries, payroll).
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2003') {
+        throw new AppError(ErrorCodes.CONFLICT, HttpStatus.CONFLICT, 'Campus is in use by other records (fees, holidays, inquiries or payroll). Remove them first.');
+      }
+      throw e;
+    }
   }
 
   listCampuses() {

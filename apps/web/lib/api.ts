@@ -48,6 +48,7 @@ export const apiPost = <T>(path: string, body?: unknown, headers?: Record<string
   request<T>(path, { method: 'POST', body, headers });
 export const apiPut = <T>(path: string, body?: unknown) => request<T>(path, { method: 'PUT', body });
 export const apiPatch = <T>(path: string, body?: unknown) => request<T>(path, { method: 'PATCH', body });
+export const apiDelete = <T>(path: string) => request<T>(path, { method: 'DELETE' });
 
 export function idemKey(): Record<string, string> {
   return { 'Idempotency-Key': crypto.randomUUID() };

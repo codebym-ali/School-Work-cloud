@@ -1,7 +1,7 @@
 ---
 title: Progress Tracker
 type: status
-updated: 2026-07-14
+updated: 2026-07-19
 current_milestone: M7 in progress — hardening done; only VPS-bound items (deploy/DR-drill/pen-test/pilot) remain
 overall: 6 of 7 milestones (GA) — full v1 domain built; M7 hardening complete
 ---
@@ -137,6 +137,13 @@ Blueprint §13, §15, §28, §7. See [[HR, Payroll, Comms & Documents]], [[Enrol
 - **Code-side, still open (pilot-useful):** ~~Students CSV import~~ **✅ done (backend + UI)** · ~~phone OTP verification~~ **✅ done (backend; UI TODO)** · ~~report PDF export~~ **✅ done** · ~~dashboard role-shaping~~ **✅ done** · Swagger/OpenAPI + generated typed client · minor fee items (sibling-discount auto-calc, advance auto-application) · platform §22.9 break-glass support sessions.
 
 ---
+
+## ➕ Post-M7 increments (2026-07-19)
+- [x] **ADMISSION_CONTROLLER role + per-campus Admission Portal (§8/§23 extension):** new enum value (migration `20260719120000`), campus-bound login the **campus admin provisions and password-resets** (owner retains oversight in Campus Hub); role admitted to both admissions controllers only — everything else 403 (verified live: inquiries 200; students/fees/dashboard 403; cross-campus + owner reset 403). Dedicated branded login route `apps/web/app/admission-portal/[campus]` + provisioning screen `(app)/admissions-team` (campus-admin-only nav). Matrix-conformance seeds the role → every non-admissions row asserts deny. See [[Key Decisions]] for the design rationale.
+- [x] **Campus/class UX:** Setup's Campuses card removed (campus CRUD lives in Campus Hub, owner-only nav); Classes card is now a **campus+grade-filtered browser** (dbl-click class / click section chip → Students pre-filtered); Students page reads `?campusId&classId&sectionId` URL filters. Sidebar brand is role-derived (`panelLabel`), landing path per role (`ADMISSION_CONTROLLER` → `/admissions`).
+- [x] **CI/web gate + credential hygiene:** parallel `web` job in `ci.yml` (typecheck→lint→build; web was previously ungated) and login pages' demo credentials are now dev-only (`NODE_ENV` static-eliminated — grep of prod bundle: 0 hits).
+- [x] **Matrix harness fix:** `call()` sent CSRF only on POST — any DELETE row 403'd as a false positive; now all non-GET methods carry CSRF + idempotency key (`method` union gained `'delete'`).
+- **Data note:** demo tenant purged of load-test debris (67 `Cls*/ExamCls*/LoadCls*` classes, 604 test students + enrollments/invoices/payments) — demo now has 3 campuses + 1 year, empty classes.
 
 ## 🧾 Cross-cutting backlog (not milestone-blocking)
 - [x] **M1 remainder:** nightly `pg_dump` + WAL → R2 backups + restore-test — **done (M7)**: `backup-postgres.sh` (nightly dump→R2), `basebackup.sh` (PITR base→R2), durable `archive-wal.sh` (WAL→R2, host-loss-safe), `restore-verify.sh`/`restore-verify-local.sh`. PITR rehearsed → [[DR Runbook]]. *(Wire the two backup scripts to Coolify cron at deploy.)*

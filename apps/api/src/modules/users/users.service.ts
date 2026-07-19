@@ -12,8 +12,9 @@ import { AuditService, TenantPrismaService } from '@database';
 import { PasswordService } from '../auth/password.service';
 import { MANAGEABLE_ROLES, type CreateUserDto, type UpdateUserDto } from './dto/users.dto';
 
-/** Roles a CAMPUS_ADMIN may grant (never OWNER_ADMIN/CAMPUS_ADMIN) — §23 "roles ≤ TEACHER/STAFF/ACCOUNTANT". */
-const CAMPUS_ADMIN_MAY_GRANT: Role[] = [Role.ACCOUNTANT, Role.TEACHER, Role.STAFF];
+/** Roles a CAMPUS_ADMIN may grant (never OWNER_ADMIN/CAMPUS_ADMIN) — §23 "roles ≤ TEACHER/STAFF/ACCOUNTANT",
+ *  plus ADMISSION_CONTROLLER (the campus's Admission Portal login, provisioned by the campus admin). */
+const CAMPUS_ADMIN_MAY_GRANT: Role[] = [Role.ADMISSION_CONTROLLER, Role.ACCOUNTANT, Role.TEACHER, Role.STAFF];
 
 /**
  * Users & roles (blueprint §23, §22.8). The owner provisions staff/admin logins and binds
@@ -120,9 +121,20 @@ export class UsersService {
     return { id: updated.id, email: updated.email, roles: updated.roles, campusId: updated.campusId, status: updated.status };
   }
 
-  /** Owner sets a new password for a user (e.g. campus admin lost theirs). */
+  /**
+   * Set a new password for a user. An owner may reset anyone; a campus admin may reset only
+   * their own campus's lower-role logins (e.g. the admission controller) — never a peer
+   * campus admin or owner. getOneScoped enforces the campus; the role check enforces the rank.
+   */
   async resetPassword(id: string, password: string) {
-    await this.getOneScoped(id);
+    const target = await this.getOneScoped(id);
+    const creator = this.ctx.user!;
+    if (!creator.roles.includes(Role.OWNER_ADMIN)) {
+      const forbidden = target.roles.find((r) => !CAMPUS_ADMIN_MAY_GRANT.includes(r));
+      if (forbidden) {
+        throw new AppError(ErrorCodes.FORBIDDEN, HttpStatus.FORBIDDEN, `You are not permitted to reset the password for a ${forbidden}`);
+      }
+    }
     const passwordHash = await this.passwords.hash(password);
     await this.db.user.update({ where: { id }, data: { passwordHash, status: 'ACTIVE' } });
     return { ok: true };

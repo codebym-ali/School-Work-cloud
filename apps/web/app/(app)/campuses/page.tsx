@@ -1,12 +1,13 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { api, apiGet, apiPost, ApiError, type Campus, type ManagedUser } from '@/lib/api';
+import { api, apiGet, apiPost, apiDelete, ApiError, type Campus, type ManagedUser } from '@/lib/api';
 import { useMe } from '@/lib/me-context';
 
 type Msg = { ok: boolean; text: string } | null;
 const ROLE_GROUPS: Array<{ role: string; label: string }> = [
   { role: 'CAMPUS_ADMIN', label: 'Campus Admins' },
+  { role: 'ADMISSION_CONTROLLER', label: 'Admission Controllers' },
   { role: 'ACCOUNTANT', label: 'Accountants' },
   { role: 'TEACHER', label: 'Teachers' },
   { role: 'STAFF', label: 'Staff' },
@@ -39,6 +40,17 @@ export default function CampusesPage() {
     }
   }
 
+  async function removeCampus(c: Campus) {
+    if (!window.confirm(`Delete campus "${c.name}"? This can't be undone.`)) return;
+    try {
+      await apiDelete(`/campuses/${c.id}`);
+      setMsg({ ok: true, text: `Deleted "${c.name}"` });
+      await load();
+    } catch (e) {
+      setMsg({ ok: false, text: e instanceof ApiError ? e.message : 'Failed to delete campus' });
+    }
+  }
+
   const usersOf = (campusId: string) => users.filter((u) => u.campusId === campusId);
   const schoolWide = users.filter((u) => u.campusId == null);
   const loginLink = (name: string) =>
@@ -64,7 +76,12 @@ export default function CampusesPage() {
         <div className="card stack" key={c.id}>
           <div className="row">
             <h2 style={{ margin: 0, fontSize: 18 }}>{c.name}</h2>
-            {isOwner && <button className="ghost small" onClick={() => setOpenFor(openFor === c.id ? null : c.id)}>{openFor === c.id ? 'Close' : '+ Add user'}</button>}
+            {isOwner && (
+              <span className="row" style={{ gap: 6 }}>
+                <button className="ghost small" onClick={() => setOpenFor(openFor === c.id ? null : c.id)}>{openFor === c.id ? 'Close' : '+ Add user'}</button>
+                <button className="ghost small" style={{ color: '#c0392b' }} onClick={() => removeCampus(c)}>Delete</button>
+              </span>
+            )}
           </div>
 
           <div className="row" style={{ gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -138,6 +155,7 @@ function AddUser({ campusId, campusName, onDone }: { campusId: string; campusNam
         <div><label>Role</label>
           <select value={f.role} onChange={(e) => set('role', e.target.value)}>
             <option value="CAMPUS_ADMIN">Campus Admin</option>
+            <option value="ADMISSION_CONTROLLER">Admission Controller</option>
             <option value="ACCOUNTANT">Accountant</option>
             <option value="TEACHER">Teacher</option>
             <option value="STAFF">Staff</option>

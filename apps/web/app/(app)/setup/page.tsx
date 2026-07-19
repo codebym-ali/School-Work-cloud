@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { apiGet, apiPost, ApiError, type AcademicYear, type Campus, type Klass, type Section } from '@/lib/api';
 
 export default function SetupPage() {
@@ -34,10 +35,7 @@ export default function SetupPage() {
       <YearCard years={years} onCreate={(b) => run(() => apiPost('/academic-years', b), 'Academic year created')}
         onSetCurrent={(id) => run(() => apiPost(`/academic-years/${id}/set-current`), 'Set as current year')} />
 
-      <SimpleCard title="Campuses" items={campuses.map((c) => c.name)} fields={[{ name: 'name', label: 'Campus name' }]}
-        onCreate={(b) => run(() => apiPost('/campuses', b), 'Campus created')} />
-
-      <ClassCard classes={classes} campuses={campuses}
+      <ClassCard classes={classes} campuses={campuses} sections={sections}
         onCreate={(b) => run(() => apiPost('/classes', { ...b, order: Number(b.order) }), 'Class created')} />
 
       <SectionCard sections={sections} classes={classes}
@@ -76,28 +74,100 @@ function YearCard({ years, onCreate, onSetCurrent }: { years: AcademicYear[]; on
   );
 }
 
-function SimpleCard({ title, items, fields, onCreate }: { title: string; items: string[]; fields: { name: string; label: string }[]; onCreate: (b: Record<string, string>) => void }) {
-  const [form, setForm] = useState<Record<string, string>>({});
-  return (
-    <div className="card stack">
-      <h2 style={{ margin: 0, fontSize: 17 }}>{title}</h2>
-      <div className="muted">{items.length ? items.join(' · ') : 'None yet.'}</div>
-      <div className="inline-form">
-        {fields.map((f) => (
-          <div key={f.name}><label>{f.label}</label><input value={form[f.name] ?? ''} onChange={(e) => setForm({ ...form, [f.name]: e.target.value })} /></div>
-        ))}
-        <button onClick={() => onCreate(form)}>Add</button>
-      </div>
-    </div>
-  );
-}
-
-function ClassCard({ classes, campuses, onCreate }: { classes: Klass[]; campuses: Campus[]; onCreate: (b: Record<string, string>) => void }) {
+function ClassCard({ classes, campuses, sections, onCreate }: { classes: Klass[]; campuses: Campus[]; sections: Section[]; onCreate: (b: Record<string, string>) => void }) {
+  const router = useRouter();
   const [form, setForm] = useState<Record<string, string>>({ order: '1' });
+  const [filterCampus, setFilterCampus] = useState('');
+  const [grade, setGrade] = useState(''); // e.g. "9th" — matches on class name
+
+  // Open the roster for a class (optionally a specific section) in the Students directory.
+  const openRoster = (k: Klass, sectionId?: string) => {
+    const qs = new URLSearchParams({ campusId: k.campusId, classId: k.id });
+    if (sectionId) qs.set('sectionId', sectionId);
+    router.push(`/students?${qs.toString()}`);
+  };
+
+  // Apply the campus + grade filters, then group what's left under each campus.
+  const gradeQ = grade.trim().toLowerCase();
+  const visible = classes
+    .filter((k) => !filterCampus || k.campusId === filterCampus)
+    .filter((k) => !gradeQ || k.name.toLowerCase().includes(gradeQ));
+  const groups = campuses
+    .map((c) => ({ id: c.id, campus: c.name, items: visible.filter((k) => k.campusId === c.id).sort((a, b) => a.order - b.order) }))
+    .filter((g) => g.items.length > 0);
+  const orphaned = visible.filter((k) => !campuses.some((c) => c.id === k.campusId)).sort((a, b) => a.order - b.order);
+  if (orphaned.length) groups.push({ id: 'unassigned', campus: 'Unassigned', items: orphaned });
+
   return (
     <div className="card stack">
       <h2 style={{ margin: 0, fontSize: 17 }}>Classes</h2>
-      <div className="muted">{classes.length ? classes.map((c) => `${c.name} (#${c.order})`).join(' · ') : 'None yet.'}</div>
+      <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+        Filter by campus and grade, then double-click a class (or click a section) to open its student list.
+      </p>
+
+      {/* Browser filters */}
+      <div className="inline-form">
+        <div><label>Campus</label>
+          <select value={filterCampus} onChange={(e) => setFilterCampus(e.target.value)}>
+            <option value="">All campuses</option>
+            {campuses.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        </div>
+        <div><label>Grade</label>
+          <input value={grade} onChange={(e) => setGrade(e.target.value)} placeholder="e.g. 9th" />
+        </div>
+        {(filterCampus || grade) && <button className="ghost" onClick={() => { setFilterCampus(''); setGrade(''); }}>Clear</button>}
+      </div>
+
+      {/* Results */}
+      {classes.length === 0 ? (
+        <div className="muted">No classes yet. Add one below.</div>
+      ) : groups.length === 0 ? (
+        <div className="muted">No classes match this filter.</div>
+      ) : (
+        <div className="stack" style={{ gap: 14 }}>
+          {groups.map((g) => (
+            <div key={g.id} className="stack" style={{ gap: 8 }}>
+              <div className="muted" style={{ fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.4 }}>
+                {g.campus} <span style={{ fontWeight: 400 }}>({g.items.length})</span>
+              </div>
+              <div className="stack" style={{ gap: 8 }}>
+                {g.items.map((k) => {
+                  const secs = sections.filter((s) => s.classId === k.id).sort((a, b) => a.name.localeCompare(b.name));
+                  return (
+                    <div
+                      key={k.id}
+                      onDoubleClick={() => openRoster(k)}
+                      title="Double-click to open this class's students"
+                      style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8, padding: '8px 10px', border: '1px solid #e5e7eb', borderRadius: 8, cursor: 'pointer' }}
+                    >
+                      <strong style={{ minWidth: 80 }}>{k.name}</strong>
+                      {secs.length ? (
+                        secs.map((s) => (
+                          <button
+                            key={s.id}
+                            className="badge"
+                            onClick={(e) => { e.stopPropagation(); openRoster(k, s.id); }}
+                            title={`Open ${k.name} · Section ${s.name}`}
+                            style={{ border: 'none', cursor: 'pointer' }}
+                          >
+                            Section {s.name}
+                          </button>
+                        ))
+                      ) : (
+                        <span className="muted" style={{ fontSize: 12 }}>no sections yet</span>
+                      )}
+                      <span className="muted" style={{ marginLeft: 'auto', fontSize: 12 }}>open students →</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Create a class */}
       <div className="inline-form">
         <div><label>Campus</label>
           <select value={form.campusId ?? ''} onChange={(e) => setForm({ ...form, campusId: e.target.value })}>
@@ -105,7 +175,7 @@ function ClassCard({ classes, campuses, onCreate }: { classes: Klass[]; campuses
             {campuses.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
         </div>
-        <div><label>Name</label><input value={form.name ?? ''} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Grade 1" /></div>
+        <div><label>Name</label><input value={form.name ?? ''} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="9th" /></div>
         <div style={{ maxWidth: 90 }}><label>Order</label><input value={form.order ?? ''} onChange={(e) => setForm({ ...form, order: e.target.value })} /></div>
         <button onClick={() => onCreate(form)}>Add class</button>
       </div>

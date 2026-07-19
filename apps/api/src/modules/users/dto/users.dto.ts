@@ -3,7 +3,7 @@ import { Role, UserStatus } from '@prisma/client';
 
 /** Staff/admin roles an owner (or campus admin) may provision. PARENT/STUDENT are
  *  auto-created by admissions/portal flows, not from this screen. */
-export const MANAGEABLE_ROLES: Role[] = [Role.OWNER_ADMIN, Role.CAMPUS_ADMIN, Role.ACCOUNTANT, Role.TEACHER, Role.STAFF];
+export const MANAGEABLE_ROLES: Role[] = [Role.OWNER_ADMIN, Role.CAMPUS_ADMIN, Role.ADMISSION_CONTROLLER, Role.ACCOUNTANT, Role.TEACHER, Role.STAFF];
 
 export class CreateUserDto {
   @IsEmail()

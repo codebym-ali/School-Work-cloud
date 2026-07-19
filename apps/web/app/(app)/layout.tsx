@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { api, ApiError, type Me } from '@/lib/api';
 import { MeContext } from '@/lib/me-context';
-import { NAV, hasAnyRole, navItemFor } from '@/lib/roles';
+import { NAV, hasAnyRole, navItemFor, panelLabel } from '@/lib/roles';
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -32,7 +32,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     <MeContext.Provider value={me}>
       <div className="shell">
         <aside className="sidebar">
-          <div className="brand">🏫 School Admin</div>
+          <div className="brand">🏫 {panelLabel(me.roles)}</div>
           {nav.map((n) => (
             <Link key={n.href} href={n.href} className={pathname.startsWith(n.href) ? 'active' : ''}>
               {n.label}

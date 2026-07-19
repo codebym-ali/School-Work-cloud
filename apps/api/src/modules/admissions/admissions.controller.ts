@@ -10,7 +10,7 @@ import {
   ScheduleEntryTestDto,
 } from './dto/admissions.dto';
 
-@Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
+@Roles('OWNER_ADMIN', 'CAMPUS_ADMIN', 'ADMISSION_CONTROLLER')
 @Controller('inquiries')
 export class InquiriesController {
   constructor(private readonly admissions: AdmissionsService) {}
@@ -51,7 +51,7 @@ export class InquiriesController {
   }
 }
 
-@Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
+@Roles('OWNER_ADMIN', 'CAMPUS_ADMIN', 'ADMISSION_CONTROLLER')
 @Controller('admissions')
 export class AdmissionsController {
   constructor(private readonly admissions: AdmissionsService) {}

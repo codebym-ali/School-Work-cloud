@@ -1,10 +1,26 @@
 'use client';
 
-import { type ChangeEvent, useEffect, useState } from 'react';
-import { apiGet, apiPost, ApiError, type ImportResult, type Klass, type Paged, type Section, type Student } from '@/lib/api';
+import { type ChangeEvent, Suspense, useEffect, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { apiGet, apiPost, ApiError, type Campus, type ImportResult, type Klass, type Paged, type Section, type Student } from '@/lib/api';
 
 export default function StudentsPage() {
+  return (
+    <Suspense fallback={<p className="muted">Loading…</p>}>
+      <StudentsInner />
+    </Suspense>
+  );
+}
+
+function StudentsInner() {
+  const router = useRouter();
+  const params = useSearchParams();
+  const campusId = params.get('campusId') ?? '';
+  const classId = params.get('classId') ?? '';
+  const sectionId = params.get('sectionId') ?? '';
+
   const [students, setStudents] = useState<Student[]>([]);
+  const [campuses, setCampuses] = useState<Campus[]>([]);
   const [classes, setClasses] = useState<Klass[]>([]);
   const [sections, setSections] = useState<Section[]>([]);
   const [search, setSearch] = useState('');
@@ -13,16 +29,39 @@ export default function StudentsPage() {
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   async function load() {
-    const q = search ? `?search=${encodeURIComponent(search)}` : '';
-    const res = await apiGet<Paged<Student>>(`/students${q}`);
+    const qs = new URLSearchParams();
+    if (search) qs.set('search', search);
+    if (campusId) qs.set('campusId', campusId);
+    if (classId) qs.set('classId', classId);
+    if (sectionId) qs.set('sectionId', sectionId);
+    const q = qs.toString();
+    const res = await apiGet<Paged<Student>>(`/students${q ? `?${q}` : ''}`);
     setStudents(res.data);
   }
   useEffect(() => {
+    apiGet<Campus[]>('/campuses').then(setCampuses).catch(() => {});
     apiGet<Klass[]>('/classes').then(setClasses).catch(() => {});
     apiGet<Section[]>('/sections').then(setSections).catch(() => {});
     load().catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [campusId, classId, sectionId]);
+
+  // Push a new filter into the URL so the view is shareable and the effect reloads.
+  function setFilter(next: { campusId?: string; classId?: string; sectionId?: string }) {
+    const merged = { campusId, classId, sectionId, ...next };
+    const qs = new URLSearchParams();
+    if (merged.campusId) qs.set('campusId', merged.campusId);
+    if (merged.classId) qs.set('classId', merged.classId);
+    if (merged.sectionId) qs.set('sectionId', merged.sectionId);
+    const q = qs.toString();
+    router.replace(q ? `/students?${q}` : '/students');
+  }
+
+  const classesForCampus = campusId ? classes.filter((c) => c.campusId === campusId) : classes;
+  const sectionsForClass = classId ? sections.filter((s) => s.classId === classId) : [];
+  const activeClass = classes.find((c) => c.id === classId);
+  const activeSection = sections.find((s) => s.id === sectionId);
+  const hasFilter = Boolean(campusId || classId || sectionId);
 
   return (
     <div className="stack">
@@ -42,8 +81,34 @@ export default function StudentsPage() {
           onDone={async (ok, text) => { setMsg({ ok, text }); if (ok) { setAdding(false); await load(); } }} />
       )}
 
+      {activeClass && (
+        <div className="row" style={{ gap: 8, alignItems: 'center' }}>
+          <span className="muted">Showing</span>
+          <span className="badge">{activeClass.name}{activeSection ? ` · Section ${activeSection.name}` : ''}</span>
+          <button className="ghost small" onClick={() => setFilter({ campusId: '', classId: '', sectionId: '' })}>Clear filter</button>
+        </div>
+      )}
+
       <div className="inline-form">
-        <div style={{ minWidth: 260 }}><label>Search (name / GR / phone)</label>
+        <div><label>Campus</label>
+          <select value={campusId} onChange={(e) => setFilter({ campusId: e.target.value, classId: '', sectionId: '' })}>
+            <option value="">All campuses</option>
+            {campuses.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        </div>
+        <div><label>Class</label>
+          <select value={classId} onChange={(e) => setFilter({ classId: e.target.value, sectionId: '' })}>
+            <option value="">All classes</option>
+            {classesForCampus.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        </div>
+        <div><label>Section</label>
+          <select value={sectionId} onChange={(e) => setFilter({ sectionId: e.target.value })} disabled={!classId}>
+            <option value="">All sections</option>
+            {sectionsForClass.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
+        </div>
+        <div style={{ minWidth: 220 }}><label>Search (name / GR / phone)</label>
           <input value={search} onChange={(e) => setSearch(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && load()} />
         </div>
         <button className="ghost" onClick={() => load()}>Search</button>
@@ -60,7 +125,11 @@ export default function StudentsPage() {
               <td>{s.isActive ? <span className="badge ok">active</span> : <span className="badge bad">inactive</span>}</td>
             </tr>
           ))}
-          {students.length === 0 && <tr><td colSpan={4} className="muted">No students. Add one, or set up a class/section first.</td></tr>}
+          {students.length === 0 && (
+            <tr><td colSpan={4} className="muted">
+              {hasFilter ? 'No students in this class/section yet.' : 'No students. Add one, or set up a class/section first.'}
+            </td></tr>
+          )}
         </tbody>
       </table>
     </div>

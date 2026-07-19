@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Patch, Post, Query } from '@nestjs/common';
 import { Roles } from '@common';
 import { SetupService } from './setup.service';
 import {
@@ -53,6 +53,13 @@ export class CampusController {
   @Patch(':id')
   update(@Param('id') id: string, @Body() dto: UpdateCampusDto) {
     return this.setup.updateCampus(id, dto);
+  }
+
+  @Roles('OWNER_ADMIN')
+  @Delete(':id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  remove(@Param('id') id: string) {
+    return this.setup.deleteCampus(id);
   }
 }
 

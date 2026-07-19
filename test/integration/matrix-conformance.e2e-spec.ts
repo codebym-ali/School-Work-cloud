@@ -59,6 +59,7 @@ describe('Matrix conformance (e2e, §23 / P1.14)', () => {
       });
     };
     await seed('CAMPUS_ADMIN', campusId);
+    await seed('ADMISSION_CONTROLLER', campusId);
     await seed('ACCOUNTANT', campusId);
     await seed('TEACHER', campusId);
     await seed('PARENT', null);
@@ -80,7 +81,9 @@ describe('Matrix conformance (e2e, §23 / P1.14)', () => {
 
   const call = (role: MatrixRole, row: (typeof PERMISSION_MATRIX)[number]) => {
     let r = request(server())[row.method](row.path).set('Host', host).set('Cookie', cookies[role]);
-    if (row.method === 'post') r = r.set('X-CSRF-Token', csrf[role]).set('Idempotency-Key', randomUUID()).send(row.body ?? {});
+    // Any state-changing method needs the CSRF token; POST additionally carries a body + idempotency key.
+    if (row.method !== 'get') r = r.set('X-CSRF-Token', csrf[role]).set('Idempotency-Key', randomUUID());
+    if (row.method === 'post') r = r.send(row.body ?? {});
     return r;
   };
 

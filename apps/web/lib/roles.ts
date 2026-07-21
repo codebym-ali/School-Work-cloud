@@ -8,6 +8,7 @@ export type Role =
   | 'OWNER_ADMIN'
   | 'CAMPUS_ADMIN'
   | 'ADMISSION_CONTROLLER'
+  | 'HR_MANAGER'
   | 'ACCOUNTANT'
   | 'TEACHER'
   | 'STAFF'
@@ -31,6 +32,9 @@ export const NAV: NavItem[] = [
   // Owner oversight of these logins lives in Campus Hub, not here — the owner appoints
   // campus admins; campus admins set up their own admission controllers.
   { href: '/admissions-team', label: '🎓 Admission Portal', roles: ['CAMPUS_ADMIN'] },
+  { href: '/staff', label: 'Staff', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
+  { href: '/teachers', label: 'Teachers', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'HR_MANAGER'] },
+  { href: '/recruitment', label: 'Recruitment', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'HR_MANAGER'] },
   { href: '/attendance', label: 'Attendance', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'TEACHER'] },
   { href: '/fees', label: 'Fees', roles: ['OWNER_ADMIN', 'ACCOUNTANT'] },
   { href: '/exams', label: 'Exams', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'TEACHER'] },
@@ -54,6 +58,7 @@ const PANEL_LABELS: [Role, string][] = [
   ['ADMISSION_CONTROLLER', 'Admission Portal'],
   ['ACCOUNTANT', 'Accountant'],
   ['TEACHER', 'Teacher'],
+  ['HR_MANAGER', 'HR Manager'],
   ['STAFF', 'Staff'],
   ['PARENT', 'Parent'],
   ['STUDENT', 'Student'],

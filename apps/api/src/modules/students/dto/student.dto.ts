@@ -5,8 +5,11 @@ import {
   IsEmail,
   IsEnum,
   IsIn,
+  IsInt,
   IsOptional,
   IsString,
+  Max,
+  Min,
   IsUUID,
   Matches,
   MaxLength,
@@ -72,6 +75,10 @@ export class CreateStudentDto {
   /** Only honoured when the school is in MANUAL GR mode. */
   @IsOptional() @IsString() @MaxLength(40)
   grNumber?: string;
+
+  /** Manual roll number — optional; unique within the section for the academic year. */
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(1000)
+  rollNumber?: number;
 }
 
 export class ImportStudentsDto {

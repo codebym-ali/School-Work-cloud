@@ -3,6 +3,7 @@ import { Prisma, Role } from '@prisma/client';
 import {
   AppError,
   assertCampusAccess,
+  type AuditAction,
   AuditActions,
   ErrorCodes,
   restrictedCampusId,
@@ -138,6 +139,96 @@ export class UsersService {
     const passwordHash = await this.passwords.hash(password);
     await this.db.user.update({ where: { id }, data: { passwordHash, status: 'ACTIVE' } });
     return { ok: true };
+  }
+
+  /**
+   * Remove a user (OWNER_ADMIN only). Soft-delete (sets deletedAt) + disables the account, so
+   * they vanish from the directory and can no longer sign in, while records they created (audit
+   * trail, vacancies, …) stay intact. Cannot remove yourself or another owner.
+   */
+  async remove(id: string) {
+    const user = await this.getOneScoped(id);
+    if (user.id === this.ctx.user!.userId) {
+      throw new AppError(ErrorCodes.FORBIDDEN, HttpStatus.FORBIDDEN, 'You cannot remove your own account');
+    }
+    if (user.roles.includes(Role.OWNER_ADMIN)) {
+      throw new AppError(ErrorCodes.FORBIDDEN, HttpStatus.FORBIDDEN, 'Owner accounts cannot be removed');
+    }
+    await this.db.user.update({ where: { id }, data: { deletedAt: new Date(), status: 'DISABLED' } });
+    await this.audit.record({
+      action: AuditActions.USER_REMOVED,
+      entityType: 'User',
+      entityId: id,
+      oldValue: { email: user.email, roles: user.roles, status: user.status },
+      newValue: { removed: true },
+    });
+    return { ok: true };
+  }
+
+  /**
+   * Bulk remove users (OWNER_ADMIN only). Same soft-delete as remove(), applied per id, but
+   * unremovable targets (yourself, an owner, another campus, already-gone) are SKIPPED rather
+   * than aborting the whole batch. Returns how many were removed vs skipped.
+   */
+  async removeMany(ids: string[]) {
+    const restricted = restrictedCampusId(this.ctx.user);
+    const skipped: { id: string; reason: string }[] = [];
+    let removed = 0;
+    for (const id of Array.from(new Set(ids))) {
+      const user = await this.db.user.findFirst({ where: { id, deletedAt: null } });
+      if (!user) { skipped.push({ id, reason: 'not found' }); continue; }
+      if (restricted !== null && user.campusId !== restricted) { skipped.push({ id, reason: 'another campus' }); continue; }
+      if (user.id === this.ctx.user!.userId) { skipped.push({ id, reason: 'self' }); continue; }
+      if (user.roles.includes(Role.OWNER_ADMIN)) { skipped.push({ id, reason: 'owner' }); continue; }
+      await this.db.user.update({ where: { id }, data: { deletedAt: new Date(), status: 'DISABLED' } });
+      await this.audit.record({
+        action: AuditActions.USER_REMOVED,
+        entityType: 'User',
+        entityId: id,
+        oldValue: { email: user.email, roles: user.roles, status: user.status },
+        newValue: { removed: true, bulk: true },
+      });
+      removed += 1;
+    }
+    return { removed, skipped: skipped.length, details: skipped };
+  }
+
+  /** Grant/revoke recruitment (HR) access on an existing employee — OWNER_ADMIN only. */
+  setHrAccess(id: string, grant: boolean) {
+    return this.grantRole(id, Role.HR_MANAGER, grant, AuditActions.HR_ACCESS_GRANTED, AuditActions.HR_ACCESS_REVOKED);
+  }
+
+  /** Grant/revoke campus-admin (principal) on an existing employee — OWNER_ADMIN only. */
+  setCampusAdminAccess(id: string, grant: boolean) {
+    return this.grantRole(id, Role.CAMPUS_ADMIN, grant, AuditActions.CAMPUS_ADMIN_GRANTED, AuditActions.CAMPUS_ADMIN_REVOKED);
+  }
+
+  /**
+   * Add/remove a single role on an EXISTING employee (OWNER_ADMIN only — enforced by the
+   * route guard). Reuses the account and preserves every other role, so there is never a
+   * duplicate login. CAMPUS_ADMIN additionally requires the employee to be bound to a campus
+   * (a principal must belong to one). Idempotent, and audited both ways.
+   */
+  private async grantRole(id: string, role: Role, grant: boolean, grantedAction: AuditAction, revokedAction: AuditAction) {
+    const user = await this.db.user.findFirst({ where: { id, deletedAt: null } });
+    if (!user) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'User not found');
+    if (grant && role === Role.CAMPUS_ADMIN && !user.campusId) {
+      throw new AppError(ErrorCodes.VALIDATION_FAILED, HttpStatus.UNPROCESSABLE_ENTITY, 'This employee is not bound to a campus — a campus admin must belong to one');
+    }
+
+    const has = user.roles.includes(role);
+    if (has === grant) return { id: user.id, email: user.email, roles: user.roles }; // no-op, idempotent
+    const roles = grant ? Array.from(new Set([...user.roles, role])) : user.roles.filter((r) => r !== role);
+
+    const updated = await this.db.user.update({ where: { id }, data: { roles } });
+    await this.audit.record({
+      action: grant ? grantedAction : revokedAction,
+      entityType: 'User',
+      entityId: id,
+      oldValue: { roles: user.roles },
+      newValue: { roles: updated.roles },
+    });
+    return { id: updated.id, email: updated.email, roles: updated.roles };
   }
 
   private async getOneScoped(id: string) {

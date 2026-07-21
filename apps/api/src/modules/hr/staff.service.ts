@@ -52,7 +52,7 @@ export class StaffService {
     const restricted = restrictedCampusId(this.ctx.user);
     return this.db.staffProfile.findMany({
       where: { ...(staffType ? { staffType } : {}), ...(restricted ? { user: { campusId: restricted } } : {}) },
-      include: { user: { select: { email: true, roles: true, status: true } } },
+      include: { user: { select: { id: true, email: true, roles: true, status: true, campusId: true, campus: { select: { name: true } } } } },
       orderBy: { employeeCode: 'asc' },
     });
   }

@@ -1,4 +1,4 @@
-import { ArrayMinSize, IsArray, IsEmail, IsEnum, IsOptional, IsString, IsUUID, MaxLength, MinLength } from 'class-validator';
+import { ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsEmail, IsEnum, IsOptional, IsString, IsUUID, MaxLength, MinLength } from 'class-validator';
 import { Role, UserStatus } from '@prisma/client';
 
 /** Staff/admin roles an owner (or campus admin) may provision. PARENT/STUDENT are
@@ -35,4 +35,14 @@ export class UpdateUserDto {
 export class ResetUserPasswordDto {
   @IsString() @MinLength(10) @MaxLength(200)
   password!: string;
+}
+
+export class GrantAccessDto {
+  /** true = grant the role on the existing employee; false = revoke it. */
+  @IsBoolean() grant!: boolean;
+}
+
+export class BulkDeleteUsersDto {
+  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(200) @IsUUID('4', { each: true })
+  ids!: string[];
 }

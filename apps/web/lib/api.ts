@@ -12,8 +12,15 @@ export class ApiError extends Error {
     public code: string | undefined,
     message: string,
     public details?: unknown,
+    public requestId?: string,
   ) {
     super(message);
+  }
+  /** Field-level validation issues from a 422 (each `issue` names its field in the text). */
+  get fieldIssues(): string[] {
+    return Array.isArray(this.details)
+      ? (this.details as Array<{ field?: string; issue?: string }>).map((d) => d.issue ?? '').filter(Boolean)
+      : [];
   }
 }
 
@@ -37,8 +44,8 @@ async function request<T>(path: string, opts: { method?: string; body?: unknown;
 
   const data = res.status === 204 ? null : await res.json().catch(() => null);
   if (!res.ok) {
-    const err = (data as { error?: { code?: string; message?: string; details?: unknown } } | null)?.error;
-    throw new ApiError(res.status, err?.code, err?.message ?? res.statusText, err?.details);
+    const err = (data as { error?: { code?: string; message?: string; details?: unknown; requestId?: string } } | null)?.error;
+    throw new ApiError(res.status, err?.code, err?.message ?? res.statusText, err?.details, err?.requestId);
   }
   return data as T;
 }
@@ -67,7 +74,12 @@ export interface Campus { id: string; name: string }
 export interface AcademicYear { id: string; name: string; isCurrent: boolean }
 export interface Klass { id: string; name: string; order: number; campusId: string }
 export interface Section { id: string; name: string; classId: string }
-export interface Student { id: string; fullName: string; grNumber: string; gender: string; isActive: boolean }
+export interface Student { id: string; fullName: string; grNumber: string; registrationNo: string | null; gender: string; isActive: boolean }
+export interface StudentDetail {
+  id: string; fullName: string; grNumber: string; registrationNo: string | null; gender: string; dateOfBirth: string; isActive: boolean;
+  guardians: { id: string; relation: string; isPrimary: boolean; parent: { id: string; fullName: string; phone: string } }[];
+  enrollments: { id: string; classId: string; sectionId: string; campusId: string; academicYearId: string; rollNumber: number | null; status: string; startedAt: string }[];
+}
 export interface ImportRowError { row: number; field?: string; message: string }
 export interface ImportResult {
   rows: number; imported: number; failed: number; dryRun: boolean;
@@ -111,6 +123,44 @@ export interface PortalFee { id: string; month: number | null; year: number; tot
 
 export interface ManagedUser { id: string; email: string; roles: string[]; campusId: string | null; campusName: string | null; status: string }
 
+// ── Staff / Teachers (HR, §13) ───────────────────────────────────────────────
+export interface ManagedTeacher {
+  id: string; staffType: string; employeeCode: string; designation: string;
+  employmentStatus: string; joinedAt: string;
+  user: { id: string; email: string; roles: string[]; status: string; campusId: string | null; campus: { name: string } | null };
+}
+export interface TeacherAssignment { id: string; staffId: string; academicYearId: string; sectionId: string; subjectId: string | null }
+
+// ── Teacher applications (HR module) ─────────────────────────────────────────
+export interface TeacherExperience { schoolName: string; position?: string; subjectsTaught?: string; gradesTaught?: string; duration?: string; reasonForLeaving?: string }
+export interface TeacherDetails {
+  fatherName: string; dateOfBirth: string; gender: string; cnic: string; maritalStatus?: string; nationality?: string; photoUrl?: string;
+  whatsapp?: string; currentAddress: string; permanentAddress?: string; city: string; province?: string; postalCode?: string;
+  preferredSubjects?: string; gradeLevels?: string;
+  highestQualification: string; degreeTitle?: string; majorSubject?: string; university?: string; passingYear?: number; cgpa?: string;
+  totalExperience?: string; experiences?: TeacherExperience[];
+  languages?: string; computerSkills?: string; lmsExperience?: string; msOfficeSkills?: string; classroomManagement?: string;
+}
+export interface TeacherApplicationSummary {
+  id: string; campusId: string; campusName: string | null;
+  fullName: string; email: string; mobile: string;
+  positionAppliedFor: string; department: string; employmentType: string;
+  expectedSalary: string | null; availableJoiningDate: string | null; status: string; createdAt: string;
+}
+export interface TeacherApplicationDetail extends TeacherApplicationSummary { details: TeacherDetails }
+export interface CreateTeacherApplicationBody {
+  campusId: string; fullName: string; email: string; mobile: string; positionAppliedFor: string; department: string;
+  employmentType: string; expectedSalary?: number; availableJoiningDate?: string; details: TeacherDetails;
+}
+
+// ── Recruitment (HR module) ──────────────────────────────────────────────────
+export interface Vacancy {
+  id: string; campusId: string; campusName: string | null;
+  title: string; department: string; description: string;
+  employmentType: string; positions: number; status: string;
+  closedAt: string | null; createdAt: string;
+}
+
 export const api = {
   login: (email: string, password: string) =>
     apiPost<{ user: Me; mfaEnrollmentRequired?: boolean }>('/auth/login', { email, password }),
@@ -121,7 +171,42 @@ export const api = {
     list: () => apiGet<ManagedUser[]>('/users'),
     create: (body: { email: string; roles: string[]; campusId?: string; password: string }) => apiPost<ManagedUser>('/users', body),
     update: (id: string, body: { roles?: string[]; campusId?: string; status?: string }) => apiPatch<ManagedUser>(`/users/${id}`, body),
+    remove: (id: string) => apiDelete<null>(`/users/${id}`),
+    bulkDelete: (ids: string[]) => apiPost<{ removed: number; skipped: number }>('/users/bulk-delete', { ids }),
     resetPassword: (id: string, password: string) => apiPost<{ ok: boolean }>(`/users/${id}/reset-password`, { password }),
+    setHrAccess: (id: string, grant: boolean) => apiPatch<{ id: string; email: string; roles: string[] }>(`/users/${id}/hr-access`, { grant }),
+    setCampusAdmin: (id: string, grant: boolean) => apiPatch<{ id: string; email: string; roles: string[] }>(`/users/${id}/campus-admin`, { grant }),
+  },
+  staff: {
+    list: () => apiGet<ManagedTeacher[]>('/staff'),
+    create: (body: { email: string; staffType: string; employeeCode: string; designation: string; joinedAt: string; campusId?: string; roles?: string[] }) =>
+      apiPost<{ userId: string; staffId: string; employeeCode: string }>('/staff', body),
+  },
+  teacherAssignments: {
+    list: () => apiGet<TeacherAssignment[]>('/teacher-assignments'),
+    create: (body: { staffId: string; academicYearId: string; sectionId: string; subjectId?: string }) =>
+      apiPost<TeacherAssignment>('/teacher-assignments', body),
+    remove: (id: string) => apiDelete(`/teacher-assignments/${id}`),
+  },
+  subjects: {
+    list: (classId: string) => apiGet<Subject[]>(`/subjects?classId=${classId}`),
+  },
+  teacherApplications: {
+    list: (params?: { campusId?: string; status?: string; search?: string }) => {
+      const qs = new URLSearchParams(Object.entries(params ?? {}).filter(([, v]) => v) as [string, string][]).toString();
+      return apiGet<TeacherApplicationSummary[]>(`/teacher-applications${qs ? `?${qs}` : ''}`);
+    },
+    get: (id: string) => apiGet<TeacherApplicationDetail>(`/teacher-applications/${id}`),
+    create: (body: CreateTeacherApplicationBody) => apiPost<TeacherApplicationSummary>('/teacher-applications', body),
+  },
+  vacancies: {
+    list: (params?: { campusId?: string; status?: string; department?: string }) => {
+      const qs = new URLSearchParams(Object.entries(params ?? {}).filter(([, v]) => v) as [string, string][]).toString();
+      return apiGet<Vacancy[]>(`/vacancies${qs ? `?${qs}` : ''}`);
+    },
+    create: (body: { campusId: string; title: string; department: string; description: string; employmentType: string; positions: number }) =>
+      apiPost<Vacancy>('/vacancies', body),
+    close: (id: string) => apiPost<Vacancy>(`/vacancies/${id}/close`),
   },
   portal: {
     overview: () => apiGet<PortalOverview>('/portal/overview'),

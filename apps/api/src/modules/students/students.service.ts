@@ -26,6 +26,7 @@ export interface CreateStudentCoreInput {
   sectionId: string;
   guardian: GuardianResolutionDto;
   grNumber?: string;
+  rollNumber?: number; // manual, optional; unique per (section, year)
 }
 
 export interface CreatedStudent {
@@ -33,6 +34,8 @@ export interface CreatedStudent {
   enrollmentId: string;
   parentId: string;
   grNumber: string;
+  registrationNo: string;
+  rollNumber: number | null;
 }
 
 /**
@@ -73,7 +76,10 @@ export class StudentsService {
     await this.assertSectionCapacity(input.sectionId, academicYearId, section.capacity);
 
     const parentId = await this.guardians.resolveParent(input.guardian);
+    // Both human IDs are assigned atomically in this same transaction: GR (student identity)
+    // and the admission registration number (the form's reference), each gap-free per school.
     const grNumber = await this.nextGrNumber(input.grNumber);
+    const registrationNo = await this.nextRegistrationNo();
 
     let student;
     try {
@@ -81,6 +87,7 @@ export class StudentsService {
         data: {
           schoolId: this.ctx.requireSchoolId(),
           grNumber,
+          registrationNo,
           fullName: input.fullName,
           gender: input.gender,
           dateOfBirth: new Date(input.dateOfBirth),
@@ -96,19 +103,38 @@ export class StudentsService {
 
     await this.guardians.link(student.id, parentId, input.guardian.relation, true);
 
-    const enrollment = await this.db.studentEnrollment.create({
-      data: {
-        schoolId: this.ctx.requireSchoolId(),
-        studentId: student.id,
-        academicYearId,
-        campusId: klass.campusId,
-        classId: input.classId,
-        sectionId: input.sectionId,
-        status: 'ACTIVE',
-      },
-    });
+    let enrollment;
+    try {
+      enrollment = await this.db.studentEnrollment.create({
+        data: {
+          schoolId: this.ctx.requireSchoolId(),
+          studentId: student.id,
+          academicYearId,
+          campusId: klass.campusId,
+          classId: input.classId,
+          sectionId: input.sectionId,
+          rollNumber: input.rollNumber ?? null,
+          status: 'ACTIVE',
+        },
+      });
+    } catch (e) {
+      // Unique on (section, year, rollNumber) — a manual roll already used in this section/year.
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        throw new AppError(ErrorCodes.ROLL_NUMBER_TAKEN, HttpStatus.CONFLICT, `Roll number ${input.rollNumber} is already used in this section this year`);
+      }
+      throw e;
+    }
 
-    return { studentId: student.id, enrollmentId: enrollment.id, parentId, grNumber };
+    return { studentId: student.id, enrollmentId: enrollment.id, parentId, grNumber, registrationNo, rollNumber: enrollment.rollNumber };
+  }
+
+  /** AUTO: atomic per-school counter → gap-free admission registration number (mirrors GR). */
+  private async nextRegistrationNo(): Promise<string> {
+    const schoolId = this.ctx.requireSchoolId();
+    const school = await this.db.school.findFirst({ where: { id: schoolId } });
+    if (!school) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'School not found');
+    const updated = await this.db.school.update({ where: { id: schoolId }, data: { nextRegistrationNo: { increment: 1 } } });
+    return `${school.registrationPrefix}${updated.nextRegistrationNo - 1}`;
   }
 
   async createStudent(dto: CreateStudentDto): Promise<CreatedStudent> {

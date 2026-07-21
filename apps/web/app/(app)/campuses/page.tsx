@@ -20,14 +20,30 @@ export default function CampusesPage() {
   const [users, setUsers] = useState<ManagedUser[]>([]);
   const [newCampus, setNewCampus] = useState('');
   const [openFor, setOpenFor] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [msg, setMsg] = useState<Msg>(null);
 
   async function load() {
     const [c, u] = await Promise.all([apiGet<Campus[]>('/campuses'), api.users.list()]);
     setCampuses(c);
     setUsers(u);
+    setSelected(new Set());
   }
   useEffect(() => { load().catch(() => {}); }, []);
+
+  const toggleSelected = (id: string) =>
+    setSelected((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+
+  async function bulkDelete() {
+    if (!window.confirm(`Remove ${selected.size} selected user(s)? They'll be taken off their campus and can no longer sign in.`)) return;
+    try {
+      const res = await api.users.bulkDelete(Array.from(selected));
+      setMsg({ ok: true, text: `Removed ${res.removed} user(s)${res.skipped ? ` · ${res.skipped} skipped (owner/self/other campus)` : ''}` });
+      await load();
+    } catch (e) {
+      setMsg({ ok: false, text: e instanceof ApiError ? e.message : 'Bulk remove failed' });
+    }
+  }
 
   async function addCampus() {
     try {
@@ -51,6 +67,18 @@ export default function CampusesPage() {
     }
   }
 
+  // Owner removes an admin/user of a campus — they're taken off the directory and can't sign in.
+  async function removeUser(u: ManagedUser) {
+    if (!window.confirm(`Remove ${u.email}? They'll be taken off this campus and can no longer sign in. This can't be undone from here.`)) return;
+    try {
+      await api.users.remove(u.id);
+      setMsg({ ok: true, text: `Removed ${u.email}` });
+      await load();
+    } catch (e) {
+      setMsg({ ok: false, text: e instanceof ApiError ? e.message : 'Failed to remove user' });
+    }
+  }
+
   const usersOf = (campusId: string) => users.filter((u) => u.campusId === campusId);
   const schoolWide = users.filter((u) => u.campusId == null);
   const loginLink = (name: string) =>
@@ -60,6 +88,16 @@ export default function CampusesPage() {
     <div className="stack">
       <h1>Campuses</h1>
       {msg && <div className={`toast ${msg.ok ? 'ok' : 'err'}`}>{msg.text}</div>}
+
+      {isOwner && selected.size > 0 && (
+        <div className="card row" style={{ alignItems: 'center', gap: 12 }}>
+          <strong>{selected.size} selected</strong>
+          <span className="row" style={{ gap: 8, marginLeft: 'auto' }}>
+            <button className="ghost small" onClick={() => setSelected(new Set())}>Clear</button>
+            <button className="small" style={{ background: '#c0392b' }} onClick={bulkDelete}>Remove selected</button>
+          </span>
+        </div>
+      )}
 
       {isOwner && (
         <div className="inline-form">
@@ -84,10 +122,11 @@ export default function CampusesPage() {
             )}
           </div>
 
-          <div className="row" style={{ gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-            <span className="muted" style={{ fontSize: 13 }}>Login link:</span>
-            <code style={{ fontSize: 12, wordBreak: 'break-all' }}>{loginLink(c.name)}</code>
-            <button className="ghost small" onClick={() => { navigator.clipboard?.writeText(loginLink(c.name)); setMsg({ ok: true, text: 'Login link copied' }); }}>Copy</button>
+          <div className="row" style={{ gap: 8, alignItems: 'center' }}>
+            <button onClick={() => window.open(loginLink(c.name), '_blank', 'noopener,noreferrer')}>
+              🔗 Campus login ↗
+            </button>
+            <span className="muted" style={{ fontSize: 12 }}>Opens the {c.name} login page in a new tab.</span>
           </div>
 
           {openFor === c.id && isOwner && (
@@ -105,9 +144,21 @@ export default function CampusesPage() {
                   <tbody>
                     {group.map((u) => (
                       <tr key={u.id}>
+                        {isOwner && (
+                          <td style={{ width: 28 }}>
+                            <input type="checkbox" aria-label={`Select ${u.email}`} checked={selected.has(u.id)} onChange={() => toggleSelected(u.id)} />
+                          </td>
+                        )}
                         <td>{u.email}</td>
                         <td><span className={`badge ${u.status === 'ACTIVE' ? 'ok' : 'bad'}`}>{u.status}</span></td>
-                        {isOwner && <td style={{ textAlign: 'right' }}><ResetPw id={u.id} onDone={(ok, text) => setMsg({ ok, text })} /></td>}
+                        {isOwner && (
+                          <td style={{ textAlign: 'right' }}>
+                            <span className="row" style={{ gap: 6, justifyContent: 'flex-end' }}>
+                              <ResetPw id={u.id} onDone={(ok, text) => setMsg({ ok, text })} />
+                              <button className="ghost small" style={{ color: '#c0392b' }} onClick={() => removeUser(u)}>Remove</button>
+                            </span>
+                          </td>
+                        )}
                       </tr>
                     ))}
                   </tbody>

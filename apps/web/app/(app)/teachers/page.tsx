@@ -1,0 +1,342 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+import {
+  api, apiGet, ApiError,
+  type Campus, type CreateTeacherApplicationBody, type TeacherApplicationDetail, type TeacherApplicationSummary, type TeacherExperience,
+} from '@/lib/api';
+import { useMe } from '@/lib/me-context';
+
+type Msg = { ok: boolean; text: string } | null;
+const EMP = [{ v: 'FULL_TIME', l: 'Full-time' }, { v: 'PART_TIME', l: 'Part-time' }, { v: 'VISITING', l: 'Visiting' }];
+const STATUSES = ['SUBMITTED', 'SHORTLISTED', 'REJECTED', 'HIRED'];
+const empLabel = (v: string) => EMP.find((e) => e.v === v)?.l ?? v;
+const opt = (v?: string) => (v && v.trim() ? v.trim() : undefined);
+
+/**
+ * Teachers module (HR). The dedicated Add-Teacher onboarding form + directory of applications.
+ * List has all four states (loading/data/empty/error). Owner sees all campuses; a campus admin
+ * is scoped to their own by the API.
+ */
+export default function TeachersPage() {
+  const me = useMe();
+  const isOwner = (me?.roles ?? []).includes('OWNER_ADMIN');
+
+  const [apps, setApps] = useState<TeacherApplicationSummary[]>([]);
+  const [campuses, setCampuses] = useState<Campus[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<ApiError | null>(null);
+  const [fStatus, setFStatus] = useState('');
+  const [search, setSearch] = useState('');
+  const [adding, setAdding] = useState(false);
+  const [detailId, setDetailId] = useState<string | null>(null);
+  const [msg, setMsg] = useState<Msg>(null);
+
+  async function load() {
+    setLoading(true); setLoadError(null);
+    try {
+      const [a, c] = await Promise.all([
+        api.teacherApplications.list({ status: fStatus || undefined, search: search || undefined }),
+        apiGet<Campus[]>('/campuses'),
+      ]);
+      setApps(a); setCampuses(c);
+    } catch (e) {
+      setLoadError(e instanceof ApiError ? e : new ApiError(0, 'INTERNAL', 'Failed to load'));
+    } finally { setLoading(false); }
+  }
+  useEffect(() => { load().catch(() => {}); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [fStatus]);
+
+  const myCampuses = isOwner ? campuses : campuses.filter((c) => c.id === me?.campusId);
+
+  if (detailId) return <TeacherDetail id={detailId} onBack={() => setDetailId(null)} />;
+
+  return (
+    <div className="stack">
+      <div className="row">
+        <h1>Teachers</h1>
+        <button onClick={() => setAdding((v) => !v)}>{adding ? 'Close' : '+ Add teacher'}</button>
+      </div>
+      <p className="muted" style={{ margin: 0 }}>Add a teacher with their full profile, and browse everyone who has applied.</p>
+      {msg && <div className={`toast ${msg.ok ? 'ok' : 'err'}`}>{msg.text}</div>}
+
+      {adding && (
+        <AddTeacherForm campuses={myCampuses} lockedCampus={isOwner ? null : (me?.campusId ?? null)}
+          onDone={async (ok, text) => { setMsg({ ok, text }); if (ok) { setAdding(false); await load(); } }} />
+      )}
+
+      <div className="inline-form">
+        <div><label>Status</label>
+          <select value={fStatus} onChange={(e) => setFStatus(e.target.value)}>
+            <option value="">All statuses</option>
+            {STATUSES.map((s) => <option key={s} value={s}>{s.charAt(0) + s.slice(1).toLowerCase()}</option>)}
+          </select>
+        </div>
+        <div style={{ minWidth: 220 }}><label>Search (name / email / phone)</label>
+          <input value={search} onChange={(e) => setSearch(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && load()} />
+        </div>
+        <button className="ghost" onClick={() => load()}>Search</button>
+      </div>
+
+      {loading ? (
+        <div className="card"><p className="muted">Loading teachers…</p></div>
+      ) : loadError ? (
+        <div className="card stack">
+          <div className="toast err">{loadError.message}</div>
+          {loadError.requestId && <p className="muted" style={{ margin: 0, fontSize: 12 }}>Request ID: <code>{loadError.requestId}</code></p>}
+          <div><button className="ghost" onClick={() => load()}>Retry</button></div>
+        </div>
+      ) : apps.length === 0 ? (
+        <div className="card stack">
+          <p className="muted" style={{ margin: 0 }}>{fStatus || search ? 'No teachers match.' : 'No teachers added yet.'}</p>
+          <div><button onClick={() => setAdding(true)}>Add the first teacher</button></div>
+        </div>
+      ) : (
+        <div style={{ overflowX: 'auto' }}>
+          <table>
+            <thead><tr><th>Name</th><th>Position</th><th>Department</th><th>Campus</th><th>Type</th><th>Status</th><th></th></tr></thead>
+            <tbody>
+              {apps.map((a) => (
+                <tr key={a.id}>
+                  <td>{a.fullName}<div className="muted" style={{ fontSize: 12 }}>{a.email}</div></td>
+                  <td>{a.positionAppliedFor}</td>
+                  <td>{a.department}</td>
+                  <td>{a.campusName ?? '—'}</td>
+                  <td>{empLabel(a.employmentType)}</td>
+                  <td><span className="badge">{a.status.charAt(0) + a.status.slice(1).toLowerCase()}</span></td>
+                  <td style={{ textAlign: 'right' }}><button className="ghost small" onClick={() => setDetailId(a.id)}>View</button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AddTeacherForm({ campuses, lockedCampus, onDone }: {
+  campuses: Campus[]; lockedCampus: string | null; onDone: (ok: boolean, text: string) => void;
+}) {
+  const [f, setF] = useState<Record<string, string>>({ employmentType: 'FULL_TIME', gender: 'MALE', campusId: lockedCampus ?? '' });
+  const [experiences, setExperiences] = useState<TeacherExperience[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [issues, setIssues] = useState<string[]>([]);
+  const set = (k: string, v: string) => setF((p) => ({ ...p, [k]: v }));
+  const campusId = lockedCampus ?? f.campusId;
+
+  const required = ['fullName', 'email', 'mobile', 'positionAppliedFor', 'department', 'fatherName', 'dateOfBirth', 'cnic', 'currentAddress', 'city', 'highestQualification'];
+  const ready = Boolean(campusId) && required.every((k) => f[k]?.trim());
+
+  const T = (label: string, key: string, opts: { type?: string; ph?: string; req?: boolean } = {}) => (
+    <div>
+      <label>{label}{opts.req ? ' *' : ''}</label>
+      <input type={opts.type ?? 'text'} value={f[key] ?? ''} onChange={(e) => set(key, e.target.value)} placeholder={opts.ph} />
+    </div>
+  );
+  const grid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(190px,1fr))', gap: 10 } as const;
+  const secTitle = (t: string) => <div className="muted" style={{ fontWeight: 600, textTransform: 'uppercase', fontSize: 12, letterSpacing: 0.4, marginTop: 6 }}>{t}</div>;
+
+  async function submit() {
+    setBusy(true); setIssues([]);
+    const body: CreateTeacherApplicationBody = {
+      campusId, fullName: f.fullName, email: f.email, mobile: f.mobile,
+      positionAppliedFor: f.positionAppliedFor, department: f.department, employmentType: f.employmentType,
+      expectedSalary: f.expectedSalary ? Number(f.expectedSalary) : undefined,
+      availableJoiningDate: opt(f.availableJoiningDate),
+      details: {
+        fatherName: f.fatherName, dateOfBirth: f.dateOfBirth, gender: f.gender, cnic: f.cnic,
+        maritalStatus: opt(f.maritalStatus), nationality: opt(f.nationality), photoUrl: opt(f.photoUrl),
+        whatsapp: opt(f.whatsapp), currentAddress: f.currentAddress, permanentAddress: opt(f.permanentAddress),
+        city: f.city, province: opt(f.province), postalCode: opt(f.postalCode),
+        preferredSubjects: opt(f.preferredSubjects), gradeLevels: opt(f.gradeLevels),
+        highestQualification: f.highestQualification, degreeTitle: opt(f.degreeTitle), majorSubject: opt(f.majorSubject),
+        university: opt(f.university), passingYear: f.passingYear ? Number(f.passingYear) : undefined, cgpa: opt(f.cgpa),
+        totalExperience: opt(f.totalExperience), experiences: experiences.filter((e) => e.schoolName?.trim()),
+        languages: opt(f.languages), computerSkills: opt(f.computerSkills), lmsExperience: opt(f.lmsExperience),
+        msOfficeSkills: opt(f.msOfficeSkills), classroomManagement: opt(f.classroomManagement),
+      },
+    };
+    try {
+      await api.teacherApplications.create(body);
+      onDone(true, `Added ${f.fullName}`);
+    } catch (e) {
+      if (e instanceof ApiError && e.fieldIssues.length) setIssues(e.fieldIssues);
+      onDone(false, e instanceof ApiError ? e.message : 'Failed to add teacher');
+    } finally { setBusy(false); }
+  }
+
+  return (
+    <div className="card stack">
+      <h2 style={{ margin: 0, fontSize: 17 }}>Add teacher</h2>
+
+      {secTitle('Position')}
+      <div style={grid}>
+        {!lockedCampus && (
+          <div><label>Campus *</label>
+            <select value={f.campusId ?? ''} onChange={(e) => set('campusId', e.target.value)}>
+              <option value="">Select…</option>{campuses.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          </div>
+        )}
+        {T('Position applied for', 'positionAppliedFor', { req: true, ph: 'Physics Teacher' })}
+        {T('Department', 'department', { req: true, ph: 'Science' })}
+        <div><label>Employment type</label>
+          <select value={f.employmentType} onChange={(e) => set('employmentType', e.target.value)}>{EMP.map((x) => <option key={x.v} value={x.v}>{x.l}</option>)}</select>
+        </div>
+        {T('Preferred subjects', 'preferredSubjects', { ph: 'Physics, Maths' })}
+        {T('Grade levels', 'gradeLevels', { ph: '9–12' })}
+        {T('Expected salary', 'expectedSalary', { type: 'number' })}
+        {T('Available joining date', 'availableJoiningDate', { type: 'date' })}
+      </div>
+
+      {secTitle('Personal')}
+      <div style={grid}>
+        {T('Full name', 'fullName', { req: true })}
+        {T('Father / guardian name', 'fatherName', { req: true })}
+        {T('Date of birth', 'dateOfBirth', { type: 'date', req: true })}
+        <div><label>Gender *</label>
+          <select value={f.gender} onChange={(e) => set('gender', e.target.value)}><option>MALE</option><option>FEMALE</option><option>OTHER</option></select>
+        </div>
+        {T('CNIC / National ID', 'cnic', { req: true, ph: '35202-1234567-8' })}
+        {T('Marital status', 'maritalStatus')}
+        {T('Nationality', 'nationality', { ph: 'Pakistani' })}
+        {T('Photo URL', 'photoUrl', { ph: 'https://…' })}
+      </div>
+
+      {secTitle('Contact')}
+      <div style={grid}>
+        {T('Email', 'email', { type: 'email', req: true })}
+        {T('Mobile number', 'mobile', { req: true, ph: '03001234567' })}
+        {T('WhatsApp number', 'whatsapp')}
+        {T('City', 'city', { req: true })}
+        {T('Province', 'province')}
+        {T('Postal code', 'postalCode')}
+        {T('Current address', 'currentAddress', { req: true })}
+        {T('Permanent address', 'permanentAddress')}
+      </div>
+
+      {secTitle('Education')}
+      <div style={grid}>
+        {T('Highest qualification', 'highestQualification', { req: true, ph: 'M.Sc Physics' })}
+        {T('Degree title', 'degreeTitle')}
+        {T('Major subject', 'majorSubject')}
+        {T('University', 'university')}
+        {T('Passing year', 'passingYear', { type: 'number' })}
+        {T('CGPA / percentage', 'cgpa')}
+      </div>
+
+      {secTitle('Experience')}
+      <div style={grid}>{T('Total teaching experience', 'totalExperience', { ph: '6 years' })}</div>
+      {experiences.map((ex, i) => (
+        <div key={i} style={{ ...grid, border: '1px solid #e5e7eb', borderRadius: 8, padding: 10 }}>
+          <div><label>School name</label><input value={ex.schoolName} onChange={(e) => setExperiences((p) => p.map((x, n) => n === i ? { ...x, schoolName: e.target.value } : x))} /></div>
+          <div><label>Position</label><input value={ex.position ?? ''} onChange={(e) => setExperiences((p) => p.map((x, n) => n === i ? { ...x, position: e.target.value } : x))} /></div>
+          <div><label>Subjects taught</label><input value={ex.subjectsTaught ?? ''} onChange={(e) => setExperiences((p) => p.map((x, n) => n === i ? { ...x, subjectsTaught: e.target.value } : x))} /></div>
+          <div><label>Grades taught</label><input value={ex.gradesTaught ?? ''} onChange={(e) => setExperiences((p) => p.map((x, n) => n === i ? { ...x, gradesTaught: e.target.value } : x))} /></div>
+          <div><label>Duration</label><input value={ex.duration ?? ''} onChange={(e) => setExperiences((p) => p.map((x, n) => n === i ? { ...x, duration: e.target.value } : x))} placeholder="2018–2024" /></div>
+          <div><label>Reason for leaving</label><input value={ex.reasonForLeaving ?? ''} onChange={(e) => setExperiences((p) => p.map((x, n) => n === i ? { ...x, reasonForLeaving: e.target.value } : x))} /></div>
+          <div style={{ alignSelf: 'end' }}><button className="ghost small" onClick={() => setExperiences((p) => p.filter((_, n) => n !== i))}>Remove</button></div>
+        </div>
+      ))}
+      <div><button className="ghost small" onClick={() => setExperiences((p) => [...p, { schoolName: '' }])}>+ Add previous school</button></div>
+
+      {secTitle('Skills')}
+      <div style={grid}>
+        {T('Languages', 'languages', { ph: 'Urdu, English' })}
+        {T('Computer skills', 'computerSkills')}
+        {T('LMS experience', 'lmsExperience', { ph: 'Google Classroom' })}
+        {T('MS Office skills', 'msOfficeSkills')}
+        {T('Classroom management', 'classroomManagement')}
+      </div>
+
+      {issues.length > 0 && <ul className="toast err" style={{ margin: 0, paddingLeft: 22 }}>{issues.map((i, n) => <li key={n}>{i}</li>)}</ul>}
+      <div><button disabled={!ready || busy} onClick={submit}>{busy ? 'Saving…' : 'Add teacher'}</button>
+        {!ready && <span className="muted" style={{ marginLeft: 10, fontSize: 12 }}>Fill the fields marked *</span>}
+      </div>
+    </div>
+  );
+}
+
+function TeacherDetail({ id, onBack }: { id: string; onBack: () => void }) {
+  const [app, setApp] = useState<TeacherApplicationDetail | null>(null);
+  const [error, setError] = useState<ApiError | null>(null);
+
+  useEffect(() => {
+    api.teacherApplications.get(id).then(setApp).catch((e) => setError(e instanceof ApiError ? e : new ApiError(0, 'INTERNAL', 'Failed')));
+  }, [id]);
+
+  const Row = ({ k, v }: { k: string; v?: string | number | null }) =>
+    v === undefined || v === null || v === '' ? null : (
+      <div style={{ display: 'flex', gap: 8 }}><span className="muted" style={{ minWidth: 170, fontSize: 13 }}>{k}</span><span>{v}</span></div>
+    );
+
+  return (
+    <div className="stack">
+      <div className="row"><h1>Teacher</h1><button className="ghost" onClick={onBack}>← Back</button></div>
+      {error ? (
+        <div className="card stack"><div className="toast err">{error.message}</div><div><button className="ghost" onClick={onBack}>Back</button></div></div>
+      ) : !app ? (
+        <div className="card"><p className="muted">Loading…</p></div>
+      ) : (
+        <>
+          <div className="card stack">
+            <h2 style={{ margin: 0 }}>{app.fullName} <span className="badge">{app.status}</span></h2>
+            <div className="stack" style={{ gap: 4 }}>
+              <Row k="Position" v={app.positionAppliedFor} />
+              <Row k="Department" v={app.department} />
+              <Row k="Campus" v={app.campusName} />
+              <Row k="Employment type" v={empLabel(app.employmentType)} />
+              <Row k="Expected salary" v={app.expectedSalary} />
+              <Row k="Available joining" v={app.availableJoiningDate ? String(app.availableJoiningDate).slice(0, 10) : null} />
+            </div>
+          </div>
+          <div className="card stack">
+            <h3 style={{ margin: 0, fontSize: 15 }}>Personal & contact</h3>
+            <div className="stack" style={{ gap: 4 }}>
+              <Row k="Father / guardian" v={app.details.fatherName} />
+              <Row k="Date of birth" v={app.details.dateOfBirth?.slice?.(0, 10)} />
+              <Row k="Gender" v={app.details.gender} />
+              <Row k="CNIC" v={app.details.cnic} />
+              <Row k="Marital status" v={app.details.maritalStatus} />
+              <Row k="Nationality" v={app.details.nationality} />
+              <Row k="Email" v={app.email} /><Row k="Mobile" v={app.mobile} /><Row k="WhatsApp" v={app.details.whatsapp} />
+              <Row k="City" v={app.details.city} /><Row k="Province" v={app.details.province} /><Row k="Postal code" v={app.details.postalCode} />
+              <Row k="Current address" v={app.details.currentAddress} /><Row k="Permanent address" v={app.details.permanentAddress} />
+              <Row k="Preferred subjects" v={app.details.preferredSubjects} /><Row k="Grade levels" v={app.details.gradeLevels} />
+            </div>
+          </div>
+          <div className="card stack">
+            <h3 style={{ margin: 0, fontSize: 15 }}>Education</h3>
+            <div className="stack" style={{ gap: 4 }}>
+              <Row k="Highest qualification" v={app.details.highestQualification} />
+              <Row k="Degree title" v={app.details.degreeTitle} /><Row k="Major subject" v={app.details.majorSubject} />
+              <Row k="University" v={app.details.university} /><Row k="Passing year" v={app.details.passingYear} /><Row k="CGPA / %" v={app.details.cgpa} />
+            </div>
+          </div>
+          <div className="card stack">
+            <h3 style={{ margin: 0, fontSize: 15 }}>Experience</h3>
+            <Row k="Total experience" v={app.details.totalExperience} />
+            {(app.details.experiences ?? []).length === 0 ? <p className="muted" style={{ margin: 0, fontSize: 13 }}>No prior schools listed.</p> :
+              (app.details.experiences ?? []).map((ex, i) => (
+                <div key={i} style={{ border: '1px solid #e5e7eb', borderRadius: 8, padding: 10 }} className="stack">
+                  <strong>{ex.schoolName}</strong>
+                  <div className="stack" style={{ gap: 4 }}>
+                    <Row k="Position" v={ex.position} /><Row k="Subjects" v={ex.subjectsTaught} /><Row k="Grades" v={ex.gradesTaught} />
+                    <Row k="Duration" v={ex.duration} /><Row k="Reason for leaving" v={ex.reasonForLeaving} />
+                  </div>
+                </div>
+              ))}
+          </div>
+          <div className="card stack">
+            <h3 style={{ margin: 0, fontSize: 15 }}>Skills</h3>
+            <div className="stack" style={{ gap: 4 }}>
+              <Row k="Languages" v={app.details.languages} /><Row k="Computer skills" v={app.details.computerSkills} />
+              <Row k="LMS experience" v={app.details.lmsExperience} /><Row k="MS Office" v={app.details.msOfficeSkills} />
+              <Row k="Classroom management" v={app.details.classroomManagement} />
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}

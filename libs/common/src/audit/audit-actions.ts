@@ -17,6 +17,7 @@ export const AuditActions = {
   // auth / platform (M1)
   ROLE_CHANGED: 'ROLE_CHANGED',
   USER_DISABLED: 'USER_DISABLED',
+  USER_REMOVED: 'USER_REMOVED',
   MFA_RESET: 'MFA_RESET',
   SCHOOL_PROVISIONED: 'SCHOOL_PROVISIONED',
 
@@ -33,6 +34,17 @@ export const AuditActions = {
   PII_ANONYMIZED: 'PII_ANONYMIZED',
   DATA_EXPORTED: 'DATA_EXPORTED',
   SUPPORT_SESSION_STARTED: 'SUPPORT_SESSION_STARTED',
+
+  // HR — recruitment
+  VACANCY_CREATED: 'VACANCY_CREATED',
+  VACANCY_CLOSED: 'VACANCY_CLOSED',
+  TEACHER_APPLICATION_CREATED: 'TEACHER_APPLICATION_CREATED',
+
+  // Access grants — owner assigns/removes a role on an existing employee (reused account)
+  HR_ACCESS_GRANTED: 'HR_ACCESS_GRANTED',
+  HR_ACCESS_REVOKED: 'HR_ACCESS_REVOKED',
+  CAMPUS_ADMIN_GRANTED: 'CAMPUS_ADMIN_GRANTED',
+  CAMPUS_ADMIN_REVOKED: 'CAMPUS_ADMIN_REVOKED',
 } as const;
 
 export type AuditAction = (typeof AuditActions)[keyof typeof AuditActions];

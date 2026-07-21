@@ -1,7 +1,7 @@
-import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Patch, Post } from '@nestjs/common';
 import { Roles } from '@common';
 import { UsersService } from './users.service';
-import { CreateUserDto, ResetUserPasswordDto, UpdateUserDto } from './dto/users.dto';
+import { BulkDeleteUsersDto, CreateUserDto, GrantAccessDto, ResetUserPasswordDto, UpdateUserDto } from './dto/users.dto';
 
 /**
  * Users & roles (blueprint §23). OWNER_ADMIN has full control; CAMPUS_ADMIN may create,
@@ -24,14 +24,43 @@ export class UsersController {
     return this.users.create(dto);
   }
 
+  // Owner-only bulk remove. Static path — declared before the `:id` routes so it isn't shadowed.
+  @Roles('OWNER_ADMIN')
+  @Post('bulk-delete')
+  bulkDelete(@Body() dto: BulkDeleteUsersDto) {
+    return this.users.removeMany(dto.ids);
+  }
+
   @Roles('OWNER_ADMIN')
   @Patch(':id')
   update(@Param('id') id: string, @Body() dto: UpdateUserDto) {
     return this.users.update(id, dto);
   }
 
+  // Owner removes a user (soft-delete → gone from the directory, login blocked).
+  @Roles('OWNER_ADMIN')
+  @Delete(':id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  remove(@Param('id') id: string) {
+    return this.users.remove(id);
+  }
+
   @Post(':id/reset-password')
   resetPassword(@Param('id') id: string, @Body() dto: ResetUserPasswordDto) {
     return this.users.resetPassword(id, dto.password);
+  }
+
+  // Owner-only: assign/remove access-roles on an existing employee (§ RBAC). Reuses the
+  // account — no duplicate login.
+  @Roles('OWNER_ADMIN')
+  @Patch(':id/hr-access')
+  setHrAccess(@Param('id') id: string, @Body() dto: GrantAccessDto) {
+    return this.users.setHrAccess(id, dto.grant);
+  }
+
+  @Roles('OWNER_ADMIN')
+  @Patch(':id/campus-admin')
+  setCampusAdmin(@Param('id') id: string, @Body() dto: GrantAccessDto) {
+    return this.users.setCampusAdminAccess(id, dto.grant);
   }
 }

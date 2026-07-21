@@ -33,6 +33,7 @@ enum Role {
   OWNER_ADMIN
   CAMPUS_ADMIN
   ADMISSION_CONTROLLER
+  HR_MANAGER
   ACCOUNTANT
   TEACHER
   STAFF
@@ -170,6 +171,27 @@ enum EmploymentStatus {
   TERMINATED
 }
 
+// ── Recruitment (HR module) ──────────────────────────────────────────────────
+enum VacancyStatus {
+  OPEN
+  ON_HOLD
+  CLOSED
+}
+
+enum EmploymentType {
+  FULL_TIME
+  PART_TIME
+  CONTRACT
+  VISITING
+}
+
+enum TeacherApplicationStatus {
+  SUBMITTED
+  SHORTLISTED
+  REJECTED
+  HIRED
+}
+
 enum DocumentType {
   LEAVING_CERT
   CHARACTER_CERT
@@ -213,6 +235,9 @@ model School {
   grNumberMode  String    @default("AUTO") @map("gr_number_mode") // AUTO | MANUAL
   grPrefix      String    @default("") @map("gr_prefix")
   nextGrNumber  Int       @default(1) @map("next_gr_number")
+  registrationNoMode String @default("AUTO") @map("registration_no_mode") // AUTO | MANUAL
+  registrationPrefix String @default("") @map("registration_prefix")
+  nextRegistrationNo Int    @default(1) @map("next_registration_no")
   nextReceiptNo Int       @default(1) @map("next_receipt_no")
   settings      Json      @default("{}") // typed via Zod SchoolSettings in code (§17.1)
   createdAt     DateTime  @default(now()) @map("created_at")
@@ -220,6 +245,8 @@ model School {
 
   // back-relations (every tenant model)
   campuses           Campus[]
+  vacancies          Vacancy[]
+  teacherApplications TeacherApplication[]
   academicYears      AcademicYear[]
   classes            Class[]
   sections           Section[]
@@ -299,6 +326,8 @@ model Campus {
   users     User[]
   classes   Class[]
   inquiries Inquiry[]
+  vacancies Vacancy[]
+  teacherApplications TeacherApplication[]
 
   @@unique([id, schoolId]) // composite target for child tenant-chain FKs
   @@unique([schoolId, name])
@@ -429,6 +458,8 @@ model User {
   collectedPayments  FeePayment[]
   approvedDiscounts  Discount[]
   markedAttendance   AttendanceRecord[]
+  createdVacancies   Vacancy[]
+  createdTeacherApplications TeacherApplication[]
 
   @@unique([id, schoolId])
   @@unique([schoolId, email])
@@ -498,7 +529,8 @@ model Student {
   school      School    @relation(fields: [schoolId], references: [id])
   userId      String?   @unique @map("user_id") @db.Uuid // student portal login (audit C-8)
   user        User?     @relation(fields: [userId, schoolId], references: [id, schoolId])
-  grNumber    String    @map("gr_number")
+  grNumber       String  @map("gr_number")
+  registrationNo String? @map("registration_no") // admission-form reg. no (auto, per-school)
   fullName    String    @map("full_name")
   gender      Gender
   dateOfBirth DateTime  @map("date_of_birth") @db.Date
@@ -518,6 +550,7 @@ model Student {
 
   @@unique([id, schoolId])
   @@unique([schoolId, grNumber])
+  @@unique([schoolId, registrationNo])
   @@unique([userId, schoolId]) // composite target for one-to-one relation from User
   @@map("students")
 }
@@ -1095,6 +1128,56 @@ model Payslip {
   @@unique([runId, staffId])
   @@index([schoolId, staffId])
   @@map("payslips")
+}
+
+// Recruitment: a job opening at a campus. Entry point of the hiring workflow (HR module).
+model Vacancy {
+  id             String         @id @default(uuid()) @db.Uuid
+  schoolId       String         @map("school_id") @db.Uuid
+  school         School         @relation(fields: [schoolId], references: [id])
+  campusId       String         @map("campus_id") @db.Uuid
+  campus         Campus         @relation(fields: [campusId, schoolId], references: [id, schoolId])
+  title          String
+  department     String
+  description    String
+  employmentType EmploymentType @map("employment_type")
+  positions      Int            @default(1)
+  status         VacancyStatus  @default(OPEN)
+  createdById    String         @map("created_by_id") @db.Uuid
+  createdBy      User           @relation(fields: [createdById, schoolId], references: [id, schoolId])
+  closedAt       DateTime?      @map("closed_at")
+  createdAt      DateTime       @default(now()) @map("created_at")
+  updatedAt      DateTime       @updatedAt @map("updated_at")
+
+  @@index([schoolId, status])
+  @@map("vacancies")
+}
+
+// Teacher application / onboarding form (HR module). Queryable fields are real columns;
+// the full form (personal, contact, education, experience, skills) persists in `details`.
+model TeacherApplication {
+  id                  String                   @id @default(uuid()) @db.Uuid
+  schoolId            String                   @map("school_id") @db.Uuid
+  school              School                   @relation(fields: [schoolId], references: [id])
+  campusId            String                   @map("campus_id") @db.Uuid
+  campus              Campus                   @relation(fields: [campusId, schoolId], references: [id, schoolId])
+  fullName            String                   @map("full_name")
+  email               String
+  mobile              String
+  positionAppliedFor  String                   @map("position_applied_for")
+  department          String
+  employmentType      EmploymentType           @map("employment_type")
+  expectedSalary      Decimal?                 @map("expected_salary") @db.Decimal(12, 2)
+  availableJoiningDate DateTime?               @map("available_joining_date") @db.Date
+  status              TeacherApplicationStatus @default(SUBMITTED)
+  details             Json // personal, contact, education, experience, skills (full form)
+  createdById         String                   @map("created_by_id") @db.Uuid
+  createdBy           User                     @relation(fields: [createdById, schoolId], references: [id, schoolId])
+  createdAt           DateTime                 @default(now()) @map("created_at")
+  updatedAt           DateTime                 @updatedAt @map("updated_at")
+
+  @@index([schoolId, status])
+  @@map("teacher_applications")
 }
 
 // ── Communication ────────────────────────────────────────────────────────────

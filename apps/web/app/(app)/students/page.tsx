@@ -2,7 +2,7 @@
 
 import { type ChangeEvent, Suspense, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { apiGet, apiPost, ApiError, type Campus, type ImportResult, type Klass, type Paged, type Section, type Student } from '@/lib/api';
+import { apiGet, apiPost, ApiError, type Campus, type ImportResult, type Klass, type Paged, type Section, type Student, type StudentDetail } from '@/lib/api';
 
 export default function StudentsPage() {
   return (
@@ -26,6 +26,7 @@ function StudentsInner() {
   const [search, setSearch] = useState('');
   const [adding, setAdding] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [detailId, setDetailId] = useState<string | null>(null);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   async function load() {
@@ -62,6 +63,8 @@ function StudentsInner() {
   const activeClass = classes.find((c) => c.id === classId);
   const activeSection = sections.find((s) => s.id === sectionId);
   const hasFilter = Boolean(campusId || classId || sectionId);
+
+  if (detailId) return <StudentProfile id={detailId} classes={classes} sections={sections} onBack={() => setDetailId(null)} />;
 
   return (
     <div className="stack">
@@ -114,24 +117,28 @@ function StudentsInner() {
         <button className="ghost" onClick={() => load()}>Search</button>
       </div>
 
-      <table>
-        <thead><tr><th>GR</th><th>Name</th><th>Gender</th><th>Status</th></tr></thead>
-        <tbody>
-          {students.map((s) => (
-            <tr key={s.id}>
-              <td>{s.grNumber}</td>
-              <td>{s.fullName}</td>
-              <td>{s.gender}</td>
-              <td>{s.isActive ? <span className="badge ok">active</span> : <span className="badge bad">inactive</span>}</td>
-            </tr>
-          ))}
-          {students.length === 0 && (
-            <tr><td colSpan={4} className="muted">
-              {hasFilter ? 'No students in this class/section yet.' : 'No students. Add one, or set up a class/section first.'}
-            </td></tr>
-          )}
-        </tbody>
-      </table>
+      <div style={{ overflowX: 'auto' }}>
+        <table>
+          <thead><tr><th>Reg No</th><th>GR</th><th>Name</th><th>Gender</th><th>Status</th><th></th></tr></thead>
+          <tbody>
+            {students.map((s) => (
+              <tr key={s.id}>
+                <td>{s.registrationNo ?? '—'}</td>
+                <td>{s.grNumber}</td>
+                <td>{s.fullName}</td>
+                <td>{s.gender}</td>
+                <td>{s.isActive ? <span className="badge ok">active</span> : <span className="badge bad">inactive</span>}</td>
+                <td style={{ textAlign: 'right' }}><button className="ghost small" onClick={() => setDetailId(s.id)}>View</button></td>
+              </tr>
+            ))}
+            {students.length === 0 && (
+              <tr><td colSpan={6} className="muted">
+                {hasFilter ? 'No students in this class/section yet.' : 'No students. Add one, or set up a class/section first.'}
+              </td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
@@ -145,6 +152,7 @@ function AddStudent({ classes, sections, onDone }: { classes: Klass[]; sections:
     try {
       await apiPost('/students', {
         fullName: f.fullName, gender: f.gender, dateOfBirth: f.dateOfBirth, classId: f.classId, sectionId: f.sectionId,
+        rollNumber: f.rollNumber ? Number(f.rollNumber) : undefined,
         guardian: { mode: 'CREATE', fullName: f.guardianName, phone: f.phone, relation: f.relation },
       });
       onDone(true, `Admitted ${f.fullName}`);
@@ -162,11 +170,80 @@ function AddStudent({ classes, sections, onDone }: { classes: Klass[]; sections:
         <div><label>Date of birth</label><input type="date" value={f.dateOfBirth ?? ''} onChange={(e) => set('dateOfBirth', e.target.value)} /></div>
         <div><label>Class</label><select value={f.classId ?? ''} onChange={(e) => setF({ ...f, classId: e.target.value, sectionId: '' })}><option value="">Select…</option>{classes.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
         <div><label>Section</label><select value={f.sectionId ?? ''} onChange={(e) => set('sectionId', e.target.value)}><option value="">Select…</option>{classSections.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></div>
+        <div><label>Roll number (optional)</label><input type="number" min={1} value={f.rollNumber ?? ''} onChange={(e) => set('rollNumber', e.target.value)} placeholder="manual" /></div>
         <div><label>Guardian name</label><input value={f.guardianName ?? ''} onChange={(e) => set('guardianName', e.target.value)} /></div>
         <div><label>Guardian phone</label><input value={f.phone ?? ''} onChange={(e) => set('phone', e.target.value)} placeholder="03001234567" /></div>
         <div><label>Relation</label><select value={f.relation} onChange={(e) => set('relation', e.target.value)}><option>FATHER</option><option>MOTHER</option><option>GUARDIAN</option></select></div>
       </div>
+      <p className="muted" style={{ margin: 0, fontSize: 12 }}>GR number and the admission registration number are assigned automatically on save.</p>
       <div><button onClick={submit}>Admit student</button></div>
+    </div>
+  );
+}
+
+function StudentProfile({ id, classes, sections, onBack }: { id: string; classes: Klass[]; sections: Section[]; onBack: () => void }) {
+  const [s, setS] = useState<StudentDetail | null>(null);
+  const [error, setError] = useState<ApiError | null>(null);
+  useEffect(() => {
+    apiGet<StudentDetail>(`/students/${id}`).then(setS).catch((e) => setError(e instanceof ApiError ? e : new ApiError(0, 'INTERNAL', 'Failed')));
+  }, [id]);
+
+  const className = (cid: string) => classes.find((c) => c.id === cid)?.name ?? '?';
+  const sectionName = (sid: string) => sections.find((x) => x.id === sid)?.name ?? '?';
+  const active = s?.enrollments.find((e) => e.status === 'ACTIVE') ?? s?.enrollments[0];
+  const Row = ({ k, v }: { k: string; v?: string | number | null }) =>
+    v === undefined || v === null || v === '' ? null : (
+      <div style={{ display: 'flex', gap: 8 }}><span className="muted" style={{ minWidth: 150, fontSize: 13 }}>{k}</span><span>{v}</span></div>
+    );
+
+  return (
+    <div className="stack">
+      <div className="row"><h1>Student</h1><button className="ghost" onClick={onBack}>← Back</button></div>
+      {error ? (
+        <div className="card stack"><div className="toast err">{error.message}</div><div><button className="ghost" onClick={onBack}>Back</button></div></div>
+      ) : !s ? (
+        <div className="card"><p className="muted">Loading…</p></div>
+      ) : (
+        <>
+          <div className="card stack">
+            <h2 style={{ margin: 0 }}>{s.fullName} {s.isActive ? <span className="badge ok">active</span> : <span className="badge bad">inactive</span>}</h2>
+            {/* The two permanent IDs, shown as submitted */}
+            <div className="row" style={{ gap: 16, flexWrap: 'wrap' }}>
+              <span className="badge" style={{ fontSize: 13 }}>Registration No: {s.registrationNo ?? '—'}</span>
+              <span className="badge" style={{ fontSize: 13 }}>GR: {s.grNumber}</span>
+            </div>
+            <div className="stack" style={{ gap: 4 }}>
+              <Row k="Gender" v={s.gender} />
+              <Row k="Date of birth" v={s.dateOfBirth?.slice(0, 10)} />
+            </div>
+          </div>
+
+          <div className="card stack">
+            <h3 style={{ margin: 0, fontSize: 15 }}>Current enrollment</h3>
+            {active ? (
+              <div className="stack" style={{ gap: 4 }}>
+                <Row k="Class" v={className(active.classId)} />
+                <Row k="Section" v={sectionName(active.sectionId)} />
+                <Row k="Roll number" v={active.rollNumber ?? '—'} />
+                <Row k="Status" v={active.status} />
+              </div>
+            ) : <p className="muted" style={{ margin: 0, fontSize: 13 }}>No enrollment.</p>}
+          </div>
+
+          <div className="card stack">
+            <h3 style={{ margin: 0, fontSize: 15 }}>Guardians</h3>
+            {s.guardians.length === 0 ? <p className="muted" style={{ margin: 0, fontSize: 13 }}>None.</p> :
+              s.guardians.map((g) => (
+                <div key={g.id} className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+                  <strong>{g.parent.fullName}</strong>
+                  <span className="muted">{g.relation}</span>
+                  <span className="muted">{g.parent.phone}</span>
+                  {g.isPrimary && <span className="badge ok">primary</span>}
+                </div>
+              ))}
+          </div>
+        </>
+      )}
     </div>
   );
 }

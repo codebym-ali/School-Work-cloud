@@ -1,54 +1,78 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   api, apiGet, ApiError,
-  type Campus, type CreateTeacherApplicationBody, type TeacherApplicationDetail, type TeacherApplicationSummary, type TeacherExperience,
+  type Campus, type CreateTeacherApplicationBody, type ManagedTeacher,
+  type TeacherApplicationDetail, type TeacherApplicationSummary, type TeacherExperience,
 } from '@/lib/api';
 import { useMe } from '@/lib/me-context';
 
 type Msg = { ok: boolean; text: string } | null;
 const EMP = [{ v: 'FULL_TIME', l: 'Full-time' }, { v: 'PART_TIME', l: 'Part-time' }, { v: 'VISITING', l: 'Visiting' }];
-const STATUSES = ['SUBMITTED', 'SHORTLISTED', 'REJECTED', 'HIRED'];
 const empLabel = (v: string) => EMP.find((e) => e.v === v)?.l ?? v;
 const opt = (v?: string) => (v && v.trim() ? v.trim() : undefined);
 
 /**
- * Teachers module (HR). The dedicated Add-Teacher onboarding form + directory of applications.
- * List has all four states (loading/data/empty/error). Owner sees all campuses; a campus admin
- * is scoped to their own by the API.
+ * Teachers (HR). A whole-school directory — every teacher, grouped by campus, sourced
+ * from the real staff/login records (so it always matches who can actually log in and
+ * teach), not a separate application queue. "Add teacher" still captures the full
+ * onboarding profile (personal/contact/education/experience/skills); on submit it creates
+ * both the real staff record (so the teacher appears here immediately) and the detailed
+ * profile (best-effort — a profile-save failure doesn't undo the real account).
  */
 export default function TeachersPage() {
   const me = useMe();
   const isOwner = (me?.roles ?? []).includes('OWNER_ADMIN');
 
-  const [apps, setApps] = useState<TeacherApplicationSummary[]>([]);
+  const [teachers, setTeachers] = useState<ManagedTeacher[]>([]);
+  const [profiles, setProfiles] = useState<TeacherApplicationSummary[]>([]);
   const [campuses, setCampuses] = useState<Campus[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<ApiError | null>(null);
-  const [fStatus, setFStatus] = useState('');
+  const [fCampus, setFCampus] = useState('');
   const [search, setSearch] = useState('');
   const [adding, setAdding] = useState(false);
-  const [detailId, setDetailId] = useState<string | null>(null);
+  const [detail, setDetail] = useState<{ applicationId: string | null; fallback?: ManagedTeacher } | null>(null);
   const [msg, setMsg] = useState<Msg>(null);
 
   async function load() {
     setLoading(true); setLoadError(null);
     try {
-      const [a, c] = await Promise.all([
-        api.teacherApplications.list({ status: fStatus || undefined, search: search || undefined }),
+      const [staff, apps, c] = await Promise.all([
+        api.staff.list(),
+        api.teacherApplications.list().catch(() => [] as TeacherApplicationSummary[]),
         apiGet<Campus[]>('/campuses'),
       ]);
-      setApps(a); setCampuses(c);
+      setTeachers(staff.filter((s) => s.staffType === 'TEACHER'));
+      setProfiles(apps);
+      setCampuses(c);
     } catch (e) {
       setLoadError(e instanceof ApiError ? e : new ApiError(0, 'INTERNAL', 'Failed to load'));
     } finally { setLoading(false); }
   }
-  useEffect(() => { load().catch(() => {}); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [fStatus]);
+  useEffect(() => { load().catch(() => {}); }, []);
 
   const myCampuses = isOwner ? campuses : campuses.filter((c) => c.id === me?.campusId);
+  // A teacher added through this page's form has a matching application (same email) — used
+  // to show the rich onboarding profile on "View"; teachers added via Staff simply won't have one.
+  const profileByEmail = useMemo(() => new Map(profiles.map((p) => [p.email.toLowerCase(), p])), [profiles]);
 
-  if (detailId) return <TeacherDetail id={detailId} onBack={() => setDetailId(null)} />;
+  const q = search.trim().toLowerCase();
+  const filtered = teachers.filter((t) => {
+    if (fCampus && t.user.campusId !== fCampus) return false;
+    if (q && !`${t.user.email} ${t.employeeCode} ${t.designation}`.toLowerCase().includes(q)) return false;
+    return true;
+  });
+  const groups = myCampuses
+    .map((c) => ({ id: c.id, name: c.name, items: filtered.filter((t) => t.user.campusId === c.id) }))
+    .filter((g) => g.items.length > 0 || (!fCampus && !q));
+
+  if (detail) {
+    return detail.applicationId
+      ? <TeacherDetail id={detail.applicationId} onBack={() => setDetail(null)} />
+      : <TeacherFallbackDetail teacher={detail.fallback!} onBack={() => setDetail(null)} />;
+  }
 
   return (
     <div className="stack">
@@ -56,7 +80,7 @@ export default function TeachersPage() {
         <h1>Teachers</h1>
         <button onClick={() => setAdding((v) => !v)}>{adding ? 'Close' : '+ Add teacher'}</button>
       </div>
-      <p className="muted" style={{ margin: 0 }}>Add a teacher with their full profile, and browse everyone who has applied.</p>
+      <p className="muted" style={{ margin: 0 }}>Every teacher across the school, grouped by campus.</p>
       {msg && <div className={`toast ${msg.ok ? 'ok' : 'err'}`}>{msg.text}</div>}
 
       {adding && (
@@ -65,16 +89,15 @@ export default function TeachersPage() {
       )}
 
       <div className="inline-form">
-        <div><label>Status</label>
-          <select value={fStatus} onChange={(e) => setFStatus(e.target.value)}>
-            <option value="">All statuses</option>
-            {STATUSES.map((s) => <option key={s} value={s}>{s.charAt(0) + s.slice(1).toLowerCase()}</option>)}
+        <div><label>Campus</label>
+          <select value={fCampus} onChange={(e) => setFCampus(e.target.value)}>
+            <option value="">All campuses</option>
+            {myCampuses.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
         </div>
-        <div style={{ minWidth: 220 }}><label>Search (name / email / phone)</label>
-          <input value={search} onChange={(e) => setSearch(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && load()} />
+        <div style={{ minWidth: 220 }}><label>Search (name / email / code)</label>
+          <input value={search} onChange={(e) => setSearch(e.target.value)} />
         </div>
-        <button className="ghost" onClick={() => load()}>Search</button>
       </div>
 
       {loading ? (
@@ -85,30 +108,42 @@ export default function TeachersPage() {
           {loadError.requestId && <p className="muted" style={{ margin: 0, fontSize: 12 }}>Request ID: <code>{loadError.requestId}</code></p>}
           <div><button className="ghost" onClick={() => load()}>Retry</button></div>
         </div>
-      ) : apps.length === 0 ? (
+      ) : groups.every((g) => g.items.length === 0) ? (
         <div className="card stack">
-          <p className="muted" style={{ margin: 0 }}>{fStatus || search ? 'No teachers match.' : 'No teachers added yet.'}</p>
+          <p className="muted" style={{ margin: 0 }}>{fCampus || search ? 'No teachers match.' : 'No teachers added yet.'}</p>
           <div><button onClick={() => setAdding(true)}>Add the first teacher</button></div>
         </div>
       ) : (
-        <div style={{ overflowX: 'auto' }}>
-          <table>
-            <thead><tr><th>Name</th><th>Position</th><th>Department</th><th>Campus</th><th>Type</th><th>Status</th><th></th></tr></thead>
-            <tbody>
-              {apps.map((a) => (
-                <tr key={a.id}>
-                  <td>{a.fullName}<div className="muted" style={{ fontSize: 12 }}>{a.email}</div></td>
-                  <td>{a.positionAppliedFor}</td>
-                  <td>{a.department}</td>
-                  <td>{a.campusName ?? '—'}</td>
-                  <td>{empLabel(a.employmentType)}</td>
-                  <td><span className="badge">{a.status.charAt(0) + a.status.slice(1).toLowerCase()}</span></td>
-                  <td style={{ textAlign: 'right' }}><button className="ghost small" onClick={() => setDetailId(a.id)}>View</button></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        groups.map((g) => (
+          <div className="card stack" key={g.id}>
+            <h2 style={{ margin: 0, fontSize: 18 }}>{g.name} <span className="muted" style={{ fontWeight: 400, fontSize: 14 }}>({g.items.length})</span></h2>
+            {g.items.length === 0 ? (
+              <p className="muted" style={{ margin: 0, fontSize: 13 }}>No teachers here yet.</p>
+            ) : (
+              <div style={{ overflowX: 'auto' }}>
+                <table>
+                  <thead><tr><th>Name / Email</th><th>Code</th><th>Designation</th><th>Status</th><th></th></tr></thead>
+                  <tbody>
+                    {g.items.map((t) => {
+                      const profile = profileByEmail.get(t.user.email.toLowerCase());
+                      return (
+                        <tr key={t.id}>
+                          <td>{profile?.fullName ?? t.user.email}<div className="muted" style={{ fontSize: 12 }}>{t.user.email}</div></td>
+                          <td>{t.employeeCode}</td>
+                          <td>{t.designation}</td>
+                          <td><span className={`badge ${t.user.status === 'ACTIVE' ? 'ok' : t.user.status === 'INVITED' ? 'warn' : 'bad'}`}>{t.user.status}</span></td>
+                          <td style={{ textAlign: 'right' }}>
+                            <button className="ghost small" onClick={() => setDetail(profile ? { applicationId: profile.id } : { applicationId: null, fallback: t })}>View</button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        ))
       )}
     </div>
   );
@@ -138,27 +173,42 @@ function AddTeacherForm({ campuses, lockedCampus, onDone }: {
 
   async function submit() {
     setBusy(true); setIssues([]);
-    const body: CreateTeacherApplicationBody = {
-      campusId, fullName: f.fullName, email: f.email, mobile: f.mobile,
-      positionAppliedFor: f.positionAppliedFor, department: f.department, employmentType: f.employmentType,
-      expectedSalary: f.expectedSalary ? Number(f.expectedSalary) : undefined,
-      availableJoiningDate: opt(f.availableJoiningDate),
-      details: {
-        fatherName: f.fatherName, dateOfBirth: f.dateOfBirth, gender: f.gender, cnic: f.cnic,
-        maritalStatus: opt(f.maritalStatus), nationality: opt(f.nationality), photoUrl: opt(f.photoUrl),
-        whatsapp: opt(f.whatsapp), currentAddress: f.currentAddress, permanentAddress: opt(f.permanentAddress),
-        city: f.city, province: opt(f.province), postalCode: opt(f.postalCode),
-        preferredSubjects: opt(f.preferredSubjects), gradeLevels: opt(f.gradeLevels),
-        highestQualification: f.highestQualification, degreeTitle: opt(f.degreeTitle), majorSubject: opt(f.majorSubject),
-        university: opt(f.university), passingYear: f.passingYear ? Number(f.passingYear) : undefined, cgpa: opt(f.cgpa),
-        totalExperience: opt(f.totalExperience), experiences: experiences.filter((e) => e.schoolName?.trim()),
-        languages: opt(f.languages), computerSkills: opt(f.computerSkills), lmsExperience: opt(f.lmsExperience),
-        msOfficeSkills: opt(f.msOfficeSkills), classroomManagement: opt(f.classroomManagement),
-      },
-    };
     try {
-      await api.teacherApplications.create(body);
-      onDone(true, `Added ${f.fullName}`);
+      // 1. The real, load-bearing record: a staff/teacher login bound to the campus. This is
+      //    what makes the teacher show up in the directory and (once activated) able to log in.
+      const employeeCode = `T-${Date.now().toString(36).toUpperCase()}`;
+      await api.staff.create({
+        email: f.email, staffType: 'TEACHER', employeeCode,
+        designation: f.positionAppliedFor, joinedAt: f.availableJoiningDate || new Date().toISOString().slice(0, 10),
+        campusId,
+      });
+
+      // 2. Best-effort: the detailed onboarding profile. If this fails, the teacher is still a
+      //    real, visible staff member — only the extended profile is missing.
+      const body: CreateTeacherApplicationBody = {
+        campusId, fullName: f.fullName, email: f.email, mobile: f.mobile,
+        positionAppliedFor: f.positionAppliedFor, department: f.department, employmentType: f.employmentType,
+        expectedSalary: f.expectedSalary ? Number(f.expectedSalary) : undefined,
+        availableJoiningDate: opt(f.availableJoiningDate),
+        details: {
+          fatherName: f.fatherName, dateOfBirth: f.dateOfBirth, gender: f.gender, cnic: f.cnic,
+          maritalStatus: opt(f.maritalStatus), nationality: opt(f.nationality), photoUrl: opt(f.photoUrl),
+          whatsapp: opt(f.whatsapp), currentAddress: f.currentAddress, permanentAddress: opt(f.permanentAddress),
+          city: f.city, province: opt(f.province), postalCode: opt(f.postalCode),
+          preferredSubjects: opt(f.preferredSubjects), gradeLevels: opt(f.gradeLevels),
+          highestQualification: f.highestQualification, degreeTitle: opt(f.degreeTitle), majorSubject: opt(f.majorSubject),
+          university: opt(f.university), passingYear: f.passingYear ? Number(f.passingYear) : undefined, cgpa: opt(f.cgpa),
+          totalExperience: opt(f.totalExperience), experiences: experiences.filter((e) => e.schoolName?.trim()),
+          languages: opt(f.languages), computerSkills: opt(f.computerSkills), lmsExperience: opt(f.lmsExperience),
+          msOfficeSkills: opt(f.msOfficeSkills), classroomManagement: opt(f.classroomManagement),
+        },
+      };
+      try {
+        await api.teacherApplications.create(body);
+        onDone(true, `Added ${f.fullName} — they'll appear in the directory and can be invited to sign in.`);
+      } catch {
+        onDone(true, `Added ${f.fullName} as a teacher, but the detailed profile couldn't be saved (you can still see them in the directory).`);
+      }
     } catch (e) {
       if (e instanceof ApiError && e.fieldIssues.length) setIssues(e.fieldIssues);
       onDone(false, e instanceof ApiError ? e.message : 'Failed to add teacher');
@@ -252,6 +302,25 @@ function AddTeacherForm({ campuses, lockedCampus, onDone }: {
       {issues.length > 0 && <ul className="toast err" style={{ margin: 0, paddingLeft: 22 }}>{issues.map((i, n) => <li key={n}>{i}</li>)}</ul>}
       <div><button disabled={!ready || busy} onClick={submit}>{busy ? 'Saving…' : 'Add teacher'}</button>
         {!ready && <span className="muted" style={{ marginLeft: 10, fontSize: 12 }}>Fill the fields marked *</span>}
+      </div>
+    </div>
+  );
+}
+
+/** Fallback detail for a teacher who has no matching onboarding profile (e.g. added via Staff). */
+function TeacherFallbackDetail({ teacher, onBack }: { teacher: ManagedTeacher; onBack: () => void }) {
+  return (
+    <div className="stack">
+      <div className="row"><h1>Teacher</h1><button className="ghost" onClick={onBack}>← Back</button></div>
+      <div className="card stack">
+        <h2 style={{ margin: 0 }}>{teacher.user.email} <span className={`badge ${teacher.user.status === 'ACTIVE' ? 'ok' : 'warn'}`}>{teacher.user.status}</span></h2>
+        <div className="stack" style={{ gap: 4 }}>
+          <div><span className="muted" style={{ minWidth: 150, display: 'inline-block', fontSize: 13 }}>Employee code</span><span>{teacher.employeeCode}</span></div>
+          <div><span className="muted" style={{ minWidth: 150, display: 'inline-block', fontSize: 13 }}>Designation</span><span>{teacher.designation}</span></div>
+          <div><span className="muted" style={{ minWidth: 150, display: 'inline-block', fontSize: 13 }}>Campus</span><span>{teacher.user.campus?.name ?? '—'}</span></div>
+          <div><span className="muted" style={{ minWidth: 150, display: 'inline-block', fontSize: 13 }}>Joined</span><span>{teacher.joinedAt?.slice(0, 10)}</span></div>
+        </div>
+        <p className="muted" style={{ margin: 0, fontSize: 13 }}>No detailed onboarding profile on file for this teacher.</p>
       </div>
     </div>
   );

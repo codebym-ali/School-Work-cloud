@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { api, ApiError, type Me } from '@/lib/api';
 import { MeContext } from '@/lib/me-context';
-import { NAV, hasAnyRole, navItemFor, panelLabel } from '@/lib/roles';
+import { groupedNav, hasAnyRole, navItemFor, panelLabel } from '@/lib/roles';
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -23,8 +23,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   if (!ready) return <main className="container"><p className="muted">Loading…</p></main>;
   if (!me) return null;
 
-  // Show only the screens this role can use; gate the routed page centrally.
-  const nav = NAV.filter((n) => hasAnyRole(me.roles, n.roles));
+  // Show only the screens this role can use, grouped into sidebar categories;
+  // gate the routed page centrally.
+  const nav = groupedNav(me.roles);
   const current = navItemFor(pathname);
   const authorized = !current || hasAnyRole(me.roles, current.roles);
 
@@ -33,10 +34,16 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       <div className="shell">
         <aside className="sidebar">
           <div className="brand">🏫 {panelLabel(me.roles)}</div>
-          {nav.map((n) => (
-            <Link key={n.href} href={n.href} className={pathname.startsWith(n.href) ? 'active' : ''}>
-              {n.label}
-            </Link>
+          {nav.map(({ group, items }) => (
+            <div key={group} className="nav-group">
+              <div className="group-label">{group}</div>
+              {items.map((n) => (
+                <Link key={n.href} href={n.href} className={pathname.startsWith(n.href) ? 'active' : ''}>
+                  <span className="nav-icon" aria-hidden="true">{n.icon}</span>
+                  {n.label}
+                </Link>
+              ))}
+            </div>
           ))}
         </aside>
         <div className="content">

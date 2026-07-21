@@ -15,36 +15,68 @@ export type Role =
   | 'PARENT'
   | 'STUDENT';
 
+/**
+ * Sidebar groups, in the order they render. Follows the school lifecycle
+ * (enrol → teach & assess → bill) with the people/admin config last. A group
+ * only appears when the signed-in role has at least one item inside it.
+ */
+export type NavGroup =
+  | 'Overview'
+  | 'Enrollment'
+  | 'Academics'
+  | 'Finance'
+  | 'People'
+  | 'Administration'
+  | 'My Portal';
+
+export const NAV_GROUPS: NavGroup[] = [
+  'Overview',
+  'Enrollment',
+  'Academics',
+  'Finance',
+  'People',
+  'Administration',
+  'My Portal',
+];
+
 export interface NavItem {
   href: string;
   label: string;
+  icon: string;
+  group: NavGroup;
   roles?: Role[];
 }
 
 const NON_STUDENT: Role[] = ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT', 'TEACHER', 'PARENT'];
 
 export const NAV: NavItem[] = [
-  { href: '/dashboard', label: 'Dashboard', roles: NON_STUDENT },
-  { href: '/setup', label: 'Setup', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
-  { href: '/students', label: 'Students', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
-  { href: '/admissions', label: 'Admissions', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ADMISSION_CONTROLLER'] },
+  { href: '/dashboard', label: 'Dashboard', icon: '📊', group: 'Overview', roles: NON_STUDENT },
+
+  { href: '/admissions', label: 'Admissions', icon: '📝', group: 'Enrollment', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ADMISSION_CONTROLLER'] },
   // Campus admin provisions their campus's Admission Portal login here (§23).
   // Owner oversight of these logins lives in Campus Hub, not here — the owner appoints
   // campus admins; campus admins set up their own admission controllers.
-  { href: '/admissions-team', label: '🎓 Admission Portal', roles: ['CAMPUS_ADMIN'] },
-  { href: '/staff', label: 'Staff', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
-  { href: '/teachers', label: 'Teachers', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'HR_MANAGER'] },
-  { href: '/recruitment', label: 'Recruitment', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'HR_MANAGER'] },
-  { href: '/attendance', label: 'Attendance', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'TEACHER'] },
-  { href: '/fees', label: 'Fees', roles: ['OWNER_ADMIN', 'ACCOUNTANT'] },
-  { href: '/exams', label: 'Exams', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'TEACHER'] },
-  { href: '/reports', label: 'Reports', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
-  { href: '/campuses', label: '🏢 Campus Hub', roles: ['OWNER_ADMIN'] },
+  { href: '/admissions-team', label: 'Admission Portal', icon: '🎓', group: 'Enrollment', roles: ['CAMPUS_ADMIN'] },
+  { href: '/students', label: 'Students', icon: '👥', group: 'Enrollment', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
+
+  { href: '/attendance', label: 'Attendance', icon: '✅', group: 'Academics', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'TEACHER'] },
+  { href: '/exams', label: 'Exams & Results', icon: '📄', group: 'Academics', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'TEACHER'] },
+  { href: '/reports', label: 'Reports', icon: '📈', group: 'Academics', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
+
+  { href: '/fees', label: 'Fees', icon: '💳', group: 'Finance', roles: ['OWNER_ADMIN', 'ACCOUNTANT'] },
+
+  { href: '/teachers', label: 'Teachers', icon: '🧑‍🏫', group: 'People', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'HR_MANAGER'] },
+  { href: '/staff', label: 'Staff', icon: '🧑‍💼', group: 'People', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
+  { href: '/recruitment', label: 'Recruitment', icon: '📋', group: 'People', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'HR_MANAGER'] },
+
+  { href: '/setup', label: 'Setup', icon: '⚙️', group: 'Administration', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
+  { href: '/campuses', label: 'Campus Hub', icon: '🏢', group: 'Administration', roles: ['OWNER_ADMIN'] },
+
   // Student self-service portal (§28) — read-only, own data.
-  { href: '/me', label: 'My Dashboard', roles: ['STUDENT'] },
-  { href: '/me/attendance', label: 'My Attendance', roles: ['STUDENT'] },
-  { href: '/me/results', label: 'My Results', roles: ['STUDENT'] },
-  { href: '/me/fees', label: 'My Fees', roles: ['STUDENT'] },
+  { href: '/me', label: 'My Dashboard', icon: '🏠', group: 'My Portal', roles: ['STUDENT'] },
+  { href: '/me/attendance', label: 'My Attendance', icon: '✅', group: 'My Portal', roles: ['STUDENT'] },
+  { href: '/me/results', label: 'My Results', icon: '📄', group: 'My Portal', roles: ['STUDENT'] },
+  { href: '/me/fees', label: 'My Fees', icon: '💳', group: 'My Portal', roles: ['STUDENT'] },
 ];
 
 /**
@@ -89,4 +121,18 @@ export function hasAnyRole(userRoles: string[] | undefined, allowed?: Role[]): b
 /** The nav entry that owns a pathname, used to gate the routed page. */
 export function navItemFor(pathname: string): NavItem | undefined {
   return NAV.find((n) => pathname === n.href || pathname.startsWith(`${n.href}/`));
+}
+
+/**
+ * The sidebar as ordered groups, each with only the items this role may see.
+ * Empty groups are dropped, so a role never sees a header with nothing under it.
+ */
+export function groupedNav(
+  userRoles: string[] | undefined,
+): { group: NavGroup; items: NavItem[] }[] {
+  const visible = NAV.filter((n) => hasAnyRole(userRoles, n.roles));
+  return NAV_GROUPS.map((group) => ({
+    group,
+    items: visible.filter((n) => n.group === group),
+  })).filter((g) => g.items.length > 0);
 }

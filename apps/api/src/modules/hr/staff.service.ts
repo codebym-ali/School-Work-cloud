@@ -49,9 +49,14 @@ export class StaffService {
 
   listStaff(staffType?: StaffType) {
     // Campus-bound users only see staff assigned to their campus (via the User row).
+    // Excludes staff whose linked User was removed (soft-deleted) — a removed login
+    // should disappear from the directory the same way it does from /users.
     const restricted = restrictedCampusId(this.ctx.user);
     return this.db.staffProfile.findMany({
-      where: { ...(staffType ? { staffType } : {}), ...(restricted ? { user: { campusId: restricted } } : {}) },
+      where: {
+        ...(staffType ? { staffType } : {}),
+        user: { deletedAt: null, ...(restricted ? { campusId: restricted } : {}) },
+      },
       include: { user: { select: { id: true, email: true, roles: true, status: true, campusId: true, campus: { select: { name: true } } } } },
       orderBy: { employeeCode: 'asc' },
     });

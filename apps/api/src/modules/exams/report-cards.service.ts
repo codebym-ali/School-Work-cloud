@@ -1,6 +1,6 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { ExamStatus } from '@prisma/client';
-import { AppError, ErrorCodes, isAdminRole, PdfService, StorageService, TenantContext } from '@common';
+import { AppError, ErrorCodes, isAdminRole, PdfService, restrictedCampusId, StorageService, TenantContext } from '@common';
 import { TenantPrismaService } from '@database';
 import { SmsProducer } from '../comms/sms/sms-producer.service';
 import { denseRankByValue, gradeFor, overallPercent, subjectTermPercent, type ExamMark, type GradeBand } from './exam-grading';
@@ -156,15 +156,28 @@ export class ReportCardsService {
   }
 
   async listByStudent(studentId: string) {
-    // GuardianOfStudent (§22.8, P1.7): a non-admin may only read their own child's cards.
     const user = this.ctx.user;
-    if (!isAdminRole(user)) {
+    const enrollments = await this.db.studentEnrollment.findMany({
+      where: { studentId },
+      select: { id: true, status: true, campusId: true },
+    });
+
+    // Two independent §22.8/P1.7 gates, applied in order:
+    //  1. Campus scope — a campus-bound admin may only read a student ACTIVE in their campus
+    //     (mirrors StudentsService.getOne, so the two surfaces agree). OWNER_ADMIN is school-wide.
+    //  2. GuardianOfStudent — a non-admin (a PARENT) may only read their own child's cards.
+    const restricted = restrictedCampusId(user);
+    if (restricted !== null && isAdminRole(user)) {
+      if (!enrollments.some((e) => e.status === 'ACTIVE' && e.campusId === restricted)) {
+        throw new AppError(ErrorCodes.FORBIDDEN, HttpStatus.FORBIDDEN, 'Student belongs to another campus');
+      }
+    } else if (!isAdminRole(user)) {
       const link = user
         ? await this.db.studentGuardian.findFirst({ where: { studentId, parent: { userId: user.userId } } })
         : null;
       if (!link) throw new AppError(ErrorCodes.FORBIDDEN, HttpStatus.FORBIDDEN, 'Not permitted to view this student');
     }
-    const enrollments = await this.db.studentEnrollment.findMany({ where: { studentId }, select: { id: true } });
+
     return this.db.reportCard.findMany({
       where: { enrollmentId: { in: enrollments.map((e) => e.id) } },
       orderBy: { generatedAt: 'desc' },

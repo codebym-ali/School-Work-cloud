@@ -1,8 +1,8 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { Public } from '@common';
 import { PlatformService } from './platform.service';
 import { PlatformAuthGuard } from './platform-auth.guard';
-import { ProvisionTenantDto } from './dto/platform.dto';
+import { ListTenantsQuery, ProvisionTenantDto } from './dto/platform.dto';
 
 /**
  * Vendor console (blueprint §24) — cross-tenant tenant management. `@Public` skips the
@@ -16,8 +16,8 @@ export class PlatformController {
   constructor(private readonly platform: PlatformService) {}
 
   @Get('tenants')
-  listTenants() {
-    return this.platform.listTenants();
+  listTenants(@Query() q: ListTenantsQuery) {
+    return this.platform.listTenants(q);
   }
 
   @Post('tenants')

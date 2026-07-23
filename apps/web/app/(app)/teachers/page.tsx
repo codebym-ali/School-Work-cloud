@@ -1,10 +1,12 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
+import Link from 'next/link';
+import { useRouter, useSearchParams } from 'next/navigation';
 import {
   api, apiGet, ApiError,
   type Campus, type CreateTeacherApplicationBody, type ManagedTeacher,
-  type TeacherApplicationDetail, type TeacherApplicationSummary, type TeacherExperience,
+  type TeacherApplicationDetail, type TeacherExperience,
 } from '@/lib/api';
 import { useMe } from '@/lib/me-context';
 
@@ -14,137 +16,52 @@ const empLabel = (v: string) => EMP.find((e) => e.v === v)?.l ?? v;
 const opt = (v?: string) => (v && v.trim() ? v.trim() : undefined);
 
 /**
- * Teachers (HR). A whole-school directory — every teacher, grouped by campus, sourced
- * from the real staff/login records (so it always matches who can actually log in and
- * teach), not a separate application queue. "Add teacher" still captures the full
- * onboarding profile (personal/contact/education/experience/skills); on submit it creates
- * both the real staff record (so the teacher appears here immediately) and the detailed
- * profile (best-effort — a profile-save failure doesn't undo the real account).
+ * Teacher onboarding & profile (HR). Reached from the Staff directory — Staff is the single
+ * list of people, so this screen deliberately has no directory of its own. It captures the
+ * full onboarding profile (personal/contact/education/experience/skills), creating both the
+ * real staff record and the detailed profile (best-effort — a profile-save failure doesn't
+ * undo the real account), and renders one teacher's profile when opened with `?id=`.
  */
 export default function TeachersPage() {
+  return (
+    <Suspense fallback={<p className="muted">Loading…</p>}>
+      <TeacherOnboarding />
+    </Suspense>
+  );
+}
+
+function TeacherOnboarding() {
   const me = useMe();
+  const router = useRouter();
+  const params = useSearchParams();
+  const applicationId = params.get('id');
   const isOwner = (me?.roles ?? []).includes('OWNER_ADMIN');
 
-  const [teachers, setTeachers] = useState<ManagedTeacher[]>([]);
-  const [profiles, setProfiles] = useState<TeacherApplicationSummary[]>([]);
   const [campuses, setCampuses] = useState<Campus[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState<ApiError | null>(null);
-  const [fCampus, setFCampus] = useState('');
-  const [search, setSearch] = useState('');
-  const [adding, setAdding] = useState(false);
-  const [detail, setDetail] = useState<{ applicationId: string | null; fallback?: ManagedTeacher } | null>(null);
   const [msg, setMsg] = useState<Msg>(null);
 
-  async function load() {
-    setLoading(true); setLoadError(null);
-    try {
-      const [staff, apps, c] = await Promise.all([
-        api.staff.list(),
-        api.teacherApplications.list().catch(() => [] as TeacherApplicationSummary[]),
-        apiGet<Campus[]>('/campuses'),
-      ]);
-      setTeachers(staff.filter((s) => s.staffType === 'TEACHER'));
-      setProfiles(apps);
-      setCampuses(c);
-    } catch (e) {
-      setLoadError(e instanceof ApiError ? e : new ApiError(0, 'INTERNAL', 'Failed to load'));
-    } finally { setLoading(false); }
-  }
-  useEffect(() => { load().catch(() => {}); }, []);
+  useEffect(() => { apiGet<Campus[]>('/campuses').then(setCampuses).catch(() => {}); }, []);
+
+  const backToStaff = () => router.push('/staff');
+
+  if (applicationId) return <TeacherDetail id={applicationId} onBack={backToStaff} />;
 
   const myCampuses = isOwner ? campuses : campuses.filter((c) => c.id === me?.campusId);
-  // A teacher added through this page's form has a matching application (same email) — used
-  // to show the rich onboarding profile on "View"; teachers added via Staff simply won't have one.
-  const profileByEmail = useMemo(() => new Map(profiles.map((p) => [p.email.toLowerCase(), p])), [profiles]);
-
-  const q = search.trim().toLowerCase();
-  const filtered = teachers.filter((t) => {
-    if (fCampus && t.user.campusId !== fCampus) return false;
-    if (q && !`${t.user.email} ${t.employeeCode} ${t.designation}`.toLowerCase().includes(q)) return false;
-    return true;
-  });
-  const groups = myCampuses
-    .map((c) => ({ id: c.id, name: c.name, items: filtered.filter((t) => t.user.campusId === c.id) }))
-    .filter((g) => g.items.length > 0 || (!fCampus && !q));
-
-  if (detail) {
-    return detail.applicationId
-      ? <TeacherDetail id={detail.applicationId} onBack={() => setDetail(null)} />
-      : <TeacherFallbackDetail teacher={detail.fallback!} onBack={() => setDetail(null)} />;
-  }
 
   return (
     <div className="stack">
       <div className="row">
-        <h1>Teachers</h1>
-        <button onClick={() => setAdding((v) => !v)}>{adding ? 'Close' : '+ Add teacher'}</button>
+        <h1>Add a teacher</h1>
+        <Link className="ghost small" href="/staff">← Back to Staff</Link>
       </div>
-      <p className="muted" style={{ margin: 0 }}>Every teacher across the school, grouped by campus.</p>
+      <p className="muted" style={{ margin: 0 }}>
+        Captures the full onboarding profile and creates the teacher&apos;s staff record. They then
+        appear in the <b>Staff</b> directory, where you can assign subjects and manage access.
+      </p>
       {msg && <div className={`toast ${msg.ok ? 'ok' : 'err'}`}>{msg.text}</div>}
 
-      {adding && (
-        <AddTeacherForm campuses={myCampuses} lockedCampus={isOwner ? null : (me?.campusId ?? null)}
-          onDone={async (ok, text) => { setMsg({ ok, text }); if (ok) { setAdding(false); await load(); } }} />
-      )}
-
-      <div className="inline-form">
-        <div><label>Campus</label>
-          <select value={fCampus} onChange={(e) => setFCampus(e.target.value)}>
-            <option value="">All campuses</option>
-            {myCampuses.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
-        </div>
-        <div style={{ minWidth: 220 }}><label>Search (name / email / code)</label>
-          <input value={search} onChange={(e) => setSearch(e.target.value)} />
-        </div>
-      </div>
-
-      {loading ? (
-        <div className="card"><p className="muted">Loading teachers…</p></div>
-      ) : loadError ? (
-        <div className="card stack">
-          <div className="toast err">{loadError.message}</div>
-          {loadError.requestId && <p className="muted" style={{ margin: 0, fontSize: 12 }}>Request ID: <code>{loadError.requestId}</code></p>}
-          <div><button className="ghost" onClick={() => load()}>Retry</button></div>
-        </div>
-      ) : groups.every((g) => g.items.length === 0) ? (
-        <div className="card stack">
-          <p className="muted" style={{ margin: 0 }}>{fCampus || search ? 'No teachers match.' : 'No teachers added yet.'}</p>
-          <div><button onClick={() => setAdding(true)}>Add the first teacher</button></div>
-        </div>
-      ) : (
-        groups.map((g) => (
-          <div className="card stack" key={g.id}>
-            <h2 style={{ margin: 0, fontSize: 18 }}>{g.name} <span className="muted" style={{ fontWeight: 400, fontSize: 14 }}>({g.items.length})</span></h2>
-            {g.items.length === 0 ? (
-              <p className="muted" style={{ margin: 0, fontSize: 13 }}>No teachers here yet.</p>
-            ) : (
-              <div style={{ overflowX: 'auto' }}>
-                <table>
-                  <thead><tr><th>Name / Email</th><th>Code</th><th>Designation</th><th>Status</th><th></th></tr></thead>
-                  <tbody>
-                    {g.items.map((t) => {
-                      const profile = profileByEmail.get(t.user.email.toLowerCase());
-                      return (
-                        <tr key={t.id}>
-                          <td>{profile?.fullName ?? t.user.email}<div className="muted" style={{ fontSize: 12 }}>{t.user.email}</div></td>
-                          <td>{t.employeeCode}</td>
-                          <td>{t.designation}</td>
-                          <td><span className={`badge ${t.user.status === 'ACTIVE' ? 'ok' : t.user.status === 'INVITED' ? 'warn' : 'bad'}`}>{t.user.status}</span></td>
-                          <td style={{ textAlign: 'right' }}>
-                            <button className="ghost small" onClick={() => setDetail(profile ? { applicationId: profile.id } : { applicationId: null, fallback: t })}>View</button>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        ))
-      )}
+      <AddTeacherForm campuses={myCampuses} lockedCampus={isOwner ? null : (me?.campusId ?? null)}
+        onDone={(ok, text) => { setMsg({ ok, text }); if (ok) setTimeout(backToStaff, 900); }} />
     </div>
   );
 }

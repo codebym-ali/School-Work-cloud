@@ -123,8 +123,21 @@ describe('Platform vendor console (e2e, §24)', () => {
       .set('Host', 'admin.localhost')
       .set('Cookie', cookieHeader(sessionCookies));
     expect(res.status).toBe(200);
-    const ours = (res.body as Array<{ id: string; subdomain: string }>).find((t) => t.id === schoolId);
+    expect(typeof res.body.total).toBe('number');
+    const ours = (res.body.data as Array<{ id: string; subdomain: string }>).find((t) => t.id === schoolId);
     expect(ours?.subdomain).toBe(sub);
+  });
+
+  it('filters tenants by search (name / subdomain)', async () => {
+    const res = await request(server())
+      .get('/api/v1/platform/tenants')
+      .query({ search: sub })
+      .set('Host', 'admin.localhost')
+      .set('Cookie', cookieHeader(sessionCookies));
+    expect(res.status).toBe(200);
+    const rows = res.body.data as Array<{ id: string; subdomain: string }>;
+    expect(rows.some((t) => t.id === schoolId)).toBe(true);
+    expect(rows.every((t) => t.subdomain.includes(sub) || t.id === schoolId)).toBe(true);
   });
 
   const provOwnerLogin = () =>
@@ -148,7 +161,7 @@ describe('Platform vendor console (e2e, §24)', () => {
       .get('/api/v1/platform/tenants')
       .set('Host', 'admin.localhost')
       .set('Cookie', cookieHeader(sessionCookies));
-    expect((list.body as Array<{ id: string }>).some((t) => t.id === provSchoolId)).toBe(true);
+    expect((list.body.data as Array<{ id: string }>).some((t) => t.id === provSchoolId)).toBe(true);
 
     // The provisioned OWNER_ADMIN can authenticate against their new tenant host.
     expect((await provOwnerLogin()).status).toBe(200);

@@ -74,8 +74,10 @@ export class InvoicingService {
       data: { schoolId: this.sid, classId: dto.classId, academicYearId, month: dto.month, year: dto.year, status: 'RUNNING', createdById: this.ctx.user!.userId },
     });
 
+    // `student: { deletedAt: null }` is belt-and-braces: softDelete now closes the enrollment,
+    // but a removed student must never be billed even if an old ACTIVE row survives.
     const enrollments = await this.db.studentEnrollment.findMany({
-      where: { classId: dto.classId, academicYearId, status: 'ACTIVE' },
+      where: { classId: dto.classId, academicYearId, status: 'ACTIVE', student: { deletedAt: null } },
     });
     const structures = await this.db.feeStructure.findMany({
       where: { classId: dto.classId, academicYearId, isActive: true },

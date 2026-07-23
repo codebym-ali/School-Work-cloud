@@ -49,13 +49,21 @@ export interface Tenant {
   userCount: number; studentCount: number;
 }
 export interface NewTenant { name: string; subdomain: string; ownerEmail: string; ownerPassword: string }
+export interface TenantPage { data: Tenant[]; total: number; page: number; pageSize: number }
 
 export const platformApi = {
   login: (email: string, password: string) =>
     request<{ user: PlatformUser }>('/platform/auth/login', { method: 'POST', body: { email, password } }),
   logout: () => request<null>('/platform/auth/logout', { method: 'POST' }),
   me: () => request<PlatformUser>('/platform/auth/me'),
-  tenants: () => request<Tenant[]>('/platform/tenants'),
+  tenants: (params: { search?: string; page?: number; pageSize?: number } = {}) => {
+    const qs = new URLSearchParams();
+    if (params.search) qs.set('search', params.search);
+    if (params.page) qs.set('page', String(params.page));
+    if (params.pageSize) qs.set('pageSize', String(params.pageSize));
+    const q = qs.toString();
+    return request<TenantPage>(`/platform/tenants${q ? `?${q}` : ''}`);
+  },
   provision: (t: NewTenant) => request<{ id: string; subdomain: string }>('/platform/tenants', { method: 'POST', body: t }),
   suspend: (id: string) => request<{ id: string; isActive: boolean }>(`/platform/tenants/${id}/suspend`, { method: 'POST' }),
   reactivate: (id: string) => request<{ id: string; isActive: boolean }>(`/platform/tenants/${id}/reactivate`, { method: 'POST' }),

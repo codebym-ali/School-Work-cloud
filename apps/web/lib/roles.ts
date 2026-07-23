@@ -45,6 +45,9 @@ export interface NavItem {
   icon: string;
   group: NavGroup;
   roles?: Role[];
+  /** Reachable by link but not listed in the sidebar. Kept in NAV so `navItemFor` still
+   *  role-gates the route — dropping the entry entirely would make it open to everyone. */
+  hidden?: boolean;
 }
 
 export const NAV: NavItem[] = [
@@ -61,7 +64,7 @@ export const NAV: NavItem[] = [
 
   { href: '/fees', label: 'Fees', icon: '💳', group: 'Finance', roles: ['OWNER_ADMIN', 'ACCOUNTANT'] },
 
-  { href: '/teachers', label: 'Teachers', icon: '🧑‍🏫', group: 'People', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'HR_MANAGER'] },
+  { href: '/teachers', label: 'Teacher onboarding', icon: '🧑‍🏫', group: 'People', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'HR_MANAGER'], hidden: true },
   { href: '/staff', label: 'Staff', icon: '🧑‍💼', group: 'People', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
   { href: '/recruitment', label: 'Recruitment', icon: '📋', group: 'People', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'HR_MANAGER'] },
 
@@ -77,47 +80,46 @@ export const NAV: NavItem[] = [
 
   { href: '/my-attendance', label: 'My Attendance', icon: '✅', group: 'My Portal', roles: ['STAFF'] },
   { href: '/my-payslips', label: 'My Payslips', icon: '💵', group: 'My Portal', roles: ['STAFF', 'TEACHER'] },
+
+  // Account security is every user's own business — no `roles` (any authenticated) and reached
+  // from the top bar rather than the sidebar.
+  { href: '/security', label: 'Security', icon: '🔒', group: 'My Portal', hidden: true },
 ];
+
+/** Roles the API mandates MFA for (mirrors MANDATORY_MFA_ROLES in auth.service). */
+export const MFA_REQUIRED_ROLES = ['OWNER_ADMIN', 'ACCOUNTANT'] as const;
 
 /**
- * Human label for the panel/brand, derived from the signed-in user's roles.
- * Ordered most- to least-privileged so a multi-role user gets their highest panel.
+ * Single source of truth for a multi-role user's "primary" identity — ordered most- to
+ * least-privileged. Both the panel/brand label AND the post-login landing derive from this
+ * one list, so they can never disagree (e.g. a TEACHER+HR_MANAGER lands on Recruitment and
+ * is branded "HR Manager", not one of each). Keyed on the first role the user holds.
  */
-const PANEL_LABELS: [Role, string][] = [
-  ['PLATFORM_ADMIN', 'Platform Admin'],
-  ['OWNER_ADMIN', 'School Admin'],
-  ['CAMPUS_ADMIN', 'Campus Admin'],
-  ['ADMISSION_CONTROLLER', 'Admission Portal'],
-  ['ACCOUNTANT', 'Accountant'],
-  ['TEACHER', 'Teacher'],
-  ['HR_MANAGER', 'HR Manager'],
-  ['STAFF', 'Staff'],
-  ['PARENT', 'Parent'],
-  ['STUDENT', 'Student'],
+const ROLE_INFO: { role: Role; label: string; landing: string }[] = [
+  { role: 'PLATFORM_ADMIN', label: 'Platform Admin', landing: '/dashboard' },
+  { role: 'OWNER_ADMIN', label: 'School Admin', landing: '/dashboard' },
+  { role: 'CAMPUS_ADMIN', label: 'Campus Admin', landing: '/dashboard' },
+  { role: 'ACCOUNTANT', label: 'Accountant', landing: '/dashboard' },
+  { role: 'ADMISSION_CONTROLLER', label: 'Admission Portal', landing: '/admissions' },
+  { role: 'HR_MANAGER', label: 'HR Manager', landing: '/recruitment' },
+  { role: 'TEACHER', label: 'Teacher', landing: '/attendance' },
+  { role: 'STAFF', label: 'Staff', landing: '/my-attendance' },
+  { role: 'PARENT', label: 'Parent', landing: '/parent' },
+  { role: 'STUDENT', label: 'Student', landing: '/me' },
 ];
 
-export function panelLabel(roles: string[] | undefined): string {
+/** The highest-priority role the user holds, or undefined. */
+function primaryRole(roles: string[] | undefined) {
   const r = roles ?? [];
-  const match = PANEL_LABELS.find(([role]) => r.includes(role));
-  return match ? match[1] : 'School Admin';
+  return ROLE_INFO.find((x) => r.includes(x.role));
 }
 
-const LANDING: [Role, string][] = [
-  ['OWNER_ADMIN', '/dashboard'],
-  ['CAMPUS_ADMIN', '/dashboard'],
-  ['ACCOUNTANT', '/dashboard'],
-  ['ADMISSION_CONTROLLER', '/admissions'],
-  ['HR_MANAGER', '/recruitment'],
-  ['TEACHER', '/attendance'],
-  ['STAFF', '/my-attendance'],
-  ['PARENT', '/parent'],
-  ['STUDENT', '/me'],
-];
+export function panelLabel(roles: string[] | undefined): string {
+  return primaryRole(roles)?.label ?? 'School Admin';
+}
 
 export function landingPath(roles: string[] | undefined): string {
-  const r = roles ?? [];
-  const match = LANDING.find(([role]) => r.includes(role));
-  return match ? match[1] : '/dashboard';
+  return primaryRole(roles)?.landing ?? '/dashboard';
 }
 
 /** True if the user holds any of the allowed roles (or the item is unrestricted). */
@@ -132,13 +134,24 @@ export function navItemFor(pathname: string): NavItem | undefined {
 }
 
 /**
+ * True if the role may actually open `href` (same rule the app layout gates pages with).
+ * Use it to hide links/tiles that would otherwise dead-end on the "Not authorized" screen —
+ * e.g. a dashboard metric whose destination this role can't reach. An unknown href is
+ * treated as reachable (nothing gates it).
+ */
+export function canReach(userRoles: string[] | undefined, href: string): boolean {
+  const item = navItemFor(href);
+  return !item || hasAnyRole(userRoles, item.roles);
+}
+
+/**
  * The sidebar as ordered groups, each with only the items this role may see.
  * Empty groups are dropped, so a role never sees a header with nothing under it.
  */
 export function groupedNav(
   userRoles: string[] | undefined,
 ): { group: NavGroup; items: NavItem[] }[] {
-  const visible = NAV.filter((n) => hasAnyRole(userRoles, n.roles));
+  const visible = NAV.filter((n) => !n.hidden && hasAnyRole(userRoles, n.roles));
   return NAV_GROUPS.map((group) => ({
     group,
     items: visible.filter((n) => n.group === group),

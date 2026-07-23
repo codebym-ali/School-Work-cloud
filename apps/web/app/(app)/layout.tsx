@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { api, ApiError, type Me } from '@/lib/api';
 import { MeContext } from '@/lib/me-context';
-import { groupedNav, hasAnyRole, navItemFor, panelLabel } from '@/lib/roles';
+import { groupedNav, hasAnyRole, navItemFor, panelLabel, MFA_REQUIRED_ROLES } from '@/lib/roles';
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -28,6 +28,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const nav = groupedNav(me.roles);
   const current = navItemFor(pathname);
   const authorized = !current || hasAnyRole(me.roles, current.roles);
+  const needsMfa = !me.mfaEnabled && me.roles.some((r) => (MFA_REQUIRED_ROLES as readonly string[]).includes(r));
 
   return (
     <MeContext.Provider value={me}>
@@ -49,10 +50,19 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         <div className="content">
           <div className="topbar">
             <div className="who">{me.email} · {me.roles.join(', ')}</div>
-            <button className="ghost small" onClick={async () => { await api.logout().catch(() => {}); router.replace('/login'); }}>
-              Sign out
-            </button>
+            <div className="row" style={{ gap: 8 }}>
+              <Link className="ghost small" href="/security" style={{ textDecoration: 'none' }}>🔒 Security</Link>
+              <button className="ghost small" onClick={async () => { await api.logout().catch(() => {}); router.replace('/login'); }}>
+                Sign out
+              </button>
+            </div>
           </div>
+          {needsMfa && pathname !== '/security' && (
+            <div className="toast err">
+              Two-factor authentication is required for your role and isn&apos;t set up yet.{' '}
+              <Link href="/security" style={{ fontWeight: 600 }}>Set it up →</Link>
+            </div>
+          )}
           {authorized ? children : (
             <div className="card stack">
               <h1>Not authorized</h1>

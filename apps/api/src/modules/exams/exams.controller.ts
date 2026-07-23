@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Param, Post, Put, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Post, Put, Query } from '@nestjs/common';
 import { Roles } from '@common';
 import { ExamSetupService } from './exam-setup.service';
 import { ExamsService } from './exams.service';
@@ -21,6 +21,9 @@ export class TermsController {
 
   @Roles('OWNER_ADMIN') @Post() create(@Body() dto: CreateTermDto) { return this.setup.createTerm(dto); }
   @Get() list(@Query('academicYearId') yearId?: string) { return this.setup.listTerms(yearId); }
+
+  // Remove a term created by mistake. Blocked (409) once exams/report cards reference it.
+  @Roles('OWNER_ADMIN') @Delete(':id') remove(@Param('id') id: string) { return this.setup.deleteTerm(id); }
 
   @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
   @Post(':id/report-cards/generate')

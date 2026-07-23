@@ -127,7 +127,7 @@ export default function RecruitmentPage() {
         {loading ? (
           <p className="muted" style={{ margin: 0 }}>Loading applicants…</p>
         ) : applications.length === 0 ? (
-          <p className="muted" style={{ margin: 0 }}>No applications yet. Add teachers on the Teachers screen; they appear here to shortlist and hire.</p>
+          <p className="muted" style={{ margin: 0 }}>No applications yet. Add a teacher from the <b>Staff</b> screen (“Add teacher”); they appear here to shortlist and hire.</p>
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px,1fr))', gap: 12 }}>
             {PIPELINE.map((col) => {

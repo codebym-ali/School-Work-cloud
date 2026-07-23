@@ -186,6 +186,16 @@ describe('Campus scoping (e2e, §22.8 / P1.7)', () => {
     expect(cross.body.error.code).toBe('FORBIDDEN');
   });
 
+  it('CAMPUS_ADMIN report-cards: own campus student ok, another campus → 403', async () => {
+    // A CAMPUS_ADMIN bypasses the guardian check (isAdminRole) but must still be campus-scoped,
+    // exactly like the student detail read above — otherwise they can read any student's
+    // academic records school-wide (P1.7 violation).
+    expect((await authed('get', `/api/v1/students/${studentA}/report-cards`, adminCookies)).status).toBe(200);
+    const cross = await authed('get', `/api/v1/students/${studentB}/report-cards`, adminCookies);
+    expect(cross.status).toBe(403);
+    expect(cross.body.error.code).toBe('FORBIDDEN');
+  });
+
   // ── Attendance ───────────────────────────────────────────────────────────────
   it('CAMPUS_ADMIN attendance mark: campus A ok, campus B → 403', async () => {
     const date = safeDate();

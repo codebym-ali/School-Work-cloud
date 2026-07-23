@@ -1,13 +1,15 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { apiGet, apiPost, ApiError, type Enrollment, type Klass, type Section } from '@/lib/api';
+import { apiGet, apiPost, ApiError, type Campus, type Enrollment, type Klass, type Section } from '@/lib/api';
+import { sectionLabeller } from '@/lib/labels';
 
 const STATUSES = ['PRESENT', 'ABSENT', 'LATE', 'HALF_DAY'];
 const today = () => new Date().toISOString().slice(0, 10);
 
 export default function AttendancePage() {
   const [classes, setClasses] = useState<Klass[]>([]);
+  const [campuses, setCampuses] = useState<Campus[]>([]);
   const [sections, setSections] = useState<Section[]>([]);
   const [sectionId, setSectionId] = useState('');
   const [date, setDate] = useState(today());
@@ -19,6 +21,7 @@ export default function AttendancePage() {
   useEffect(() => {
     apiGet<Klass[]>('/classes').then(setClasses).catch(() => {});
     apiGet<Section[]>('/sections').then(setSections).catch(() => {});
+    apiGet<Campus[]>('/campuses').then(setCampuses).catch(() => {});
   }, []);
 
   async function loadRoster() {
@@ -47,7 +50,7 @@ export default function AttendancePage() {
     }
   }
 
-  const className = (id: string) => classes.find((c) => c.id === id)?.name ?? '';
+  const sectionLabel = sectionLabeller(classes, campuses);
 
   return (
     <div className="stack">
@@ -58,7 +61,7 @@ export default function AttendancePage() {
         <div><label>Section</label>
           <select value={sectionId} onChange={(e) => setSectionId(e.target.value)}>
             <option value="">Select…</option>
-            {sections.map((s) => <option key={s.id} value={s.id}>{className(s.classId)} — {s.name}</option>)}
+            {sections.map((s) => <option key={s.id} value={s.id}>{sectionLabel(s)}</option>)}
           </select>
         </div>
         <div><label>Date</label><input type="date" value={date} onChange={(e) => setDate(e.target.value)} /></div>

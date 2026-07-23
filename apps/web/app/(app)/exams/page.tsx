@@ -2,10 +2,11 @@
 
 import { useEffect, useState } from 'react';
 import {
-  apiGet, apiPost, apiPut, ApiError,
-  type AcademicYear, type Exam, type ExamResult, type GradeBand,
+  api, apiGet, apiPost, apiPut, ApiError,
+  type AcademicYear, type Campus, type Exam, type ExamResult, type GradeBand,
   type Klass, type Paged, type Section, type Student, type Subject, type Term, type ReportCard,
 } from '@/lib/api';
+import { classLabeller, sectionLabeller } from '@/lib/labels';
 
 const EXAM_TYPES = ['MONTHLY', 'MID_TERM', 'FINAL', 'SURPRISE_TEST'];
 
@@ -13,6 +14,7 @@ export default function ExamsPage() {
   const [years, setYears] = useState<AcademicYear[]>([]);
   const [terms, setTerms] = useState<Term[]>([]);
   const [classes, setClasses] = useState<Klass[]>([]);
+  const [campuses, setCampuses] = useState<Campus[]>([]);
   const [sections, setSections] = useState<Section[]>([]);
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [students, setStudents] = useState<Record<string, string>>({});
@@ -22,15 +24,16 @@ export default function ExamsPage() {
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   async function reloadBase() {
-    const [y, t, k, s, sub, st] = await Promise.all([
+    const [y, t, k, s, sub, st, cam] = await Promise.all([
       apiGet<AcademicYear[]>('/academic-years'),
       apiGet<Term[]>('/terms'),
       apiGet<Klass[]>('/classes'),
       apiGet<Section[]>('/sections'),
       apiGet<Subject[]>('/subjects'),
       apiGet<Paged<Student>>('/students?pageSize=100'),
+      apiGet<Campus[]>('/campuses').catch(() => [] as Campus[]),
     ]);
-    setYears(y); setTerms(t); setClasses(k); setSections(s); setSubjects(sub);
+    setYears(y); setTerms(t); setClasses(k); setSections(s); setSubjects(sub); setCampuses(cam);
     setStudents(Object.fromEntries(st.data.map((x) => [x.id, `${x.fullName} (${x.grNumber})`])));
   }
   async function reloadExams() {
@@ -40,6 +43,8 @@ export default function ExamsPage() {
     const qs = q.toString();
     setExams(await apiGet<Exam[]>(`/exams${qs ? `?${qs}` : ''}`));
   }
+  const classLabel = classLabeller(classes, campuses);
+
   useEffect(() => { reloadBase().catch(() => {}); }, []);
   useEffect(() => { reloadExams().catch(() => {}); }, [classFilter, termFilter]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -65,21 +70,22 @@ export default function ExamsPage() {
       <h1>Exams</h1>
       {msg && <div className={`toast ${msg.ok ? 'ok' : 'err'}`}>{msg.text}</div>}
 
-      <SubjectsCard subjects={subjects} classes={classes}
+      <SubjectsCard subjects={subjects} classes={classes} classLabel={classLabel}
         onCreate={(b) => run(() => apiPost('/subjects', b), 'Subject created', reloadBase)} />
 
       <GradeScaleCard years={years}
         onSaved={(ok, text) => setMsg({ ok, text })} />
 
       <TermsCard years={years} terms={terms}
-        onCreate={(b) => run(() => apiPost('/terms', b), 'Term created', reloadBase)} />
+        onCreate={(b) => run(() => apiPost('/terms', b), 'Term created', reloadBase)}
+        onDelete={async (t) => { await run(() => api.terms.remove(t.id), `Deleted "${t.name}"`, reloadBase); }} />
 
       <div className="card stack">
         <h2 style={{ margin: 0, fontSize: 17 }}>Exams</h2>
         <div className="inline-form">
           <div><label>Class</label>
             <select value={classFilter} onChange={(e) => setClassFilter(e.target.value)}>
-              <option value="">All</option>{classes.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              <option value="">All</option>{classes.map((c) => <option key={c.id} value={c.id}>{classLabel(c)}</option>)}
             </select>
           </div>
           <div><label>Term</label>
@@ -89,7 +95,7 @@ export default function ExamsPage() {
           </div>
         </div>
 
-        <NewExam terms={terms} classes={classes}
+        <NewExam terms={terms} classes={classes} classLabel={classLabel}
           onCreate={(b) => run(() => apiPost('/exams', { ...b, weightagePercent: Number(b.weightagePercent) }), 'Exam created', reloadExams)} />
 
         <table>
@@ -110,7 +116,7 @@ export default function ExamsPage() {
   );
 }
 
-function SubjectsCard({ subjects, classes, onCreate }: { subjects: Subject[]; classes: Klass[]; onCreate: (b: Record<string, string>) => void }) {
+function SubjectsCard({ subjects, classes, classLabel, onCreate }: { subjects: Subject[]; classes: Klass[]; classLabel: (c: Klass) => string; onCreate: (b: Record<string, string>) => void }) {
   const [form, setForm] = useState<Record<string, string>>({});
   const nameFor = (id: string) => classes.find((c) => c.id === id)?.name ?? '?';
   return (
@@ -120,7 +126,7 @@ function SubjectsCard({ subjects, classes, onCreate }: { subjects: Subject[]; cl
       <div className="inline-form">
         <div><label>Class</label>
           <select value={form.classId ?? ''} onChange={(e) => setForm({ ...form, classId: e.target.value })}>
-            <option value="">Select…</option>{classes.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            <option value="">Select…</option>{classes.map((c) => <option key={c.id} value={c.id}>{classLabel(c)}</option>)}
           </select>
         </div>
         <div><label>Name</label><input value={form.name ?? ''} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Mathematics" /></div>
@@ -198,13 +204,50 @@ function GradeScaleCard({ years, onSaved }: { years: AcademicYear[]; onSaved: (o
   );
 }
 
-function TermsCard({ years, terms, onCreate }: { years: AcademicYear[]; terms: Term[]; onCreate: (b: Record<string, string>) => void }) {
+function TermsCard({ years, terms, onCreate, onDelete }: {
+  years: AcademicYear[]; terms: Term[];
+  onCreate: (b: Record<string, string>) => void;
+  onDelete: (t: Term) => Promise<void>;
+}) {
   const [form, setForm] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState('');
   const yearName = (id: string) => years.find((y) => y.id === id)?.name ?? '?';
+
+  async function remove(t: Term) {
+    if (!window.confirm(`Delete the term "${t.name}"? This is blocked if it already has exams or report cards.`)) return;
+    setBusy(t.id);
+    try { await onDelete(t); } finally { setBusy(''); }
+  }
   return (
     <div className="card stack">
-      <h2 style={{ margin: 0, fontSize: 17 }}>Terms</h2>
-      <div className="muted">{terms.length ? terms.map((t) => `${t.name} (${yearName(t.academicYearId)})`).join(' · ') : 'None yet.'}</div>
+      <div className="row">
+        <h2 style={{ margin: 0, fontSize: 17 }}>Terms</h2>
+        {terms.length > 0 && <span className="badge">{terms.length}</span>}
+      </div>
+      {terms.length === 0 ? (
+        <p className="muted" style={{ margin: 0 }}>None yet — add the first term below.</p>
+      ) : (
+        <div style={{ maxHeight: 260, overflowY: 'auto' }}>
+          <table>
+            <thead><tr><th>Term</th><th>Academic year</th><th>Dates</th><th></th></tr></thead>
+            <tbody>
+              {terms.map((t) => (
+                <tr key={t.id}>
+                  <td>{t.name}</td>
+                  <td className="muted">{yearName(t.academicYearId)}</td>
+                  <td className="muted" style={{ fontSize: 12 }}>
+                    {new Date(t.startDate).toLocaleDateString()} – {new Date(t.endDate).toLocaleDateString()}
+                  </td>
+                  <td style={{ textAlign: 'right' }}>
+                    <button className="ghost small" disabled={busy === t.id}
+                      onClick={() => remove(t)}>{busy === t.id ? '…' : 'Delete'}</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
       <div className="inline-form">
         <div><label>Academic year</label>
           <select value={form.academicYearId ?? ''} onChange={(e) => setForm({ ...form, academicYearId: e.target.value })}>
@@ -220,7 +263,7 @@ function TermsCard({ years, terms, onCreate }: { years: AcademicYear[]; terms: T
   );
 }
 
-function NewExam({ terms, classes, onCreate }: { terms: Term[]; classes: Klass[]; onCreate: (b: Record<string, string>) => void }) {
+function NewExam({ terms, classes, classLabel, onCreate }: { terms: Term[]; classes: Klass[]; classLabel: (c: Klass) => string; onCreate: (b: Record<string, string>) => void }) {
   const [form, setForm] = useState<Record<string, string>>({ examType: 'MONTHLY', weightagePercent: '100' });
   return (
     <div className="inline-form">
@@ -231,7 +274,7 @@ function NewExam({ terms, classes, onCreate }: { terms: Term[]; classes: Klass[]
       </div>
       <div><label>Class</label>
         <select value={form.classId ?? ''} onChange={(e) => setForm({ ...form, classId: e.target.value })}>
-          <option value="">Select…</option>{classes.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          <option value="">Select…</option>{classes.map((c) => <option key={c.id} value={c.id}>{classLabel(c)}</option>)}
         </select>
       </div>
       <div><label>Name</label><input value={form.name ?? ''} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Monthly test 1" /></div>

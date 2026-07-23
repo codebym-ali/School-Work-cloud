@@ -55,14 +55,21 @@ export const apiPost = <T>(path: string, body?: unknown, headers?: Record<string
   request<T>(path, { method: 'POST', body, headers });
 export const apiPut = <T>(path: string, body?: unknown) => request<T>(path, { method: 'PUT', body });
 export const apiPatch = <T>(path: string, body?: unknown) => request<T>(path, { method: 'PATCH', body });
-export const apiDelete = <T>(path: string) => request<T>(path, { method: 'DELETE' });
+export const apiDelete = <T>(path: string, body?: unknown) => request<T>(path, { method: 'DELETE', body });
 
 export function idemKey(): Record<string, string> {
   return { 'Idempotency-Key': crypto.randomUUID() };
 }
 
 // ── Types ──────────────────────────────────────────────────────────────────
-export interface Me { id: string; email: string; roles: string[]; campusId: string | null; modules: string[] }
+export interface Me { id: string; email: string; roles: string[]; campusId: string | null; modules: string[]; mfaEnabled: boolean }
+/** Login either establishes a session, or (when the account has MFA on) hands back a short-lived
+ *  `mfaToken` that must be exchanged for a session via `api.mfa.challenge`. */
+export type LoginResult =
+  | { user: Me; mfaEnrollmentRequired?: boolean }
+  | { mfaRequired: true; mfaToken: string };
+export const isMfaRequired = (r: LoginResult): r is { mfaRequired: true; mfaToken: string } =>
+  'mfaRequired' in r && r.mfaRequired === true;
 export interface UserModule { key: string; label: string; description: string; role: string; allowed: boolean }
 export interface Dashboard {
   enrollmentCount: number; todayAttendancePercent: number | null; monthCollections: number;
@@ -89,6 +96,16 @@ export interface ImportResult {
 }
 export interface Enrollment { id: string; studentId: string; sectionId: string; classId: string; academicYearId: string; status: string; student?: { fullName: string; grNumber: string } }
 export interface Invoice { id: string; studentId: string; totalAmount: string; paidAmount: string; status: string; month: number | null; year: number; dueDate: string }
+export interface FeeHead { id: string; name: string }
+export interface FeeStructure {
+  id: string; campusId: string; classId: string; feeHeadId: string; academicYearId: string;
+  amount: string; frequency: string; isActive: boolean;
+}
+export interface LateFeePolicy { id: string; graceDays: number; mode: string; amount: string; maxAmount: string | null }
+export interface Discount {
+  id: string; studentId: string; type: string; value: string; feeHeadId: string | null;
+  reason: string; status: string; validFrom: string | null;
+}
 export interface EntryTest { id: string; inquiryId: string; scheduledAt: string; score: string | null; remarks: string | null }
 export interface Inquiry {
   id: string; campusId: string; guardianName: string; guardianPhone: string; studentName: string;
@@ -209,10 +226,18 @@ export interface StaffAttendanceRow { date: string; session: string; status: str
 export interface Payslip { id: string; runId: string; gross: string; attendanceDeduction: string; otherDeductions: string; netPay: string; status: string; paidAt: string | null }
 
 export const api = {
-  login: (email: string, password: string) =>
-    apiPost<{ user: Me; mfaEnrollmentRequired?: boolean }>('/auth/login', { email, password }),
+  login: (email: string, password: string) => apiPost<LoginResult>('/auth/login', { email, password }),
   logout: () => apiPost<null>('/auth/logout'),
   me: () => apiGet<Me>('/auth/me'),
+  mfa: {
+    /** Step 2 of login for an MFA-enabled account — exchanges the pending token for a session. */
+    challenge: (mfaToken: string, code: string) => apiPost<{ user: Me }>('/auth/mfa/challenge', { mfaToken, code }),
+    /** Starts enrolment: rotates a fresh secret and returns its otpauth:// URI. */
+    setup: () => apiPost<{ otpauthUrl: string }>('/auth/mfa/setup'),
+    /** Confirms the first code and switches MFA on. */
+    verify: (code: string) => apiPost<null>('/auth/mfa/verify', { code }),
+    disable: (password: string, code: string) => apiDelete<null>('/auth/mfa', { password, code }),
+  },
   dashboard: () => apiGet<Dashboard>('/dashboard'),
   users: {
     list: () => apiGet<ManagedUser[]>('/users'),
@@ -246,6 +271,9 @@ export const api = {
   subjects: {
     list: (classId: string) => apiGet<Subject[]>(`/subjects?classId=${classId}`),
   },
+  terms: {
+    remove: (id: string) => apiDelete<{ ok: boolean }>(`/terms/${id}`),
+  },
   teacherApplications: {
     list: (params?: { campusId?: string; status?: string; search?: string }) => {
       const qs = new URLSearchParams(Object.entries(params ?? {}).filter(([, v]) => v) as [string, string][]).toString();
@@ -269,6 +297,20 @@ export const api = {
   },
   admissions: {
     summary: () => apiGet<AdmissionsSummary>('/inquiries/summary'),
+  },
+  feeSetup: {
+    heads: () => apiGet<FeeHead[]>('/fee-heads'),
+    createHead: (name: string) => apiPost<FeeHead>('/fee-heads', { name }),
+    structures: (classId?: string) => apiGet<FeeStructure[]>(`/fee-structures${classId ? `?classId=${classId}` : ''}`),
+    createStructure: (body: { campusId: string; classId: string; feeHeadId: string; academicYearId: string; amount: number; frequency: string }) =>
+      apiPost<FeeStructure>('/fee-structures', body),
+    lateFeePolicy: () => apiGet<LateFeePolicy | null>('/late-fee-policy'),
+    upsertLateFeePolicy: (body: { graceDays: number; mode: string; amount: number; maxAmount?: number }) =>
+      apiPut<LateFeePolicy>('/late-fee-policy', body),
+    discounts: () => apiGet<Discount[]>('/discounts'),
+    createDiscount: (body: { studentId: string; type: string; value: number; feeHeadId?: string; reason: string }) =>
+      apiPost<Discount>('/discounts', body),
+    revokeDiscount: (id: string) => apiPost<Discount>(`/discounts/${id}/revoke`),
   },
   teaching: {
     myClasses: () => apiGet<TeacherClass[]>('/teaching/my-classes'),

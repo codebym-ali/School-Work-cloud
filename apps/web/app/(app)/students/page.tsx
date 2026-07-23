@@ -3,6 +3,8 @@
 import { type ChangeEvent, Suspense, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { apiGet, apiPost, ApiError, type Campus, type ImportResult, type Klass, type Paged, type Section, type Student, type StudentDetail } from '@/lib/api';
+import { classLabeller } from '@/lib/labels';
+import { useMe } from '@/lib/me-context';
 
 export default function StudentsPage() {
   return (
@@ -13,6 +15,8 @@ export default function StudentsPage() {
 }
 
 function StudentsInner() {
+  const me = useMe();
+  const isOwner = (me?.roles ?? []).includes('OWNER_ADMIN');
   const router = useRouter();
   const params = useSearchParams();
   const campusId = params.get('campusId') ?? '';
@@ -58,7 +62,11 @@ function StudentsInner() {
     router.replace(q ? `/students?${q}` : '/students');
   }
 
+  // A campus-bound admin only sees their own campus in the filter (the API force-scopes
+  // results regardless, so an all-campuses picker was just a confusing dead choice).
+  const myCampuses = isOwner ? campuses : campuses.filter((c) => c.id === me?.campusId);
   const classesForCampus = campusId ? classes.filter((c) => c.campusId === campusId) : classes;
+  const classLabel = classLabeller(classesForCampus, campuses);
   const sectionsForClass = classId ? sections.filter((s) => s.classId === classId) : [];
   const activeClass = classes.find((c) => c.id === classId);
   const activeSection = sections.find((s) => s.id === sectionId);
@@ -80,7 +88,7 @@ function StudentsInner() {
       {importing && <ImportStudents onImported={async () => { await load(); }} />}
 
       {adding && (
-        <AddStudent classes={classes} sections={sections}
+        <AddStudent classes={classes} sections={sections} campuses={campuses}
           onDone={async (ok, text) => { setMsg({ ok, text }); if (ok) { setAdding(false); await load(); } }} />
       )}
 
@@ -96,13 +104,13 @@ function StudentsInner() {
         <div><label>Campus</label>
           <select value={campusId} onChange={(e) => setFilter({ campusId: e.target.value, classId: '', sectionId: '' })}>
             <option value="">All campuses</option>
-            {campuses.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            {myCampuses.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
         </div>
         <div><label>Class</label>
           <select value={classId} onChange={(e) => setFilter({ classId: e.target.value, sectionId: '' })}>
             <option value="">All classes</option>
-            {classesForCampus.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            {classesForCampus.map((c) => <option key={c.id} value={c.id}>{classLabel(c)}</option>)}
           </select>
         </div>
         <div><label>Section</label>
@@ -143,7 +151,8 @@ function StudentsInner() {
   );
 }
 
-function AddStudent({ classes, sections, onDone }: { classes: Klass[]; sections: Section[]; onDone: (ok: boolean, text: string) => void }) {
+function AddStudent({ classes, sections, campuses, onDone }: { classes: Klass[]; sections: Section[]; campuses: Campus[]; onDone: (ok: boolean, text: string) => void }) {
+  const classLabel = classLabeller(classes, campuses);
   const [f, setF] = useState<Record<string, string>>({ gender: 'MALE', relation: 'FATHER' });
   const set = (k: string, v: string) => setF({ ...f, [k]: v });
   const classSections = sections.filter((s) => s.classId === f.classId);
@@ -168,7 +177,7 @@ function AddStudent({ classes, sections, onDone }: { classes: Klass[]; sections:
         <div><label>Full name</label><input value={f.fullName ?? ''} onChange={(e) => set('fullName', e.target.value)} /></div>
         <div><label>Gender</label><select value={f.gender} onChange={(e) => set('gender', e.target.value)}><option>MALE</option><option>FEMALE</option><option>OTHER</option></select></div>
         <div><label>Date of birth</label><input type="date" value={f.dateOfBirth ?? ''} onChange={(e) => set('dateOfBirth', e.target.value)} /></div>
-        <div><label>Class</label><select value={f.classId ?? ''} onChange={(e) => setF({ ...f, classId: e.target.value, sectionId: '' })}><option value="">Select…</option>{classes.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
+        <div><label>Class</label><select value={f.classId ?? ''} onChange={(e) => setF({ ...f, classId: e.target.value, sectionId: '' })}><option value="">Select…</option>{classes.map((c) => <option key={c.id} value={c.id}>{classLabel(c)}</option>)}</select></div>
         <div><label>Section</label><select value={f.sectionId ?? ''} onChange={(e) => set('sectionId', e.target.value)}><option value="">Select…</option>{classSections.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></div>
         <div><label>Roll number (optional)</label><input type="number" min={1} value={f.rollNumber ?? ''} onChange={(e) => set('rollNumber', e.target.value)} placeholder="manual" /></div>
         <div><label>Guardian name</label><input value={f.guardianName ?? ''} onChange={(e) => set('guardianName', e.target.value)} /></div>

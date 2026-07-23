@@ -337,10 +337,10 @@ export class AuthService {
     });
   }
 
-  async me(principal: RequestUser): Promise<{ id: string; email: string; roles: Role[]; campusId: string | null; modules: string[] }> {
+  async me(principal: RequestUser): Promise<{ id: string; email: string; roles: Role[]; campusId: string | null; modules: string[]; mfaEnabled: boolean }> {
     const user = await this.db.user.findFirst({ where: { id: principal.userId } });
     if (!user) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'User not found');
     const modules = await this.access.enabledModulesForSelf();
-    return { id: user.id, email: user.email, roles: user.roles, campusId: user.campusId, modules };
+    return { id: user.id, email: user.email, roles: user.roles, campusId: user.campusId, modules, mfaEnabled: user.mfaEnabled };
   }
 }

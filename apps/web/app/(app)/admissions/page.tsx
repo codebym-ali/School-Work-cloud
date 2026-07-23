@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { api, apiGet, apiPatch, apiPost, ApiError, type AdmissionsSummary, type Campus, type Klass, type Section } from '@/lib/api';
 import type { Inquiry } from '@/lib/api';
 import { hasModule, useMe } from '@/lib/me-context';
+import { classLabeller } from '@/lib/labels';
 
 const STATUSES = ['INQUIRY', 'ENTRY_TEST_SCHEDULED', 'ENTRY_TEST_PASSED', 'ENTRY_TEST_FAILED', 'ADMITTED', 'REJECTED', 'WITHDRAWN'];
 const funnelBadge = (s: string) =>
@@ -13,6 +14,7 @@ const funnelBadge = (s: string) =>
 
 export default function AdmissionsPage() {
   const me = useMe();
+  const isOwner = (me?.roles ?? []).includes('OWNER_ADMIN');
   const canManage = hasModule(me, 'admissions.inquiries');
   const canAdmit = hasModule(me, 'admissions.admit');
   const [inquiries, setInquiries] = useState<Inquiry[]>([]);
@@ -41,7 +43,11 @@ export default function AdmissionsPage() {
   }, []);
   useEffect(() => { load().catch(() => {}); }, [status]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const className = (id: string) => classes.find((c) => c.id === id)?.name ?? id.slice(0, 8);
+  const classLabel = classLabeller(classes, campuses);
+  const className = (id: string) => {
+    const c = classes.find((x) => x.id === id);
+    return c ? classLabel(c) : id.slice(0, 8);
+  };
 
   async function run(fn: () => Promise<unknown>, ok: string) {
     try {
@@ -74,7 +80,7 @@ export default function AdmissionsPage() {
       )}
 
       {adding && (
-        <NewInquiry campuses={campuses} classes={classes}
+        <NewInquiry campuses={isOwner ? campuses : campuses.filter((c) => c.id === me?.campusId)} classes={classes}
           onDone={async (ok, text) => { setMsg({ ok, text }); if (ok) { setAdding(false); await load(); } }} />
       )}
 
@@ -96,7 +102,7 @@ export default function AdmissionsPage() {
         <thead><tr><th>Student</th><th>Guardian</th><th>Phone</th><th>Desired class</th><th>Status</th><th>Entry test</th><th></th></tr></thead>
         <tbody>
           {inquiries.map((i) => (
-            <InquiryRow key={i.id} inquiry={i} classes={classes} sections={sections} className={className} onAction={run}
+            <InquiryRow key={i.id} inquiry={i} classes={classes} sections={sections} campuses={campuses} className={className} onAction={run}
               canManage={canManage} canAdmitModule={canAdmit} />
           ))}
           {inquiries.length === 0 && <tr><td colSpan={7} className="muted">No inquiries. Create one above.</td></tr>}
@@ -107,6 +113,7 @@ export default function AdmissionsPage() {
 }
 
 function NewInquiry({ campuses, classes, onDone }: { campuses: Campus[]; classes: Klass[]; onDone: (ok: boolean, text: string) => void }) {
+  const classLabel = classLabeller(classes, campuses);
   const [f, setF] = useState<Record<string, string>>({});
   const set = (k: string, v: string) => setF({ ...f, [k]: v });
 
@@ -133,7 +140,7 @@ function NewInquiry({ campuses, classes, onDone }: { campuses: Campus[]; classes
         </div>
         <div><label>Desired class</label>
           <select value={f.desiredClassId ?? ''} onChange={(e) => set('desiredClassId', e.target.value)}>
-            <option value="">Select…</option>{classes.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            <option value="">Select…</option>{classes.map((c) => <option key={c.id} value={c.id}>{classLabel(c)}</option>)}
           </select>
         </div>
         <div><label>Student name</label><input value={f.studentName ?? ''} onChange={(e) => set('studentName', e.target.value)} /></div>
@@ -148,11 +155,12 @@ function NewInquiry({ campuses, classes, onDone }: { campuses: Campus[]; classes
 type ActionFn = (fn: () => Promise<unknown>, ok: string) => Promise<boolean>;
 
 function InquiryRow({
-  inquiry, classes, sections, className, onAction, canManage, canAdmitModule,
+  inquiry, classes, sections, campuses, className, onAction, canManage, canAdmitModule,
 }: {
   inquiry: Inquiry;
   classes: Klass[];
   sections: Section[];
+  campuses: Campus[];
   className: (id: string) => string;
   onAction: ActionFn;
   canManage: boolean;
@@ -207,7 +215,7 @@ function InquiryRow({
               <RecordForm onSubmit={(body) => act(() => apiPatch(`/inquiries/${inquiry.id}/entry-test`, body), 'Entry test recorded')} onClose={() => setOpen(null)} />
             )}
             {open === 'admit' && (
-              <AdmitForm inquiry={inquiry} classes={classes} sections={sections}
+              <AdmitForm inquiry={inquiry} classes={classes} sections={sections} campuses={campuses}
                 onSubmit={(body) => act(() => apiPost('/admissions', body), `Admitted ${inquiry.studentName}`)} onClose={() => setOpen(null)} />
             )}
             {open === 'reject' && (
@@ -255,11 +263,12 @@ function RecordForm({ onSubmit, onClose }: { onSubmit: (body: { passed: boolean;
 }
 
 function AdmitForm({
-  inquiry, classes, sections, onSubmit, onClose,
+  inquiry, classes, sections, campuses, onSubmit, onClose,
 }: {
   inquiry: Inquiry;
   classes: Klass[];
   sections: Section[];
+  campuses: Campus[];
   onSubmit: (body: Record<string, unknown>) => void;
   onClose: () => void;
 }) {
@@ -268,6 +277,7 @@ function AdmitForm({
     fullName: inquiry.studentName, guardianName: inquiry.guardianName, guardianPhone: inquiry.guardianPhone,
   });
   const set = (k: string, v: string) => setF({ ...f, [k]: v });
+  const classLabel = classLabeller(classes, campuses);
   const classSections = sections.filter((s) => s.classId === f.classId);
 
   function submit() {
@@ -290,7 +300,7 @@ function AdmitForm({
         <div><label>Full name</label><input value={f.fullName ?? ''} onChange={(e) => set('fullName', e.target.value)} /></div>
         <div><label>Gender</label><select value={f.gender} onChange={(e) => set('gender', e.target.value)}><option>MALE</option><option>FEMALE</option><option>OTHER</option></select></div>
         <div><label>Date of birth</label><input type="date" value={f.dateOfBirth ?? ''} onChange={(e) => set('dateOfBirth', e.target.value)} /></div>
-        <div><label>Class</label><select value={f.classId ?? ''} onChange={(e) => setF({ ...f, classId: e.target.value, sectionId: '' })}><option value="">Select…</option>{classes.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
+        <div><label>Class</label><select value={f.classId ?? ''} onChange={(e) => setF({ ...f, classId: e.target.value, sectionId: '' })}><option value="">Select…</option>{classes.map((c) => <option key={c.id} value={c.id}>{classLabel(c)}</option>)}</select></div>
         <div><label>Section</label><select value={f.sectionId ?? ''} onChange={(e) => set('sectionId', e.target.value)}><option value="">Select…</option>{classSections.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></div>
         <div><label>Guardian name</label><input value={f.guardianName ?? ''} onChange={(e) => set('guardianName', e.target.value)} /></div>
         <div><label>Guardian phone</label><input value={f.guardianPhone ?? ''} onChange={(e) => set('guardianPhone', e.target.value)} /></div>

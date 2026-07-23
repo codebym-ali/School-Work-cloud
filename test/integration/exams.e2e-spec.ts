@@ -173,4 +173,22 @@ describe('Exams & report cards (e2e, §11)', () => {
     expect(results.length).toBe(1);
     expect(results[0].status).toBe('SENT');
   });
+
+  it('refuses to delete a term that carries academic records, but removes an unused one', async () => {
+    const del = (p: string) =>
+      request(server()).delete(p).set('Host', host).set('Cookie', cookies).set('X-CSRF-Token', csrf);
+
+    // `termId` now has an exam + published report cards — deleting it would destroy results.
+    const blocked = await del(`/api/v1/terms/${termId}`);
+    expect(blocked.status).toBe(409);
+    expect(blocked.body.error.code).toBe('CONFLICT');
+    expect(blocked.body.error.message).toMatch(/report card/i);
+    expect((await get('/api/v1/terms')).body.some((t: { id: string }) => t.id === termId)).toBe(true);
+
+    // A term created by mistake (no exams, no report cards) can be removed.
+    const spare = await post('/api/v1/terms', { academicYearId: yearId, name: 'Typo Term', startDate: '2026-10-01', endDate: '2026-10-31' });
+    expect(spare.status).toBe(201);
+    expect((await del(`/api/v1/terms/${spare.body.id}`)).status).toBe(200);
+    expect((await get('/api/v1/terms')).body.some((t: { id: string }) => t.id === spare.body.id)).toBe(false);
+  });
 });

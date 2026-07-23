@@ -39,7 +39,7 @@ export class DashboardService {
 
     const year = await this.db.academicYear.findFirst({ where: { isCurrent: true } });
     const enrollmentCount = year
-      ? await this.db.studentEnrollment.count({ where: { academicYearId: year.id, status: 'ACTIVE', ...(restricted ? { campusId: restricted } : {}) } })
+      ? await this.db.studentEnrollment.count({ where: { academicYearId: year.id, status: 'ACTIVE', student: { deletedAt: null }, ...(restricted ? { campusId: restricted } : {}) } })
       : 0;
 
     const collections = await this.db.feePayment.aggregate({

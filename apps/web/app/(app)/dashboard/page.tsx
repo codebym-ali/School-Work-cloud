@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { api, type AdmissionsSummary, type Dashboard, type RecruitmentSummary } from '@/lib/api';
 import { useMe } from '@/lib/me-context';
+import { canReach } from '@/lib/roles';
 
 type Tile = {
   key: keyof Dashboard;
@@ -59,7 +60,10 @@ export default function DashboardPage() {
   if (err) return <p className="error">Couldn&apos;t load the dashboard.</p>;
   if (!data) return <p className="muted">Loading…</p>;
 
-  const visible = (t: Tile) => data.visible.includes(t.key);
+  // Show a tile only when the metric is role-visible AND the role can open its destination —
+  // otherwise it dead-ends on the "Not authorized" screen (e.g. Collections → /fees for a
+  // campus admin, who sees the financial metric but has no Fees access).
+  const visible = (t: Tile) => data.visible.includes(t.key) && canReach(me?.roles, t.href);
   const val = (t: Tile) => data[t.key] as number | null;
   const display = (t: Tile) => {
     const v = val(t);
@@ -78,6 +82,8 @@ export default function DashboardPage() {
   if (adm && adm.testsToday > 0) attention.push({ text: `${adm.testsToday} entry test${adm.testsToday === 1 ? '' : 's'} today`, href: '/admissions' });
   if (rec && (rec.applicationsByStatus.SUBMITTED ?? 0) > 0) attention.push({ text: `${rec.applicationsByStatus.SUBMITTED} new teacher application${rec.applicationsByStatus.SUBMITTED === 1 ? '' : 's'}`, href: '/recruitment' });
 
+  const reachableAttention = attention.filter((a) => canReach(me?.roles, a.href));
+
   const empty = (data.enrollmentCount ?? 0) === 0;
 
   return (
@@ -89,16 +95,16 @@ export default function DashboardPage() {
         </p>
       </div>
 
-      <div className="card stack" style={{ borderLeft: attention.length ? '4px solid #d97706' : '4px solid #16a34a' }}>
+      <div className="card stack" style={{ borderLeft: reachableAttention.length ? '4px solid #d97706' : '4px solid #16a34a' }}>
         <div className="row">
-          <strong style={{ fontSize: 15 }}>{attention.length ? '⚠ Needs attention' : '✓ All clear'}</strong>
-          {attention.length > 0 && <span className="badge warn">{attention.length}</span>}
+          <strong style={{ fontSize: 15 }}>{reachableAttention.length ? '⚠ Needs attention' : '✓ All clear'}</strong>
+          {reachableAttention.length > 0 && <span className="badge warn">{reachableAttention.length}</span>}
         </div>
-        {attention.length === 0 ? (
+        {reachableAttention.length === 0 ? (
           <p className="muted" style={{ margin: 0, fontSize: 13 }}>Nothing is waiting on you right now.</p>
         ) : (
           <div className="row" style={{ justifyContent: 'flex-start', flexWrap: 'wrap', gap: 8 }}>
-            {attention.map((a, i) => (
+            {reachableAttention.map((a, i) => (
               <Link key={i} className="chip" href={a.href}>{a.text} →</Link>
             ))}
           </div>
@@ -127,48 +133,36 @@ export default function DashboardPage() {
         );
       })}
 
-      {adm && (
+      {(adm || rec) && (
         <div>
-          <div className="section-title">Admissions pipeline</div>
-          <div className="grid">
-            <Link href="/admissions" className="metric metric-link">
-              <div className="value">{adm.totals.open}</div><div className="label">Open inquiries</div><div className="metric-go">View →</div>
-            </Link>
-            <Link href="/admissions" className={`metric metric-link ${adm.testsToday > 0 ? 'metric-alert' : ''}`}>
-              <div className="value">{adm.testsToday}</div><div className="label">Tests today</div><div className="metric-go">View →</div>
-            </Link>
-            <Link href="/admissions" className={`metric metric-link ${adm.totals.readyToAdmit > 0 ? 'metric-alert' : ''}`}>
-              <div className="value">{adm.totals.readyToAdmit}</div><div className="label">Ready to admit</div><div className="metric-go">View →</div>
-            </Link>
-            <Link href="/admissions" className="metric metric-link">
-              <div className="value">{adm.admittedThisMonth}</div><div className="label">Admitted this month</div><div className="metric-go">View →</div>
-            </Link>
-            <Link href="/admissions" className="metric metric-link">
-              <div className="value">{adm.conversionRate}%</div><div className="label">Conversion rate</div><div className="metric-go">View →</div>
-            </Link>
-          </div>
-        </div>
-      )}
-
-      {rec && (
-        <div>
-          <div className="section-title">People & Recruitment</div>
-          <div className="grid">
-            <Link href="/recruitment" className="metric metric-link">
-              <div className="value">{rec.openVacancies}</div><div className="label">Open vacancies</div><div className="metric-go">View →</div>
-            </Link>
-            <Link href="/recruitment" className={`metric metric-link ${(rec.applicationsByStatus.SUBMITTED ?? 0) > 0 ? 'metric-alert' : ''}`}>
-              <div className="value">{rec.applicationsByStatus.SUBMITTED ?? 0}</div><div className="label">New applications</div><div className="metric-go">View →</div>
-            </Link>
-            <Link href="/recruitment" className="metric metric-link">
-              <div className="value">{rec.applicationsByStatus.SHORTLISTED ?? 0}</div><div className="label">Shortlisted</div><div className="metric-go">View →</div>
-            </Link>
-            <Link href="/recruitment" className="metric metric-link">
-              <div className="value">{rec.hiredThisMonth}</div><div className="label">Hired this month</div><div className="metric-go">View →</div>
-            </Link>
-            <Link href="/staff" className="metric metric-link">
-              <div className="value">{rec.openPositions}</div><div className="label">Open positions</div><div className="metric-go">View →</div>
-            </Link>
+          <div className="section-title">Pipelines</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px,1fr))', gap: 14 }}>
+            {adm && (
+              <Link href="/admissions" className="card metric-link pipeline-card">
+                <div className="row">
+                  <strong style={{ fontSize: 14 }}>📝 Admissions</strong>
+                  <span className="metric-go">View pipeline →</span>
+                </div>
+                <div className="value" style={{ marginTop: 6 }}>{adm.totals.open}</div>
+                <div className="label">open inquiries</div>
+                <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>
+                  {adm.conversionRate}% conversion · {adm.admittedThisMonth} admitted this month
+                </div>
+              </Link>
+            )}
+            {rec && (
+              <Link href="/recruitment" className="card metric-link pipeline-card">
+                <div className="row">
+                  <strong style={{ fontSize: 14 }}>📋 Recruitment</strong>
+                  <span className="metric-go">View pipeline →</span>
+                </div>
+                <div className="value" style={{ marginTop: 6 }}>{rec.openVacancies}</div>
+                <div className="label">open vacancies</div>
+                <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>
+                  {rec.openPositions} position{rec.openPositions === 1 ? '' : 's'} · {rec.hiredThisMonth} hired this month
+                </div>
+              </Link>
+            )}
           </div>
         </div>
       )}

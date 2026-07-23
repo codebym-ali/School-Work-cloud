@@ -3,8 +3,12 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { apiGet, apiPost, ApiError, type AcademicYear, type Campus, type Klass, type Section } from '@/lib/api';
+import { classLabeller, sectionLabeller } from '@/lib/labels';
+import { useMe } from '@/lib/me-context';
 
 export default function SetupPage() {
+  const me = useMe();
+  const isOwner = (me?.roles ?? []).includes('OWNER_ADMIN');
   const [years, setYears] = useState<AcademicYear[]>([]);
   const [campuses, setCampuses] = useState<Campus[]>([]);
   const [classes, setClasses] = useState<Klass[]>([]);
@@ -27,24 +31,28 @@ export default function SetupPage() {
     catch (e) { setMsg({ ok: false, text: e instanceof ApiError ? e.message : 'Failed' }); }
   }
 
+  // A campus-bound admin only works within their own campus (the API force-scopes anyway).
+  const myCampuses = isOwner ? campuses : campuses.filter((c) => c.id === me?.campusId);
+
   return (
     <div className="stack">
       <h1>Setup</h1>
       {msg && <div className={`toast ${msg.ok ? 'ok' : 'err'}`}>{msg.text}</div>}
 
-      <YearCard years={years} onCreate={(b) => run(() => apiPost('/academic-years', b), 'Academic year created')}
+      <YearCard years={years} isOwner={isOwner}
+        onCreate={(b) => run(() => apiPost('/academic-years', b), 'Academic year created')}
         onSetCurrent={(id) => run(() => apiPost(`/academic-years/${id}/set-current`), 'Set as current year')} />
 
-      <ClassCard classes={classes} campuses={campuses} sections={sections}
+      <ClassCard classes={classes} campuses={myCampuses} sections={sections}
         onCreate={(b) => run(() => apiPost('/classes', { ...b, order: Number(b.order) }), 'Class created')} />
 
-      <SectionCard sections={sections} classes={classes}
+      <SectionCard sections={sections} classes={classes} campuses={myCampuses}
         onCreate={(b) => run(() => apiPost('/sections', b), 'Section created')} />
     </div>
   );
 }
 
-function YearCard({ years, onCreate, onSetCurrent }: { years: AcademicYear[]; onCreate: (b: object) => void; onSetCurrent: (id: string) => void }) {
+function YearCard({ years, isOwner, onCreate, onSetCurrent }: { years: AcademicYear[]; isOwner: boolean; onCreate: (b: object) => void; onSetCurrent: (id: string) => void }) {
   const [name, setName] = useState('2026-27');
   const [startDate, setStart] = useState('2026-04-01');
   const [endDate, setEnd] = useState('2027-03-31');
@@ -52,24 +60,28 @@ function YearCard({ years, onCreate, onSetCurrent }: { years: AcademicYear[]; on
     <div className="card stack">
       <h2 style={{ margin: 0, fontSize: 17 }}>Academic years</h2>
       <table>
-        <thead><tr><th>Name</th><th>Current</th><th></th></tr></thead>
+        <thead><tr><th>Name</th><th>Current</th>{isOwner && <th></th>}</tr></thead>
         <tbody>
           {years.map((y) => (
             <tr key={y.id}>
               <td>{y.name}</td>
               <td>{y.isCurrent ? <span className="badge ok">current</span> : <span className="muted">—</span>}</td>
-              <td>{!y.isCurrent && <button className="ghost small" onClick={() => onSetCurrent(y.id)}>Set current</button>}</td>
+              {isOwner && <td>{!y.isCurrent && <button className="ghost small" onClick={() => onSetCurrent(y.id)}>Set current</button>}</td>}
             </tr>
           ))}
-          {years.length === 0 && <tr><td colSpan={3} className="muted">No years yet.</td></tr>}
+          {years.length === 0 && <tr><td colSpan={isOwner ? 3 : 2} className="muted">No years yet.</td></tr>}
         </tbody>
       </table>
-      <div className="inline-form">
-        <div><label>Name</label><input value={name} onChange={(e) => setName(e.target.value)} /></div>
-        <div><label>Start</label><input type="date" value={startDate} onChange={(e) => setStart(e.target.value)} /></div>
-        <div><label>End</label><input type="date" value={endDate} onChange={(e) => setEnd(e.target.value)} /></div>
-        <button onClick={() => onCreate({ name, startDate, endDate, isCurrent: true })}>Add year</button>
-      </div>
+      {isOwner ? (
+        <div className="inline-form">
+          <div><label>Name</label><input value={name} onChange={(e) => setName(e.target.value)} /></div>
+          <div><label>Start</label><input type="date" value={startDate} onChange={(e) => setStart(e.target.value)} /></div>
+          <div><label>End</label><input type="date" value={endDate} onChange={(e) => setEnd(e.target.value)} /></div>
+          <button onClick={() => onCreate({ name, startDate, endDate, isCurrent: true })}>Add year</button>
+        </div>
+      ) : (
+        <p className="muted" style={{ margin: 0, fontSize: 13 }}>Academic years are managed by the school owner.</p>
+      )}
     </div>
   );
 }
@@ -183,18 +195,19 @@ function ClassCard({ classes, campuses, sections, onCreate }: { classes: Klass[]
   );
 }
 
-function SectionCard({ sections, classes, onCreate }: { sections: Section[]; classes: Klass[]; onCreate: (b: Record<string, string>) => void }) {
+function SectionCard({ sections, classes, campuses, onCreate }: { sections: Section[]; classes: Klass[]; campuses: Campus[]; onCreate: (b: Record<string, string>) => void }) {
   const [form, setForm] = useState<Record<string, string>>({});
-  const nameFor = (id: string) => classes.find((c) => c.id === id)?.name ?? '?';
+  const classLabel = classLabeller(classes, campuses);
+  const sectionLabel = sectionLabeller(classes, campuses);
   return (
     <div className="card stack">
       <h2 style={{ margin: 0, fontSize: 17 }}>Sections</h2>
-      <div className="muted">{sections.length ? sections.map((s) => `${nameFor(s.classId)}-${s.name}`).join(' · ') : 'None yet.'}</div>
+      <div className="muted">{sections.length ? sections.map(sectionLabel).join(', ') : 'None yet.'}</div>
       <div className="inline-form">
         <div><label>Class</label>
           <select value={form.classId ?? ''} onChange={(e) => setForm({ ...form, classId: e.target.value })}>
             <option value="">Select…</option>
-            {classes.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            {classes.map((c) => <option key={c.id} value={c.id}>{classLabel(c)}</option>)}
           </select>
         </div>
         <div><label>Name</label><input value={form.name ?? ''} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="A" /></div>

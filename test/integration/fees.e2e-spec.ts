@@ -229,4 +229,28 @@ describe('Fees end-to-end (e2e, §12)', () => {
     const integ = await get('/api/v1/fees/integrity-check');
     expect(integ.body.ok).toBe(true);
   });
+
+  it('a removed student is withdrawn from their class and never billed again', async () => {
+    const section = await get(`/api/v1/sections?classId=${classId}`);
+    const created = await post('/api/v1/students', {
+      fullName: 'Gone Soon', gender: 'MALE', dateOfBirth: '2020-02-02', classId, sectionId: section.body[0].id,
+      guardian: { mode: 'CREATE', fullName: 'Parent Gone', phone: '03009998877', relation: 'FATHER' },
+    });
+    const goneId = created.body.studentId;
+
+    // Removing the student must close the enrollment — an open one is what every downstream
+    // read (rosters, head-count, invoicing) treats as a seated student.
+    const removed = await request(server()).delete(`/api/v1/students/${goneId}`)
+      .set('Host', host).set('Cookie', cookies).set('X-CSRF-Token', csrf);
+    expect(removed.status).toBe(204);
+
+    const enrolments = await platform.studentEnrollment.findMany({ where: { studentId: goneId } });
+    expect(enrolments.every((e) => e.status !== 'ACTIVE')).toBe(true);
+
+    // A fresh batch bills only the remaining student — the removed one gets no invoice.
+    const batch = await post('/api/v1/fees/invoice-batches', { classId, month: 9, year: 2026 });
+    expect(batch.body.generated).toBe(1);
+    const gonesInvoices = await get(`/api/v1/fees/invoices?studentId=${goneId}&month=9&year=2026`);
+    expect(gonesInvoices.body.data).toHaveLength(0);
+  });
 });

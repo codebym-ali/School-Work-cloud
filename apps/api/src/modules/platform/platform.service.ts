@@ -1,9 +1,10 @@
 import { HttpStatus, Inject, Injectable } from '@nestjs/common';
-import { AppError, ENV, ErrorCodes, type Env } from '@common';
+import { Prisma } from '@prisma/client';
+import { AppError, ENV, ErrorCodes, paginate, toSkipTake, type Env, type Paginated } from '@common';
 import { PlatformPrismaService } from '@database';
 import { TenantResolutionMiddleware } from '../../tenant/tenant-resolution.middleware';
 import { ProvisioningService } from './provisioning.service';
-import type { ProvisionTenantDto } from './dto/platform.dto';
+import type { ListTenantsQuery, ProvisionTenantDto } from './dto/platform.dto';
 
 export interface TenantSummary {
   id: string;
@@ -51,22 +52,36 @@ export class PlatformService {
     return { id: schoolId, subdomain: dto.subdomain.toLowerCase() };
   }
 
-  async listTenants(): Promise<TenantSummary[]> {
-    const schools = await this.platform.school.findMany({
-      orderBy: { createdAt: 'desc' },
-      select: {
-        id: true,
-        name: true,
-        subdomain: true,
-        customDomain: true,
-        planTier: true,
-        isActive: true,
-        suspendedAt: true,
-        createdAt: true,
-        _count: { select: { users: true, students: true } },
-      },
-    });
-    return schools.map((s) => ({
+  async listTenants(q: ListTenantsQuery): Promise<Paginated<TenantSummary>> {
+    const search = q.search?.trim();
+    const where: Prisma.SchoolWhereInput = search
+      ? { OR: [
+          { name: { contains: search, mode: 'insensitive' } },
+          { subdomain: { contains: search, mode: 'insensitive' } },
+        ] }
+      : {};
+    const { skip, take } = toSkipTake(q);
+    const [schools, total] = await Promise.all([
+      this.platform.school.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take,
+        select: {
+          id: true,
+          name: true,
+          subdomain: true,
+          customDomain: true,
+          planTier: true,
+          isActive: true,
+          suspendedAt: true,
+          createdAt: true,
+          _count: { select: { users: true, students: true } },
+        },
+      }),
+      this.platform.school.count({ where }),
+    ]);
+    const data = schools.map((s) => ({
       id: s.id,
       name: s.name,
       subdomain: s.subdomain,
@@ -78,6 +93,7 @@ export class PlatformService {
       userCount: s._count.users,
       studentCount: s._count.students,
     }));
+    return paginate(data, total, q);
   }
 
   suspend(id: string): Promise<{ id: string; isActive: boolean }> {

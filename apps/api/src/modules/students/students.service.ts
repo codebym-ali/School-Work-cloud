@@ -218,10 +218,19 @@ export class StudentsService {
     });
   }
 
-  /** Soft delete (blueprint §17 — no hard cascade delete exists in the product). */
+  /**
+   * Soft delete (blueprint §17 — no hard cascade delete exists in the product). Also closes
+   * any still-ACTIVE enrollment: an open enrollment is what every downstream read counts as a
+   * seated student, so leaving it behind kept a removed student on class rosters, in the
+   * dashboard head-count, and — worst — in fee-invoice batches (they kept getting billed).
+   */
   async softDelete(id: string): Promise<void> {
     await this.getOne(id);
     await this.db.student.update({ where: { id }, data: { deletedAt: new Date(), isActive: false } });
+    await this.db.studentEnrollment.updateMany({
+      where: { studentId: id, status: 'ACTIVE' },
+      data: { status: 'WITHDRAWN', endedAt: new Date() },
+    });
   }
 
   // ── GR number + capacity ─────────────────────────────────────────────────────

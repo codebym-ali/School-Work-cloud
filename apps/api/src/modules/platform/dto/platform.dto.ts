@@ -1,4 +1,11 @@
-import { IsEmail, IsString, Matches, MaxLength, MinLength } from 'class-validator';
+import { IsEmail, IsOptional, IsString, Matches, MaxLength, MinLength } from 'class-validator';
+import { PaginationQuery } from '@common';
+
+export class ListTenantsQuery extends PaginationQuery {
+  /** Free-text match against tenant name or subdomain. */
+  @IsOptional() @IsString() @MaxLength(120)
+  search?: string;
+}
 
 export class PlatformLoginDto {
   @IsEmail()

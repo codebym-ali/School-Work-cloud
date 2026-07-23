@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { AccessModule } from '../access/access.module';
 import { SetupModule } from '../setup/setup.module';
 import { CommsModule } from '../comms/comms.module';
 import { FeeSetupService } from './fee-setup.service';
@@ -15,7 +16,7 @@ import {
 
 /** Fees end-to-end (blueprint §12): setup, invoicing, payments, reversals, advances, jobs. */
 @Module({
-  imports: [SetupModule, CommsModule],
+  imports: [SetupModule, CommsModule, AccessModule],
   controllers: [
     FeeHeadsController,
     FeeStructuresController,

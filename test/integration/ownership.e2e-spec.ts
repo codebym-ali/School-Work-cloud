@@ -138,4 +138,33 @@ describe('Guardian ownership (e2e, §22.8 / P1.7)', () => {
   it('OWNER_ADMIN can read any student’s report cards (no regression)', async () => {
     expect((await authed('get', `/api/v1/students/${student2}/report-cards`, ownerCookies)).status).toBe(200);
   });
+
+  // ── Parent portal (§28 — PARENT column) ──────────────────────────────────────
+  it('parent /children lists only their own child', async () => {
+    const res = await authed('get', '/api/v1/parent/children', parentCookies);
+    expect(res.status).toBe(200);
+    const ids = (res.body as Array<{ studentId: string }>).map((c) => c.studentId);
+    expect(ids).toContain(student1);
+    expect(ids).not.toContain(student2);
+    expect(res.body[0]).toMatchObject({ fullName: 'Child One', relation: 'FATHER' });
+  });
+
+  it('parent can read every panel for their own child (overview/attendance/results/fees)', async () => {
+    for (const sub of ['overview', 'attendance', 'results', 'fees']) {
+      const res = await authed('get', `/api/v1/parent/children/${student1}/${sub}`, parentCookies);
+      expect(res.status).toBe(200);
+    }
+  });
+
+  it('parent is denied every panel for another family’s child (403)', async () => {
+    for (const sub of ['overview', 'attendance', 'results', 'fees']) {
+      const res = await authed('get', `/api/v1/parent/children/${student2}/${sub}`, parentCookies);
+      expect(res.status).toBe(403);
+      expect(res.body.error.code).toBe('FORBIDDEN');
+    }
+  });
+
+  it('a non-parent (OWNER_ADMIN) is denied the parent portal (403)', async () => {
+    expect((await authed('get', '/api/v1/parent/children', ownerCookies)).status).toBe(403);
+  });
 });

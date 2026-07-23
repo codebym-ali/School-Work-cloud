@@ -2,13 +2,14 @@
 
 import { useState } from 'react';
 import { apiGet, ApiError } from '@/lib/api';
+import { useMe } from '@/lib/me-context';
 
-const REPORTS: Array<{ key: string; label: string; params: string[] }> = [
-  { key: 'daily-collection', label: 'Daily collection', params: ['date'] },
+const REPORTS: Array<{ key: string; label: string; params: string[]; financial?: boolean }> = [
+  { key: 'daily-collection', label: 'Daily collection', params: ['date'], financial: true },
   { key: 'class-strength', label: 'Class strength', params: [] },
-  { key: 'defaulters', label: 'Defaulters', params: ['minDays'] },
+  { key: 'defaulters', label: 'Defaulters', params: ['minDays'], financial: true },
   { key: 'sms-usage', label: 'SMS usage', params: ['from', 'to'] },
-  { key: 'fee-ledger', label: 'Fee ledger', params: ['studentId'] },
+  { key: 'fee-ledger', label: 'Fee ledger', params: ['studentId'], financial: true },
   { key: 'attendance-register', label: 'Attendance register', params: ['sectionId', 'from', 'to'] },
   { key: 'exam-summary', label: 'Exam summary', params: ['examId'] },
 ];
@@ -16,12 +17,16 @@ const REPORTS: Array<{ key: string; label: string; params: string[] }> = [
 type Row = Record<string, unknown>;
 
 export default function ReportsPage() {
-  const [key, setKey] = useState('class-strength');
+  const me = useMe();
+  const isAdmin = (me?.roles ?? []).some((r) => r === 'OWNER_ADMIN' || r === 'CAMPUS_ADMIN');
+  const reports = isAdmin ? REPORTS : REPORTS.filter((r) => r.financial);
+
+  const [key, setKey] = useState('daily-collection');
   const [params, setParams] = useState<Record<string, string>>({});
   const [rows, setRows] = useState<Row[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
-  const spec = REPORTS.find((r) => r.key === key)!;
+  const spec = reports.find((r) => r.key === key) ?? reports[0];
   const query = () => {
     const q = Object.entries(params).filter(([k, v]) => spec.params.includes(k) && v).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&');
     return q ? `?${q}` : '';
@@ -43,7 +48,7 @@ export default function ReportsPage() {
         <div className="inline-form">
           <div><label>Report</label>
             <select value={key} onChange={(e) => { setKey(e.target.value); setRows(null); setErr(null); }}>
-              {REPORTS.map((r) => <option key={r.key} value={r.key}>{r.label}</option>)}
+              {reports.map((r) => <option key={r.key} value={r.key}>{r.label}</option>)}
             </select>
           </div>
           {spec.params.map((p) => (

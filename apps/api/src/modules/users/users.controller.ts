@@ -1,7 +1,8 @@
 import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Patch, Post } from '@nestjs/common';
 import { Roles } from '@common';
 import { UsersService } from './users.service';
-import { BulkDeleteUsersDto, CreateUserDto, GrantAccessDto, ResetUserPasswordDto, UpdateUserDto } from './dto/users.dto';
+import { AccessService } from '../access/access.service';
+import { BulkDeleteUsersDto, CreateUserDto, ResetUserPasswordDto, SetAccessDto, SetModuleAccessDto, UpdateUserDto } from './dto/users.dto';
 
 /**
  * Users & roles (blueprint §23). OWNER_ADMIN has full control; CAMPUS_ADMIN may create,
@@ -12,7 +13,10 @@ import { BulkDeleteUsersDto, CreateUserDto, GrantAccessDto, ResetUserPasswordDto
 @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
 @Controller('users')
 export class UsersController {
-  constructor(private readonly users: UsersService) {}
+  constructor(
+    private readonly users: UsersService,
+    private readonly access: AccessService,
+  ) {}
 
   @Get()
   list() {
@@ -50,17 +54,24 @@ export class UsersController {
     return this.users.resetPassword(id, dto.password);
   }
 
-  // Owner-only: assign/remove access-roles on an existing employee (§ RBAC). Reuses the
-  // account — no duplicate login.
+  // Owner-only: toggle an access capability (HR_MANAGER / CAMPUS_ADMIN / ACCOUNTANT /
+  // ADMISSION_CONTROLLER) on an existing employee. Reuses the account — no duplicate login.
   @Roles('OWNER_ADMIN')
-  @Patch(':id/hr-access')
-  setHrAccess(@Param('id') id: string, @Body() dto: GrantAccessDto) {
-    return this.users.setHrAccess(id, dto.grant);
+  @Patch(':id/access')
+  setAccess(@Param('id') id: string, @Body() dto: SetAccessDto) {
+    return this.users.setAccess(id, dto.role, dto.grant);
+  }
+
+  // Owner controls individual module (functionality) access for a user's granted roles.
+  @Roles('OWNER_ADMIN')
+  @Get(':id/modules')
+  listModules(@Param('id') id: string) {
+    return this.access.listForUser(id);
   }
 
   @Roles('OWNER_ADMIN')
-  @Patch(':id/campus-admin')
-  setCampusAdmin(@Param('id') id: string, @Body() dto: GrantAccessDto) {
-    return this.users.setCampusAdminAccess(id, dto.grant);
+  @Patch(':id/modules')
+  setModule(@Param('id') id: string, @Body() dto: SetModuleAccessDto) {
+    return this.access.setModule(id, dto.moduleKey, dto.allowed);
   }
 }

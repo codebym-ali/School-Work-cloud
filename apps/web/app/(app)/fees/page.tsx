@@ -2,10 +2,14 @@
 
 import { useEffect, useState } from 'react';
 import { apiGet, apiPost, ApiError, idemKey, type Invoice, type Klass, type Paged, type Student } from '@/lib/api';
+import { hasModule, useMe } from '@/lib/me-context';
 
 const now = new Date();
 
 export default function FeesPage() {
+  const me = useMe();
+  const canInvoicing = hasModule(me, 'fees.invoicing');
+  const canPayments = hasModule(me, 'fees.payments');
   const [classes, setClasses] = useState<Klass[]>([]);
   const [names, setNames] = useState<Record<string, string>>({});
   const [invoices, setInvoices] = useState<Invoice[]>([]);
@@ -48,6 +52,7 @@ export default function FeesPage() {
       <h1>Fees</h1>
       {msg && <div className={`toast ${msg.ok ? 'ok' : 'err'}`}>{msg.text}</div>}
 
+      {canInvoicing && (
       <div className="card stack">
         <h2 style={{ margin: 0, fontSize: 17 }}>Generate invoices (monthly)</h2>
         <div className="inline-form">
@@ -62,6 +67,7 @@ export default function FeesPage() {
         </div>
         <p className="muted" style={{ margin: 0 }}>Needs a fee structure for the class (create one via the API / Swagger for now). Idempotent per class+month+year.</p>
       </div>
+      )}
 
       <table>
         <thead><tr><th>Student</th><th>Period</th><th>Total</th><th>Paid</th><th>Status</th><th></th></tr></thead>
@@ -74,7 +80,7 @@ export default function FeesPage() {
               <td>Rs {Number(i.paidAmount).toLocaleString()}</td>
               <td><span className={`badge ${badge(i.status)}`}>{i.status}</span></td>
               <td>
-                {i.status !== 'PAID' && i.status !== 'WAIVED' && (
+                {canPayments && i.status !== 'PAID' && i.status !== 'WAIVED' && (
                   paying === i.id ? (
                     <span className="inline-form">
                       <input style={{ width: 90 }} placeholder="Amount" value={pay.amountPaid} onChange={(e) => setPay({ ...pay, amountPaid: e.target.value })} />

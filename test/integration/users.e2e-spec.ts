@@ -33,6 +33,8 @@ describe('Users & roles (e2e, §23)', () => {
   const csrfOf = (c: string[]) => (c.find((x) => x.startsWith('csrf=')) ?? '').split(';')[0].slice(5);
   const post = (p: string, b: object, cookies: string[]) =>
     request(server()).post(p).set('Host', host).set('Cookie', cookies).set('X-CSRF-Token', csrfOf(cookies)).send(b);
+  const patch = (p: string, b: object, cookies: string[]) =>
+    request(server()).patch(p).set('Host', host).set('Cookie', cookies).set('X-CSRF-Token', csrfOf(cookies)).send(b);
   const get = (p: string, cookies: string[]) => request(server()).get(p).set('Host', host).set('Cookie', cookies);
 
   beforeAll(async () => {
@@ -93,6 +95,19 @@ describe('Users & roles (e2e, §23)', () => {
     const teacher = await post('/api/v1/users', { email: 'tch@usr.pk', roles: ['TEACHER'], campusId: campusBId, password: 'Another!Secret12' }, caCookies);
     expect(teacher.status).toBe(201);
     expect(teacher.body.campusId).toBe(campusAId);
+  });
+
+  it('allows at most one campus admin per campus', async () => {
+    const second = await post('/api/v1/users', { email: 'ca2@usr.pk', roles: ['CAMPUS_ADMIN'], campusId: campusAId, password: 'Another!Secret12' }, ownerCookies);
+    expect(second.status).toBe(409);
+
+    const otherCampus = await post('/api/v1/users', { email: 'cb@usr.pk', roles: ['CAMPUS_ADMIN'], campusId: campusBId, password: 'Another!Secret12' }, ownerCookies);
+    expect(otherCampus.status).toBe(201);
+
+    const emp = await post('/api/v1/users', { email: 'emp-a@usr.pk', roles: ['TEACHER'], campusId: campusAId, password: 'Another!Secret12' }, ownerCookies);
+    expect(emp.status).toBe(201);
+    const grant = await patch(`/api/v1/users/${emp.body.id}/access`, { role: 'CAMPUS_ADMIN', grant: true }, ownerCookies);
+    expect(grant.status).toBe(409);
   });
 
   it('lists users; owner reset-password works', async () => {

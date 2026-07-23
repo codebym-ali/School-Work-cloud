@@ -15,6 +15,7 @@ import {
 import { TenantPrismaService } from '@database';
 import { PasswordService } from './password.service';
 import { TokenService } from './token.service';
+import { AccessService } from '../access/access.service';
 import {
   clearAuthCookies,
   setAccessCookie,
@@ -49,6 +50,7 @@ export class AuthService {
     private readonly tenantPrisma: TenantPrismaService,
     private readonly passwords: PasswordService,
     private readonly tokens: TokenService,
+    private readonly access: AccessService,
     @Inject(FIELD_ENCRYPTION) private readonly crypto: FieldEncryption,
     @Inject(ENV) private readonly env: Env,
   ) {}
@@ -335,9 +337,10 @@ export class AuthService {
     });
   }
 
-  async me(principal: RequestUser): Promise<{ id: string; email: string; roles: Role[]; campusId: string | null }> {
+  async me(principal: RequestUser): Promise<{ id: string; email: string; roles: Role[]; campusId: string | null; modules: string[] }> {
     const user = await this.db.user.findFirst({ where: { id: principal.userId } });
     if (!user) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'User not found');
-    return { id: user.id, email: user.email, roles: user.roles, campusId: user.campusId };
+    const modules = await this.access.enabledModulesForSelf();
+    return { id: user.id, email: user.email, roles: user.roles, campusId: user.campusId, modules };
   }
 }

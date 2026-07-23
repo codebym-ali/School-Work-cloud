@@ -22,6 +22,11 @@ export class VacanciesController {
     return this.recruitment.list(q);
   }
 
+  @Get('summary')
+  summary() {
+    return this.recruitment.summary();
+  }
+
   @Post(':id/close')
   close(@Param('id') id: string) {
     return this.recruitment.close(id);

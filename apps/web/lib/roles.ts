@@ -47,21 +47,17 @@ export interface NavItem {
   roles?: Role[];
 }
 
-const NON_STUDENT: Role[] = ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT', 'TEACHER', 'PARENT'];
-
 export const NAV: NavItem[] = [
-  { href: '/dashboard', label: 'Dashboard', icon: '📊', group: 'Overview', roles: NON_STUDENT },
+  { href: '/dashboard', label: 'Dashboard', icon: '📊', group: 'Overview', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT'] },
 
   { href: '/admissions', label: 'Admissions', icon: '📝', group: 'Enrollment', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ADMISSION_CONTROLLER'] },
-  // Campus admin provisions their campus's Admission Portal login here (§23).
-  // Owner oversight of these logins lives in Campus Hub, not here — the owner appoints
-  // campus admins; campus admins set up their own admission controllers.
   { href: '/admissions-team', label: 'Admission Portal', icon: '🎓', group: 'Enrollment', roles: ['CAMPUS_ADMIN'] },
   { href: '/students', label: 'Students', icon: '👥', group: 'Enrollment', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
 
   { href: '/attendance', label: 'Attendance', icon: '✅', group: 'Academics', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'TEACHER'] },
+  { href: '/my-classes', label: 'My Classes', icon: '📚', group: 'Academics', roles: ['TEACHER'] },
   { href: '/exams', label: 'Exams & Results', icon: '📄', group: 'Academics', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'TEACHER'] },
-  { href: '/reports', label: 'Reports', icon: '📈', group: 'Academics', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
+  { href: '/reports', label: 'Reports', icon: '📈', group: 'Academics', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT'] },
 
   { href: '/fees', label: 'Fees', icon: '💳', group: 'Finance', roles: ['OWNER_ADMIN', 'ACCOUNTANT'] },
 
@@ -72,11 +68,15 @@ export const NAV: NavItem[] = [
   { href: '/setup', label: 'Setup', icon: '⚙️', group: 'Administration', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
   { href: '/campuses', label: 'Campus Hub', icon: '🏢', group: 'Administration', roles: ['OWNER_ADMIN'] },
 
-  // Student self-service portal (§28) — read-only, own data.
   { href: '/me', label: 'My Dashboard', icon: '🏠', group: 'My Portal', roles: ['STUDENT'] },
   { href: '/me/attendance', label: 'My Attendance', icon: '✅', group: 'My Portal', roles: ['STUDENT'] },
   { href: '/me/results', label: 'My Results', icon: '📄', group: 'My Portal', roles: ['STUDENT'] },
   { href: '/me/fees', label: 'My Fees', icon: '💳', group: 'My Portal', roles: ['STUDENT'] },
+
+  { href: '/parent', label: 'My Children', icon: '👨‍👩‍👧', group: 'My Portal', roles: ['PARENT'] },
+
+  { href: '/my-attendance', label: 'My Attendance', icon: '✅', group: 'My Portal', roles: ['STAFF'] },
+  { href: '/my-payslips', label: 'My Payslips', icon: '💵', group: 'My Portal', roles: ['STAFF', 'TEACHER'] },
 ];
 
 /**
@@ -102,14 +102,22 @@ export function panelLabel(roles: string[] | undefined): string {
   return match ? match[1] : 'School Admin';
 }
 
-/** Where a role should land after login. A pure student goes to their portal;
- *  an admission controller goes straight to the admissions pipeline. */
+const LANDING: [Role, string][] = [
+  ['OWNER_ADMIN', '/dashboard'],
+  ['CAMPUS_ADMIN', '/dashboard'],
+  ['ACCOUNTANT', '/dashboard'],
+  ['ADMISSION_CONTROLLER', '/admissions'],
+  ['HR_MANAGER', '/recruitment'],
+  ['TEACHER', '/attendance'],
+  ['STAFF', '/my-attendance'],
+  ['PARENT', '/parent'],
+  ['STUDENT', '/me'],
+];
+
 export function landingPath(roles: string[] | undefined): string {
   const r = roles ?? [];
-  if (r.some((x) => (NON_STUDENT as string[]).includes(x))) return '/dashboard';
-  if (r.includes('ADMISSION_CONTROLLER')) return '/admissions';
-  if (r.includes('STUDENT')) return '/me';
-  return '/dashboard';
+  const match = LANDING.find(([role]) => r.includes(role));
+  return match ? match[1] : '/dashboard';
 }
 
 /** True if the user holds any of the allowed roles (or the item is unrestricted). */

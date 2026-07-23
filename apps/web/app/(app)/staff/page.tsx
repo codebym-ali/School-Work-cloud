@@ -1,9 +1,9 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   api, apiGet, ApiError,
-  type AcademicYear, type Campus, type Klass, type ManagedTeacher, type Section, type Subject, type TeacherAssignment,
+  type AcademicYear, type Campus, type Klass, type ManagedTeacher, type Section, type Subject, type TeacherAssignment, type UserModule,
 } from '@/lib/api';
 import { useMe } from '@/lib/me-context';
 
@@ -134,16 +134,117 @@ export default function StaffPage() {
           {g.items.length === 0 ? (
             <p className="muted" style={{ margin: 0, fontSize: 13 }}>No staff match here.</p>
           ) : g.items.map((t) => (
-            <StaffRow key={t.id} member={t}
+            <StaffRow key={t.id} member={t} isOwner={isOwner}
               assignments={assignmentsOf(t.id)}
               classes={classes.filter((k) => k.campusId === g.id)} sections={sections} subjects={subjects}
               currentYear={currentYear}
+              onMsg={(ok, text) => setMsg({ ok, text })}
+              reload={load}
               onAssign={(b) => run(() => api.teacherAssignments.create(b), 'Subject assigned')}
               onRemove={(id) => run(() => api.teacherAssignments.remove(id), 'Assignment removed')} />
           ))}
         </div>
       ))}
       {myCampuses.length === 0 && <p className="muted">No campuses yet — add one in Campus Hub first.</p>}
+    </div>
+  );
+}
+
+const CAPABILITIES = [
+  { role: 'HR_MANAGER', label: 'HR Manager', hint: 'Recruitment' },
+  { role: 'CAMPUS_ADMIN', label: 'Campus Admin', hint: 'Principal' },
+  { role: 'ACCOUNTANT', label: 'Accountant', hint: 'Fees' },
+  { role: 'ADMISSION_CONTROLLER', label: 'Admission Controller', hint: 'Admissions' },
+];
+
+function AccessPanel({ userId, roles, campusId, onMsg, onRolesChanged }: {
+  userId: string; roles: string[]; campusId: string | null;
+  onMsg: (ok: boolean, text: string) => void; onRolesChanged: () => Promise<void>;
+}) {
+  const [modules, setModules] = useState<UserModule[] | null>(null);
+  const [busy, setBusy] = useState('');
+
+  const loadModules = useCallback(async () => {
+    try { setModules(await api.users.modules(userId)); } catch { setModules([]); }
+  }, [userId]);
+  useEffect(() => { loadModules(); }, [loadModules]);
+
+  async function toggleRole(role: string, grant: boolean) {
+    setBusy(role);
+    try {
+      await api.users.setAccess(userId, role, grant);
+      onMsg(true, `${grant ? 'Granted' : 'Removed'} ${role.replace(/_/g, ' ').toLowerCase()}`);
+      await onRolesChanged();
+      await loadModules();
+    } catch (e) {
+      onMsg(false, e instanceof ApiError ? e.message : 'Failed to change access');
+    } finally { setBusy(''); }
+  }
+
+  async function toggleModule(m: UserModule) {
+    setBusy(m.key);
+    try {
+      await api.users.setModule(userId, m.key, !m.allowed);
+      setModules((prev) => (prev ?? []).map((x) => (x.key === m.key ? { ...x, allowed: !m.allowed } : x)));
+      onMsg(true, `${!m.allowed ? 'Enabled' : 'Disabled'} ${m.label}`);
+    } catch (e) {
+      onMsg(false, e instanceof ApiError ? e.message : 'Failed to change module');
+    } finally { setBusy(''); }
+  }
+
+  const modulesByRole = new Map<string, UserModule[]>();
+  for (const m of modules ?? []) {
+    if (!modulesByRole.has(m.role)) modulesByRole.set(m.role, []);
+    modulesByRole.get(m.role)!.push(m);
+  }
+
+  return (
+    <div className="card stack" style={{ background: '#f9fafb', marginTop: 4 }}>
+      <div>
+        <strong style={{ fontSize: 14 }}>Access &amp; modules</strong>
+        <p className="muted" style={{ margin: '2px 0 0', fontSize: 12 }}>
+          Toggle a capability on this person&apos;s existing login — no new credentials. Then switch individual modules off if needed.
+        </p>
+      </div>
+
+      <div className="stack" style={{ gap: 8 }}>
+        {CAPABILITIES.map((cap) => {
+          const has = roles.includes(cap.role);
+          const mods = modulesByRole.get(cap.role) ?? [];
+          const noCampus = cap.role === 'CAMPUS_ADMIN' && !campusId;
+          return (
+            <div key={cap.role} style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 10, background: '#fff' }}>
+              <div className="row" style={{ alignItems: 'center' }}>
+                <div>
+                  <strong style={{ fontSize: 13 }}>{cap.label}</strong>
+                  <span className="muted" style={{ fontSize: 12, marginLeft: 6 }}>{cap.hint}</span>
+                  {has && <span className="badge ok" style={{ marginLeft: 8 }}>on</span>}
+                </div>
+                <button className={has ? 'ghost small' : 'small'} disabled={busy === cap.role || noCampus}
+                  onClick={() => toggleRole(cap.role, !has)}>
+                  {busy === cap.role ? '…' : has ? 'Remove' : noCampus ? 'Needs a campus' : 'Grant'}
+                </button>
+              </div>
+              {has && mods.length > 0 && (
+                <div className="stack" style={{ gap: 4, marginTop: 8, paddingTop: 8, borderTop: '1px dashed var(--border)' }}>
+                  {mods.map((m) => (
+                    <div key={m.key} className="row" style={{ alignItems: 'center' }}>
+                      <div>
+                        <span style={{ fontSize: 13 }}>{m.label}</span>
+                        <span className="muted" style={{ fontSize: 11, marginLeft: 6 }}>{m.description}</span>
+                      </div>
+                      <button className={m.allowed ? 'ghost small' : 'small'} disabled={busy === m.key}
+                        onClick={() => toggleModule(m)}>
+                        {busy === m.key ? '…' : m.allowed ? 'On' : 'Off'}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -193,13 +294,16 @@ function AddStaff({ campuses, lockedCampus, onCreate }: {
   );
 }
 
-function StaffRow({ member, assignments, classes, sections, subjects, currentYear, onAssign, onRemove }: {
-  member: ManagedTeacher; assignments: TeacherAssignment[]; classes: Klass[]; sections: Section[]; subjects: Subject[];
+function StaffRow({ member, isOwner, assignments, classes, sections, subjects, currentYear, onMsg, reload, onAssign, onRemove }: {
+  member: ManagedTeacher; isOwner: boolean; assignments: TeacherAssignment[]; classes: Klass[]; sections: Section[]; subjects: Subject[];
   currentYear: AcademicYear | null;
+  onMsg: (ok: boolean, text: string) => void;
+  reload: () => Promise<void>;
   onAssign: (b: { staffId: string; academicYearId: string; sectionId: string; subjectId?: string }) => void;
   onRemove: (id: string) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [accessOpen, setAccessOpen] = useState(false);
   const [classId, setClassId] = useState('');
   const [sectionId, setSectionId] = useState('');
   const [subjectId, setSubjectId] = useState('');
@@ -227,12 +331,24 @@ function StaffRow({ member, assignments, classes, sections, subjects, currentYea
         <span className="muted" style={{ fontSize: 13 }}>{member.user.email} · {member.employeeCode}</span>
         <span className="badge">{member.staffType.charAt(0) + member.staffType.slice(1).toLowerCase()}</span>
         <span className={`badge ${member.user.status === 'ACTIVE' ? 'ok' : member.user.status === 'INVITED' ? 'warn' : 'bad'}`}>{member.user.status}</span>
-        {isTeacher && (
-          <button className="ghost small" style={{ marginLeft: 'auto' }} onClick={() => setOpen((v) => !v)} disabled={!currentYear}>
-            {open ? 'Close' : '+ Assign subject'}
-          </button>
-        )}
+        <div className="row" style={{ gap: 8, marginLeft: 'auto' }}>
+          {isOwner && (
+            <button className="ghost small" onClick={() => setAccessOpen((v) => !v)}>
+              {accessOpen ? 'Close access' : '⚙ Manage access'}
+            </button>
+          )}
+          {isTeacher && (
+            <button className="ghost small" onClick={() => setOpen((v) => !v)} disabled={!currentYear}>
+              {open ? 'Close' : '+ Assign subject'}
+            </button>
+          )}
+        </div>
       </div>
+
+      {accessOpen && isOwner && (
+        <AccessPanel userId={member.user.id} roles={member.user.roles} campusId={member.user.campusId}
+          onMsg={onMsg} onRolesChanged={reload} />
+      )}
 
       {isTeacher && (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>

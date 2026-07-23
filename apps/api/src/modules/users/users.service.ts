@@ -11,11 +11,20 @@ import {
 } from '@common';
 import { AuditService, TenantPrismaService } from '@database';
 import { PasswordService } from '../auth/password.service';
-import { MANAGEABLE_ROLES, type CreateUserDto, type UpdateUserDto } from './dto/users.dto';
+import { ACCESS_GRANTABLE_ROLES, MANAGEABLE_ROLES, type CreateUserDto, type UpdateUserDto } from './dto/users.dto';
 
 /** Roles a CAMPUS_ADMIN may grant (never OWNER_ADMIN/CAMPUS_ADMIN) — §23 "roles ≤ TEACHER/STAFF/ACCOUNTANT",
  *  plus ADMISSION_CONTROLLER (the campus's Admission Portal login, provisioned by the campus admin). */
 const CAMPUS_ADMIN_MAY_GRANT: Role[] = [Role.ADMISSION_CONTROLLER, Role.ACCOUNTANT, Role.TEACHER, Role.STAFF];
+
+/** Audit action pair (granted, revoked) per access role. HR and campus-admin keep their
+ *  specific actions; the rest use the generic role-access pair. */
+const ACCESS_AUDIT: Record<string, [AuditAction, AuditAction]> = {
+  [Role.HR_MANAGER]: [AuditActions.HR_ACCESS_GRANTED, AuditActions.HR_ACCESS_REVOKED],
+  [Role.CAMPUS_ADMIN]: [AuditActions.CAMPUS_ADMIN_GRANTED, AuditActions.CAMPUS_ADMIN_REVOKED],
+  [Role.ACCOUNTANT]: [AuditActions.ROLE_ACCESS_GRANTED, AuditActions.ROLE_ACCESS_REVOKED],
+  [Role.ADMISSION_CONTROLLER]: [AuditActions.ROLE_ACCESS_GRANTED, AuditActions.ROLE_ACCESS_REVOKED],
+};
 
 /**
  * Users & roles (blueprint §23, §22.8). The owner provisions staff/admin logins and binds
@@ -82,6 +91,10 @@ export class UsersService {
       assertCampusAccess(creator, campusId);
     }
 
+    if (dto.roles.includes(Role.CAMPUS_ADMIN) && campusId) {
+      await this.assertNoOtherCampusAdmin(campusId);
+    }
+
     const email = dto.email.toLowerCase();
     if (await this.db.user.findFirst({ where: { email }, select: { id: true } })) {
       throw new AppError(ErrorCodes.CONFLICT, HttpStatus.CONFLICT, 'A user with this email already exists');
@@ -102,6 +115,13 @@ export class UsersService {
 
   async update(id: string, dto: UpdateUserDto) {
     const user = await this.getOneScoped(id);
+
+    const resultingRoles = dto.roles ?? user.roles;
+    const effectiveCampus = dto.campusId !== undefined ? dto.campusId : user.campusId;
+    if (resultingRoles.includes(Role.CAMPUS_ADMIN) && effectiveCampus) {
+      await this.assertNoOtherCampusAdmin(effectiveCampus, id);
+    }
+
     const data: Prisma.UserUpdateInput = {};
     if (dto.roles) data.roles = dto.roles;
     if (dto.status) data.status = dto.status;
@@ -193,14 +213,18 @@ export class UsersService {
     return { removed, skipped: skipped.length, details: skipped };
   }
 
-  /** Grant/revoke recruitment (HR) access on an existing employee — OWNER_ADMIN only. */
-  setHrAccess(id: string, grant: boolean) {
-    return this.grantRole(id, Role.HR_MANAGER, grant, AuditActions.HR_ACCESS_GRANTED, AuditActions.HR_ACCESS_REVOKED);
-  }
-
-  /** Grant/revoke campus-admin (principal) on an existing employee — OWNER_ADMIN only. */
-  setCampusAdminAccess(id: string, grant: boolean) {
-    return this.grantRole(id, Role.CAMPUS_ADMIN, grant, AuditActions.CAMPUS_ADMIN_GRANTED, AuditActions.CAMPUS_ADMIN_REVOKED);
+  /**
+   * Grant/revoke an access capability (HR_MANAGER, CAMPUS_ADMIN, ACCOUNTANT,
+   * ADMISSION_CONTROLLER) on an EXISTING employee — OWNER_ADMIN only. The account is reused
+   * (no new login); the role is added to / removed from the existing `roles[]`. Single entry
+   * point for all access toggles.
+   */
+  setAccess(id: string, role: Role, grant: boolean) {
+    if (!ACCESS_GRANTABLE_ROLES.includes(role)) {
+      throw new AppError(ErrorCodes.VALIDATION_FAILED, HttpStatus.UNPROCESSABLE_ENTITY, `${role} is not an access-grantable role`);
+    }
+    const [grantedAction, revokedAction] = ACCESS_AUDIT[role];
+    return this.grantRole(id, role, grant, grantedAction, revokedAction);
   }
 
   /**
@@ -214,6 +238,9 @@ export class UsersService {
     if (!user) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'User not found');
     if (grant && role === Role.CAMPUS_ADMIN && !user.campusId) {
       throw new AppError(ErrorCodes.VALIDATION_FAILED, HttpStatus.UNPROCESSABLE_ENTITY, 'This employee is not bound to a campus — a campus admin must belong to one');
+    }
+    if (grant && role === Role.CAMPUS_ADMIN && user.campusId) {
+      await this.assertNoOtherCampusAdmin(user.campusId, id);
     }
 
     const has = user.roles.includes(role);
@@ -229,6 +256,30 @@ export class UsersService {
       newValue: { roles: updated.roles },
     });
     return { id: updated.id, email: updated.email, roles: updated.roles };
+  }
+
+  /**
+   * A campus may have at most one CAMPUS_ADMIN (the principal). Throws 409 if another
+   * active campus admin already holds this campus. `exceptUserId` skips the user being
+   * updated so re-saving the existing principal isn't a false conflict.
+   */
+  private async assertNoOtherCampusAdmin(campusId: string, exceptUserId?: string) {
+    const existing = await this.db.user.findFirst({
+      where: {
+        campusId,
+        deletedAt: null,
+        roles: { has: Role.CAMPUS_ADMIN },
+        ...(exceptUserId ? { id: { not: exceptUserId } } : {}),
+      },
+      select: { email: true },
+    });
+    if (existing) {
+      throw new AppError(
+        ErrorCodes.CONFLICT,
+        HttpStatus.CONFLICT,
+        `This campus already has a campus admin (${existing.email}). Remove or reassign them before adding another.`,
+      );
+    }
   }
 
   private async getOneScoped(id: string) {

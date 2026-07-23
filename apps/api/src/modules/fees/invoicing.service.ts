@@ -13,6 +13,7 @@ import {
   type Paginated,
 } from '@common';
 import { AuditService, TenantPrismaService } from '@database';
+import { AccessService } from '../access/access.service';
 import { SetupService } from '../setup/setup.service';
 import { PaymentsService } from './payments.service';
 import type { CreateInvoiceBatchDto, DefaultersQuery, InvoiceListQuery, ReasonDto } from './dto/fees.dto';
@@ -35,6 +36,7 @@ export class InvoicingService {
     private readonly setup: SetupService,
     private readonly audit: AuditService,
     private readonly payments: PaymentsService,
+    private readonly access: AccessService,
   ) {}
 
   private get db() {
@@ -51,6 +53,7 @@ export class InvoicingService {
    * request transaction. (Async batching is a later scale optimisation.)
    */
   async createBatch(dto: CreateInvoiceBatchDto) {
+    await this.access.assert('fees.invoicing');
     // Campus scoping (§22.8, P1.7): a campus-bound admin may only bill their own campus.
     const klass = await this.db.class.findFirst({ where: { id: dto.classId }, select: { campusId: true } });
     if (!klass) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'Class not found');

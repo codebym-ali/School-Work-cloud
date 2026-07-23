@@ -1,13 +1,22 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { apiGet, apiPatch, apiPost, ApiError, type Campus, type Klass, type Section } from '@/lib/api';
+import { api, apiGet, apiPatch, apiPost, ApiError, type AdmissionsSummary, type Campus, type Klass, type Section } from '@/lib/api';
 import type { Inquiry } from '@/lib/api';
+import { hasModule, useMe } from '@/lib/me-context';
 
 const STATUSES = ['INQUIRY', 'ENTRY_TEST_SCHEDULED', 'ENTRY_TEST_PASSED', 'ENTRY_TEST_FAILED', 'ADMITTED', 'REJECTED', 'WITHDRAWN'];
+const funnelBadge = (s: string) =>
+  s === 'ADMITTED' || s === 'ENTRY_TEST_PASSED' ? 'ok'
+  : s === 'REJECTED' || s === 'ENTRY_TEST_FAILED' ? 'bad'
+  : s === 'WITHDRAWN' ? '' : 'warn';
 
 export default function AdmissionsPage() {
+  const me = useMe();
+  const canManage = hasModule(me, 'admissions.inquiries');
+  const canAdmit = hasModule(me, 'admissions.admit');
   const [inquiries, setInquiries] = useState<Inquiry[]>([]);
+  const [summary, setSummary] = useState<AdmissionsSummary | null>(null);
   const [campuses, setCampuses] = useState<Campus[]>([]);
   const [classes, setClasses] = useState<Klass[]>([]);
   const [sections, setSections] = useState<Section[]>([]);
@@ -17,8 +26,12 @@ export default function AdmissionsPage() {
 
   async function load() {
     const q = status ? `?status=${status}` : '';
-    const res = await apiGet<{ data: Inquiry[] }>(`/inquiries${q}`);
+    const [res, sum] = await Promise.all([
+      apiGet<{ data: Inquiry[] }>(`/inquiries${q}`),
+      api.admissions.summary().catch(() => null),
+    ]);
     setInquiries(res.data);
+    if (sum) setSummary(sum);
   }
   useEffect(() => {
     apiGet<Campus[]>('/campuses').then(setCampuses).catch(() => {});
@@ -30,7 +43,6 @@ export default function AdmissionsPage() {
 
   const className = (id: string) => classes.find((c) => c.id === id)?.name ?? id.slice(0, 8);
 
-  /** Runs a mutation, reloads the list, and surfaces a toast either way. */
   async function run(fn: () => Promise<unknown>, ok: string) {
     try {
       await fn();
@@ -47,29 +59,45 @@ export default function AdmissionsPage() {
     <div className="stack">
       <div className="row">
         <h1>Admissions</h1>
-        <button onClick={() => setAdding((v) => !v)}>{adding ? 'Close' : '+ New inquiry'}</button>
+        {canManage && <button onClick={() => setAdding((v) => !v)}>{adding ? 'Close' : '+ New inquiry'}</button>}
       </div>
       {msg && <div className={`toast ${msg.ok ? 'ok' : 'err'}`}>{msg.text}</div>}
+
+      {summary && (
+        <div className="grid">
+          <div className="metric"><div className="value">{summary.totals.open}</div><div className="label">Open inquiries</div></div>
+          <div className="metric"><div className="value">{summary.testsToday}</div><div className="label">Tests today</div></div>
+          <div className="metric"><div className="value">{summary.totals.readyToAdmit}</div><div className="label">Ready to admit</div></div>
+          <div className="metric"><div className="value">{summary.admittedThisMonth}</div><div className="label">Admitted this month</div></div>
+          <div className="metric"><div className="value">{summary.conversionRate}%</div><div className="label">Conversion rate</div></div>
+        </div>
+      )}
 
       {adding && (
         <NewInquiry campuses={campuses} classes={classes}
           onDone={async (ok, text) => { setMsg({ ok, text }); if (ok) { setAdding(false); await load(); } }} />
       )}
 
-      <div className="inline-form">
-        <div style={{ minWidth: 220 }}><label>Status</label>
-          <select value={status} onChange={(e) => setStatus(e.target.value)}>
-            <option value="">All</option>
-            {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
-          </select>
+      {summary && (
+        <div className="card stack">
+          <h2 style={{ margin: 0, fontSize: 17 }}>Pipeline</h2>
+          <div className="row" style={{ justifyContent: 'flex-start', flexWrap: 'wrap', gap: 8 }}>
+            <button className={`chip ${status === '' ? 'active' : ''}`} onClick={() => setStatus('')}>All ({summary.totals.total})</button>
+            {STATUSES.map((s) => (
+              <button key={s} className={`chip ${status === s ? 'active' : ''}`} onClick={() => setStatus(s)}>
+                <span className={`badge ${funnelBadge(s)}`}>{summary.byStatus[s] ?? 0}</span> {s.replace(/_/g, ' ')}
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
       <table>
         <thead><tr><th>Student</th><th>Guardian</th><th>Phone</th><th>Desired class</th><th>Status</th><th>Entry test</th><th></th></tr></thead>
         <tbody>
           {inquiries.map((i) => (
-            <InquiryRow key={i.id} inquiry={i} classes={classes} sections={sections} className={className} onAction={run} />
+            <InquiryRow key={i.id} inquiry={i} classes={classes} sections={sections} className={className} onAction={run}
+              canManage={canManage} canAdmitModule={canAdmit} />
           ))}
           {inquiries.length === 0 && <tr><td colSpan={7} className="muted">No inquiries. Create one above.</td></tr>}
         </tbody>
@@ -120,13 +148,15 @@ function NewInquiry({ campuses, classes, onDone }: { campuses: Campus[]; classes
 type ActionFn = (fn: () => Promise<unknown>, ok: string) => Promise<boolean>;
 
 function InquiryRow({
-  inquiry, classes, sections, className, onAction,
+  inquiry, classes, sections, className, onAction, canManage, canAdmitModule,
 }: {
   inquiry: Inquiry;
   classes: Klass[];
   sections: Section[];
   className: (id: string) => string;
   onAction: ActionFn;
+  canManage: boolean;
+  canAdmitModule: boolean;
 }) {
   const [open, setOpen] = useState<'schedule' | 'record' | 'admit' | 'reject' | 'withdraw' | null>(null);
   const badge = (s: string) =>
@@ -159,11 +189,11 @@ function InquiryRow({
         </td>
         <td>
           <span className="inline-form">
-            {canSchedule && <button className="ghost small" onClick={() => setOpen(open === 'schedule' ? null : 'schedule')}>Schedule test</button>}
-            {canRecord && <button className="ghost small" onClick={() => setOpen(open === 'record' ? null : 'record')}>Record result</button>}
-            {canAdmit && <button className="small" onClick={() => setOpen(open === 'admit' ? null : 'admit')}>Admit</button>}
-            {canRejectWithdraw && <button className="ghost small" onClick={() => setOpen(open === 'reject' ? null : 'reject')}>Reject</button>}
-            {canRejectWithdraw && <button className="ghost small" onClick={() => setOpen(open === 'withdraw' ? null : 'withdraw')}>Withdraw</button>}
+            {canSchedule && canManage && <button className="ghost small" onClick={() => setOpen(open === 'schedule' ? null : 'schedule')}>Schedule test</button>}
+            {canRecord && canManage && <button className="ghost small" onClick={() => setOpen(open === 'record' ? null : 'record')}>Record result</button>}
+            {canAdmit && canAdmitModule && <button className="small" onClick={() => setOpen(open === 'admit' ? null : 'admit')}>Admit</button>}
+            {canRejectWithdraw && canManage && <button className="ghost small" onClick={() => setOpen(open === 'reject' ? null : 'reject')}>Reject</button>}
+            {canRejectWithdraw && canManage && <button className="ghost small" onClick={() => setOpen(open === 'withdraw' ? null : 'withdraw')}>Withdraw</button>}
           </span>
         </td>
       </tr>

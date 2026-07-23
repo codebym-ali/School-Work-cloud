@@ -6,12 +6,14 @@ import { TokenService } from './token.service';
 import { AccessDenylist } from './access-denylist.service';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { CsrfGuard } from './guards/csrf.guard';
+import { AccessModule } from '../access/access.module';
 
 /**
  * Authentication module (blueprint §22). Exports the guards + TokenService/denylist
  * so the app can wire them as global guards and other modules can revoke sessions.
  */
 @Module({
+  imports: [AccessModule],
   controllers: [AuthController],
   providers: [
     AuthService,

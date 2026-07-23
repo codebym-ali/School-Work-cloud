@@ -13,7 +13,7 @@ export const MATRIX_ROLES: MatrixRole[] = ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ADMIS
 
 export interface MatrixRow {
   label: string;
-  method: 'get' | 'post' | 'delete';
+  method: 'get' | 'post' | 'patch' | 'delete';
   path: string;
   body?: Record<string, unknown>;
   /** Roles RolesGuard admits. Every other role must get 403. */
@@ -32,6 +32,7 @@ export const PERMISSION_MATRIX: MatrixRow[] = [
   { label: 'create class', method: 'post', path: '/api/v1/classes', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'], scopeGated: true },
   { label: 'create academic year', method: 'post', path: '/api/v1/academic-years', body: {}, allow: ['OWNER_ADMIN'] },
   { label: 'list inquiries', method: 'get', path: '/api/v1/inquiries', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ADMISSION_CONTROLLER'], scopeGated: true },
+  { label: 'admissions summary', method: 'get', path: '/api/v1/inquiries/summary', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ADMISSION_CONTROLLER'] },
   { label: 'mark attendance', method: 'post', path: '/api/v1/attendance/bulk', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'TEACHER'], scopeGated: true },
   { label: 'create exam', method: 'post', path: '/api/v1/exams', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'], scopeGated: true },
   { label: 'list invoices', method: 'get', path: '/api/v1/fees/invoices', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT'], scopeGated: true },
@@ -45,8 +46,21 @@ export const PERMISSION_MATRIX: MatrixRow[] = [
   // Users & roles: create/list is admin; a campus admin is scoped + limited in-service.
   { label: 'list users', method: 'get', path: '/api/v1/users', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
   { label: 'create user', method: 'post', path: '/api/v1/users', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
+  { label: 'set user access', method: 'patch', path: '/api/v1/users/00000000-0000-0000-0000-000000000000/access', body: { role: 'HR_MANAGER', grant: true }, allow: ['OWNER_ADMIN'] },
+  { label: 'list user modules', method: 'get', path: '/api/v1/users/00000000-0000-0000-0000-000000000000/modules', allow: ['OWNER_ADMIN'], scopeGated: true },
+  { label: 'set user module', method: 'patch', path: '/api/v1/users/00000000-0000-0000-0000-000000000000/modules', body: { moduleKey: 'recruitment.hire', allowed: false }, allow: ['OWNER_ADMIN'], scopeGated: true },
   { label: 'create staff', method: 'post', path: '/api/v1/staff', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'], scopeGated: true },
   { label: 'post vacancy', method: 'post', path: '/api/v1/vacancies', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'], scopeGated: true },
   { label: 'add teacher application', method: 'post', path: '/api/v1/teacher-applications', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'], scopeGated: true },
+  { label: 'update application status', method: 'patch', path: '/api/v1/teacher-applications/00000000-0000-0000-0000-000000000000/status', body: { status: 'SHORTLISTED' }, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'], scopeGated: true },
+  { label: 'hire applicant', method: 'post', path: '/api/v1/teacher-applications/00000000-0000-0000-0000-000000000000/hire', body: { employeeCode: 'X' }, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'], scopeGated: true },
+  { label: 'recruitment summary', method: 'get', path: '/api/v1/vacancies/summary', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
   { label: 'run payroll', method: 'post', path: '/api/v1/payroll-runs', body: {}, allow: ['OWNER_ADMIN'] },
+
+  // Teacher self-service — TEACHER-only; positive path needs a linked StaffProfile so it's
+  // scope-gated (deny side is the guarantee here).
+  { label: 'teacher my-classes', method: 'get', path: '/api/v1/teaching/my-classes', allow: ['TEACHER'], scopeGated: true },
+  // Parent self-service — PARENT-only; returns the caller's children (empty for the seeded
+  // parent), so the positive path is asserted directly.
+  { label: 'parent children', method: 'get', path: '/api/v1/parent/children', allow: ['PARENT'] },
 ];

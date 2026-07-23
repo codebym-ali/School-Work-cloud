@@ -25,6 +25,12 @@ export class InquiriesController {
     return this.admissions.list(q);
   }
 
+  // Must precede `:id` so "summary" isn't captured as an inquiry id.
+  @Get('summary')
+  summary() {
+    return this.admissions.summary();
+  }
+
   @Get(':id')
   getOne(@Param('id') id: string) {
     return this.admissions.getOne(id);

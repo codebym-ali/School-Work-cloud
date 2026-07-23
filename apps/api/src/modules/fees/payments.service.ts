@@ -13,6 +13,7 @@ import {
   type Paginated,
 } from '@common';
 import { AuditService, IdempotencyService, TenantPrismaService } from '@database';
+import { AccessService } from '../access/access.service';
 import { SmsProducer } from '../comms/sms/sms-producer.service';
 import type { CreateAdvanceDto, PayInvoiceDto, PaymentListQuery, ReasonDto } from './dto/fees.dto';
 
@@ -33,6 +34,7 @@ export class PaymentsService {
     private readonly idempotency: IdempotencyService,
     private readonly audit: AuditService,
     private readonly sms: SmsProducer,
+    private readonly access: AccessService,
   ) {}
 
   private get db() {
@@ -43,6 +45,7 @@ export class PaymentsService {
   }
 
   async pay(invoiceId: string, dto: PayInvoiceDto, idempotencyKey: string) {
+    await this.access.assert('fees.payments');
     if (!idempotencyKey) {
       throw new AppError(ErrorCodes.VALIDATION_FAILED, HttpStatus.BAD_REQUEST, 'Idempotency-Key header is required');
     }

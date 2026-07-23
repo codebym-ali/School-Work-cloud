@@ -1,9 +1,10 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
-import { Prisma, VacancyStatus } from '@prisma/client';
+import { Prisma, TeacherApplicationStatus, VacancyStatus } from '@prisma/client';
 import {
   AppError, assertCampusAccess, AuditActions, effectiveCampusFilter, ErrorCodes, TenantContext,
 } from '@common';
 import { AuditService, TenantPrismaService } from '@database';
+import { AccessService } from '../access/access.service';
 import type { CreateVacancyDto, ListVacancyQuery } from './dto/hr.dto';
 
 /**
@@ -18,6 +19,7 @@ export class RecruitmentService {
     private readonly tenantPrisma: TenantPrismaService,
     private readonly ctx: TenantContext,
     private readonly audit: AuditService,
+    private readonly access: AccessService,
   ) {}
 
   private get db() {
@@ -28,6 +30,7 @@ export class RecruitmentService {
   }
 
   async create(dto: CreateVacancyDto) {
+    await this.access.assert('recruitment.vacancies');
     // A campus-bound admin can only post a vacancy for their own campus.
     assertCampusAccess(this.ctx.user, dto.campusId);
     const campus = await this.db.campus.findFirst({ where: { id: dto.campusId }, select: { id: true } });
@@ -71,7 +74,45 @@ export class RecruitmentService {
     return rows.map((v) => this.shape(v));
   }
 
+  /**
+   * Recruitment dashboard rollup (HR module). Campus-scoped like `list`: a campus-bound
+   * HR manager sees only their own campus's vacancies + applications. Returns vacancy
+   * counts by status, open-position total, application pipeline counts, and recent activity.
+   */
+  async summary() {
+    const campusId = effectiveCampusFilter(this.ctx.user, undefined);
+    const campusWhere = campusId ? { campusId } : {};
+
+    const now = new Date();
+    const weekStart = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+
+    const [vacancyGroups, openPositions, appGroups, newThisWeek, hiredThisMonth] = await Promise.all([
+      this.db.vacancy.groupBy({ by: ['status'], where: campusWhere, _count: { _all: true } }),
+      this.db.vacancy.aggregate({ where: { ...campusWhere, status: VacancyStatus.OPEN }, _sum: { positions: true } }),
+      this.db.teacherApplication.groupBy({ by: ['status'], where: campusWhere, _count: { _all: true } }),
+      this.db.teacherApplication.count({ where: { ...campusWhere, createdAt: { gte: weekStart } } }),
+      this.db.teacherApplication.count({ where: { ...campusWhere, status: TeacherApplicationStatus.HIRED, updatedAt: { gte: monthStart } } }),
+    ]);
+
+    const vacanciesByStatus = Object.fromEntries(Object.values(VacancyStatus).map((s) => [s, 0])) as Record<VacancyStatus, number>;
+    for (const g of vacancyGroups) vacanciesByStatus[g.status] = g._count._all;
+
+    const applicationsByStatus = Object.fromEntries(Object.values(TeacherApplicationStatus).map((s) => [s, 0])) as Record<TeacherApplicationStatus, number>;
+    for (const g of appGroups) applicationsByStatus[g.status] = g._count._all;
+
+    return {
+      vacanciesByStatus,
+      openVacancies: vacanciesByStatus[VacancyStatus.OPEN],
+      openPositions: openPositions._sum.positions ?? 0,
+      applicationsByStatus,
+      newApplicationsThisWeek: newThisWeek,
+      hiredThisMonth,
+    };
+  }
+
   async close(id: string) {
+    await this.access.assert('recruitment.vacancies');
     const vacancy = await this.getScoped(id);
     if (vacancy.status === VacancyStatus.CLOSED) {
       throw new AppError(ErrorCodes.INVALID_STATE_TRANSITION, HttpStatus.CONFLICT, 'Vacancy is already closed');

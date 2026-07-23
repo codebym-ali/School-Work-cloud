@@ -210,6 +210,23 @@ export class AttendanceService {
     return { succeeded, failed: errors.length, errors, absenceQueued: 0 };
   }
 
+  /**
+   * A staff member's own attendance history (self-service). Resolves the caller's
+   * StaffProfile from their user — no id from the client — so it can only ever return
+   * the logged-in person's records (§22.8). 403s if the account has no staff profile.
+   */
+  async myStaffAttendance() {
+    const userId = this.ctx.user?.userId;
+    const staff = userId ? await this.db.staffProfile.findFirst({ where: { userId } }) : null;
+    if (!staff) throw new AppError(ErrorCodes.FORBIDDEN, HttpStatus.FORBIDDEN, 'No staff profile is linked to this account');
+    return this.db.staffAttendance.findMany({
+      where: { staffId: staff.id },
+      orderBy: [{ date: 'desc' }],
+      take: 60,
+      select: { date: true, session: true, status: true, checkIn: true, checkOut: true },
+    });
+  }
+
   // ── helpers ──────────────────────────────────────────────────────────────────
   private async assertCanMark(sectionId: string, user: RequestUser): Promise<void> {
     if (isAdmin(user)) return;

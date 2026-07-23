@@ -81,9 +81,9 @@ describe('Matrix conformance (e2e, §23 / P1.14)', () => {
 
   const call = (role: MatrixRole, row: (typeof PERMISSION_MATRIX)[number]) => {
     let r = request(server())[row.method](row.path).set('Host', host).set('Cookie', cookies[role]);
-    // Any state-changing method needs the CSRF token; POST additionally carries a body + idempotency key.
+    // Any state-changing method needs the CSRF token; POST/PATCH additionally carry a body + idempotency key.
     if (row.method !== 'get') r = r.set('X-CSRF-Token', csrf[role]).set('Idempotency-Key', randomUUID());
-    if (row.method === 'post') r = r.send(row.body ?? {});
+    if (row.method === 'post' || row.method === 'patch') r = r.send(row.body ?? {});
     return r;
   };
 

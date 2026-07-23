@@ -247,6 +247,7 @@ model School {
   campuses           Campus[]
   vacancies          Vacancy[]
   teacherApplications TeacherApplication[]
+  moduleAccess       ModuleAccess[]
   academicYears      AcademicYear[]
   classes            Class[]
   sections           Section[]
@@ -460,6 +461,7 @@ model User {
   markedAttendance   AttendanceRecord[]
   createdVacancies   Vacancy[]
   createdTeacherApplications TeacherApplication[]
+  moduleAccess       ModuleAccess[]
 
   @@unique([id, schoolId])
   @@unique([schoolId, email])
@@ -1178,6 +1180,26 @@ model TeacherApplication {
 
   @@index([schoolId, status])
   @@map("teacher_applications")
+}
+
+/// Per-user module (functionality) access override. A granted role (e.g. HR_MANAGER) unlocks
+/// its modules by default; the owner can switch a specific module off for one user by writing
+/// an `allowed=false` row here. Absence of a row = allowed (so grants stay fully enabled until
+/// the owner restricts them). Enforced in-service via AccessService.assert (§22.8 pattern).
+model ModuleAccess {
+  id        String   @id @default(uuid()) @db.Uuid
+  schoolId  String   @map("school_id") @db.Uuid
+  school    School   @relation(fields: [schoolId], references: [id])
+  userId    String   @map("user_id") @db.Uuid
+  user      User     @relation(fields: [userId, schoolId], references: [id, schoolId], onDelete: Cascade)
+  moduleKey String   @map("module_key")
+  allowed   Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([userId, moduleKey])
+  @@index([schoolId])
+  @@map("module_access")
 }
 
 // ── Communication ────────────────────────────────────────────────────────────

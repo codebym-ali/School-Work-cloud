@@ -43,9 +43,19 @@ h1 { font-size: 22px; margin: 0 0 4px; }
 .sub { color: var(--muted); margin: 0 0 20px; }
 
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 14px; }
-.metric { border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
+.metric { border: 1px solid var(--border); border-radius: 10px; padding: 16px; background: #fff; }
 .metric .value { font-size: 28px; font-weight: 600; }
 .metric .label { font-size: 13px; color: var(--muted); }
+.section-title {
+  font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--muted); margin: 4px 0 10px;
+}
+a.metric-link { display: block; text-decoration: none; color: inherit; transition: box-shadow .15s ease, transform .15s ease, border-color .15s ease; }
+a.metric-link:hover { transform: translateY(-2px); box-shadow: 0 6px 16px rgba(15, 23, 42, 0.08); border-color: var(--brand); }
+a.metric-link .metric-go { font-size: 12px; color: var(--brand); margin-top: 8px; opacity: 0; transition: opacity .15s ease; }
+a.metric-link:hover .metric-go { opacity: 1; }
+.metric-alert { border-left: 4px solid #d97706; }
+.metric-alert .value { color: #b45309; }
 .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 
 /* App shell */
@@ -78,6 +88,10 @@ table { width: 100%; border-collapse: collapse; background: #fff; border: 1px so
 th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); font-size: 14px; }
 th { background: #f9fafb; color: var(--muted); font-weight: 600; }
 tr:last-child td { border-bottom: 0; }
+.chip { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 999px; font-size: 13px; border: 1px solid var(--border); background: #fff; cursor: pointer; }
+.chip:hover { background: #f9fafb; }
+.chip.active { background: var(--brand); color: #fff; border-color: var(--brand); }
+.chip.active .badge { background: rgba(255,255,255,.25); color: #fff; }
 .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; background: #eef2ff; color: #3730a3; }
 .badge.ok { background: #dcfce7; color: #166534; }
 .badge.warn { background: #fef3c7; color: #92400e; }

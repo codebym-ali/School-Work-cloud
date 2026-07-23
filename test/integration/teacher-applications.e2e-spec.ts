@@ -34,6 +34,8 @@ describe('Teacher applications (e2e, HR)', () => {
   const csrfOf = (c: string[]) => (c.find((x) => x.startsWith('csrf=')) ?? '').split(';')[0].slice(5);
   const post = (p: string, b: object, cookies: string[]) =>
     request(server()).post(p).set('Host', host).set('Cookie', cookies).set('X-CSRF-Token', csrfOf(cookies)).send(b);
+  const patch = (p: string, b: object, cookies: string[]) =>
+    request(server()).patch(p).set('Host', host).set('Cookie', cookies).set('X-CSRF-Token', csrfOf(cookies)).send(b);
   const get = (p: string, cookies: string[]) => request(server()).get(p).set('Host', host).set('Cookie', cookies);
 
   const fullBody = (campusId: string) => ({
@@ -69,7 +71,7 @@ describe('Teacher applications (e2e, HR)', () => {
   });
 
   afterAll(async () => {
-    const tables = ['auditLog', 'teacherApplication', 'vacancy', 'refreshToken', 'user', 'campus', 'smsTemplate', 'smsCreditLedger', 'school'] as const;
+    const tables = ['auditLog', 'teacherApplication', 'vacancy', 'staffProfile', 'refreshToken', 'user', 'campus', 'smsTemplate', 'smsCreditLedger', 'school'] as const;
     for (const t of tables) {
       const d = platform[t] as unknown as { deleteMany: (a: unknown) => Promise<unknown> };
       await d.deleteMany({ where: t === 'school' ? { id: schoolId } : { schoolId } }).catch(() => undefined);
@@ -109,5 +111,44 @@ describe('Teacher applications (e2e, HR)', () => {
     const tCookies = await login(teacher.email, teacher.password);
     expect((await get('/api/v1/teacher-applications', tCookies)).status).toBe(403);
     expect((await post('/api/v1/teacher-applications', fullBody(campusAId), tCookies)).status).toBe(403);
+  });
+
+  it('pipeline: shortlist → hire creates a staff login → HIRED is terminal', async () => {
+    const created = await post('/api/v1/teacher-applications', { ...fullBody(campusAId), email: 'hire.me@ex.pk' }, ownerCookies);
+    const id = created.body.id;
+
+    // SUBMITTED → SHORTLISTED
+    const shortlisted = await patch(`/api/v1/teacher-applications/${id}/status`, { status: 'SHORTLISTED' }, ownerCookies);
+    expect(shortlisted.status).toBe(200);
+    expect(shortlisted.body.status).toBe('SHORTLISTED');
+
+    // Hire → creates the staff User + StaffProfile and flips to HIRED
+    const hired = await post(`/api/v1/teacher-applications/${id}/hire`, { employeeCode: `EMP-${randomUUID().slice(0, 6)}` }, ownerCookies);
+    expect(hired.status).toBe(201);
+    expect(hired.body.status).toBe('HIRED');
+    expect(hired.body.staff).toMatchObject({ employeeCode: expect.any(String), userId: expect.any(String), staffId: expect.any(String) });
+
+    // The hired teacher now shows up in the staff directory.
+    const staff = await get('/api/v1/staff?staffType=TEACHER', ownerCookies);
+    expect(staff.body.some((s: { user: { email: string } }) => s.user.email === 'hire.me@ex.pk')).toBe(true);
+
+    // HIRED is terminal — no further status change or re-hire.
+    expect((await patch(`/api/v1/teacher-applications/${id}/status`, { status: 'REJECTED' }, ownerCookies)).status).toBe(409);
+    expect((await post(`/api/v1/teacher-applications/${id}/hire`, { employeeCode: 'EMP-DUP' }, ownerCookies)).status).toBe(409);
+  });
+
+  it('a rejected application can no longer be changed (409)', async () => {
+    const created = await post('/api/v1/teacher-applications', { ...fullBody(campusAId), email: 'reject.me@ex.pk' }, ownerCookies);
+    const id = created.body.id;
+    expect((await patch(`/api/v1/teacher-applications/${id}/status`, { status: 'REJECTED', reason: 'Not a fit' }, ownerCookies)).status).toBe(200);
+    expect((await patch(`/api/v1/teacher-applications/${id}/status`, { status: 'SHORTLISTED' }, ownerCookies)).status).toBe(409);
+    expect((await post(`/api/v1/teacher-applications/${id}/hire`, { employeeCode: 'EMP-Z' }, ownerCookies)).status).toBe(409);
+  });
+
+  it('recruitment summary reflects the pipeline (campus-scoped)', async () => {
+    const res = await get('/api/v1/vacancies/summary', ownerCookies);
+    expect(res.status).toBe(200);
+    expect(res.body.applicationsByStatus).toMatchObject({ SUBMITTED: expect.any(Number), HIRED: expect.any(Number) });
+    expect(res.body.applicationsByStatus.HIRED).toBeGreaterThanOrEqual(1);
   });
 });

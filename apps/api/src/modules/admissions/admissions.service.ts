@@ -13,6 +13,7 @@ import {
   type Paginated,
 } from '@common';
 import { AuditService, TenantPrismaService } from '@database';
+import { AccessService } from '../access/access.service';
 import { StudentsService } from '../students/students.service';
 import { assertTransition, isOverrideAdmit } from './inquiry-state-machine';
 import type {
@@ -36,6 +37,7 @@ export class AdmissionsService {
     private readonly ctx: TenantContext,
     private readonly students: StudentsService,
     private readonly audit: AuditService,
+    private readonly access: AccessService,
   ) {}
 
   private get db() {
@@ -47,6 +49,7 @@ export class AdmissionsService {
   }
 
   async createInquiry(dto: CreateInquiryDto) {
+    await this.access.assert('admissions.inquiries');
     const phone = normalizePkPhone(dto.guardianPhone);
     if (!phone) throw new AppError(ErrorCodes.VALIDATION_FAILED, HttpStatus.UNPROCESSABLE_ENTITY, 'Invalid guardian phone');
     assertCampusAccess(this.ctx.user, dto.campusId); // a campus-bound user can't create for another campus
@@ -79,6 +82,51 @@ export class AdmissionsService {
     return paginate(rows, total, q);
   }
 
+  /**
+   * Admissions dashboard rollup for the Admission Portal (§8). Campus-scoped like `list`:
+   * a campus-bound controller sees only their own campus's pipeline. Returns pipeline
+   * counts by status, tests scheduled today, and admits so far this month.
+   */
+  async summary() {
+    const campusId = effectiveCampusFilter(this.ctx.user, undefined);
+    const campusWhere = campusId ? { campusId } : {};
+
+    const now = new Date();
+    const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+
+    const [grouped, testsToday, admittedThisMonth, total] = await Promise.all([
+      this.db.inquiry.groupBy({ by: ['status'], where: campusWhere, _count: { _all: true } }),
+      this.db.entryTest.count({
+        where: { scheduledAt: { gte: dayStart, lt: dayEnd }, inquiry: { ...campusWhere, status: InquiryStatus.ENTRY_TEST_SCHEDULED } },
+      }),
+      this.db.inquiry.count({ where: { ...campusWhere, status: InquiryStatus.ADMITTED, updatedAt: { gte: monthStart } } }),
+      this.db.inquiry.count({ where: campusWhere }),
+    ]);
+
+    // Every status present, zero-filled, so the funnel always has all stages.
+    const byStatus = Object.fromEntries(Object.values(InquiryStatus).map((s) => [s, 0])) as Record<InquiryStatus, number>;
+    for (const g of grouped) byStatus[g.status] = g._count._all;
+
+    const admitted = byStatus[InquiryStatus.ADMITTED];
+    const conversionRate = total ? Math.round((admitted / total) * 100) : 0;
+
+    return {
+      byStatus,
+      totals: {
+        total,
+        open: byStatus[InquiryStatus.INQUIRY],
+        testsScheduled: byStatus[InquiryStatus.ENTRY_TEST_SCHEDULED],
+        readyToAdmit: byStatus[InquiryStatus.ENTRY_TEST_PASSED],
+        admitted,
+      },
+      testsToday,
+      admittedThisMonth,
+      conversionRate,
+    };
+  }
+
   async getOne(id: string) {
     const inquiry = await this.db.inquiry.findFirst({
       where: { id },
@@ -91,6 +139,7 @@ export class AdmissionsService {
   }
 
   async scheduleEntryTest(id: string, dto: ScheduleEntryTestDto) {
+    await this.access.assert('admissions.inquiries');
     const inquiry = await this.getOne(id);
     assertTransition(inquiry.status, InquiryStatus.ENTRY_TEST_SCHEDULED);
     // find-then-write rather than upsert: the tenant extension merges schoolId into
@@ -106,6 +155,7 @@ export class AdmissionsService {
   }
 
   async recordEntryTest(id: string, dto: RecordEntryTestDto) {
+    await this.access.assert('admissions.inquiries');
     const inquiry = await this.getOne(id);
     const target = dto.passed ? InquiryStatus.ENTRY_TEST_PASSED : InquiryStatus.ENTRY_TEST_FAILED;
     assertTransition(inquiry.status, target);
@@ -117,12 +167,14 @@ export class AdmissionsService {
   }
 
   async reject(id: string, dto: ReasonDto) {
+    await this.access.assert('admissions.inquiries');
     const inquiry = await this.getOne(id);
     assertTransition(inquiry.status, InquiryStatus.REJECTED);
     return this.changeStatus(id, inquiry.status, InquiryStatus.REJECTED, dto.reason);
   }
 
   async withdraw(id: string, dto: ReasonDto) {
+    await this.access.assert('admissions.inquiries');
     const inquiry = await this.getOne(id);
     assertTransition(inquiry.status, InquiryStatus.WITHDRAWN);
     return this.changeStatus(id, inquiry.status, InquiryStatus.WITHDRAWN, dto.reason);
@@ -130,6 +182,7 @@ export class AdmissionsService {
 
   /** Transactional admit (blueprint §8). */
   async admit(dto: AdmitDto) {
+    await this.access.assert('admissions.admit');
     const inquiry = await this.getOne(dto.inquiryId);
     assertTransition(inquiry.status, InquiryStatus.ADMITTED);
     const override = isOverrideAdmit(inquiry.status);

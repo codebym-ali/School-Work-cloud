@@ -62,7 +62,8 @@ export function idemKey(): Record<string, string> {
 }
 
 // ── Types ──────────────────────────────────────────────────────────────────
-export interface Me { id: string; email: string; roles: string[]; campusId: string | null }
+export interface Me { id: string; email: string; roles: string[]; campusId: string | null; modules: string[] }
+export interface UserModule { key: string; label: string; description: string; role: string; allowed: boolean }
 export interface Dashboard {
   enrollmentCount: number; todayAttendancePercent: number | null; monthCollections: number;
   defaulterCount: number; pendingLeaves: number | null; failedSmsCount: number | null;
@@ -161,6 +162,52 @@ export interface Vacancy {
   closedAt: string | null; createdAt: string;
 }
 
+export type ApplicationStatus = 'SUBMITTED' | 'SHORTLISTED' | 'REJECTED' | 'HIRED';
+export interface HireApplicantBody { employeeCode: string; designation?: string; joinedAt?: string; staffType?: string }
+export interface HiredResult extends TeacherApplicationSummary { staff: { userId: string; staffId: string; employeeCode: string } }
+
+export interface AdmissionsSummary {
+  byStatus: Record<string, number>;
+  totals: { total: number; open: number; testsScheduled: number; readyToAdmit: number; admitted: number };
+  testsToday: number;
+  admittedThisMonth: number;
+  conversionRate: number;
+}
+
+export interface RecruitmentSummary {
+  vacanciesByStatus: Record<string, number>;
+  openVacancies: number;
+  openPositions: number;
+  applicationsByStatus: Record<string, number>;
+  newApplicationsThisWeek: number;
+  hiredThisMonth: number;
+}
+
+export interface ParentChild {
+  studentId: string; fullName: string; grNumber: string; registrationNo: string | null;
+  relation: string; isPrimary: boolean;
+  className: string | null; sectionName: string | null; rollNumber: number | null;
+  attendancePercent: number | null; outstandingFees: number;
+}
+export interface ParentOverview {
+  student: { fullName: string; grNumber: string; registrationNo: string | null; gender: string; dateOfBirth: string };
+  enrollment: { className: string; sectionName: string; rollNumber: number | null; year: string } | null;
+  guardians: Array<{ name: string; phone: string; relation: string; isPrimary: boolean }>;
+  attendancePercent: number | null; outstandingFees: number; reportCards: number;
+}
+
+export interface TeacherClass {
+  assignmentId: string; sectionId: string; sectionName: string; className: string;
+  academicYearId: string; yearName: string; subjectId: string | null; subjectName: string | null;
+  isClassTeacher: boolean; studentCount: number;
+}
+export interface RosterRow {
+  studentId: string; fullName: string; grNumber: string; registrationNo: string | null;
+  rollNumber: number | null; enrollmentId: string;
+}
+export interface StaffAttendanceRow { date: string; session: string; status: string; checkIn: string | null; checkOut: string | null }
+export interface Payslip { id: string; runId: string; gross: string; attendanceDeduction: string; otherDeductions: string; netPay: string; status: string; paidAt: string | null }
+
 export const api = {
   login: (email: string, password: string) =>
     apiPost<{ user: Me; mfaEnrollmentRequired?: boolean }>('/auth/login', { email, password }),
@@ -174,13 +221,21 @@ export const api = {
     remove: (id: string) => apiDelete<null>(`/users/${id}`),
     bulkDelete: (ids: string[]) => apiPost<{ removed: number; skipped: number }>('/users/bulk-delete', { ids }),
     resetPassword: (id: string, password: string) => apiPost<{ ok: boolean }>(`/users/${id}/reset-password`, { password }),
-    setHrAccess: (id: string, grant: boolean) => apiPatch<{ id: string; email: string; roles: string[] }>(`/users/${id}/hr-access`, { grant }),
-    setCampusAdmin: (id: string, grant: boolean) => apiPatch<{ id: string; email: string; roles: string[] }>(`/users/${id}/campus-admin`, { grant }),
+    setAccess: (id: string, role: string, grant: boolean) => apiPatch<{ id: string; email: string; roles: string[] }>(`/users/${id}/access`, { role, grant }),
+    setHrAccess: (id: string, grant: boolean) => apiPatch<{ id: string; email: string; roles: string[] }>(`/users/${id}/access`, { role: 'HR_MANAGER', grant }),
+    setCampusAdmin: (id: string, grant: boolean) => apiPatch<{ id: string; email: string; roles: string[] }>(`/users/${id}/access`, { role: 'CAMPUS_ADMIN', grant }),
+    modules: (id: string) => apiGet<UserModule[]>(`/users/${id}/modules`),
+    setModule: (id: string, moduleKey: string, allowed: boolean) => apiPatch<{ userId: string; moduleKey: string; allowed: boolean }>(`/users/${id}/modules`, { moduleKey, allowed }),
   },
   staff: {
     list: () => apiGet<ManagedTeacher[]>('/staff'),
     create: (body: { email: string; staffType: string; employeeCode: string; designation: string; joinedAt: string; campusId?: string; roles?: string[] }) =>
       apiPost<{ userId: string; staffId: string; employeeCode: string }>('/staff', body),
+    myAttendance: () => apiGet<StaffAttendanceRow[]>('/staff-attendance/mine'),
+  },
+  payslips: {
+    mine: () => apiGet<Payslip[]>('/payslips/mine'),
+    pdf: (id: string) => apiGet<{ fileKey: string; url: string; expiresInSeconds: number }>(`/payslips/${id}/pdf`),
   },
   teacherAssignments: {
     list: () => apiGet<TeacherAssignment[]>('/teacher-assignments'),
@@ -198,6 +253,9 @@ export const api = {
     },
     get: (id: string) => apiGet<TeacherApplicationDetail>(`/teacher-applications/${id}`),
     create: (body: CreateTeacherApplicationBody) => apiPost<TeacherApplicationSummary>('/teacher-applications', body),
+    updateStatus: (id: string, status: 'SHORTLISTED' | 'REJECTED', reason?: string) =>
+      apiPatch<TeacherApplicationSummary>(`/teacher-applications/${id}/status`, { status, reason }),
+    hire: (id: string, body: HireApplicantBody) => apiPost<HiredResult>(`/teacher-applications/${id}/hire`, body, idemKey()),
   },
   vacancies: {
     list: (params?: { campusId?: string; status?: string; department?: string }) => {
@@ -207,6 +265,21 @@ export const api = {
     create: (body: { campusId: string; title: string; department: string; description: string; employmentType: string; positions: number }) =>
       apiPost<Vacancy>('/vacancies', body),
     close: (id: string) => apiPost<Vacancy>(`/vacancies/${id}/close`),
+    summary: () => apiGet<RecruitmentSummary>('/vacancies/summary'),
+  },
+  admissions: {
+    summary: () => apiGet<AdmissionsSummary>('/inquiries/summary'),
+  },
+  teaching: {
+    myClasses: () => apiGet<TeacherClass[]>('/teaching/my-classes'),
+    roster: (sectionId: string) => apiGet<RosterRow[]>(`/teaching/sections/${sectionId}/roster`),
+  },
+  parent: {
+    children: () => apiGet<ParentChild[]>('/parent/children'),
+    overview: (studentId: string) => apiGet<ParentOverview>(`/parent/children/${studentId}/overview`),
+    attendance: (studentId: string) => apiGet<PortalAttendance[]>(`/parent/children/${studentId}/attendance`),
+    results: (studentId: string) => apiGet<PortalResult[]>(`/parent/children/${studentId}/results`),
+    fees: (studentId: string) => apiGet<PortalFee[]>(`/parent/children/${studentId}/fees`),
   },
   portal: {
     overview: () => apiGet<PortalOverview>('/portal/overview'),

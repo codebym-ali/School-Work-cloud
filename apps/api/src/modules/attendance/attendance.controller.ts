@@ -43,4 +43,11 @@ export class StaffAttendanceController {
   markBulk(@Body() dto: MarkStaffAttendanceDto) {
     return this.attendance.markStaffBulk(dto);
   }
+
+  // Self-service: any staff member reads their own record (self-scoped in the service,
+  // §22.8) — no @Roles, mirroring GET /payslips/mine.
+  @Get('mine')
+  mine() {
+    return this.attendance.myStaffAttendance();
+  }
 }

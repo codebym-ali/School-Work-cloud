@@ -3,7 +3,7 @@ import {
   IsString, IsUUID, Max, MaxLength, Min, MinLength, ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
-import { EmploymentType, TeacherApplicationStatus } from '@prisma/client';
+import { EmploymentType, StaffType, TeacherApplicationStatus } from '@prisma/client';
 
 /** One prior job (repeats in the Experience section). */
 export class ExperienceEntryDto {
@@ -78,4 +78,33 @@ export class ListTeacherApplicationQuery {
   @IsOptional() @IsUUID() campusId?: string;
   @IsOptional() @IsEnum(TeacherApplicationStatus) status?: TeacherApplicationStatus;
   @IsOptional() @IsString() @MaxLength(120) search?: string;
+}
+
+/**
+ * Advance an application in the hiring pipeline. Only SHORTLISTED and REJECTED are
+ * reachable here; HIRED is set exclusively by the /hire endpoint (which also creates the
+ * staff account), so a HIRED application always has a real login behind it.
+ */
+export class UpdateApplicationStatusDto {
+  @IsIn(['SHORTLISTED', 'REJECTED'])
+  status!: 'SHORTLISTED' | 'REJECTED';
+
+  @IsOptional() @IsString() @MaxLength(300) reason?: string;
+}
+
+/**
+ * Hire an applicant: creates the staff User (INVITED) + StaffProfile from the application
+ * and marks it HIRED, atomically (one request tx). Campus comes from the application.
+ */
+export class HireApplicantDto {
+  @IsString() @MinLength(1) @MaxLength(40) employeeCode!: string;
+
+  /** Defaults to the application's positionAppliedFor when omitted. */
+  @IsOptional() @IsString() @MinLength(1) @MaxLength(80) designation?: string;
+
+  /** Defaults to today when omitted. */
+  @IsOptional() @IsDateString() joinedAt?: string;
+
+  /** Defaults to TEACHER. */
+  @IsOptional() @IsEnum(StaffType) staffType?: StaffType;
 }

@@ -19,6 +19,7 @@ describe('HR access grant (e2e, RBAC)', () => {
   let schoolId: string;
   let ownerCookies: string[];
   let campusAId: string;
+  let campusBId: string;
   let teacherUserId: string;
 
   const sub = `hra-${randomUUID().slice(0, 8)}`;
@@ -52,8 +53,9 @@ describe('HR access grant (e2e, RBAC)', () => {
     campusAId = prov.campusId;
 
     ownerCookies = (await login(owner.email, owner.password)).cookies;
+    campusBId = (await send('post', '/api/v1/campuses', { name: 'Second Campus' }, ownerCookies)).body.id;
     await send('post', '/api/v1/users', { email: campusAdmin.email, roles: ['CAMPUS_ADMIN'], campusId: campusAId, password: campusAdmin.password }, ownerCookies);
-    const t = await send('post', '/api/v1/users', { email: teacher.email, roles: ['TEACHER'], campusId: campusAId, password: teacher.password }, ownerCookies);
+    const t = await send('post', '/api/v1/users', { email: teacher.email, roles: ['TEACHER'], campusId: campusBId, password: teacher.password }, ownerCookies);
     teacherUserId = t.body.id;
   });
 
@@ -72,7 +74,7 @@ describe('HR access grant (e2e, RBAC)', () => {
     expect((await get('/api/v1/vacancies', before)).status).toBe(403);
 
     // Owner grants HR access — the account is reused, roles preserved + HR_MANAGER added.
-    const grant = await send('patch', `/api/v1/users/${teacherUserId}/hr-access`, { grant: true }, ownerCookies);
+    const grant = await send('patch', `/api/v1/users/${teacherUserId}/access`, { role: 'HR_MANAGER', grant: true }, ownerCookies);
     expect(grant.status).toBe(200);
     expect(grant.body.roles).toEqual(expect.arrayContaining(['TEACHER', 'HR_MANAGER']));
 
@@ -81,7 +83,7 @@ describe('HR access grant (e2e, RBAC)', () => {
     expect((await get('/api/v1/vacancies', after)).status).toBe(200);
 
     // Revoke removes it again.
-    const revoke = await send('patch', `/api/v1/users/${teacherUserId}/hr-access`, { grant: false }, ownerCookies);
+    const revoke = await send('patch', `/api/v1/users/${teacherUserId}/access`, { role: 'HR_MANAGER', grant: false }, ownerCookies);
     expect(revoke.status).toBe(200);
     expect(revoke.body.roles).toEqual(['TEACHER']);
     const revoked = (await login(teacher.email, teacher.password)).cookies;
@@ -93,14 +95,14 @@ describe('HR access grant (e2e, RBAC)', () => {
     const before = (await login(teacher.email, teacher.password)).cookies;
     expect((await get('/api/v1/users', before)).status).toBe(403);
 
-    const grant = await send('patch', `/api/v1/users/${teacherUserId}/campus-admin`, { grant: true }, ownerCookies);
+    const grant = await send('patch', `/api/v1/users/${teacherUserId}/access`, { role: 'CAMPUS_ADMIN', grant: true }, ownerCookies);
     expect(grant.status).toBe(200);
     expect(grant.body.roles).toEqual(expect.arrayContaining(['TEACHER', 'CAMPUS_ADMIN']));
 
     const asAdmin = (await login(teacher.email, teacher.password)).cookies;
     expect((await get('/api/v1/users', asAdmin)).status).toBe(200);
 
-    const revoke = await send('patch', `/api/v1/users/${teacherUserId}/campus-admin`, { grant: false }, ownerCookies);
+    const revoke = await send('patch', `/api/v1/users/${teacherUserId}/access`, { role: 'CAMPUS_ADMIN', grant: false }, ownerCookies);
     expect(revoke.body.roles).toEqual(['TEACHER']);
     const revoked = (await login(teacher.email, teacher.password)).cookies;
     expect((await get('/api/v1/users', revoked)).status).toBe(403);
@@ -108,14 +110,14 @@ describe('HR access grant (e2e, RBAC)', () => {
 
   it('rejects making a campus-less user (the owner) a campus admin → 422', async () => {
     const me = await get('/api/v1/auth/me', ownerCookies);
-    const res = await send('patch', `/api/v1/users/${me.body.id}/campus-admin`, { grant: true }, ownerCookies);
+    const res = await send('patch', `/api/v1/users/${me.body.id}/access`, { role: 'CAMPUS_ADMIN', grant: true }, ownerCookies);
     expect(res.status).toBe(422);
   });
 
   it('a campus admin cannot grant HR or campus-admin access (owner-only) → 403', async () => {
     const caCookies = (await login(campusAdmin.email, campusAdmin.password)).cookies;
-    expect((await send('patch', `/api/v1/users/${teacherUserId}/hr-access`, { grant: true }, caCookies)).status).toBe(403);
-    expect((await send('patch', `/api/v1/users/${teacherUserId}/campus-admin`, { grant: true }, caCookies)).status).toBe(403);
+    expect((await send('patch', `/api/v1/users/${teacherUserId}/access`, { role: 'HR_MANAGER', grant: true }, caCookies)).status).toBe(403);
+    expect((await send('patch', `/api/v1/users/${teacherUserId}/access`, { role: 'CAMPUS_ADMIN', grant: true }, caCookies)).status).toBe(403);
   });
 
   it('writes an audit log for the grant and the revoke', async () => {

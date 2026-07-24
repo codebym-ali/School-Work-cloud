@@ -2,12 +2,13 @@
 
 import { useEffect, useState } from 'react';
 import { api, type PortalFee } from '@/lib/api';
-
-const badge = (s: string) => (s === 'PAID' ? 'ok' : s === 'OVERDUE' ? 'bad' : '');
+import { feeBadge, monthYear } from '@/lib/format';
 
 export default function MyFees() {
   const [rows, setRows] = useState<PortalFee[] | null>(null);
-  useEffect(() => { api.portal.fees().then(setRows).catch(() => setRows([])); }, []);
+  const [err, setErr] = useState(false);
+  useEffect(() => { api.portal.fees().then(setRows).catch(() => setErr(true)); }, []);
+  if (err) return <p className="error">Couldn&apos;t load your fees.</p>;
   if (!rows) return <p className="muted">Loading…</p>;
   const outstanding = rows.reduce((s, i) => s + i.remaining, 0);
 
@@ -20,12 +21,12 @@ export default function MyFees() {
         <tbody>
           {rows.map((r) => (
             <tr key={r.id}>
-              <td>{r.month ? `${r.month}/` : ''}{r.year}</td>
+              <td>{monthYear(r.month, r.year)}</td>
               <td>Rs {r.total.toLocaleString()}</td>
               <td>Rs {r.paid.toLocaleString()}</td>
               <td>Rs {r.remaining.toLocaleString()}</td>
               <td>{new Date(r.dueDate).toLocaleDateString()}</td>
-              <td><span className={`badge ${badge(r.status)}`}>{r.status}</span></td>
+              <td><span className={`badge ${feeBadge(r.status)}`}>{r.status}</span></td>
             </tr>
           ))}
           {rows.length === 0 && <tr><td colSpan={6} className="muted">No invoices yet.</td></tr>}

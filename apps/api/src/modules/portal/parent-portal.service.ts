@@ -1,9 +1,8 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
-import { AppError, ErrorCodes, TenantContext } from '@common';
+import { AppError, attendancePercentFromStatuses, ErrorCodes, TenantContext } from '@common';
 import { TenantPrismaService } from '@database';
 
 const money = (n: number): number => Math.round(n * 100) / 100;
-const PRESENTISH = ['PRESENT', 'LATE', 'HALF_DAY'];
 
 /**
  * Parent self-service portal (blueprint §5, §28, permission matrix §23 — PARENT column).
@@ -53,9 +52,7 @@ export class ParentPortalService {
       where: { enrollmentId: { in: enrolls } },
       select: { status: true },
     });
-    if (!records.length) return null;
-    const present = records.filter((r) => PRESENTISH.includes(r.status)).length;
-    return Math.round((present / records.length) * 100);
+    return attendancePercentFromStatuses(records.map((r) => r.status));
   }
 
   private async outstandingFees(studentId: string): Promise<number> {

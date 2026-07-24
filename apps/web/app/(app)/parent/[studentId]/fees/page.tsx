@@ -3,10 +3,8 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { api, type PortalFee } from '@/lib/api';
+import { feeBadge, monthYear } from '@/lib/format';
 import { ChildNav } from '../child-nav';
-
-const MONTHS = ['—', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-const badge = (s: string) => (s === 'PAID' ? 'ok' : s === 'PARTIAL' ? 'warn' : 'bad');
 
 export default function ChildFees() {
   const { studentId } = useParams<{ studentId: string }>();
@@ -35,11 +33,11 @@ export default function ChildFees() {
             <tbody>
               {rows.map((r) => (
                 <tr key={r.id}>
-                  <td>{r.month ? MONTHS[r.month] : '—'} {r.year}</td>
+                  <td>{monthYear(r.month, r.year)}</td>
                   <td>Rs {r.total.toLocaleString()}</td>
                   <td>Rs {r.paid.toLocaleString()}</td>
                   <td>Rs {r.remaining.toLocaleString()}</td>
-                  <td><span className={`badge ${badge(r.status)}`}>{r.status}</span></td>
+                  <td><span className={`badge ${feeBadge(r.status)}`}>{r.status}</span></td>
                   <td className="muted">{r.dueDate ? new Date(r.dueDate).toLocaleDateString() : '—'}</td>
                 </tr>
               ))}

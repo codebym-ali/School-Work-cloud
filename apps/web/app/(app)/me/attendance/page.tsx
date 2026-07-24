@@ -2,12 +2,13 @@
 
 import { useEffect, useState } from 'react';
 import { api, type PortalAttendance } from '@/lib/api';
-
-const badge = (s: string) => (s === 'PRESENT' ? 'ok' : s === 'ABSENT' ? 'bad' : '');
+import { attendanceBadge, humanizeStatus } from '@/lib/format';
 
 export default function MyAttendance() {
   const [rows, setRows] = useState<PortalAttendance[] | null>(null);
-  useEffect(() => { api.portal.attendance().then(setRows).catch(() => setRows([])); }, []);
+  const [err, setErr] = useState(false);
+  useEffect(() => { api.portal.attendance().then(setRows).catch(() => setErr(true)); }, []);
+  if (err) return <p className="error">Couldn&apos;t load your attendance.</p>;
   if (!rows) return <p className="muted">Loading…</p>;
 
   return (
@@ -21,7 +22,7 @@ export default function MyAttendance() {
             <tr key={i}>
               <td>{new Date(r.date).toLocaleDateString()}</td>
               <td>{r.session}</td>
-              <td><span className={`badge ${badge(r.status)}`}>{r.status}</span></td>
+              <td><span className={`badge ${attendanceBadge(r.status)}`}>{humanizeStatus(r.status)}</span></td>
             </tr>
           ))}
           {rows.length === 0 && <tr><td colSpan={3} className="muted">No attendance recorded yet.</td></tr>}

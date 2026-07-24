@@ -47,8 +47,8 @@ export default function MyClasses() {
                   <div className="muted" style={{ fontSize: 13 }}>{c.yearName} · {c.studentCount} students</div>
                 </div>
                 <div className="row" style={{ gap: 8 }}>
-                  <Link className="chip" href="/attendance">Attendance</Link>
-                  <Link className="chip" href="/exams">Marks</Link>
+                  <Link className="chip" href={`/attendance?sectionId=${c.sectionId}`}>Attendance</Link>
+                  <Link className="chip" href={`/exams?assignmentId=${c.assignmentId}`}>Marks</Link>
                   <button className="ghost small" onClick={() => toggleRoster(c.sectionId)}>
                     {openSection === c.sectionId ? 'Hide roster' : 'View roster'}
                   </button>

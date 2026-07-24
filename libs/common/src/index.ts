@@ -3,6 +3,7 @@ export * from './common.module';
 export * from './audit/audit-actions';
 export * from './dto/pagination.dto';
 export * from './util/phone';
+export * from './util/attendance';
 export * from './util/redis';
 export * from './storage/storage.service';
 export * from './storage/storage.module';

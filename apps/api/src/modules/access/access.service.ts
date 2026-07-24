@@ -42,16 +42,17 @@ export class AccessService {
   }
 
   /** The module keys the CALLING user may currently use, for UI shaping. Owners get every
-   *  module; everyone else gets the full catalog minus their switched-off modules (so the
-   *  frontend can hide an action the backend would 403). */
+   *  module; everyone else gets the modules their ROLES grant, minus any switched off for them
+   *  (so the frontend can hide an action the backend would 403). Mirrors `listForUser`'s
+   *  role-scoping — a specialist must not be handed modules unrelated to their roles. */
   async enabledModulesForSelf(): Promise<string[]> {
     const user = this.ctx.user;
     if (!user) return [];
-    const all = MODULES.map((m) => m.key);
-    if (user.roles.includes(Role.OWNER_ADMIN)) return all;
+    if (user.roles.includes(Role.OWNER_ADMIN)) return MODULES.map((m) => m.key);
+    const catalog = modulesForRoles(user.roles).map((m) => m.key);
     const off = await this.db.moduleAccess.findMany({ where: { userId: user.userId, allowed: false }, select: { moduleKey: true } });
     const offSet = new Set(off.map((o) => o.moduleKey));
-    return all.filter((k) => !offSet.has(k));
+    return catalog.filter((k) => !offSet.has(k));
   }
 
   /** The modules available to a user (from their roles) with the current on/off state. */

@@ -79,6 +79,7 @@ export const NAV: NavItem[] = [
   { href: '/parent', label: 'My Children', icon: '👨‍👩‍👧', group: 'My Portal', roles: ['PARENT'] },
 
   { href: '/my-attendance', label: 'My Attendance', icon: '✅', group: 'My Portal', roles: ['STAFF'] },
+  { href: '/my-leaves', label: 'My Leaves', icon: '🗓️', group: 'My Portal', roles: ['STAFF'] },
   { href: '/my-payslips', label: 'My Payslips', icon: '💵', group: 'My Portal', roles: ['STAFF', 'TEACHER'] },
 
   // Account security is every user's own business — no `roles` (any authenticated) and reached

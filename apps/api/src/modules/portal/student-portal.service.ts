@@ -1,9 +1,8 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
-import { AppError, ErrorCodes, TenantContext } from '@common';
+import { AppError, attendancePercentFromStatuses, ErrorCodes, TenantContext } from '@common';
 import { TenantPrismaService } from '@database';
 
 const money = (n: number): number => Math.round(n * 100) / 100;
-const PRESENTISH = ['PRESENT', 'LATE', 'HALF_DAY'];
 
 /**
  * Student self-service portal (blueprint §5, §28, permission matrix §23 — STUDENT column).
@@ -57,8 +56,7 @@ export class StudentPortalService {
       where: { enrollmentId: { in: enrolls.map((e) => e.id) } },
       select: { status: true },
     });
-    const present = records.filter((r) => PRESENTISH.includes(r.status)).length;
-    const attendancePercent = records.length ? Math.round((present / records.length) * 100) : null;
+    const attendancePercent = attendancePercentFromStatuses(records.map((r) => r.status));
 
     const reportCards = await this.db.reportCard.count({ where: { enrollmentId: { in: enrolls.map((e) => e.id) } } });
 

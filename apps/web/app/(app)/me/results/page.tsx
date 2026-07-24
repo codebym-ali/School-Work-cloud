@@ -5,7 +5,9 @@ import { api, type PortalResult } from '@/lib/api';
 
 export default function MyResults() {
   const [rows, setRows] = useState<PortalResult[] | null>(null);
-  useEffect(() => { api.portal.results().then(setRows).catch(() => setRows([])); }, []);
+  const [err, setErr] = useState(false);
+  useEffect(() => { api.portal.results().then(setRows).catch(() => setErr(true)); }, []);
+  if (err) return <p className="error">Couldn&apos;t load your results.</p>;
   if (!rows) return <p className="muted">Loading…</p>;
 
   return (

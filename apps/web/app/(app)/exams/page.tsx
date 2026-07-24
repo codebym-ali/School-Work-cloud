@@ -7,10 +7,22 @@ import {
   type Klass, type Paged, type Section, type Student, type Subject, type Term, type ReportCard,
 } from '@/lib/api';
 import { classLabeller, sectionLabeller } from '@/lib/labels';
+import { useMe } from '@/lib/me-context';
+import TeacherExams from './TeacherExams';
 
 const EXAM_TYPES = ['MONTHLY', 'MID_TERM', 'FINAL', 'SURPRISE_TEST'];
 
 export default function ExamsPage() {
+  const me = useMe();
+  // Owners/campus admins run the full setup console; a teacher-only account gets the focused
+  // marks-entry view instead of a wall of admin controls they can't use.
+  const isAdmin = me?.roles.some((r) => r === 'OWNER_ADMIN' || r === 'CAMPUS_ADMIN') ?? false;
+  if (!isAdmin && me?.roles.includes('TEACHER')) return <TeacherExams />;
+
+  return <ExamsAdminConsole />;
+}
+
+function ExamsAdminConsole() {
   const [years, setYears] = useState<AcademicYear[]>([]);
   const [terms, setTerms] = useState<Term[]>([]);
   const [classes, setClasses] = useState<Klass[]>([]);

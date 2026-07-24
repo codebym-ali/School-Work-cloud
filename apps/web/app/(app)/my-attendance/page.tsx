@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { api, type StaffAttendanceRow } from '@/lib/api';
+import { attendanceBadge, humanizeStatus } from '@/lib/format';
 
-const badge = (s: string) => (['PRESENT', 'LATE', 'HALF_DAY'].includes(s) ? 'ok' : s === 'ABSENT' ? 'bad' : 'warn');
 const time = (t: string | null) => (t ? new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—');
 
 export default function MyAttendance() {
@@ -15,8 +15,11 @@ export default function MyAttendance() {
   if (err) return <p className="error">Couldn&apos;t load your attendance.</p>;
   if (!rows) return <p className="muted">Loading…</p>;
 
-  const present = rows.filter((r) => ['PRESENT', 'LATE', 'HALF_DAY'].includes(r.status)).length;
-  const pct = rows.length ? Math.round((present / rows.length) * 100) : null;
+  // Attendance ratio: PRESENT/LATE = full day, HALF_DAY = half; leave days aren't counted
+  // against you, so they're excluded from the denominator entirely.
+  const countable = rows.filter((r) => r.status !== 'ON_LEAVE');
+  const credit = countable.reduce((s, r) => s + (r.status === 'PRESENT' || r.status === 'LATE' ? 1 : r.status === 'HALF_DAY' ? 0.5 : 0), 0);
+  const pct = countable.length ? Math.round((credit / countable.length) * 100) : null;
 
   return (
     <div className="stack">
@@ -34,7 +37,7 @@ export default function MyAttendance() {
               <tr key={i}>
                 <td>{new Date(r.date).toLocaleDateString()}</td>
                 <td>{r.session}</td>
-                <td><span className={`badge ${badge(r.status)}`}>{r.status.replace(/_/g, ' ')}</span></td>
+                <td><span className={`badge ${attendanceBadge(r.status)}`}>{humanizeStatus(r.status)}</span></td>
                 <td>{time(r.checkIn)}</td>
                 <td>{time(r.checkOut)}</td>
               </tr>

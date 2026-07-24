@@ -116,7 +116,12 @@ export class PayrollService {
   async myPayslips() {
     const staff = await this.db.staffProfile.findFirst({ where: { userId: this.ctx.user!.userId } });
     if (!staff) return [];
-    return this.db.payslip.findMany({ where: { staffId: staff.id }, orderBy: { id: 'desc' } });
+    // Newest pay period first. Payslip has no createdAt, and the PK is a random UUID, so
+    // order by the run's period rather than by id (which would be arbitrary).
+    return this.db.payslip.findMany({
+      where: { staffId: staff.id },
+      orderBy: [{ run: { year: 'desc' } }, { run: { month: 'desc' } }],
+    });
   }
 
   /**

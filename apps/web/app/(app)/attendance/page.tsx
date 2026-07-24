@@ -18,11 +18,25 @@ export default function AttendancePage() {
   const [marks, setMarks] = useState<Record<string, string>>({});
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
+  const [autoLoaded, setAutoLoaded] = useState(false);
+
   useEffect(() => {
     apiGet<Klass[]>('/classes').then(setClasses).catch(() => {});
     apiGet<Section[]>('/sections').then(setSections).catch(() => {});
     apiGet<Campus[]>('/campuses').then(setCampuses).catch(() => {});
+    // Deep-link from "My Classes" (e.g. /attendance?sectionId=…): preselect that section.
+    const sid = new URLSearchParams(window.location.search).get('sectionId');
+    if (sid) setSectionId(sid);
   }, []);
+
+  // Once the deep-linked section is set, load its roster automatically (one time).
+  useEffect(() => {
+    const sid = new URLSearchParams(window.location.search).get('sectionId');
+    if (sid && sectionId === sid && !autoLoaded) {
+      setAutoLoaded(true);
+      loadRoster().catch(() => {});
+    }
+  }); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function loadRoster() {
     if (!sectionId) return;

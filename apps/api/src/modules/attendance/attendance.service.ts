@@ -89,7 +89,9 @@ export class AttendanceService {
 
     for (let i = 0; i < dto.records.length; i++) {
       const rec = dto.records[i];
-      const enr = await this.db.studentEnrollment.findFirst({ where: { id: rec.enrollmentId } });
+      // `student.deletedAt: null` blocks marking a soft-deleted student whose enrollment row
+      // is still ACTIVE (stale) — a null result falls through to the same validation error.
+      const enr = await this.db.studentEnrollment.findFirst({ where: { id: rec.enrollmentId, student: { deletedAt: null } } });
       if (!enr || enr.status !== 'ACTIVE' || enr.sectionId !== dto.sectionId || enr.academicYearId !== currentYearId) {
         errors.push({ index: i, code: ErrorCodes.VALIDATION_FAILED, message: 'Enrollment not ACTIVE in this section/year' });
         continue;

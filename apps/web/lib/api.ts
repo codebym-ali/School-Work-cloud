@@ -214,7 +214,7 @@ export interface ParentOverview {
 }
 
 export interface TeacherClass {
-  assignmentId: string; sectionId: string; sectionName: string; className: string;
+  assignmentId: string; sectionId: string; sectionName: string; classId: string | null; className: string;
   academicYearId: string; yearName: string; subjectId: string | null; subjectName: string | null;
   isClassTeacher: boolean; studentCount: number;
 }
@@ -224,6 +224,8 @@ export interface RosterRow {
 }
 export interface StaffAttendanceRow { date: string; session: string; status: string; checkIn: string | null; checkOut: string | null }
 export interface Payslip { id: string; runId: string; gross: string; attendanceDeduction: string; otherDeductions: string; netPay: string; status: string; paidAt: string | null }
+export interface StaffLeave { id: string; leaveType: string; fromDate: string; toDate: string; reason: string; status: string; isUnpaid: boolean; rejectionReason: string | null; createdAt: string }
+export interface StudentLeave { id: string; studentId: string; fromDate: string; toDate: string; reason: string; status: string; rejectionReason: string | null; createdAt: string }
 
 export const api = {
   login: (email: string, password: string) => apiPost<LoginResult>('/auth/login', { email, password }),
@@ -257,6 +259,12 @@ export const api = {
     create: (body: { email: string; staffType: string; employeeCode: string; designation: string; joinedAt: string; campusId?: string; roles?: string[] }) =>
       apiPost<{ userId: string; staffId: string; employeeCode: string }>('/staff', body),
     myAttendance: () => apiGet<StaffAttendanceRow[]>('/staff-attendance/mine'),
+  },
+  staffLeaves: {
+    // Self-scoped on the server for non-admins → the caller's own leaves only.
+    mine: () => apiGet<{ data: StaffLeave[]; total: number }>('/staff-leaves'),
+    apply: (body: { leaveType: string; fromDate: string; toDate: string; reason: string }) => apiPost<StaffLeave>('/staff-leaves', body),
+    cancel: (id: string) => apiPost<StaffLeave>(`/staff-leaves/${id}/cancel`, {}),
   },
   payslips: {
     mine: () => apiGet<Payslip[]>('/payslips/mine'),
@@ -322,6 +330,12 @@ export const api = {
     attendance: (studentId: string) => apiGet<PortalAttendance[]>(`/parent/children/${studentId}/attendance`),
     results: (studentId: string) => apiGet<PortalResult[]>(`/parent/children/${studentId}/results`),
     fees: (studentId: string) => apiGet<PortalFee[]>(`/parent/children/${studentId}/fees`),
+  },
+  studentLeaves: {
+    // Parent-scoped on the server → only the caller's own children's leaves.
+    list: (studentId: string) => apiGet<{ data: StudentLeave[] }>(`/student-leaves?studentId=${studentId}`),
+    apply: (body: { studentId: string; fromDate: string; toDate: string; reason: string }) => apiPost<StudentLeave>('/student-leaves', body),
+    cancel: (id: string) => apiPost<StudentLeave>(`/student-leaves/${id}/cancel`, {}),
   },
   portal: {
     overview: () => apiGet<PortalOverview>('/portal/overview'),

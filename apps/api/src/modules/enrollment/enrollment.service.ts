@@ -32,6 +32,9 @@ export class EnrollmentService {
 
   async list(q: EnrollmentListQuery): Promise<Paginated<unknown>> {
     const where = {
+      // Never surface soft-deleted students in operational lists (e.g. the attendance roster,
+      // which loads ?status=ACTIVE) — otherwise a removed student stays markable/billable.
+      student: { deletedAt: null },
       ...(q.academicYearId ? { academicYearId: q.academicYearId } : {}),
       ...(q.sectionId ? { sectionId: q.sectionId } : {}),
       ...(q.studentId ? { studentId: q.studentId } : {}),

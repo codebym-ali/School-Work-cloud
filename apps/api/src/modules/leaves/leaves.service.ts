@@ -126,12 +126,15 @@ export class LeavesService {
 
   // ── Staff leaves ───────────────────────────────────────────────────────────
   async createStaffLeave(dto: CreateStaffLeaveDto) {
+    // §22.8: staff/teachers file only their OWN leave (staffId resolved from the caller,
+    // never trusted from the body). An admin may file on someone's behalf via dto.staffId.
+    const staffId = await this.resolveStaffId(dto.staffId);
     const from = new Date(dto.fromDate);
     const to = new Date(dto.toDate);
     if (to < from) throw new AppError(ErrorCodes.VALIDATION_FAILED, HttpStatus.UNPROCESSABLE_ENTITY, 'toDate before fromDate');
     const overlap = await this.db.staffLeave.findFirst({
       where: {
-        staffId: dto.staffId,
+        staffId,
         status: { in: [LeaveStatus.PENDING, LeaveStatus.APPROVED] },
         fromDate: { lte: to },
         toDate: { gte: from },
@@ -140,11 +143,11 @@ export class LeavesService {
     if (overlap) throw new AppError(ErrorCodes.LEAVE_OVERLAP, HttpStatus.CONFLICT, 'Overlaps an existing leave');
 
     // Quota: exceeding the annual per-type quota auto-flags the request UNPAID (§10).
-    const isUnpaid = await this.exceedsQuota(dto.staffId, dto.leaveType);
+    const isUnpaid = await this.exceedsQuota(staffId, dto.leaveType);
     return this.db.staffLeave.create({
       data: {
         schoolId: this.sid,
-        staffId: dto.staffId,
+        staffId,
         leaveType: dto.leaveType,
         fromDate: from,
         toDate: to,
@@ -176,13 +179,21 @@ export class LeavesService {
   async cancelStaffLeave(id: string) {
     const leave = await this.getStaffLeave(id);
     this.assertPending(leave.status);
+    // §22.8: a non-admin may cancel only their own leave.
+    if (!isAdminRole(this.ctx.user) && leave.staffId !== (await this.selfStaffId())) {
+      throw new AppError(ErrorCodes.FORBIDDEN, HttpStatus.FORBIDDEN, 'Only the requester can cancel');
+    }
     return this.db.staffLeave.update({ where: { id }, data: { status: LeaveStatus.CANCELLED } });
   }
 
   async listStaffLeaves(q: LeaveListQuery): Promise<Paginated<unknown>> {
+    // A non-admin (staff/teacher) sees only their OWN leaves (force-scoped, deny-by-default);
+    // an admin may filter by any staffId.
+    const user = this.ctx.user!;
+    const scopedStaffId = isAdminRole(user) ? q.staffId : await this.selfStaffId();
     const where = {
       ...(q.status ? { status: q.status } : {}),
-      ...(q.staffId ? { staffId: q.staffId } : {}),
+      ...(scopedStaffId ? { staffId: scopedStaffId } : {}),
     };
     const { skip, take } = toSkipTake(q);
     const [rows, total] = await Promise.all([
@@ -193,6 +204,23 @@ export class LeavesService {
   }
 
   // ── helpers ──────────────────────────────────────────────────────────────────
+  /** The StaffProfile id for the calling user, or 403 if the account has none. */
+  private async selfStaffId(): Promise<string> {
+    const staff = await this.db.staffProfile.findFirst({ where: { userId: this.ctx.user!.userId }, select: { id: true } });
+    if (!staff) throw new AppError(ErrorCodes.FORBIDDEN, HttpStatus.FORBIDDEN, 'No staff profile is linked to this account');
+    return staff.id;
+  }
+
+  /** Whose staff leave to act on: an admin may target `requested` (required for them);
+   *  everyone else is forced to their own profile regardless of what the body claims. */
+  private async resolveStaffId(requested?: string): Promise<string> {
+    if (isAdminRole(this.ctx.user)) {
+      if (!requested) throw new AppError(ErrorCodes.VALIDATION_FAILED, HttpStatus.UNPROCESSABLE_ENTITY, 'staffId is required');
+      return requested;
+    }
+    return this.selfStaffId();
+  }
+
   private assertPending(status: LeaveStatus): void {
     if (status !== LeaveStatus.PENDING) {
       throw new AppError(ErrorCodes.INVALID_STATE_TRANSITION, HttpStatus.CONFLICT, `Leave is ${status}, not PENDING`);

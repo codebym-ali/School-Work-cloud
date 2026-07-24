@@ -17,8 +17,10 @@ export class CreateStudentLeaveDto {
 }
 
 export class CreateStaffLeaveDto {
-  @IsUUID()
-  staffId!: string;
+  /** Whose leave this is. Omitted by staff/teachers (resolved to their own profile);
+   *  an admin filing on someone's behalf supplies it explicitly. */
+  @IsOptional() @IsUUID()
+  staffId?: string;
 
   @IsEnum(StaffLeaveType)
   leaveType!: StaffLeaveType;

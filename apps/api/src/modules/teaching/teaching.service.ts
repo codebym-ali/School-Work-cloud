@@ -41,7 +41,7 @@ export class TeachingService {
     const [sections, subjects, years, counts] = await Promise.all([
       this.db.section.findMany({
         where: { id: { in: unique(assignments.map((a) => a.sectionId)) } },
-        include: { class: { select: { name: true } } },
+        include: { class: { select: { id: true, name: true } } },
       }),
       this.db.subject.findMany({
         where: { id: { in: unique(assignments.map((a) => a.subjectId).filter((x): x is string => !!x)) } },
@@ -53,7 +53,8 @@ export class TeachingService {
       }),
       this.db.studentEnrollment.groupBy({
         by: ['sectionId'],
-        where: { sectionId: { in: unique(assignments.map((a) => a.sectionId)) }, status: 'ACTIVE' },
+        // Exclude soft-deleted students so the header count matches the roster (which filters them).
+        where: { sectionId: { in: unique(assignments.map((a) => a.sectionId)) }, status: 'ACTIVE', student: { deletedAt: null } },
         _count: { _all: true },
       }),
     ]);
@@ -69,6 +70,7 @@ export class TeachingService {
         assignmentId: a.id,
         sectionId: a.sectionId,
         sectionName: section?.name ?? '—',
+        classId: section?.class.id ?? null,
         className: section?.class.name ?? '—',
         academicYearId: a.academicYearId,
         yearName: yearName.get(a.academicYearId) ?? '—',

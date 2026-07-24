@@ -3,9 +3,8 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { api, type PortalAttendance } from '@/lib/api';
+import { attendanceBadge, humanizeStatus } from '@/lib/format';
 import { ChildNav } from '../child-nav';
-
-const badge = (s: string) => (['PRESENT', 'LATE', 'HALF_DAY'].includes(s) ? 'ok' : s === 'ABSENT' ? 'bad' : 'warn');
 
 export default function ChildAttendance() {
   const { studentId } = useParams<{ studentId: string }>();
@@ -31,7 +30,7 @@ export default function ChildAttendance() {
                 <tr key={i}>
                   <td>{new Date(r.date).toLocaleDateString()}</td>
                   <td>{r.session}</td>
-                  <td><span className={`badge ${badge(r.status)}`}>{r.status.replace(/_/g, ' ')}</span></td>
+                  <td><span className={`badge ${attendanceBadge(r.status)}`}>{humanizeStatus(r.status)}</span></td>
                 </tr>
               ))}
               {rows.length === 0 && <tr><td colSpan={3} className="muted">No attendance records yet.</td></tr>}

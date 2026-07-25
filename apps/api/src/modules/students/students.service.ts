@@ -1,6 +1,6 @@
 import { HttpStatus, Inject, Injectable } from '@nestjs/common';
 import { createHmac } from 'node:crypto';
-import { Prisma } from '@prisma/client';
+import { Prisma, StudentStatus } from '@prisma/client';
 import {
   AppError,
   assertCampusAccess,
@@ -22,7 +22,7 @@ import { AuditService, TenantPrismaService } from '@database';
 import { AccessService } from '../access/access.service';
 import { SetupService } from '../setup/setup.service';
 import { GuardiansService } from './guardians.service';
-import type { CreateStudentDto, GuardianResolutionDto, StudentSearchQuery, UpdateStudentDto } from './dto/student.dto';
+import type { ChangeStudentStatusDto, CreateStudentDto, GuardianResolutionDto, StudentSearchQuery, UpdateStudentDto } from './dto/student.dto';
 
 export interface CreateStudentCoreInput {
   fullName: string;
@@ -219,7 +219,7 @@ export class StudentsService {
   // ── Directory ────────────────────────────────────────────────────────────────
   async search(q: StudentSearchQuery): Promise<Paginated<unknown>> {
     const where: Prisma.StudentWhereInput = { deletedAt: null };
-    if (q.status) where.isActive = q.status === 'ACTIVE';
+    if (q.status) where.status = q.status === 'INACTIVE' ? { not: StudentStatus.ACTIVE } : q.status;
 
     // Campus scoping (§22.8, P1.7): a campus-bound admin's campus is FORCED here,
     // overriding any client-supplied `campusId`; OWNER_ADMIN keeps the client filter.
@@ -293,14 +293,111 @@ export class StudentsService {
     });
   }
 
+  // ── Lifecycle status ─────────────────────────────────────────────────────────
+
+  /**
+   * Legal status transitions. WITHDRAWN is absent as a target everywhere: leaving school
+   * runs through the §15 withdrawal workflow (fee clearance + leaving certificate), and
+   * letting it be set directly here would skip both. WITHDRAWN/GRADUATED are terminal —
+   * a returning student is a fresh admission, not a status flip.
+   */
+  private static readonly STATUS_TRANSITIONS: Record<StudentStatus, StudentStatus[]> = {
+    ACTIVE: [StudentStatus.SUSPENDED, StudentStatus.RESTRICTED, StudentStatus.STRUCK_OFF, StudentStatus.GRADUATED],
+    SUSPENDED: [StudentStatus.ACTIVE, StudentStatus.RESTRICTED, StudentStatus.STRUCK_OFF],
+    RESTRICTED: [StudentStatus.ACTIVE, StudentStatus.SUSPENDED, StudentStatus.STRUCK_OFF],
+    STRUCK_OFF: [StudentStatus.ACTIVE], // re-admission
+    WITHDRAWN: [],
+    GRADUATED: [],
+  };
+
+  /** Statuses that end the student's seat. SUSPENDED and RESTRICTED deliberately do not:
+   *  the seat is held (and still billed) through a suspension, and a restricted student
+   *  is still attending class — only their portal access is revoked. */
+  private static readonly SEAT_ENDING: StudentStatus[] = [StudentStatus.STRUCK_OFF, StudentStatus.GRADUATED];
+
+  async changeStatus(id: string, dto: ChangeStudentStatusDto) {
+    const student = await this.getOne(id);
+    const from = student.status;
+    const to = dto.status;
+
+    if (from === to) {
+      throw new AppError(ErrorCodes.VALIDATION_FAILED, HttpStatus.UNPROCESSABLE_ENTITY, `Student is already ${to}`);
+    }
+    if (!StudentsService.STATUS_TRANSITIONS[from].includes(to)) {
+      const hint = to === StudentStatus.WITHDRAWN
+        ? 'Use the withdrawal workflow so fee clearance and the leaving certificate are issued'
+        : `Allowed from ${from}: ${StudentsService.STATUS_TRANSITIONS[from].join(', ') || 'none (terminal)'}`;
+      throw new AppError(ErrorCodes.CONFLICT, HttpStatus.CONFLICT, `Cannot change status from ${from} to ${to}. ${hint}`);
+    }
+
+    const effectiveFrom = dto.effectiveFrom ? new Date(dto.effectiveFrom) : new Date();
+    const endsOn = to === StudentStatus.SUSPENDED && dto.endsOn ? new Date(dto.endsOn) : null;
+    if (endsOn && endsOn <= effectiveFrom) {
+      throw new AppError(ErrorCodes.VALIDATION_FAILED, HttpStatus.UNPROCESSABLE_ENTITY,
+        'Suspension end date must be after it starts', [{ field: 'endsOn', issue: 'before-start' }]);
+    }
+
+    const updated = await this.db.student.update({
+      where: { id },
+      data: {
+        status: to,
+        statusReason: dto.reason,
+        statusEffectiveFrom: effectiveFrom,
+        statusEndsOn: endsOn,
+        isActive: to === StudentStatus.ACTIVE, // derived mirror, kept in step
+      },
+    });
+
+    if (StudentsService.SEAT_ENDING.includes(to)) {
+      await this.db.studentEnrollment.updateMany({
+        where: { studentId: id, status: 'ACTIVE' },
+        data: { status: to === StudentStatus.GRADUATED ? 'COMPLETED' : 'WITHDRAWN', endedAt: effectiveFrom },
+      });
+    }
+
+    // The portal login mirrors the status: RESTRICTED loses access outright, SUSPENDED keeps
+    // it (they still need to see the notice and their fees) and sees a banner instead.
+    if (student.userId) {
+      const disabled = to === StudentStatus.RESTRICTED || StudentsService.SEAT_ENDING.includes(to);
+      await this.db.user.update({ where: { id: student.userId }, data: { status: disabled ? 'DISABLED' : 'ACTIVE' } });
+    }
+
+    await this.audit.record({
+      action: AuditActions.STUDENT_STATUS_CHANGED,
+      entityType: 'Student',
+      entityId: id,
+      oldValue: { status: from },
+      newValue: { status: to, endsOn: endsOn?.toISOString() ?? null },
+      reason: dto.reason,
+    });
+
+    return updated;
+  }
+
   /**
    * Soft delete (blueprint §17 — no hard cascade delete exists in the product). Also closes
    * any still-ACTIVE enrollment: an open enrollment is what every downstream read counts as a
    * seated student, so leaving it behind kept a removed student on class rosters, in the
    * dashboard head-count, and — worst — in fee-invoice batches (they kept getting billed).
+   *
+   * Delete means "this record should never have existed" (duplicate/mis-keyed admission).
+   * Once money or a certificate is attached to the student, deleting would break the
+   * accounting trail, so it is refused and the caller is pointed at withdrawal instead.
    */
   async softDelete(id: string): Promise<void> {
     await this.getOne(id);
+
+    const paid = await this.db.feePayment.findFirst({ where: { invoice: { studentId: id } }, select: { id: true } });
+    const doc = await this.db.document.findFirst({ where: { studentId: id }, select: { id: true } });
+    if (paid || doc) {
+      throw new AppError(
+        ErrorCodes.CONFLICT,
+        HttpStatus.CONFLICT,
+        'This student has payment or certificate history and cannot be deleted. Withdraw them instead so the record is kept.',
+        [{ field: 'id', issue: paid ? 'has-payments' : 'has-documents' }],
+      );
+    }
+
     await this.db.student.update({ where: { id }, data: { deletedAt: new Date(), isActive: false } });
     await this.db.studentEnrollment.updateMany({
       where: { studentId: id, status: 'ACTIVE' },

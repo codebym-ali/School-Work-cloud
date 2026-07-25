@@ -45,6 +45,7 @@ export default function StaffPage() {
   const [fType, setFType] = useState('');
   const [fSubject, setFSubject] = useState('');
   const [fSearch, setFSearch] = useState('');
+  const [addingStaff, setAddingStaff] = useState(false);
 
   const currentYear = years.find((y) => y.isCurrent) ?? null;
 
@@ -82,7 +83,7 @@ export default function StaffPage() {
       if (fCampus && t.user.campusId !== fCampus) return false;
       if (fType && t.staffType !== fType) return false;
       if (fSubject && !assignmentsOf(t.id).some((a) => a.subjectId === fSubject)) return false;
-      if (q && !`${t.user.email} ${t.employeeCode} ${t.designation}`.toLowerCase().includes(q)) return false;
+      if (q && !`${t.fullName ?? ''} ${t.user.email} ${t.employeeCode} ${t.designation}`.toLowerCase().includes(q)) return false;
       return true;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -99,7 +100,10 @@ export default function StaffPage() {
     <div className="stack">
       <div className="row">
         <h1>Staff</h1>
-        <Link className="chip" href="/teachers">🧑‍🏫 Add teacher (full profile)</Link>
+        <div className="row" style={{ gap: 8 }}>
+          <button onClick={() => setAddingStaff((v) => !v)}>{addingStaff ? 'Close' : '+ Add teacher'}</button>
+          <Link className="chip" href="/teachers">🧑‍🏫 Add teacher (full profile)</Link>
+        </div>
       </div>
       <p className="muted" style={{ margin: 0 }}>
         Everyone who works at the school — the single directory of people. Add a staff member and
@@ -108,8 +112,10 @@ export default function StaffPage() {
       </p>
       {msg && <div className={`toast ${msg.ok ? 'ok' : 'err'}`}>{msg.text}</div>}
 
-      <AddStaff campuses={myCampuses} lockedCampus={isOwner ? null : (me?.campusId ?? null)}
-        onCreate={(b) => run(() => api.staff.create(b), 'Staff member added')} />
+      {addingStaff && (
+        <AddStaff campuses={myCampuses} lockedCampus={isOwner ? null : (me?.campusId ?? null)}
+          onCreate={async (b) => { await run(() => api.staff.create(b), 'Staff member added'); setAddingStaff(false); }} />
+      )}
 
       {/* Categorize-by filters */}
       <div className="inline-form">
@@ -263,28 +269,26 @@ function AccessPanel({ userId, roles, campusId, onMsg, onRolesChanged }: {
 
 function AddStaff({ campuses, lockedCampus, onCreate }: {
   campuses: Campus[]; lockedCampus: string | null;
-  onCreate: (b: { email: string; staffType: string; employeeCode: string; designation: string; joinedAt: string; campusId?: string }) => void;
+  onCreate: (b: { email: string; staffType: string; fullName?: string; employeeCode: string; designation: string; joinedAt: string; campusId?: string }) => void;
 }) {
   const [f, setF] = useState<Record<string, string>>({ joinedAt: today(), staffType: 'TEACHER', designation: 'Teacher', campusId: lockedCampus ?? '' });
   const set = (k: string, v: string) => setF((p) => ({ ...p, [k]: v }));
   const campusId = lockedCampus ?? f.campusId;
-  const ready = f.email && f.employeeCode && f.designation && f.joinedAt && f.staffType && campusId;
+  const ready = f.fullName && f.email && f.employeeCode && f.designation && f.joinedAt && campusId;
 
   return (
     <div className="card stack">
-      <h2 style={{ margin: 0, fontSize: 17 }}>Add staff member</h2>
+      <h2 style={{ margin: 0, fontSize: 17 }}>Add teacher</h2>
       <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(170px,1fr))' }}>
+        <div><label>Full name</label><input value={f.fullName ?? ''} onChange={(e) => set('fullName', e.target.value)} placeholder="Ayesha Khan" /></div>
         <div><label>Email</label><input type="email" value={f.email ?? ''} onChange={(e) => set('email', e.target.value)} placeholder="person@school.pk" /></div>
         <div><label>Employee code</label><input value={f.employeeCode ?? ''} onChange={(e) => set('employeeCode', e.target.value)} placeholder="EMP-001" /></div>
         <div><label>Title / designation</label>
           <input list="designations" value={f.designation ?? ''} onChange={(e) => set('designation', e.target.value)} placeholder="Principal" />
           <datalist id="designations">{DESIGNATION_PRESETS.map((d) => <option key={d} value={d} />)}</datalist>
         </div>
-        <div><label>Type</label>
-          <select value={f.staffType} onChange={(e) => set('staffType', e.target.value)}>
-            {STAFF_TYPES.map((t) => <option key={t} value={t}>{t.charAt(0) + t.slice(1).toLowerCase()}</option>)}
-          </select>
-        </div>
+        {/* No type/role picker: this form adds a TEACHER. The job title above is what varies,
+            and the login role follows the type — asking for both invited mismatched pairs. */}
         <div><label>Joined</label><input type="date" value={f.joinedAt ?? ''} onChange={(e) => set('joinedAt', e.target.value)} /></div>
         {!lockedCampus && (
           <div><label>Campus</label>
@@ -297,10 +301,10 @@ function AddStaff({ campuses, lockedCampus, onCreate }: {
       </div>
       <div>
         <button disabled={!ready}
-          onClick={() => onCreate({ email: f.email, staffType: f.staffType, employeeCode: f.employeeCode, designation: f.designation, joinedAt: f.joinedAt, campusId })}>
-          Add staff member
+          onClick={() => onCreate({ email: f.email, staffType: f.staffType, fullName: f.fullName, employeeCode: f.employeeCode, designation: f.designation, joinedAt: f.joinedAt, campusId })}>
+          Add teacher
         </button>
-        <span className="muted" style={{ marginLeft: 10, fontSize: 12 }}>Invited by email — they set their own password. Login access follows the type.</span>
+        <span className="muted" style={{ marginLeft: 10, fontSize: 12 }}>Invited by email — they set their own password. Assign their classes and subjects from the list below once added.</span>
       </div>
     </div>
   );
@@ -339,8 +343,11 @@ function StaffRow({ member, isOwner, profileId, assignments, classes, sections, 
   return (
     <div className="stack" style={{ gap: 8, padding: '10px 12px', border: '1px solid #e5e7eb', borderRadius: 8 }}>
       <div className="row" style={{ alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
-        <strong>{member.designation}</strong>
-        <span className="muted" style={{ fontSize: 13 }}>{member.user.email} · {member.employeeCode}</span>
+        {/* Lead with the person's name — a staff directory keyed on email reads like a mailing list. */}
+        <strong>{member.fullName ?? member.user.email}</strong>
+        <span className="muted" style={{ fontSize: 13 }}>
+          {member.designation} · {member.employeeCode}{member.fullName && ` · ${member.user.email}`}
+        </span>
         <span className="badge">{member.staffType.charAt(0) + member.staffType.slice(1).toLowerCase()}</span>
         <span className={`badge ${member.user.status === 'ACTIVE' ? 'ok' : member.user.status === 'INVITED' ? 'warn' : 'bad'}`}>{member.user.status}</span>
         <div className="row" style={{ gap: 8, marginLeft: 'auto' }}>

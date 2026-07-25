@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { SmsStatus } from '@prisma/client';
+import { Prisma, SmsStatus } from '@prisma/client';
 import { ErrorCodes, parseSchoolSettings, TenantContext } from '@common';
 import { TenantPrismaService } from '@database';
 import { CreditsService } from './credits.service';
@@ -44,6 +44,7 @@ export class SmsService {
       case 'RESULT_READY':
         return this.dispatchResultReady(job);
       case 'MANUAL':
+        // No dedupe key — a school may deliberately send the same broadcast twice.
         for (const to of job.recipients) await this.sendOne(to, job.body, 'MANUAL', {}, false);
         return;
     }
@@ -65,7 +66,8 @@ export class SmsService {
       schoolName,
     });
     // Transactional send: opt-out is ignored; overdraft buffer applies.
-    await this.sendOne(guardian.phone, body, 'ABSENCE', { studentId: job.studentId }, true);
+    // One absence notice per student per day, however many times the job is delivered.
+    await this.sendOne(guardian.phone, body, 'ABSENCE', { studentId: job.studentId }, true, `ABSENCE:${job.studentId}:${job.date}`);
   }
 
   private async dispatchLeaveStatus(job: Extract<SmsJob, { type: 'LEAVE_STATUS' }>): Promise<void> {
@@ -80,6 +82,10 @@ export class SmsService {
       status: job.status,
       schoolName: await this.schoolName(),
     });
+    // No dedupe key: the job carries only studentId+status, and a student legitimately gets the
+    // same status more than once (a second leave request, or APPROVED → REJECTED → APPROVED).
+    // Keying on those two fields would silently swallow a real notification, which is worse
+    // than a rare duplicate. Give SmsJob a leaveId if this needs claiming later.
     await this.sendOne(guardian.phone, body, 'LEAVE_STATUS', { studentId: job.studentId }, false);
   }
 
@@ -98,7 +104,8 @@ export class SmsService {
       schoolName: await this.schoolName(),
     });
     // Transactional (critical) send — overdraft buffer applies.
-    await this.sendOne(guardian.phone, body, 'FEE_RECEIPT', { studentId: job.studentId, invoiceId: job.invoiceId }, true);
+    // Receipt numbers are unique per payment, so this is a natural once-per-event key.
+    await this.sendOne(guardian.phone, body, 'FEE_RECEIPT', { studentId: job.studentId, invoiceId: job.invoiceId }, true, `FEE_RECEIPT:${job.invoiceId}:${job.receiptNo}`);
   }
 
   private async dispatchResultReady(job: Extract<SmsJob, { type: 'RESULT_READY' }>): Promise<void> {
@@ -114,7 +121,7 @@ export class SmsService {
       term: job.term,
       schoolName: await this.schoolName(),
     });
-    await this.sendOne(guardian.phone, body, 'RESULT_READY', { studentId: job.studentId }, false);
+    await this.sendOne(guardian.phone, body, 'RESULT_READY', { studentId: job.studentId }, false, `RESULT_READY:${job.studentId}:${job.term}`);
   }
 
   /** The atomic single send: credit gate -> SmsLog -> gateway -> SENT/FAILED + debit. */
@@ -124,9 +131,14 @@ export class SmsService {
     templateKey: SmsTriggerKey,
     refs: OutboundRefs,
     critical: boolean,
+    /** Stable per-event key. When given, the QUEUED insert below claims it, so a redelivered
+     *  job is dropped instead of re-sending. Omit for sends that may legitimately repeat. */
+    dedupeKey?: string,
   ): Promise<void> {
     const { segments } = computeSegments(body);
     if (!(await this.creditsAllow(segments, critical))) {
+      // Deliberately NOT claimed: this send never happened, so a retry once the school tops
+      // up its credits must be allowed through.
       await this.db.smsLog.create({
         data: {
           schoolId: this.ctx.requireSchoolId(),
@@ -142,17 +154,28 @@ export class SmsService {
       return;
     }
 
-    const log = await this.db.smsLog.create({
-      data: {
-        schoolId: this.ctx.requireSchoolId(),
-        recipient,
-        message: body,
-        templateKey,
-        segments,
-        status: SmsStatus.QUEUED,
-        ...refs,
-      },
-    });
+    // The QUEUED row is written BEFORE the gateway call so it doubles as the idempotency
+    // claim — losing the race means another delivery of this job already sent it.
+    let log;
+    try {
+      log = await this.db.smsLog.create({
+        data: {
+          schoolId: this.ctx.requireSchoolId(),
+          recipient,
+          message: body,
+          templateKey,
+          segments,
+          status: SmsStatus.QUEUED,
+          dedupeKey,
+          ...refs,
+        },
+      });
+    } catch (e) {
+      if (dedupeKey && e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        return; // already sent for this event — drop the duplicate silently
+      }
+      throw e;
+    }
 
     const result = await this.gateway.send(recipient, body);
     if (result.accepted) {

@@ -2,9 +2,11 @@
 
 import { type ChangeEvent, Suspense, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { apiGet, apiPost, ApiError, type Campus, type ImportResult, type Klass, type Paged, type Section, type Student, type StudentDetail } from '@/lib/api';
+import { api, apiGet, apiPost, ApiError, type Campus, type ImportResult, type Klass, type Paged, type Section, type Student, type StudentDetail, type StudentStatus } from '@/lib/api';
 import { classLabeller } from '@/lib/labels';
 import { useMe } from '@/lib/me-context';
+import { STATUS_TRANSITIONS, STUDENT_STATUS, statusStyle } from '@/lib/student-status';
+import { DirectAdmission } from '../admissions/direct-admission';
 
 export default function StudentsPage() {
   return (
@@ -17,6 +19,7 @@ export default function StudentsPage() {
 function StudentsInner() {
   const me = useMe();
   const isOwner = (me?.roles ?? []).includes('OWNER_ADMIN');
+  const isAdmissionController = (me?.roles ?? []).includes('ADMISSION_CONTROLLER');
   const router = useRouter();
   const params = useSearchParams();
   const campusId = params.get('campusId') ?? '';
@@ -32,10 +35,14 @@ function StudentsInner() {
   const [importing, setImporting] = useState(false);
   const [detailId, setDetailId] = useState<string | null>(null);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [statusFor, setStatusFor] = useState<Student | null>(null);
+  const [deleteFor, setDeleteFor] = useState<Student | null>(null);
+  const [statusFilter, setStatusFilter] = useState('');
 
   async function load() {
     const qs = new URLSearchParams();
     if (search) qs.set('search', search);
+    if (statusFilter) qs.set('status', statusFilter);
     if (campusId) qs.set('campusId', campusId);
     if (classId) qs.set('classId', classId);
     if (sectionId) qs.set('sectionId', sectionId);
@@ -80,7 +87,8 @@ function StudentsInner() {
         <h1>Students</h1>
         <div className="row" style={{ gap: 8 }}>
           <button className="ghost" onClick={() => setImporting((v) => !v)}>{importing ? 'Close' : 'Import CSV'}</button>
-          <button onClick={() => setAdding((v) => !v)}>{adding ? 'Close' : '+ Add student'}</button>
+          {/* Admitting is admission-controller-only (#31); owner/campus admins read here. */}
+          {isAdmissionController && <button onClick={() => setAdding((v) => !v)}>{adding ? 'Close' : '+ Add student'}</button>}
         </div>
       </div>
       {msg && <div className={`toast ${msg.ok ? 'ok' : 'err'}`}>{msg.text}</div>}
@@ -88,8 +96,8 @@ function StudentsInner() {
       {importing && <ImportStudents onImported={async () => { await load(); }} />}
 
       {adding && (
-        <AddStudent classes={classes} sections={sections} campuses={campuses}
-          onDone={async (ok, text) => { setMsg({ ok, text }); if (ok) { setAdding(false); await load(); } }} />
+        <DirectAdmission campuses={campuses} classes={classes} sections={sections}
+          onAdmitted={async (r, name) => { setMsg({ ok: true, text: `Admitted ${name} — Reg No ${r.registrationNo ?? '—'}` }); await load(); }} />
       )}
 
       {activeClass && (
@@ -119,11 +127,30 @@ function StudentsInner() {
             {sectionsForClass.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
           </select>
         </div>
+        <div><label>Status</label>
+          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+            <option value="">All statuses</option>
+            {(Object.keys(STUDENT_STATUS) as StudentStatus[]).map((s) => (
+              <option key={s} value={s}>{STUDENT_STATUS[s].label}</option>
+            ))}
+          </select>
+        </div>
         <div style={{ minWidth: 220 }}><label>Search (name / GR / phone)</label>
           <input value={search} onChange={(e) => setSearch(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && load()} />
         </div>
         <button className="ghost" onClick={() => load()}>Search</button>
       </div>
+
+      {statusFor && (
+        <ChangeStatusDialog student={statusFor} onClose={() => setStatusFor(null)}
+          onDone={async (text) => { setStatusFor(null); setMsg({ ok: true, text }); await load(); }}
+          onError={(text) => setMsg({ ok: false, text })} />
+      )}
+      {deleteFor && (
+        <DeleteStudentDialog student={deleteFor} onClose={() => setDeleteFor(null)}
+          onDone={async (text) => { setDeleteFor(null); setMsg({ ok: true, text }); await load(); }}
+          onError={(text) => setMsg({ ok: false, text })} />
+      )}
 
       <div style={{ overflowX: 'auto' }}>
         <table>
@@ -135,8 +162,14 @@ function StudentsInner() {
                 <td>{s.grNumber}</td>
                 <td>{s.fullName}</td>
                 <td>{s.gender}</td>
-                <td>{s.isActive ? <span className="badge ok">active</span> : <span className="badge bad">inactive</span>}</td>
-                <td style={{ textAlign: 'right' }}><button className="ghost small" onClick={() => setDetailId(s.id)}>View</button></td>
+                <td><StatusPill status={s.status} /></td>
+                <td style={{ textAlign: 'right' }}>
+                  <div className="row" style={{ gap: 6, justifyContent: 'flex-end' }}>
+                    <button className="ghost small" onClick={() => setDetailId(s.id)}>View</button>
+                    <button className="ghost small" onClick={() => setStatusFor(s)}>Change status</button>
+                    {isOwner && <button className="ghost small" style={{ color: '#b91c1c' }} onClick={() => setDeleteFor(s)}>Delete</button>}
+                  </div>
+                </td>
               </tr>
             ))}
             {students.length === 0 && (
@@ -151,41 +184,123 @@ function StudentsInner() {
   );
 }
 
-function AddStudent({ classes, sections, campuses, onDone }: { classes: Klass[]; sections: Section[]; campuses: Campus[]; onDone: (ok: boolean, text: string) => void }) {
-  const classLabel = classLabeller(classes, campuses);
-  const [f, setF] = useState<Record<string, string>>({ gender: 'MALE', relation: 'FATHER' });
-  const set = (k: string, v: string) => setF({ ...f, [k]: v });
-  const classSections = sections.filter((s) => s.classId === f.classId);
+function StatusPill({ status }: { status: StudentStatus }) {
+  const { label } = STUDENT_STATUS[status];
+  return <span className="badge" style={{ ...statusStyle(status), whiteSpace: 'nowrap' }}>{label}</span>;
+}
+
+/** Status changes carry consequences (billing, portal access, the seat), so the dialog
+ *  spells out what the chosen status will do before the reason is even typed. */
+function ChangeStatusDialog({ student, onClose, onDone, onError }: {
+  student: Student; onClose: () => void; onDone: (text: string) => void; onError: (text: string) => void;
+}) {
+  const allowed = STATUS_TRANSITIONS[student.status];
+  const [status, setStatus] = useState<StudentStatus | ''>('');
+  const [reason, setReason] = useState('');
+  const [endsOn, setEndsOn] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const needsEndDate = status === 'SUSPENDED';
+  const canSubmit = status && reason.trim().length >= 3 && (!needsEndDate || endsOn) && !busy;
 
   async function submit() {
+    if (!status) return;
+    setBusy(true);
     try {
-      await apiPost('/students', {
-        fullName: f.fullName, gender: f.gender, dateOfBirth: f.dateOfBirth, classId: f.classId, sectionId: f.sectionId,
-        rollNumber: f.rollNumber ? Number(f.rollNumber) : undefined,
-        guardian: { mode: 'CREATE', fullName: f.guardianName, phone: f.phone, relation: f.relation },
+      await api.students.changeStatus(student.id, {
+        status, reason: reason.trim(), ...(needsEndDate && endsOn ? { endsOn } : {}),
       });
-      onDone(true, `Admitted ${f.fullName}`);
+      onDone(`${student.fullName} is now ${STUDENT_STATUS[status].label.toLowerCase()}`);
     } catch (e) {
-      onDone(false, e instanceof ApiError ? e.message : 'Failed to add student');
-    }
+      onError(e instanceof ApiError ? e.message : 'Could not change status');
+    } finally { setBusy(false); }
   }
 
   return (
     <div className="card stack">
-      <h2 style={{ margin: 0, fontSize: 17 }}>New student</h2>
-      <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(200px,1fr))' }}>
-        <div><label>Full name</label><input value={f.fullName ?? ''} onChange={(e) => set('fullName', e.target.value)} /></div>
-        <div><label>Gender</label><select value={f.gender} onChange={(e) => set('gender', e.target.value)}><option>MALE</option><option>FEMALE</option><option>OTHER</option></select></div>
-        <div><label>Date of birth</label><input type="date" value={f.dateOfBirth ?? ''} onChange={(e) => set('dateOfBirth', e.target.value)} /></div>
-        <div><label>Class</label><select value={f.classId ?? ''} onChange={(e) => setF({ ...f, classId: e.target.value, sectionId: '' })}><option value="">Select…</option>{classes.map((c) => <option key={c.id} value={c.id}>{classLabel(c)}</option>)}</select></div>
-        <div><label>Section</label><select value={f.sectionId ?? ''} onChange={(e) => set('sectionId', e.target.value)}><option value="">Select…</option>{classSections.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></div>
-        <div><label>Roll number (optional)</label><input type="number" min={1} value={f.rollNumber ?? ''} onChange={(e) => set('rollNumber', e.target.value)} placeholder="manual" /></div>
-        <div><label>Guardian name</label><input value={f.guardianName ?? ''} onChange={(e) => set('guardianName', e.target.value)} /></div>
-        <div><label>Guardian phone</label><input value={f.phone ?? ''} onChange={(e) => set('phone', e.target.value)} placeholder="03001234567" /></div>
-        <div><label>Relation</label><select value={f.relation} onChange={(e) => set('relation', e.target.value)}><option>FATHER</option><option>MOTHER</option><option>GUARDIAN</option></select></div>
+      <div className="row">
+        <h2 style={{ margin: 0, fontSize: 17 }}>Change status — {student.fullName}</h2>
+        <button className="ghost small" onClick={onClose}>Close</button>
       </div>
-      <p className="muted" style={{ margin: 0, fontSize: 12 }}>GR number and the admission registration number are assigned automatically on save.</p>
-      <div><button onClick={submit}>Admit student</button></div>
+      <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+        Currently <strong>{STUDENT_STATUS[student.status].label}</strong>.{' '}
+        {allowed.length === 0 && 'This is a final status and cannot be changed.'}
+      </p>
+
+      {allowed.length > 0 && (
+        <>
+          <div className="inline-form">
+            <div><label>New status</label>
+              <select value={status} onChange={(e) => setStatus(e.target.value as StudentStatus)}>
+                <option value="">Select…</option>
+                {allowed.map((s) => <option key={s} value={s}>{STUDENT_STATUS[s].label}</option>)}
+              </select>
+            </div>
+            {needsEndDate && (
+              <div><label>Suspended until</label><input type="date" value={endsOn} onChange={(e) => setEndsOn(e.target.value)} /></div>
+            )}
+          </div>
+
+          {status && (
+            <div className="toast" style={{ ...statusStyle(status), margin: 0 }}>
+              <strong>What this does:</strong> {STUDENT_STATUS[status].effect}
+            </div>
+          )}
+
+          <div className="stack" style={{ gap: 4 }}>
+            <label>Reason (recorded in the audit log)</label>
+            <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Repeated absence without leave" />
+          </div>
+
+          <p className="muted" style={{ margin: 0, fontSize: 12 }}>
+            Leaving the school is handled by the withdrawal process instead, so the fee clearance and leaving certificate are issued.
+          </p>
+          <div><button disabled={!canSubmit} onClick={submit}>{busy ? 'Saving…' : 'Save status'}</button></div>
+        </>
+      )}
+    </div>
+  );
+}
+
+/** Deletion is for records that should never have existed. The typed confirmation is
+ *  deliberate friction; the server additionally refuses once fees or certificates exist. */
+function DeleteStudentDialog({ student, onClose, onDone, onError }: {
+  student: Student; onClose: () => void; onDone: (text: string) => void; onError: (text: string) => void;
+}) {
+  const [typed, setTyped] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  async function submit() {
+    setBusy(true);
+    try {
+      await api.students.remove(student.id);
+      onDone(`${student.fullName} deleted`);
+    } catch (e) {
+      onError(e instanceof ApiError ? e.message : 'Could not delete this student');
+      onClose();
+    } finally { setBusy(false); }
+  }
+
+  return (
+    <div className="card stack" style={{ borderColor: '#fecaca' }}>
+      <div className="row">
+        <h2 style={{ margin: 0, fontSize: 17 }}>Delete {student.fullName}?</h2>
+        <button className="ghost small" onClick={onClose}>Cancel</button>
+      </div>
+      <div className="toast err" style={{ margin: 0 }}>
+        Only delete a record that should never have existed — a duplicate or a mis-typed admission.
+        If this student actually attended, use <strong>Change status</strong> or the withdrawal process
+        so their history is kept. A student with fee payments or certificates cannot be deleted.
+      </div>
+      <div className="stack" style={{ gap: 4 }}>
+        <label>Type the student&apos;s name to confirm</label>
+        <input value={typed} onChange={(e) => setTyped(e.target.value)} placeholder={student.fullName} />
+      </div>
+      <div>
+        <button disabled={typed.trim() !== student.fullName || busy} style={{ background: '#b91c1c' }} onClick={submit}>
+          {busy ? 'Deleting…' : 'Delete permanently'}
+        </button>
+      </div>
     </div>
   );
 }

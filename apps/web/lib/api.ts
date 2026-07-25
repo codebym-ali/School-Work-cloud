@@ -82,9 +82,11 @@ export interface Campus { id: string; name: string }
 export interface AcademicYear { id: string; name: string; isCurrent: boolean }
 export interface Klass { id: string; name: string; order: number; campusId: string }
 export interface Section { id: string; name: string; classId: string }
-export interface Student { id: string; fullName: string; grNumber: string; registrationNo: string | null; gender: string; isActive: boolean }
+export type StudentStatus = 'ACTIVE' | 'SUSPENDED' | 'RESTRICTED' | 'STRUCK_OFF' | 'WITHDRAWN' | 'GRADUATED';
+export interface Student { id: string; fullName: string; grNumber: string; registrationNo: string | null; gender: string; isActive: boolean; status: StudentStatus; statusReason: string | null; statusEndsOn: string | null }
 export interface StudentDetail {
   id: string; fullName: string; grNumber: string; registrationNo: string | null; gender: string; dateOfBirth: string; isActive: boolean;
+  status: StudentStatus; statusReason: string | null; statusEffectiveFrom: string | null; statusEndsOn: string | null;
   guardians: { id: string; relation: string; isPrimary: boolean; parent: { id: string; fullName: string; phone: string } }[];
   enrollments: { id: string; classId: string; sectionId: string; campusId: string; academicYearId: string; rollNumber: number | null; status: string; startedAt: string }[];
 }
@@ -139,7 +141,10 @@ export interface ReportCard {
 
 // ── Student self-service portal (§28) ────────────────────────────────────────
 export interface PortalOverview {
-  student: { fullName: string; grNumber: string; gender: string; dateOfBirth: string };
+  student: {
+    fullName: string; grNumber: string; gender: string; dateOfBirth: string;
+    status: StudentStatus; statusReason: string | null; statusEndsOn: string | null;
+  };
   enrollment: { className: string; sectionName: string; rollNumber: number | null; year: string } | null;
   guardians: Array<{ name: string; phone: string; relation: string; isPrimary: boolean }>;
   attendancePercent: number | null;
@@ -154,7 +159,7 @@ export interface ManagedUser { id: string; email: string; roles: string[]; campu
 
 // ── Staff / Teachers (HR, §13) ───────────────────────────────────────────────
 export interface ManagedTeacher {
-  id: string; staffType: string; employeeCode: string; designation: string;
+  id: string; staffType: string; employeeCode: string; fullName: string | null; designation: string;
   employmentStatus: string; joinedAt: string;
   user: { id: string; email: string; roles: string[]; status: string; campusId: string | null; campus: { name: string } | null };
 }
@@ -162,12 +167,17 @@ export interface TeacherAssignment { id: string; staffId: string; academicYearId
 
 // ── Teacher applications (HR module) ─────────────────────────────────────────
 export interface TeacherExperience { schoolName: string; position?: string; subjectsTaught?: string; gradesTaught?: string; duration?: string; reasonForLeaving?: string }
+export interface TeacherEducation { qualification: string; degreeTitle?: string; majorSubject?: string; university?: string; passingYear?: number; cgpa?: string }
 export interface TeacherDetails {
-  fatherName: string; dateOfBirth: string; gender: string; cnic: string; maritalStatus?: string; nationality?: string; photoUrl?: string;
-  whatsapp?: string; currentAddress: string; permanentAddress?: string; city: string; province?: string; postalCode?: string;
+  fatherName?: string; dateOfBirth?: string; gender?: string; cnic?: string; maritalStatus?: string; nationality?: string; photoUrl?: string;
+  whatsapp?: string; currentAddress?: string; permanentAddress?: string; city?: string; province?: string; postalCode?: string;
   preferredSubjects?: string; gradeLevels?: string;
-  highestQualification: string; degreeTitle?: string; majorSubject?: string; university?: string; passingYear?: number; cgpa?: string;
+  /** List of qualifications. The flat fields below are legacy (a single, highest one). */
+  educations?: TeacherEducation[];
+  highestQualification?: string; degreeTitle?: string; majorSubject?: string; university?: string; passingYear?: number; cgpa?: string;
   totalExperience?: string; experiences?: TeacherExperience[];
+  /** Free-form skill tags. The five fields below are legacy, kept so older records still read. */
+  skills?: string[];
   languages?: string; computerSkills?: string; lmsExperience?: string; msOfficeSkills?: string; classroomManagement?: string;
 }
 export interface TeacherApplicationSummary {
@@ -267,7 +277,7 @@ export const api = {
   },
   staff: {
     list: () => apiGet<ManagedTeacher[]>('/staff'),
-    create: (body: { email: string; staffType: string; employeeCode: string; designation: string; joinedAt: string; campusId?: string; roles?: string[] }) =>
+    create: (body: { email: string; staffType: string; fullName?: string; employeeCode: string; designation: string; joinedAt: string; campusId?: string; roles?: string[] }) =>
       apiPost<{ userId: string; staffId: string; employeeCode: string }>('/staff', body),
     myAttendance: () => apiGet<StaffAttendanceRow[]>('/staff-attendance/mine'),
   },
@@ -322,6 +332,11 @@ export const api = {
     admit: (body: DirectAdmissionBody) => apiPost<AdmissionResult>('/students', body),
     // Existing-parent lookup by phone for the guardian match→link step.
     findParents: (phone: string) => apiGet<ParentMatch[]>(`/students/parents/search?phone=${encodeURIComponent(phone)}`),
+    // Lifecycle change (suspend / restrict / strike off / restore). Reason is mandatory — it
+    // lands in the audit log. Leaving school goes through the withdrawal workflow instead.
+    changeStatus: (id: string, body: { status: StudentStatus; reason: string; effectiveFrom?: string; endsOn?: string }) =>
+      apiPatch<StudentDetail>(`/students/${id}/status`, body),
+    remove: (id: string) => apiDelete<null>(`/students/${id}`),
   },
   // Read-only student portal sign-in: registration-no + CNIC (no password), §28/#34.
   studentPortal: {

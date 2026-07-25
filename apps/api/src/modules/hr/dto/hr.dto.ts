@@ -21,6 +21,7 @@ export class CreateStaffDto {
   @IsEnum(StaffType) staffType!: StaffType;
 
   @IsString() @MinLength(1) @MaxLength(40) employeeCode!: string;
+  @IsOptional() @IsString() @MinLength(1) @MaxLength(120) fullName?: string;
   @IsString() @MinLength(1) @MaxLength(80) designation!: string;
   @IsDateString() joinedAt!: string;
 

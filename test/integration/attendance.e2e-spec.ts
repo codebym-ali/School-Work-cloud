@@ -29,6 +29,7 @@ describe('Attendance + absence SMS (e2e, §9/§14)', () => {
   let csrf: string;
   let sectionId: string;
   let enrollmentId: string;
+  let studentId: string;
 
   const sub = `att-${randomUUID().slice(0, 8)}`;
   const host = `${sub}.localhost`;
@@ -52,17 +53,25 @@ describe('Attendance + absence SMS (e2e, §9/§14)', () => {
   };
   const absentDate = pastNonSunday();
 
+  /** The `sms` queue is shared across the whole Redis instance, so it can hold jobs from other
+   *  tenants (a parallel spec, or a leftover from an interrupted run). Each job must therefore be
+   *  dispatched under ITS OWN schoolId — forcing this spec's schoolId onto every job re-attributes
+   *  another tenant's SMS to this school and breaks the log assertions below. Mirrors how the real
+   *  worker resolves the tenant (`sms.processor.ts`). Jobs belonging to other schools are left alone.
+   *  NOTE: a dev worker attached to the same Redis will race this and double-dispatch — stop
+   *  `start:worker:dev` before running the integration suite. */
   async function drainSms(): Promise<number> {
     const queue = app.get<Queue>(SMS_QUEUE, { strict: false });
     const jobs = await queue.getJobs(['waiting', 'delayed', 'active', 'prioritized']);
-    for (const job of jobs) {
+    const mine = jobs.filter((j) => (j.data as { schoolId?: string })?.schoolId === schoolId);
+    for (const job of mine) {
       await cls.run(async () => {
-        cls.set(CLS_KEYS.schoolId, schoolId);
+        cls.set(CLS_KEYS.schoolId, (job.data as { schoolId: string }).schoolId);
         await tenantPrisma.withTenant(() => sms.dispatch(job.data));
       });
       await job.remove();
     }
-    return jobs.length;
+    return mine.length;
   }
 
   beforeAll(async () => {
@@ -104,6 +113,7 @@ describe('Attendance + absence SMS (e2e, §9/§14)', () => {
       guardian: { mode: 'CREATE', fullName: 'Ali Khan', phone: '03007654321', relation: 'FATHER' },
     });
     enrollmentId = student.body.enrollmentId;
+    studentId = student.body.studentId;
     // Verify the guardian's phone so ABSENCE (which carries PII) may be sent (§14).
     await platform.parentProfile.updateMany({ where: { schoolId }, data: { phoneVerifiedAt: new Date() } });
   });
@@ -159,6 +169,24 @@ describe('Attendance + absence SMS (e2e, §9/§14)', () => {
 
     const credits = await platform.smsCreditLedger.aggregate({ _sum: { delta: true }, where: { schoolId } });
     expect(credits._sum.delta).toBe(1000 - logs[0].segments); // BASIC grant minus this send
+  });
+
+  /** A redelivered job (BullMQ retry, or a stalled worker being recovered) must not send the
+   *  guardian a second message or debit credits twice — the dedupe key claims the event. */
+  it('re-dispatching the same absence job sends nothing and debits nothing (idempotent)', async () => {
+    const before = await platform.smsCreditLedger.aggregate({ _sum: { delta: true }, where: { schoolId } });
+
+    await cls.run(async () => {
+      cls.set(CLS_KEYS.schoolId, schoolId);
+      await tenantPrisma.withTenant(() =>
+        sms.dispatch({ type: 'ABSENCE', schoolId, enrollmentId, studentId, date: absentDate }),
+      );
+    });
+
+    const logs = await platform.smsLog.findMany({ where: { schoolId, templateKey: 'ABSENCE' } });
+    expect(logs).toHaveLength(1); // still one — the duplicate was dropped
+    const after = await platform.smsCreditLedger.aggregate({ _sum: { delta: true }, where: { schoolId } });
+    expect(after._sum.delta).toBe(before._sum.delta);
   });
 
   it('is idempotent: resubmitting the same ABSENT value queues no new absence', async () => {

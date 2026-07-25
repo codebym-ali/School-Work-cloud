@@ -12,6 +12,19 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const [me, setMe] = useState<Me | null>(null);
   const [ready, setReady] = useState(false);
+  // Below 720px the sidebar becomes a slide-over drawer (CSS drives the breakpoint; this
+  // only tracks open/closed, so desktop is unaffected).
+  const [navOpen, setNavOpen] = useState(false);
+
+  // Close on navigation — otherwise the drawer covers the page you just opened.
+  useEffect(() => { setNavOpen(false); }, [pathname]);
+
+  useEffect(() => {
+    if (!navOpen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setNavOpen(false); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [navOpen]);
 
   useEffect(() => {
     api.me()
@@ -33,7 +46,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <MeContext.Provider value={me}>
       <div className="shell">
-        <aside className="sidebar">
+        {navOpen && (
+          <button className="nav-overlay" aria-label="Close menu" onClick={() => setNavOpen(false)} />
+        )}
+        <aside className={`sidebar${navOpen ? ' open' : ''}`} id="app-nav">
           <div className="brand">🏫 {panelLabel(me.roles)}</div>
           {nav.map(({ group, items }) => (
             <div key={group} className="nav-group">
@@ -49,6 +65,15 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         </aside>
         <div className="content">
           <div className="topbar">
+            <button
+              className="nav-toggle"
+              aria-label="Open menu"
+              aria-expanded={navOpen}
+              aria-controls="app-nav"
+              onClick={() => setNavOpen(true)}
+            >
+              ☰
+            </button>
             <div className="who">{me.email} · {me.roles.join(', ')}</div>
             <div className="row" style={{ gap: 8 }}>
               <Link className="ghost small" href="/security" style={{ textDecoration: 'none' }}>🔒 Security</Link>

@@ -17,7 +17,7 @@ import {
   ValidateIf,
   ValidateNested,
 } from 'class-validator';
-import { Gender, GuardianRelation } from '@prisma/client';
+import { Gender, GuardianRelation, StudentStatus } from '@prisma/client';
 import { PaginationQuery } from '@common';
 
 /**
@@ -121,6 +121,24 @@ export class UpdateStudentDto {
   dateOfBirth?: string;
 }
 
+/** Status changes are events, not profile edits — hence a dedicated DTO carrying a
+ *  mandatory reason (it lands in the audit log) rather than a field on UpdateStudentDto. */
+export class ChangeStudentStatusDto {
+  @IsEnum(StudentStatus)
+  status!: StudentStatus;
+
+  @IsString() @MinLength(3) @MaxLength(500)
+  reason!: string;
+
+  @IsOptional() @IsDateString()
+  effectiveFrom?: string;
+
+  /** Required for SUSPENDED — the date the suspension lifts. */
+  @ValidateIf((o: ChangeStudentStatusDto) => o.status === StudentStatus.SUSPENDED)
+  @IsDateString()
+  endsOn?: string;
+}
+
 export class StudentSearchQuery extends PaginationQuery {
   /** name (trigram), exact GR, or guardian phone. */
   @IsOptional() @IsString()
@@ -135,8 +153,9 @@ export class StudentSearchQuery extends PaginationQuery {
   @IsOptional() @IsUUID()
   sectionId?: string;
 
-  @IsOptional() @IsIn(['ACTIVE', 'INACTIVE'])
-  status?: 'ACTIVE' | 'INACTIVE';
+  /** 'INACTIVE' is kept for existing callers: it means "anything but ACTIVE". */
+  @IsOptional() @IsIn([...Object.values(StudentStatus), 'INACTIVE'])
+  status?: StudentStatus | 'INACTIVE';
 }
 
 export class AddGuardianDto extends GuardianResolutionDto {

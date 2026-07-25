@@ -70,6 +70,18 @@ export class GuardiansService {
     // Email is required+unique; synthesize a placeholder when none is given
     // (parents are invited by SMS; login-by-phone is a later refinement).
     const email = (res.email ?? `p-${randomUUID().slice(0, 12)}@invite.local`).toLowerCase();
+    // Email is unique per school (users_school_id_email_key). A supplied email that already
+    // belongs to another account (e.g. the owner's own email) would blow up as a raw P2002 →
+    // 500; pre-check and return a clean 409 the form can show instead.
+    const emailTaken = await this.db.user.findFirst({ where: { email }, select: { id: true } });
+    if (emailTaken) {
+      throw new AppError(
+        ErrorCodes.CONFLICT,
+        HttpStatus.CONFLICT,
+        'A user with this email already exists — leave the guardian email blank or use a different one',
+        [{ field: 'email', issue: 'duplicate' }],
+      );
+    }
     const user = await this.db.user.create({
       data: { schoolId: this.sid, email, roles: ['PARENT'], status: 'INVITED' },
     });

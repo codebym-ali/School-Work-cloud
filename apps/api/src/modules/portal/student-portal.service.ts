@@ -21,11 +21,25 @@ export class StudentPortalService {
     return this.tenantPrisma.client;
   }
 
-  /** The Student row for the logged-in STUDENT user, or 403 if the account isn't linked. */
+  /** Statuses that revoke portal access. SUSPENDED is deliberately absent — a suspended
+   *  student keeps the portal (they still need to see the notice and their fees) and gets a
+   *  banner instead; RESTRICTED is the opposite case, still attending but cut off here. */
+  private static readonly PORTAL_BLOCKED = ['RESTRICTED', 'STRUCK_OFF', 'WITHDRAWN'] as const;
+
+  /** The Student row for the logged-in STUDENT user, or 403 if the account isn't linked.
+   *  Status is re-checked on every read so revoking access takes effect immediately rather
+   *  than at the next login — an already-issued session must not outlive the restriction. */
   private async self() {
     const userId = this.ctx.user?.userId;
     const student = userId ? await this.db.student.findFirst({ where: { userId, deletedAt: null } }) : null;
     if (!student) throw new AppError(ErrorCodes.FORBIDDEN, HttpStatus.FORBIDDEN, 'No student is linked to this account');
+    if ((StudentPortalService.PORTAL_BLOCKED as readonly string[]).includes(student.status)) {
+      throw new AppError(
+        ErrorCodes.FORBIDDEN,
+        HttpStatus.FORBIDDEN,
+        'Your portal access has been restricted. Please contact the school office.',
+      );
+    }
     return student;
   }
 
@@ -61,7 +75,14 @@ export class StudentPortalService {
     const reportCards = await this.db.reportCard.count({ where: { enrollmentId: { in: enrolls.map((e) => e.id) } } });
 
     return {
-      student: { fullName: student.fullName, grNumber: student.grNumber, gender: student.gender, dateOfBirth: student.dateOfBirth },
+      student: {
+        fullName: student.fullName, grNumber: student.grNumber, gender: student.gender, dateOfBirth: student.dateOfBirth,
+        // Drives the dashboard banner — a suspended student can still sign in and must be
+        // told why, along with the reason and the date it lifts.
+        status: student.status,
+        statusReason: student.statusReason,
+        statusEndsOn: student.statusEndsOn,
+      },
       enrollment: enrollment
         ? { className: enrollment.section.class.name, sectionName: enrollment.section.name, rollNumber: enrollment.rollNumber, year: enrollment.academicYear.name }
         : null,

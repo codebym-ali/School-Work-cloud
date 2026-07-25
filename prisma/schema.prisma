@@ -72,6 +72,18 @@ enum EnrollmentStatus {
   COMPLETED
 }
 
+/// Person-level lifecycle of a student, distinct from EnrollmentStatus (a seat in one
+/// class for one year). SUSPENDED is barred from school but keeps portal visibility;
+/// RESTRICTED is the inverse — still attending, portal access revoked.
+enum StudentStatus {
+  ACTIVE
+  SUSPENDED
+  RESTRICTED
+  STRUCK_OFF
+  WITHDRAWN
+  GRADUATED
+}
+
 enum GuardianRelation {
   FATHER
   MOTHER
@@ -538,7 +550,13 @@ model Student {
   gender      Gender
   dateOfBirth DateTime  @map("date_of_birth") @db.Date
   photoKey    String?   @map("photo_key")
+  /// Derived mirror of `status == ACTIVE`, kept in sync on every status write. Many reads
+  /// still filter on it; retire once those move to `status`.
   isActive    Boolean   @default(true) @map("is_active")
+  status              StudentStatus @default(ACTIVE)
+  statusReason        String?       @map("status_reason")
+  statusEffectiveFrom DateTime?     @map("status_effective_from") @db.Date
+  statusEndsOn        DateTime?     @map("status_ends_on") @db.Date // SUSPENDED only — auto-restore date
   deletedAt   DateTime? @map("deleted_at")
   createdById String?   @map("created_by_id") @db.Uuid
   createdAt   DateTime  @default(now()) @map("created_at")
@@ -555,6 +573,7 @@ model Student {
   @@unique([schoolId, grNumber])
   @@unique([schoolId, registrationNo])
   @@unique([userId, schoolId]) // composite target for one-to-one relation from User
+  @@index([schoolId, status])
   @@map("students")
 }
 
@@ -613,6 +632,9 @@ model StaffProfile {
   user             User             @relation(fields: [userId, schoolId], references: [id, schoolId])
   staffType        StaffType        @map("staff_type")
   employeeCode     String           @map("employee_code")
+  /// The person's name. Without it the directory could only identify staff by email, which is
+  /// not how any school refers to its people. Nullable for rows created before this existed.
+  fullName         String?          @map("full_name")
   designation      String
   employmentStatus EmploymentStatus @default(ACTIVE) @map("employment_status")
   joinedAt         DateTime         @map("joined_at") @db.Date
@@ -1234,7 +1256,12 @@ model SmsLog {
   sentAt           DateTime? @map("sent_at")
   deliveredAt      DateTime? @map("delivered_at")
   createdAt        DateTime  @default(now()) @map("created_at")
+  /// Idempotency claim for redelivered queue jobs (BullMQ retries / stalled-worker recovery).
+  /// Set only for sends that are naturally once-per-event; NULL for everything else, and
+  /// Postgres treats NULLs as distinct so unlimited NULL rows coexist under the unique index.
+  dedupeKey        String?   @map("dedupe_key")
 
+  @@unique([schoolId, dedupeKey])
   @@index([schoolId, status])
   @@index([schoolId, createdAt]) // purge job
   @@index([gatewayMessageId]) // webhook lookup

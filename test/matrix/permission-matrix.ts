@@ -27,6 +27,9 @@ export const PERMISSION_MATRIX: MatrixRow[] = [
   // Creating a student is admission-controller-only (segregation of duties); owner/campus are read-only here.
   { label: 'create student', method: 'post', path: '/api/v1/students', body: {}, allow: ['ADMISSION_CONTROLLER'] },
   { label: 'import students (CSV)', method: 'post', path: '/api/v1/students/import', body: {}, allow: ['ADMISSION_CONTROLLER'] },
+  { label: 'change student status', method: 'patch', path: '/api/v1/students/00000000-0000-0000-0000-000000000000/status', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
+  // Deleting a student record is owner-only — it is for mis-keyed admissions, not departures.
+  { label: 'delete student', method: 'delete', path: '/api/v1/students/00000000-0000-0000-0000-000000000000', allow: ['OWNER_ADMIN'] },
   { label: 'admit student', method: 'post', path: '/api/v1/admissions', body: {}, allow: ['ADMISSION_CONTROLLER'] },
   { label: 'request guardian OTP', method: 'post', path: '/api/v1/students/guardians/00000000-0000-0000-0000-000000000000/verify-phone', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
   { label: 'confirm guardian OTP', method: 'post', path: '/api/v1/students/guardians/00000000-0000-0000-0000-000000000000/verify-phone/confirm', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },

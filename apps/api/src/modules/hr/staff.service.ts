@@ -24,6 +24,40 @@ export class StaffService {
     // A campus-bound admin can only create staff in their own campus (§22.8).
     assertCampusAccess(this.ctx.user, dto.campusId ?? null);
     const roles = dto.roles ?? defaultRoles(dto.staffType);
+
+    // The unique indexes on (school, email) and (school, employeeCode) span SOFT-DELETED rows,
+    // but the staff directory hides them — so a removed colleague silently blocks the value and
+    // the raw P2002 below could name neither the field nor a record the operator can see.
+    // Pre-check instead, and say plainly when the clash is with a removed record.
+    const email = dto.email.toLowerCase();
+    const [emailOwner, codeOwner] = await Promise.all([
+      this.db.user.findFirst({ where: { email }, select: { deletedAt: true } }),
+      this.db.staffProfile.findFirst({
+        where: { employeeCode: dto.employeeCode },
+        select: { user: { select: { deletedAt: true } } },
+      }),
+    ]);
+    if (emailOwner) {
+      throw new AppError(
+        ErrorCodes.CONFLICT,
+        HttpStatus.CONFLICT,
+        emailOwner.deletedAt
+          ? `A removed staff member still uses the email ${email}. Restore them instead, or use a different email.`
+          : `Someone already uses the email ${email}.`,
+        [{ field: 'email', issue: emailOwner.deletedAt ? 'taken-by-removed' : 'duplicate' }],
+      );
+    }
+    if (codeOwner) {
+      throw new AppError(
+        ErrorCodes.CONFLICT,
+        HttpStatus.CONFLICT,
+        codeOwner.user?.deletedAt
+          ? `Employee code ${dto.employeeCode} still belongs to a removed staff member. Use a different code.`
+          : `Employee code ${dto.employeeCode} is already in use.`,
+        [{ field: 'employeeCode', issue: codeOwner.user?.deletedAt ? 'taken-by-removed' : 'duplicate' }],
+      );
+    }
+
     try {
       const user = await this.db.user.create({
         data: { schoolId: this.sid, email: dto.email.toLowerCase(), roles, status: 'INVITED', campusId: dto.campusId },
@@ -34,6 +68,7 @@ export class StaffService {
           userId: user.id,
           staffType: dto.staffType,
           employeeCode: dto.employeeCode,
+          fullName: dto.fullName,
           designation: dto.designation,
           joinedAt: new Date(dto.joinedAt),
         },

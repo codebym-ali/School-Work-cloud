@@ -2,6 +2,7 @@
 
 import { type ReactNode, useEffect, useState } from 'react';
 import { api, type PortalOverview } from '@/lib/api';
+import { STUDENT_STATUS, statusStyle } from '@/lib/student-status';
 
 export default function MyDashboard() {
   const [data, setData] = useState<PortalOverview | null>(null);
@@ -16,6 +17,20 @@ export default function MyDashboard() {
   return (
     <div className="stack">
       <h1>Welcome, {s.fullName}</h1>
+
+      {/* A suspended student keeps portal access precisely so they can read this. */}
+      {s.status !== 'ACTIVE' && (
+        <div className="card stack" style={{ ...statusStyle(s.status), gap: 6 }}>
+          <strong>Status: {STUDENT_STATUS[s.status].label}</strong>
+          {s.status === 'SUSPENDED' && (
+            <span>
+              You are suspended{s.statusEndsOn ? ` until ${new Date(s.statusEndsOn).toLocaleDateString()}` : ''}.
+              Please contact the school office.
+            </span>
+          )}
+          {s.statusReason && <span style={{ fontSize: 13 }}>Reason: {s.statusReason}</span>}
+        </div>
+      )}
 
       <div className="grid">
         <div className="metric"><div className="value">{data.attendancePercent == null ? '—' : `${data.attendancePercent}%`}</div><div className="label">Attendance</div></div>

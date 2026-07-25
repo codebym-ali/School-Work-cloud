@@ -77,9 +77,16 @@ a.metric-link.pipeline-card .metric-go { opacity: 1; margin-top: 0; }
 .sidebar a .nav-icon { font-size: 15px; line-height: 1; width: 18px; text-align: center; flex: none; }
 .sidebar a:hover { background: #1c2740; color: #fff; }
 .sidebar a.active { background: var(--brand); color: #fff; }
-.content { padding: 24px 28px; overflow: auto; }
-.topbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
+/* Cap the reading width — full-viewport forms on a wide monitor turn into columns of
+   narrow boxes. `min-width: 0` lets grid children shrink instead of forcing overflow. */
+.content { padding: 24px 28px; overflow: auto; min-width: 0; }
+.content > * { max-width: 1180px; margin-left: auto; margin-right: auto; }
+.topbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 20px; }
 .topbar .who { color: var(--muted); font-size: 13px; }
+
+/* Mobile nav trigger — hidden until the sidebar collapses into a drawer. */
+.nav-toggle { display: none; background: transparent; color: var(--ink); border: 1px solid var(--border); padding: 8px 12px; font-size: 18px; line-height: 1; }
+.nav-overlay { display: none; }
 
 /* Tables + toolbar */
 .toolbar { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 16px; }
@@ -104,4 +111,93 @@ tr:last-child td { border-bottom: 0; }
 .toast.err { background: #fee2e2; color: #991b1b; }
 .small { padding: 6px 10px; font-size: 13px; }
 .inline-form { display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-end; }
-@media (max-width: 720px) { .shell { grid-template-columns: 1fr; } .sidebar { display: none; } }
+/* ── Forms ───────────────────────────────────────────────────────────────────
+   A 12-column grid so fields can be sized by what they hold. The old uniform
+   `minmax(190px, 1fr)` gave a postal code the same width as a street address. */
+.form-grid { display: grid; grid-template-columns: repeat(12, 1fr); gap: 14px; align-items: start; }
+.f-full    { grid-column: span 12; }
+.f-half    { grid-column: span 6; }
+.f-third   { grid-column: span 4; }
+.f-quarter { grid-column: span 3; }
+.field-hint { font-size: 12px; color: var(--muted); margin-top: 4px; }
+.field-error { font-size: 12px; color: var(--danger); margin-top: 4px; }
+input.invalid, select.invalid { border-color: var(--danger); }
+
+/* Step header — same numbered pattern as the Setup screen. */
+.steps { display: flex; gap: 8px; flex-wrap: wrap; }
+.step-pill {
+  display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 999px;
+  border: 1px solid var(--border); background: #fff; color: var(--ink); font-size: 14px; cursor: pointer;
+}
+.step-pill .n {
+  width: 22px; height: 22px; border-radius: 999px; display: grid; place-items: center;
+  font-size: 12px; font-weight: 700; background: #e5e7eb; color: #374151;
+}
+.step-pill.active { border-color: var(--brand); box-shadow: 0 0 0 1px var(--brand) inset; }
+.step-pill.active .n { background: var(--brand); color: #fff; }
+.step-pill.done .n { background: #16a34a; color: #fff; }
+
+/* Actions stay reachable on a long form instead of sitting 2000px down. */
+.form-actions {
+  position: sticky; bottom: 0; z-index: 5;
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 12px 0; margin-top: 8px;
+  background: var(--card); border-top: 1px solid var(--border);
+}
+
+/* ── Responsive ──────────────────────────────────────────────────────────────
+   Three tiers: desktop (sidebar docked), tablet (narrower dock, 2-col forms),
+   mobile (sidebar becomes a drawer, everything single column). */
+
+/* Tablet — keep the sidebar but give the content room back. */
+@media (max-width: 1024px) {
+  .shell { grid-template-columns: 190px 1fr; }
+  .content { padding: 20px 18px; }
+  .grid { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
+  /* Two columns: a third and a quarter both become halves. */
+  .f-third, .f-quarter { grid-column: span 6; }
+}
+
+@media (max-width: 720px) {
+  .shell { grid-template-columns: 1fr; }
+
+  /* The sidebar slides over the content instead of vanishing — hiding it outright
+     left the user with no navigation at all. */
+  .sidebar {
+    position: fixed; top: 0; bottom: 0; left: 0; width: 264px; z-index: 50;
+    overflow-y: auto; transform: translateX(-100%);
+    transition: transform .2s ease; box-shadow: 2px 0 16px rgba(15, 23, 42, .18);
+  }
+  .sidebar.open { transform: none; }
+  .nav-overlay { display: block; position: fixed; inset: 0; background: rgba(15, 23, 42, .45); z-index: 40; border: 0; padding: 0; }
+  .nav-toggle { display: inline-flex; align-items: center; }
+
+  .content { padding: 16px 14px; }
+  .card { padding: 16px; border-radius: 10px; }
+  .container { padding: 16px 14px; }
+
+  /* Header rows carry a title plus actions — let them wrap rather than crush. */
+  .row { flex-wrap: wrap; }
+  .topbar { flex-wrap: wrap; align-items: flex-start; }
+  .topbar .who { width: 100%; order: 2; }
+
+  /* Forms go single-column; every control is full width and thumb-sized. */
+  .grid { grid-template-columns: 1fr; }
+  .inline-form { flex-direction: column; align-items: stretch; }
+  .inline-form > div { width: 100%; min-width: 0 !important; }
+  .toolbar { flex-direction: column; align-items: stretch; }
+  .toolbar > div { min-width: 0; width: 100%; }
+  button, .chip { min-height: 44px; }
+  /* 16px is the threshold below which iOS Safari zooms the page on focus. */
+  input, select, textarea { font-size: 16px; }
+
+  /* 24 of 28 screens render a table and only a few wrap them for overflow. Making the
+     table itself the scroll container fixes all of them without touching the pages. */
+  table { display: block; overflow-x: auto; white-space: nowrap; -webkit-overflow-scrolling: touch; }
+  h1 { font-size: 20px; }
+
+  /* Single column — every field spans the full width. */
+  .form-grid > * { grid-column: span 12 !important; }
+  .form-actions { padding: 12px 14px; margin: 8px -14px 0; }
+  .form-actions button { flex: 1 1 auto; }
+}

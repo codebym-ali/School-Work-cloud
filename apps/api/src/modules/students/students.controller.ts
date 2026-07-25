@@ -17,6 +17,7 @@ import { StudentsImportService } from './students-import.service';
 import { PhoneVerificationService } from './phone-verification.service';
 import {
   AddGuardianDto,
+  ChangeStudentStatusDto,
   ConfirmOtpDto,
   CreateStudentDto,
   ImportStudentsDto,
@@ -75,7 +76,18 @@ export class StudentsController {
     return this.students.update(id, dto);
   }
 
+  /** Lifecycle status change (suspend / restrict / strike off / restore). Separate from the
+   *  profile PATCH because it is an audited event with a mandatory reason. Leaving school is
+   *  NOT settable here — that runs through the §15 withdrawal workflow. */
   @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
+  @Patch(':id/status')
+  changeStatus(@Param('id') id: string, @Body() dto: ChangeStudentStatusDto) {
+    return this.students.changeStatus(id, dto);
+  }
+
+  // Deleting a student record is owner-only — it is for mis-keyed admissions, not departures
+  // (the service refuses once payments or certificates exist).
+  @Roles('OWNER_ADMIN')
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   async remove(@Param('id') id: string) {

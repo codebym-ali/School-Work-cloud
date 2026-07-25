@@ -105,23 +105,38 @@ export class SetupService {
     const campus = await this.db.campus.findFirst({ where: { id }, select: { id: true } });
     if (!campus) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'Campus not found');
 
-    const [classes, users] = await Promise.all([
+    // Every table that references campuses is counted here, so the error names the actual
+    // blocker. Checking only classes+users let the request pass this guard and then fail on
+    // the FK, surfacing a generic "other records" message that listed the wrong tables.
+    // Only LIVE users block: counting soft-deleted ones made the campus undeletable forever
+    // while the UI showed "No users yet" (that list filters deletedAt).
+    const [classes, users, inquiries, vacancies, applications] = await Promise.all([
       this.db.class.count({ where: { campusId: id } }),
-      this.db.user.count({ where: { campusId: id } }),
+      this.db.user.count({ where: { campusId: id, deletedAt: null } }),
+      this.db.inquiry.count({ where: { campusId: id } }),
+      this.db.vacancy.count({ where: { campusId: id } }),
+      this.db.teacherApplication.count({ where: { campusId: id } }),
     ]);
     const blockers: string[] = [];
     if (classes) blockers.push(`${classes} class(es)`);
     if (users) blockers.push(`${users} user(s)`);
+    if (inquiries) blockers.push(`${inquiries} admission inquiry(ies)`);
+    if (vacancies) blockers.push(`${vacancies} job vacancy(ies)`);
+    if (applications) blockers.push(`${applications} teacher application(s)`);
     if (blockers.length) {
-      throw new AppError(ErrorCodes.CONFLICT, HttpStatus.CONFLICT, `Campus is in use — ${blockers.join(' and ')} still belong to it. Remove or reassign them first.`);
+      throw new AppError(ErrorCodes.CONFLICT, HttpStatus.CONFLICT, `Campus is in use — ${blockers.join(', ')} still belong to it. Remove or reassign them first.`);
     }
 
     try {
+      // Removed accounts keep their campus_id, and that FK is RESTRICT — detach them or the
+      // delete below fails on a reference to users nobody can see any more.
+      await this.db.user.updateMany({ where: { campusId: id, deletedAt: { not: null } }, data: { campusId: null } });
       await this.db.campus.delete({ where: { id } });
     } catch (e) {
-      // Fallback for the rarer references (fee structures, holidays, inquiries, payroll).
+      // Safety net only — the counts above cover every table that references campuses today,
+      // so reaching here means a new reference was added without updating that list.
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2003') {
-        throw new AppError(ErrorCodes.CONFLICT, HttpStatus.CONFLICT, 'Campus is in use by other records (fees, holidays, inquiries or payroll). Remove them first.');
+        throw new AppError(ErrorCodes.CONFLICT, HttpStatus.CONFLICT, 'Campus is still referenced by other records. Remove them first.');
       }
       throw e;
     }

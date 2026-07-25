@@ -91,12 +91,26 @@ describe('Teacher applications (e2e, HR)', () => {
     expect(detail.body.details.experiences[0]).toMatchObject({ schoolName: 'City School', reasonForLeaving: 'Growth' });
   });
 
-  it('rejects a bad nested payload (missing details.cnic) → 400 VALIDATION_FAILED', async () => {
+  // Nested `details` validation must still bite. CNIC is optional now (a school hires
+  // mid-term and chases the ID later), but a supplied one is still format-checked.
+  it('rejects a bad nested payload (malformed details.cnic) → 400 VALIDATION_FAILED', async () => {
     const bad = fullBody(campusAId) as { details: Record<string, unknown> };
-    delete bad.details.cnic;
+    bad.details.cnic = 'x'; // shorter than the @MinLength(5) on the nested DTO
     const res = await post('/api/v1/teacher-applications', bad, ownerCookies);
     expect(res.status).toBe(400);
     expect(res.body.error.code).toBe('VALIDATION_FAILED');
+  });
+
+  // The "fill it in later" contract: a teacher can be recorded from the few fields the
+  // office actually has on the day, without CNIC / DOB / address / city.
+  it('accepts a partial profile (no cnic, dateOfBirth, currentAddress or city)', async () => {
+    const partial = fullBody(campusAId) as { fullName: string; email: string; details: Record<string, unknown> };
+    partial.fullName = 'Partial Profile Teacher';
+    partial.email = `partial-${Date.now()}@demo.pk`;
+    for (const k of ['cnic', 'dateOfBirth', 'currentAddress', 'city', 'fatherName', 'gender']) delete partial.details[k];
+    const res = await post('/api/v1/teacher-applications', partial, ownerCookies);
+    expect(res.status).toBe(201);
+    expect(res.body.fullName).toBe('Partial Profile Teacher');
   });
 
   it('a campus admin only sees their own campus’s applications', async () => {

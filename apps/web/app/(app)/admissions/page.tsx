@@ -5,6 +5,7 @@ import { api, apiGet, apiPatch, apiPost, ApiError, type AdmissionsSummary, type 
 import type { Inquiry } from '@/lib/api';
 import { hasModule, useMe } from '@/lib/me-context';
 import { classLabeller } from '@/lib/labels';
+import { DirectAdmission } from './direct-admission';
 
 const STATUSES = ['INQUIRY', 'ENTRY_TEST_SCHEDULED', 'ENTRY_TEST_PASSED', 'ENTRY_TEST_FAILED', 'ADMITTED', 'REJECTED', 'WITHDRAWN'];
 const funnelBadge = (s: string) =>
@@ -24,7 +25,11 @@ export default function AdmissionsPage() {
   const [sections, setSections] = useState<Section[]>([]);
   const [status, setStatus] = useState('');
   const [adding, setAdding] = useState(false);
+  const [admitting, setAdmitting] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  // A school-wide AC (null campus) can admit into any campus; a campus-bound one is confined.
+  const admitCampuses = me?.campusId ? campuses.filter((c) => c.id === me.campusId) : campuses;
 
   async function load() {
     const q = status ? `?status=${status}` : '';
@@ -65,9 +70,17 @@ export default function AdmissionsPage() {
     <div className="stack">
       <div className="row">
         <h1>Admissions</h1>
-        {canManage && <button onClick={() => setAdding((v) => !v)}>{adding ? 'Close' : '+ New inquiry'}</button>}
+        <div className="row" style={{ gap: 8 }}>
+          {canAdmit && <button onClick={() => setAdmitting((v) => !v)}>{admitting ? 'Close' : '+ Admit student'}</button>}
+          {canManage && <button className="ghost" onClick={() => setAdding((v) => !v)}>{adding ? 'Close' : '+ New inquiry'}</button>}
+        </div>
       </div>
       {msg && <div className={`toast ${msg.ok ? 'ok' : 'err'}`}>{msg.text}</div>}
+
+      {admitting && (
+        <DirectAdmission campuses={admitCampuses} classes={classes} sections={sections}
+          onAdmitted={(r, name) => setMsg({ ok: true, text: `Admitted ${name} — Reg No ${r.registrationNo ?? '—'}` })} />
+      )}
 
       {summary && (
         <div className="grid">

@@ -106,6 +106,17 @@ export interface Discount {
   id: string; studentId: string; type: string; value: string; feeHeadId: string | null;
   reason: string; status: string; validFrom: string | null;
 }
+/** Existing-parent match for the direct-admission "link?" step (§8). */
+export interface ParentMatch { id: string; fullName: string; phone: string }
+/** Direct admission (§8): the AC's single-form student create. Guardian is an EXPLICIT
+ *  LINK (an existing parent found by phone) or CREATE — the server never auto-merges. */
+export interface DirectAdmissionBody {
+  fullName: string; gender: string; dateOfBirth: string;
+  campusId: string; classId: string; sectionId: string;
+  guardian: { mode: 'LINK' | 'CREATE'; parentId?: string; fullName?: string; phone?: string; relation: string; cnic?: string; email?: string };
+  cnic?: string; ageOverride?: boolean; grNumber?: string; rollNumber?: number;
+}
+export interface AdmissionResult { studentId: string; grNumber: string; registrationNo: string | null; loginProvisioned: boolean }
 export interface EntryTest { id: string; inquiryId: string; scheduledAt: string; score: string | null; remarks: string | null }
 export interface Inquiry {
   id: string; campusId: string; guardianName: string; guardianPhone: string; studentName: string;
@@ -305,6 +316,16 @@ export const api = {
   },
   admissions: {
     summary: () => apiGet<AdmissionsSummary>('/inquiries/summary'),
+  },
+  students: {
+    // Direct admission — ADMISSION_CONTROLLER only. A 422 AGE_OUT_OF_RANGE is retried with ageOverride.
+    admit: (body: DirectAdmissionBody) => apiPost<AdmissionResult>('/students', body),
+    // Existing-parent lookup by phone for the guardian match→link step.
+    findParents: (phone: string) => apiGet<ParentMatch[]>(`/students/parents/search?phone=${encodeURIComponent(phone)}`),
+  },
+  // Read-only student portal sign-in: registration-no + CNIC (no password), §28/#34.
+  studentPortal: {
+    login: (registrationNo: string, cnic: string) => apiPost<{ user: Me }>('/portal/auth/login', { registrationNo, cnic }),
   },
   feeSetup: {
     heads: () => apiGet<FeeHead[]>('/fee-heads'),

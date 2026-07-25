@@ -7,6 +7,7 @@ import * as argon2 from 'argon2';
 import { PlatformPrismaService } from '@database';
 import { AppModule } from '../../apps/api/src/app.module';
 import { ProvisioningService } from '../../apps/api/src/modules/platform/provisioning.service';
+import { admissionController } from './support/admission';
 
 /**
  * Student self-service portal (§28, matrix §23 STUDENT column). Read-only, self-scoped:
@@ -52,8 +53,9 @@ describe('Student portal (e2e, §28)', () => {
     await ownerPost('/api/v1/academic-years', { name: '2026-27', startDate: '2026-04-01', endDate: '2027-03-31', isCurrent: true });
     const klass = await ownerPost('/api/v1/classes', { campusId: prov.campusId, name: 'Grade 1', order: 1 });
     const section = await ownerPost('/api/v1/sections', { classId: klass.body.id, name: 'A' });
-    const student = await ownerPost('/api/v1/students', {
-      fullName: 'Kid One', gender: 'MALE', dateOfBirth: '2015-05-10', classId: klass.body.id, sectionId: section.body.id,
+    const { admit } = await admissionController(app, platform, schoolId, host);
+    const student = await admit({
+      fullName: 'Kid One', gender: 'MALE', dateOfBirth: '2015-05-10', campusId: prov.campusId, classId: klass.body.id, sectionId: section.body.id,
       guardian: { mode: 'CREATE', fullName: 'Papa', phone: '03007654321', relation: 'FATHER' },
     });
     grNumber = student.body.grNumber;

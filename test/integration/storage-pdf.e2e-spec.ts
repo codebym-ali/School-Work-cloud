@@ -7,6 +7,7 @@ import type { Queue } from 'bullmq';
 import { PlatformPrismaService } from '@database';
 import { AppModule } from '../../apps/api/src/app.module';
 import { ProvisioningService } from '../../apps/api/src/modules/platform/provisioning.service';
+import { admissionController } from './support/admission';
 import { SMS_QUEUE } from '../../apps/api/src/modules/comms/sms/sms.types';
 
 /**
@@ -54,8 +55,9 @@ describe('Storage, PDFs & uploads (e2e, §22.6)', () => {
     const classId = (await post('/api/v1/classes', { campusId: prov.campusId, name: 'Grade 1', order: 1 })).body.id;
     const sectionId = (await post('/api/v1/sections', { classId, name: 'A' })).body.id;
     const mathId = (await post('/api/v1/subjects', { classId, name: 'Math' })).body.id;
-    studentId = (await post('/api/v1/students', {
-      fullName: 'Sara Khan', gender: 'FEMALE', dateOfBirth: '2020-05-10', classId, sectionId,
+    const { admit } = await admissionController(app, platform, schoolId, host);
+    studentId = (await admit({
+      fullName: 'Sara Khan', gender: 'FEMALE', dateOfBirth: '2020-05-10', campusId: prov.campusId, classId, sectionId,
       guardian: { mode: 'CREATE', fullName: 'Ali Khan', phone: '03007654321', relation: 'FATHER' },
     })).body.studentId;
     const enrollmentId = (await get(`/api/v1/enrollments?studentId=${studentId}`)).body.data[0].id;

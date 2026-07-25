@@ -57,7 +57,8 @@ export class InquiriesController {
   }
 }
 
-@Roles('OWNER_ADMIN', 'CAMPUS_ADMIN', 'ADMISSION_CONTROLLER')
+// Admitting = creating a student → admission-controller-only (not owner/campus).
+@Roles('ADMISSION_CONTROLLER')
 @Controller('admissions')
 export class AdmissionsController {
   constructor(private readonly admissions: AdmissionsService) {}

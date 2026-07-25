@@ -7,6 +7,7 @@ import type { Queue } from 'bullmq';
 import { PlatformPrismaService } from '@database';
 import { AppModule } from '../../apps/api/src/app.module';
 import { ProvisioningService } from '../../apps/api/src/modules/platform/provisioning.service';
+import { admissionController } from './support/admission';
 import { SMS_QUEUE } from '../../apps/api/src/modules/comms/sms/sms.types';
 
 /**
@@ -60,8 +61,9 @@ describe('M6 — HR, payroll, documents, reports, promotion (e2e)', () => {
     grade1SectionA = (await post('/api/v1/sections', { classId: g1, name: 'A' })).body.id;
     await post('/api/v1/sections', { classId: g2, name: 'A' }); // promotion target section
 
-    const student = await post('/api/v1/students', {
-      fullName: 'Sara Khan', gender: 'FEMALE', dateOfBirth: '2020-05-10', classId: g1, sectionId: grade1SectionA,
+    const { admit } = await admissionController(app, platform, schoolId, host);
+    const student = await admit({
+      fullName: 'Sara Khan', gender: 'FEMALE', dateOfBirth: '2020-05-10', campusId, classId: g1, sectionId: grade1SectionA,
       guardian: { mode: 'CREATE', fullName: 'Ali Khan', phone: '03007654321', relation: 'FATHER' },
     });
     studentId = student.body.studentId;

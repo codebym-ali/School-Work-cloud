@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { PlatformPrismaService } from '@database';
 import { AppModule } from '../../apps/api/src/app.module';
 import { ProvisioningService } from '../../apps/api/src/modules/platform/provisioning.service';
+import { admissionController } from './support/admission';
 
 /**
  * Bulk student CSV import (§22.6). Verifies: the file is validated as a whole (bad rows
@@ -18,6 +19,7 @@ describe('Students CSV import (e2e, §22.6)', () => {
   let schoolId: string;
   let cookies: string[];
   let csrf: string;
+  let importCsv: (b: object) => request.Test;
 
   const sub = `imp-${randomUUID().slice(0, 8)}`;
   const host = `${sub}.localhost`;
@@ -50,6 +52,11 @@ describe('Students CSV import (e2e, §22.6)', () => {
     await post('/api/v1/academic-years', { name: '2026-27', startDate: '2026-04-01', endDate: '2027-03-31', isCurrent: true });
     const klass = await post('/api/v1/classes', { campusId: prov.campusId, name: 'Grade 1', order: 1 });
     await post('/api/v1/sections', { classId: klass.body.id, name: 'A' });
+
+    // Import is admission-controller-only (§8) → run it as the AC, not the owner.
+    const ac = await admissionController(app, platform, schoolId, host);
+    importCsv = (b: object) =>
+      request(server()).post('/api/v1/students/import').set('Host', host).set('Cookie', ac.cookies).set('X-CSRF-Token', ac.csrf).send(b);
   });
 
   afterAll(async () => {
@@ -72,7 +79,7 @@ describe('Students CSV import (e2e, §22.6)', () => {
       'No Section,MALE,2016-03-01,Grade 1,Z,Y,03001112255,FATHER', // unknown section
     ].join('\n');
 
-    const res = await post('/api/v1/students/import', { csv, dryRun: true });
+    const res = await importCsv({ csv, dryRun: true });
     expect(res.status).toBe(201);
     expect(res.body.imported).toBe(0);
     expect(res.body.failed).toBe(2);
@@ -90,7 +97,7 @@ describe('Students CSV import (e2e, §22.6)', () => {
       'Ayesha Khan,FEMALE,2017-06-10,Grade 1,A,Kamran Khan,03009998877,FATHER', // same guardian phone → sibling
     ].join('\n');
 
-    const res = await post('/api/v1/students/import', { csv });
+    const res = await importCsv({ csv });
     expect(res.status).toBe(201);
     expect(res.body).toMatchObject({ imported: 2, failed: 0, dryRun: false });
     expect(res.body.errors).toHaveLength(0);
@@ -110,7 +117,7 @@ describe('Students CSV import (e2e, §22.6)', () => {
 
   it('rejects a CSV missing a required column (422)', async () => {
     const csv = ['fullName,gender,dateOfBirth,className,sectionName', 'X,MALE,2016-03-01,Grade 1,A'].join('\n');
-    const res = await post('/api/v1/students/import', { csv });
+    const res = await importCsv({ csv });
     expect(res.status).toBe(422);
     expect(res.body.error.message).toMatch(/missing required column/i);
   });

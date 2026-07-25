@@ -8,6 +8,7 @@ import type { Queue } from 'bullmq';
 import { PlatformPrismaService } from '@database';
 import { AppModule } from '../../apps/api/src/app.module';
 import { ProvisioningService } from '../../apps/api/src/modules/platform/provisioning.service';
+import { admissionController } from './support/admission';
 import { SMS_QUEUE } from '../../apps/api/src/modules/comms/sms/sms.types';
 
 /**
@@ -69,9 +70,10 @@ describe('Guardian ownership (e2e, §22.8 / P1.7)', () => {
     const classId = (await ownerPost('/api/v1/classes', { campusId, name: 'Grade 1', order: 1 })).body.id;
     const sectionId = (await ownerPost('/api/v1/sections', { classId, name: 'A' })).body.id;
 
+    const { admit } = await admissionController(app, platform, schoolId, host);
     const mkStudent = async (name: string, phone: string) =>
-      (await ownerPost('/api/v1/students', {
-        fullName: name, gender: 'MALE', dateOfBirth: '2016-01-10', classId, sectionId,
+      (await admit({
+        fullName: name, gender: 'MALE', dateOfBirth: '2016-01-10', campusId, classId, sectionId,
         guardian: { mode: 'CREATE', fullName: `G ${name}`, phone, relation: 'FATHER' },
       })).body.studentId;
     student1 = await mkStudent('Child One', '03001110001');

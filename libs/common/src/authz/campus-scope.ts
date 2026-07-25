@@ -23,12 +23,15 @@ export const NO_CAMPUS = '00000000-0000-0000-0000-000000000000';
 /**
  * The campus a principal is confined to, or `null` when it is school-wide.
  * - OWNER_ADMIN → `null` (no restriction).
+ * - ADMISSION_CONTROLLER with no campus binding → `null` (school-wide): admissions is a central
+ *   function that admits into any campus; a campus-bound AC (campusId set) is still confined.
  * - Any other role → its own `campusId`; a null `campusId` (misconfig) → `NO_CAMPUS` (deny).
  * - No principal at all → `NO_CAMPUS` (deny).
  */
 export function restrictedCampusId(user: RequestUser | undefined): string | null {
   if (!user) return NO_CAMPUS;
   if (user.roles.includes('OWNER_ADMIN')) return null;
+  if (user.roles.includes('ADMISSION_CONTROLLER')) return user.campusId ?? null;
   return user.campusId ?? NO_CAMPUS;
 }
 

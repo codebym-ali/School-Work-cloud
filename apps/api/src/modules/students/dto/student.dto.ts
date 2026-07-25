@@ -62,6 +62,10 @@ export class CreateStudentDto {
   @IsDateString()
   dateOfBirth!: string;
 
+  /** Chosen on the admission form; the class must belong to this campus. */
+  @IsUUID()
+  campusId!: string;
+
   @IsUUID()
   classId!: string;
 
@@ -71,6 +75,15 @@ export class CreateStudentDto {
   @ValidateNested()
   @Type(() => GuardianResolutionDto)
   guardian!: GuardianResolutionDto;
+
+  /** Student CNIC / B-Form (digits, dashes allowed). When present, the portal login is
+   *  provisioned and this is the second factor for the CNIC + registration-no sign-in. */
+  @IsOptional() @IsString() @Matches(/^\d{5}-?\d{7}-?\d$/, { message: 'CNIC/B-Form must be 13 digits' })
+  cnic?: string;
+
+  /** Proceed despite an age-eligibility mismatch (soft-warn block, §8) — recorded in the audit. */
+  @IsOptional() @IsBoolean()
+  ageOverride?: boolean;
 
   /** Only honoured when the school is in MANUAL GR mode. */
   @IsOptional() @IsString() @MaxLength(40)

@@ -533,6 +533,7 @@ model Student {
   user        User?     @relation(fields: [userId, schoolId], references: [id, schoolId])
   grNumber       String  @map("gr_number")
   registrationNo String? @map("registration_no") // admission-form reg. no (auto, per-school)
+  cnicHash       String? @map("cnic_hash") // HMAC of the student's CNIC/B-Form — 2nd factor for the CNIC+regNo portal login (§28)
   fullName    String    @map("full_name")
   gender      Gender
   dateOfBirth DateTime  @map("date_of_birth") @db.Date

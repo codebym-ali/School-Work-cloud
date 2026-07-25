@@ -1,6 +1,6 @@
 import { HttpStatus, Inject, Injectable, Logger } from '@nestjs/common';
 import type { Response } from 'express';
-import { randomBytes, randomUUID } from 'node:crypto';
+import { createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { authenticator } from 'otplib';
 import type { Role, User } from '@prisma/client';
 import {
@@ -30,6 +30,7 @@ import type {
   MfaChallengeDto,
   MfaVerifyDto,
   ResetPasswordDto,
+  StudentLoginDto,
 } from './dto/auth.dto';
 
 const MAX_FAILED = 10;
@@ -117,6 +118,57 @@ export class AuthService {
     } else {
       await this.db.user.update({ where: { id: user.id }, data: { failedLoginCount: failed } });
     }
+  }
+
+  // ── Student portal login: registration no + CNIC (§28) ──────────────────────
+  /**
+   * Students sign in with their registration number + CNIC/B-Form (no email/password) —
+   * a convenience credential acceptable because the student portal is strictly read-only.
+   * The CNIC is compared as a constant-time HMAC against `Student.cnicHash`; failures are
+   * rate-limited + lockout-tracked on the linked User; the response is enumeration-safe
+   * (same error whether the reg-no, the CNIC, or the account state is the problem).
+   */
+  async studentLogin(dto: StudentLoginDto, res: Response): Promise<SessionResult> {
+    const invalid = () =>
+      new AppError(ErrorCodes.INVALID_CREDENTIALS, HttpStatus.UNAUTHORIZED, 'Invalid registration number or CNIC');
+
+    const provided = this.hashCnic(dto.cnic); // always spend the HMAC time (timing-safe)
+    const student = await this.db.student.findFirst({
+      where: { registrationNo: dto.registrationNo, deletedAt: null, userId: { not: null } },
+      select: { userId: true, cnicHash: true },
+    });
+    if (!student?.userId || !student.cnicHash) throw invalid();
+
+    const user = await this.db.user.findFirst({ where: { id: student.userId } });
+    if (!user || user.status === 'DISABLED' || user.deletedAt) throw invalid();
+
+    const now = new Date();
+    if (user.status === 'LOCKED') {
+      if (user.lockedUntil && user.lockedUntil > now) {
+        throw new AppError(ErrorCodes.ACCOUNT_LOCKED, HttpStatus.UNAUTHORIZED, 'Account locked; try later');
+      }
+      await this.db.user.update({ where: { id: user.id }, data: { status: 'ACTIVE', failedLoginCount: 0, lockedUntil: null } });
+      user.failedLoginCount = 0;
+      user.status = 'ACTIVE';
+    }
+
+    const stored = student.cnicHash;
+    const match = provided.length === stored.length && timingSafeEqual(Buffer.from(provided), Buffer.from(stored));
+    if (!match) {
+      await this.registerFailure(user);
+      throw invalid();
+    }
+
+    if (user.failedLoginCount > 0) {
+      await this.db.user.update({ where: { id: user.id }, data: { failedLoginCount: 0 } });
+    }
+    await this.db.user.update({ where: { id: user.id }, data: { lastLoginAt: now } });
+    return this.issueSession(user, res);
+  }
+
+  /** HMAC of the normalized CNIC/B-Form — matches how the direct-admission flow stores it. */
+  private hashCnic(cnic: string): string {
+    return createHmac('sha256', this.env.ENCRYPTION_MASTER_KEY).update(cnic.replace(/\D/g, '')).digest('hex');
   }
 
   // ── MFA challenge (step 2 of two-step login) ────────────────────────────────

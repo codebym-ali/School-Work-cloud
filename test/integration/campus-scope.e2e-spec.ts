@@ -8,6 +8,7 @@ import type { Queue } from 'bullmq';
 import { PlatformPrismaService } from '@database';
 import { AppModule } from '../../apps/api/src/app.module';
 import { ProvisioningService } from '../../apps/api/src/modules/platform/provisioning.service';
+import { admissionController } from './support/admission';
 import { SMS_QUEUE } from '../../apps/api/src/modules/comms/sms/sms.types';
 
 /**
@@ -105,11 +106,14 @@ describe('Campus scoping (e2e, §22.8 / P1.7)', () => {
     await ownerPost('/api/v1/academic-years', { name: '2026-27', startDate: '2026-04-01', endDate: '2027-03-31', isCurrent: true });
     campusB = (await ownerPost('/api/v1/campuses', { name: 'Campus B' })).body.id;
 
+    // A school-wide admission controller creates students in BOTH campuses (§8).
+    const { admit } = await admissionController(app, platform, schoolId, host);
+
     // Campus A: class + section + student (+ enrollment).
     classA = (await ownerPost('/api/v1/classes', { campusId: campusA, name: 'A-Grade', order: 1 })).body.id;
     sectionA = (await ownerPost('/api/v1/sections', { classId: classA, name: 'A' })).body.id;
-    const sA = await ownerPost('/api/v1/students', {
-      fullName: 'Alice A', gender: 'FEMALE', dateOfBirth: '2016-01-10', classId: classA, sectionId: sectionA,
+    const sA = await admit({
+      fullName: 'Alice A', gender: 'FEMALE', dateOfBirth: '2016-01-10', campusId: campusA, classId: classA, sectionId: sectionA,
       guardian: { mode: 'CREATE', fullName: 'Guardian A', phone: '03001110001', relation: 'FATHER' },
     });
     studentA = sA.body.studentId;
@@ -118,8 +122,8 @@ describe('Campus scoping (e2e, §22.8 / P1.7)', () => {
     // Campus B: class + section + student (+ enrollment).
     classB = (await ownerPost('/api/v1/classes', { campusId: campusB, name: 'B-Grade', order: 1 })).body.id;
     sectionB = (await ownerPost('/api/v1/sections', { classId: classB, name: 'B' })).body.id;
-    const sB = await ownerPost('/api/v1/students', {
-      fullName: 'Bob B', gender: 'MALE', dateOfBirth: '2016-02-20', classId: classB, sectionId: sectionB,
+    const sB = await admit({
+      fullName: 'Bob B', gender: 'MALE', dateOfBirth: '2016-02-20', campusId: campusB, classId: classB, sectionId: sectionB,
       guardian: { mode: 'CREATE', fullName: 'Guardian B', phone: '03002220002', relation: 'FATHER' },
     });
     studentB = sB.body.studentId;

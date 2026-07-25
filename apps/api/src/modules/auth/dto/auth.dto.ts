@@ -9,6 +9,17 @@ export class LoginDto {
   password!: string;
 }
 
+/** Student portal sign-in: registration number + CNIC/B-Form (no email/password). */
+export class StudentLoginDto {
+  @IsString()
+  @MinLength(1)
+  registrationNo!: string;
+
+  @IsString()
+  @Matches(/^\d{5}-?\d{7}-?\d$/, { message: 'CNIC/B-Form must be 13 digits' })
+  cnic!: string;
+}
+
 export class MfaChallengeDto {
   @IsString()
   mfaToken!: string;

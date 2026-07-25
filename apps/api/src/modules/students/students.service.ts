@@ -1,9 +1,13 @@
-import { HttpStatus, Injectable } from '@nestjs/common';
+import { HttpStatus, Inject, Injectable } from '@nestjs/common';
+import { createHmac } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import {
   AppError,
   assertCampusAccess,
+  AuditActions,
+  computeAge,
   effectiveCampusFilter,
+  ENV,
   ErrorCodes,
   normalizePkPhone,
   paginate,
@@ -11,9 +15,11 @@ import {
   restrictedCampusId,
   TenantContext,
   toSkipTake,
+  type Env,
   type Paginated,
 } from '@common';
-import { TenantPrismaService } from '@database';
+import { AuditService, TenantPrismaService } from '@database';
+import { AccessService } from '../access/access.service';
 import { SetupService } from '../setup/setup.service';
 import { GuardiansService } from './guardians.service';
 import type { CreateStudentDto, GuardianResolutionDto, StudentSearchQuery, UpdateStudentDto } from './dto/student.dto';
@@ -51,6 +57,9 @@ export class StudentsService {
     private readonly ctx: TenantContext,
     private readonly setup: SetupService,
     private readonly guardians: GuardiansService,
+    private readonly audit: AuditService,
+    private readonly access: AccessService,
+    @Inject(ENV) private readonly env: Env,
   ) {}
 
   private get db() {
@@ -137,8 +146,74 @@ export class StudentsService {
     return `${school.registrationPrefix}${updated.nextRegistrationNo - 1}`;
   }
 
-  async createStudent(dto: CreateStudentDto): Promise<CreatedStudent> {
-    return this.createStudentCore(dto);
+  /**
+   * Direct admission (blueprint §8, redesigned): the admission controller admits a student in
+   * one form — campus/class/section placement + guardian + (optional) portal login — atomically.
+   * Gated by the `admissions.admit` module. When a CNIC is supplied, the student portal login is
+   * provisioned here (a User(STUDENT) + `cnicHash`), so admission and login are one step.
+   */
+  async createStudent(dto: CreateStudentDto): Promise<CreatedStudent & { loginProvisioned: boolean }> {
+    await this.access.assert('admissions.admit');
+
+    // Campus picker consistency + age soft-warn block against the chosen class.
+    const klass = await this.db.class.findFirst({ where: { id: dto.classId } });
+    if (!klass) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'Class not found');
+    if (klass.campusId !== dto.campusId) {
+      throw new AppError(ErrorCodes.VALIDATION_FAILED, HttpStatus.UNPROCESSABLE_ENTITY, 'Class does not belong to the chosen campus');
+    }
+    this.assertAgeEligible(klass, dto.dateOfBirth, dto.ageOverride ?? false);
+
+    const created = await this.createStudentCore(dto);
+
+    // Provision the portal login only when a CNIC is given — it is the second factor for the
+    // CNIC + registration-no sign-in. No CNIC ⇒ the student is admitted without a login.
+    let loginProvisioned = false;
+    if (dto.cnic) {
+      const user = await this.db.user.create({
+        data: {
+          schoolId: this.ctx.requireSchoolId(),
+          email: `s-${created.registrationNo}@student.local`.toLowerCase(),
+          roles: ['STUDENT'],
+          status: 'ACTIVE',
+        },
+      });
+      await this.db.student.update({
+        where: { id: created.studentId },
+        data: { userId: user.id, cnicHash: this.hashCnic(dto.cnic) },
+      });
+      loginProvisioned = true;
+    }
+
+    await this.audit.record({
+      action: AuditActions.STUDENT_ADMITTED,
+      entityType: 'Student',
+      entityId: created.studentId,
+      newValue: { grNumber: created.grNumber, ageOverride: dto.ageOverride ?? false, loginProvisioned },
+    });
+
+    return { ...created, loginProvisioned };
+  }
+
+  /** Age-eligibility soft-warn block (§8): out-of-range ⇒ 422 unless the controller overrides. */
+  private assertAgeEligible(klass: { minAgeYears: number | null; maxAgeYears: number | null }, dob: string, override: boolean): void {
+    if (klass.minAgeYears == null && klass.maxAgeYears == null) return;
+    const age = computeAge(new Date(dob));
+    const below = klass.minAgeYears != null && age < klass.minAgeYears;
+    const above = klass.maxAgeYears != null && age > klass.maxAgeYears;
+    if ((below || above) && !override) {
+      throw new AppError(
+        ErrorCodes.AGE_OUT_OF_RANGE,
+        HttpStatus.UNPROCESSABLE_ENTITY,
+        `Student age ${age} is outside this class's range (${klass.minAgeYears ?? '—'}–${klass.maxAgeYears ?? '—'})`,
+        [{ field: 'dateOfBirth', issue: `computedAge=${age};min=${klass.minAgeYears ?? ''};max=${klass.maxAgeYears ?? ''}` }],
+      );
+    }
+  }
+
+  /** HMAC of the normalized CNIC/B-Form — the stored second factor (never plaintext). */
+  private hashCnic(cnic: string): string {
+    const normalized = cnic.replace(/\D/g, '');
+    return createHmac('sha256', this.env.ENCRYPTION_MASTER_KEY).update(normalized).digest('hex');
   }
 
   // ── Directory ────────────────────────────────────────────────────────────────

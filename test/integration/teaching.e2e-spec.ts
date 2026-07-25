@@ -7,6 +7,7 @@ import { randomUUID } from 'node:crypto';
 import { PlatformPrismaService } from '@database';
 import { AppModule } from '../../apps/api/src/app.module';
 import { ProvisioningService } from '../../apps/api/src/modules/platform/provisioning.service';
+import { admissionController } from './support/admission';
 
 /**
  * Teacher self-service ("my classes" + rosters, §9/§11). A teacher sees only the sections
@@ -63,10 +64,11 @@ describe('Teaching self-service (e2e)', () => {
     otherSectionId = (await ownerPost('/api/v1/sections', { classId, name: 'B' })).body.id;
     const subjectId = (await ownerPost('/api/v1/subjects', { classId, name: 'Mathematics' })).body.id;
 
-    // Two students enrolled in section A (the teacher's roster).
+    // Two students enrolled in section A (the teacher's roster) — created by the admission controller (§8).
+    const { admit } = await admissionController(app, platform, schoolId, host);
     const mkStudent = async (name: string, phone: string) =>
-      ownerPost('/api/v1/students', {
-        fullName: name, gender: 'MALE', dateOfBirth: '2015-01-10', classId, sectionId,
+      admit({
+        fullName: name, gender: 'MALE', dateOfBirth: '2015-01-10', campusId, classId, sectionId,
         guardian: { mode: 'CREATE', fullName: `G ${name}`, phone, relation: 'FATHER' },
       });
     await mkStudent('Pupil One', '03001110001');

@@ -9,6 +9,7 @@ import { CLS_KEYS } from '@common';
 import { PlatformPrismaService, TenantPrismaService } from '@database';
 import { AppModule } from '../../apps/api/src/app.module';
 import { ProvisioningService } from '../../apps/api/src/modules/platform/provisioning.service';
+import { admissionController } from './support/admission';
 import { SmsService } from '../../apps/api/src/modules/comms/sms/sms.service';
 import { SMS_QUEUE } from '../../apps/api/src/modules/comms/sms/sms.types';
 
@@ -31,6 +32,8 @@ describe('Fees end-to-end (e2e, §12)', () => {
   let yearId: string;
   let studentId: string;
   let parentId: string;
+  let campusId: string;
+  let admit: (dto: object) => request.Test;
 
   const sub = `fee-${randomUUID().slice(0, 8)}`;
   const host = `${sub}.localhost`;
@@ -83,11 +86,13 @@ describe('Fees end-to-end (e2e, §12)', () => {
 
     const year = await post('/api/v1/academic-years', { name: '2026-27', startDate: '2026-04-01', endDate: '2027-03-31', isCurrent: true });
     yearId = year.body.id;
-    const klass = await post('/api/v1/classes', { campusId: prov.campusId, name: 'Grade 1', order: 1 });
+    campusId = prov.campusId;
+    const klass = await post('/api/v1/classes', { campusId, name: 'Grade 1', order: 1 });
     classId = klass.body.id;
     const section = await post('/api/v1/sections', { classId, name: 'A' });
-    const student = await post('/api/v1/students', {
-      fullName: 'Sara Khan', gender: 'FEMALE', dateOfBirth: '2020-05-10', classId, sectionId: section.body.id,
+    ({ admit } = await admissionController(app, platform, schoolId, host));
+    const student = await admit({
+      fullName: 'Sara Khan', gender: 'FEMALE', dateOfBirth: '2020-05-10', campusId, classId, sectionId: section.body.id,
       guardian: { mode: 'CREATE', fullName: 'Ali Khan', phone: '03007654321', relation: 'FATHER' },
     });
     studentId = student.body.studentId;
@@ -232,8 +237,8 @@ describe('Fees end-to-end (e2e, §12)', () => {
 
   it('a removed student is withdrawn from their class and never billed again', async () => {
     const section = await get(`/api/v1/sections?classId=${classId}`);
-    const created = await post('/api/v1/students', {
-      fullName: 'Gone Soon', gender: 'MALE', dateOfBirth: '2020-02-02', classId, sectionId: section.body[0].id,
+    const created = await admit({
+      fullName: 'Gone Soon', gender: 'MALE', dateOfBirth: '2020-02-02', campusId, classId, sectionId: section.body[0].id,
       guardian: { mode: 'CREATE', fullName: 'Parent Gone', phone: '03009998877', relation: 'FATHER' },
     });
     const goneId = created.body.studentId;

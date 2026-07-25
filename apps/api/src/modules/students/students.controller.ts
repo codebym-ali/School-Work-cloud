@@ -25,8 +25,10 @@ import {
   UpdateStudentDto,
 } from './dto/student.dto';
 
-// Directory is admin-only (§23, P2.1): parents/students use scoped child/self reads.
-@Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
+// Directory reads are staff-only (§23, P2.1): parents/students use scoped child/self reads.
+// The ADMISSION_CONTROLLER needs the directory + guardian lookup to run admissions, so reads
+// include it; CREATING a student, however, is admission-controller-only (see POST handlers).
+@Roles('OWNER_ADMIN', 'CAMPUS_ADMIN', 'ADMISSION_CONTROLLER')
 @Controller('students')
 export class StudentsController {
   constructor(
@@ -47,7 +49,8 @@ export class StudentsController {
     return this.guardians.findByPhone(phone ?? '');
   }
 
-  @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
+  // Only the admission controller may ADD a student (segregation of duties, not owner/campus).
+  @Roles('ADMISSION_CONTROLLER')
   @Post()
   create(@Body() dto: CreateStudentDto) {
     return this.students.createStudent(dto);
@@ -55,7 +58,7 @@ export class StudentsController {
 
   /** Bulk import from CSV (§22.6). Validates the whole file first; imports all-or-nothing.
    *  Returns a per-row error report; `dryRun:true` validates without writing. */
-  @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
+  @Roles('ADMISSION_CONTROLLER')
   @Post('import')
   importCsv(@Body() dto: ImportStudentsDto) {
     return this.importer.import(dto.csv, dto.dryRun ?? false);

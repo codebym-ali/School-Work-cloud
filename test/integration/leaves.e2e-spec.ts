@@ -7,6 +7,7 @@ import type { Queue } from 'bullmq';
 import { PlatformPrismaService } from '@database';
 import { AppModule } from '../../apps/api/src/app.module';
 import { ProvisioningService } from '../../apps/api/src/modules/platform/provisioning.service';
+import { admissionController } from './support/admission';
 import { SMS_QUEUE } from '../../apps/api/src/modules/comms/sms/sms.types';
 
 /** M3 leaves (§10): request -> overlap guard -> approve (writes ON_LEAVE) -> reject/cancel + state machine. */
@@ -49,9 +50,10 @@ describe('Leaves (e2e, §10)', () => {
     await post('/api/v1/academic-years', { name: '2026-27', startDate: '2026-04-01', endDate: '2027-03-31', isCurrent: true });
     const klass = await post('/api/v1/classes', { campusId: prov.campusId, name: 'Grade 1', order: 1 });
     const section = await post('/api/v1/sections', { classId: klass.body.id, name: 'A' });
-    const student = await post('/api/v1/students', {
+    const { admit } = await admissionController(app, platform, schoolId, host);
+    const student = await admit({
       fullName: 'Sara Khan', gender: 'FEMALE', dateOfBirth: '2020-05-10',
-      classId: klass.body.id, sectionId: section.body.id,
+      campusId: prov.campusId, classId: klass.body.id, sectionId: section.body.id,
       guardian: { mode: 'CREATE', fullName: 'Ali Khan', phone: '03007654321', relation: 'FATHER' },
     });
     studentId = student.body.studentId;

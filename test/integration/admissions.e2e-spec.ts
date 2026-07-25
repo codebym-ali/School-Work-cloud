@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { AppModule } from '../../apps/api/src/app.module';
 import { PlatformPrismaService } from '@database';
 import { ProvisioningService } from '../../apps/api/src/modules/platform/provisioning.service';
+import { admissionController } from './support/admission';
 
 /**
  * M2 milestone gate (roadmap M2): the ADMIT journey end-to-end —
@@ -21,6 +22,7 @@ describe('Admit journey (e2e, §8)', () => {
   let campusId: string;
   let cookies: string[];
   let csrf: string;
+  let acPost: (path: string, body: object) => request.Test; // admit runs as the admission controller (§8)
   const sub = `adm-${randomUUID().slice(0, 8)}`;
   const host = `${sub}.localhost`;
   const ownerEmail = 'owner@demo.pk';
@@ -62,6 +64,11 @@ describe('Admit journey (e2e, §8)', () => {
     expect(login.status).toBe(200);
     cookies = login.headers['set-cookie'] as unknown as string[];
     csrf = csrfOf(cookies);
+
+    // Student creation (admit) is admission-controller-only; the inquiry pipeline stays owner.
+    const ac = await admissionController(app, platform, schoolId, host);
+    acPost = (path: string, body: object) =>
+      request(server()).post(path).set('Host', host).set('Cookie', ac.cookies).set('X-CSRF-Token', ac.csrf).send(body);
   });
 
   afterAll(async () => {
@@ -124,7 +131,7 @@ describe('Admit journey (e2e, §8)', () => {
   });
 
   it('admits the student: creates student + primary guardian + active enrollment', async () => {
-    const admit = await post('/api/v1/admissions', {
+    const admit = await acPost('/api/v1/admissions', {
       inquiryId,
       gender: 'FEMALE',
       dateOfBirth: '2020-05-10',
@@ -147,7 +154,7 @@ describe('Admit journey (e2e, §8)', () => {
   });
 
   it('re-admitting the same inquiry is a 409 INVALID_STATE_TRANSITION', async () => {
-    const res = await post('/api/v1/admissions', {
+    const res = await acPost('/api/v1/admissions', {
       inquiryId,
       gender: 'FEMALE',
       dateOfBirth: '2020-05-10',

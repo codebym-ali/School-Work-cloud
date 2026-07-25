@@ -9,6 +9,7 @@ import { CLS_KEYS } from '@common';
 import { PlatformPrismaService, TenantPrismaService } from '@database';
 import { AppModule } from '../../apps/api/src/app.module';
 import { ProvisioningService } from '../../apps/api/src/modules/platform/provisioning.service';
+import { admissionController } from './support/admission';
 import { SmsService } from '../../apps/api/src/modules/comms/sms/sms.service';
 import { SMS_QUEUE } from '../../apps/api/src/modules/comms/sms/sms.types';
 
@@ -83,8 +84,9 @@ describe('Exams & report cards (e2e, §11)', () => {
     const section = await post('/api/v1/sections', { classId, name: 'A' });
     mathId = (await post('/api/v1/subjects', { classId, name: 'Math' })).body.id;
     englishId = (await post('/api/v1/subjects', { classId, name: 'English' })).body.id;
-    const student = await post('/api/v1/students', {
-      fullName: 'Sara Khan', gender: 'FEMALE', dateOfBirth: '2020-05-10', classId, sectionId: section.body.id,
+    const { admit } = await admissionController(app, platform, schoolId, host);
+    const student = await admit({
+      fullName: 'Sara Khan', gender: 'FEMALE', dateOfBirth: '2020-05-10', campusId: prov.campusId, classId, sectionId: section.body.id,
       guardian: { mode: 'CREATE', fullName: 'Ali Khan', phone: '03007654321', relation: 'FATHER' },
     });
     studentId = student.body.studentId;

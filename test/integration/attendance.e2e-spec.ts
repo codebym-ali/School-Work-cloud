@@ -9,6 +9,7 @@ import { CLS_KEYS } from '@common';
 import { PlatformPrismaService, TenantPrismaService } from '@database';
 import { AppModule } from '../../apps/api/src/app.module';
 import { ProvisioningService } from '../../apps/api/src/modules/platform/provisioning.service';
+import { admissionController } from './support/admission';
 import { SmsService } from '../../apps/api/src/modules/comms/sms/sms.service';
 import { SMS_QUEUE } from '../../apps/api/src/modules/comms/sms/sms.types';
 
@@ -91,10 +92,13 @@ describe('Attendance + absence SMS (e2e, §9/§14)', () => {
     const section = await post('/api/v1/sections', { classId: klass.body.id, name: 'A' });
     sectionId = section.body.id;
 
-    const student = await post('/api/v1/students', {
+    // Students are created by the admission controller (§8), not the owner.
+    const { admit } = await admissionController(app, platform, schoolId, host);
+    const student = await admit({
       fullName: 'Sara Khan',
       gender: 'FEMALE',
       dateOfBirth: '2020-05-10',
+      campusId,
       classId: klass.body.id,
       sectionId,
       guardian: { mode: 'CREATE', fullName: 'Ali Khan', phone: '03007654321', relation: 'FATHER' },

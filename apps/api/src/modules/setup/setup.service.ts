@@ -250,14 +250,38 @@ export class SetupService {
       orderBy: { name: 'asc' },
       include: { subjects: { select: { subjectId: true } } },
     });
+    const year = await this.db.academicYear.findFirst({ where: { isCurrent: true }, select: { id: true } });
+    const grouped = year && rows.length
+      ? await this.db.studentEnrollment.groupBy({
+          by: ['sectionId'],
+          where: { academicYearId: year.id, status: 'ACTIVE', sectionId: { in: rows.map((r) => r.id) } },
+          _count: { _all: true },
+        })
+      : [];
+    const enrolled = new Map(grouped.map((g) => [g.sectionId, g._count._all]));
     // Flatten the link rows to plain ids — the client only ever needs the id list.
-    return rows.map(({ subjects, ...s }) => ({ ...s, subjectIds: subjects.map((x) => x.subjectId) }));
+    return rows.map(({ subjects, ...s }) => ({
+      ...s,
+      subjectIds: subjects.map((x) => x.subjectId),
+      enrolled: year ? enrolled.get(s.id) ?? 0 : null,
+    }));
   }
 
   // ── Subjects ───────────────────────────────────────────────────────────────
   async createSubject(dto: CreateSubjectDto) {
     await this.assertClassCampus(dto.classId);
-    return this.db.subject.create({ data: { schoolId: this.sid, classId: dto.classId, name: dto.name } });
+    return this.db.subject.create({ data: { schoolId: this.sid, classId: dto.classId, name: normalizeSubjectName(dto.name) } });
+  }
+
+  async subjectCatalogue() {
+    const restricted = restrictedCampusId(this.ctx.user);
+    const rows = await this.db.subject.groupBy({
+      by: ['name'],
+      where: restricted ? { class: { campusId: restricted } } : {},
+      _count: { _all: true },
+      orderBy: { name: 'asc' },
+    });
+    return rows.map((r) => ({ name: r.name, classCount: r._count._all }));
   }
 
   listSubjects(classId?: string) {
@@ -280,7 +304,7 @@ export class SetupService {
     await this.assertClassCampus(id);
     return this.db.class.update({
       where: { id },
-      data: { name: dto.name, minAgeYears: dto.minAgeYears, maxAgeYears: dto.maxAgeYears },
+      data: { name: dto.name, minAgeYears: dto.minAgeYears, maxAgeYears: dto.maxAgeYears, order: dto.order },
     });
   }
 
@@ -339,7 +363,7 @@ export class SetupService {
     const subject = await this.db.subject.findFirst({ where: { id }, select: { classId: true } });
     if (!subject) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'Subject not found');
     await this.assertClassCampus(subject.classId);
-    return this.db.subject.update({ where: { id }, data: { name: dto.name } });
+    return this.db.subject.update({ where: { id }, data: { name: dto.name ? normalizeSubjectName(dto.name) : undefined } });
   }
 
   async deleteSubject(id: string): Promise<void> {
@@ -379,4 +403,8 @@ export class SetupService {
       throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, `${model} not found`);
     }
   }
+}
+
+function normalizeSubjectName(value: string): string {
+  return value.trim().replace(/\s+/g, ' ');
 }

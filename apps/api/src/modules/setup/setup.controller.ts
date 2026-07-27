@@ -142,6 +142,11 @@ export class SubjectController {
     return this.setup.createSubject(dto);
   }
 
+  @Get('catalogue')
+  catalogue() {
+    return this.setup.subjectCatalogue();
+  }
+
   @Get()
   list(@Query() q: SectionListQuery) {
     return this.setup.listSubjects(q.classId);

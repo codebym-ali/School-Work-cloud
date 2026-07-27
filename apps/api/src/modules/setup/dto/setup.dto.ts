@@ -91,6 +91,7 @@ export class UpdateClassDto {
   @IsOptional() @IsString() @MinLength(1) @MaxLength(80) name?: string;
   @IsOptional() @IsInt() @Min(2) @Max(30) minAgeYears?: number;
   @IsOptional() @IsInt() @Min(2) @Max(30) maxAgeYears?: number;
+  @IsOptional() @IsInt() @Min(0) @Max(1000) order?: number;
 }
 
 export class UpdateSectionDto {

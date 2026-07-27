@@ -78,11 +78,11 @@ export interface Dashboard {
   visible: string[];
 }
 export interface Paged<T> { data: T[]; total: number; page: number; pageSize: number }
-export interface Campus { id: string; name: string }
+export interface Campus { id: string; name: string; address?: string | null }
 export interface AcademicYear { id: string; name: string; isCurrent: boolean }
 export interface Klass { id: string; name: string; order: number; campusId: string; createdAt?: string }
 /** `subjectIds` empty ⇒ the section studies every subject its class offers. */
-export interface Section { id: string; name: string; classId: string; subjectIds?: string[] }
+export interface Section { id: string; name: string; classId: string; subjectIds?: string[]; capacity: number; enrolled?: number | null }
 export type StudentStatus = 'ACTIVE' | 'SUSPENDED' | 'RESTRICTED' | 'STRUCK_OFF' | 'WITHDRAWN' | 'GRADUATED';
 export interface Student { id: string; fullName: string; grNumber: string; registrationNo: string | null; gender: string; isActive: boolean; status: StudentStatus; statusReason: string | null; statusEndsOn: string | null }
 export interface StudentDetail {
@@ -127,6 +127,7 @@ export interface Inquiry {
   entryTest?: EntryTest | null; admission?: { id: string; studentId: string } | null;
 }
 export interface Subject { id: string; name: string; classId: string }
+export interface SubjectCatalogueEntry { name: string; classCount: number }
 export interface Term { id: string; name: string; academicYearId: string; startDate: string; endDate: string }
 export interface GradeBand { label: string; minPercent: string; maxPercent: string; gradePoint: string }
 export interface Exam { id: string; termId: string; classId: string; name: string; examType: string; weightagePercent: string; examDate: string; status: string }
@@ -300,21 +301,29 @@ export const api = {
       apiPost<TeacherAssignment>('/teacher-assignments', body),
     remove: (id: string) => apiDelete(`/teacher-assignments/${id}`),
   },
+  campuses: {
+    list: () => apiGet<Campus[]>('/campuses'),
+    update: (id: string, body: { name?: string; address?: string }) => apiPatch<Campus>(`/campuses/${id}`, body),
+    remove: (id: string) => apiDelete<null>(`/campuses/${id}`),
+  },
   classes: {
     rename: (id: string, name: string) => apiPatch<Klass>(`/classes/${id}`, { name }),
+    update: (id: string, body: { name?: string; order?: number; minAgeYears?: number; maxAgeYears?: number }) =>
+      apiPatch<Klass>(`/classes/${id}`, body),
     remove: (id: string) => apiDelete<null>(`/classes/${id}`),
   },
   sections: {
-    create: (body: { classId: string; name: string; subjectIds?: string[]; copySubjectsFromSectionId?: string }) =>
+    create: (body: { classId: string; name: string; capacity?: number; subjectIds?: string[]; copySubjectsFromSectionId?: string }) =>
       apiPost<Section>('/sections', body),
     setSubjects: (id: string, subjectIds: string[]) => apiPut<{ sectionId: string; subjectIds: string[] }>(`/sections/${id}/subjects`, { subjectIds }),
-    rename: (id: string, name: string) => apiPatch<Section>(`/sections/${id}`, { name }),
+    update: (id: string, body: { name?: string; capacity?: number }) => apiPatch<Section>(`/sections/${id}`, body),
     remove: (id: string) => apiDelete<null>(`/sections/${id}`),
   },
   subjects: {
     list: (classId: string) => apiGet<Subject[]>(`/subjects?classId=${classId}`),
     /** Every subject in scope — one call instead of one per class on the Setup screen. */
     listAll: () => apiGet<Subject[]>('/subjects'),
+    catalogue: () => apiGet<SubjectCatalogueEntry[]>('/subjects/catalogue'),
     create: (classId: string, name: string) => apiPost<Subject>('/subjects', { classId, name }),
     rename: (id: string, name: string) => apiPatch<Subject>(`/subjects/${id}`, { name }),
     remove: (id: string) => apiDelete<null>(`/subjects/${id}`),

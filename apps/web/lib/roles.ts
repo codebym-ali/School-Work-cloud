@@ -57,6 +57,7 @@ export const NAV: NavItem[] = [
   { href: '/admissions-team', label: 'Admission Portal', icon: '🎓', group: 'Enrollment', roles: ['CAMPUS_ADMIN'] },
   { href: '/students', label: 'Students', icon: '👥', group: 'Enrollment', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
 
+  { href: '/classes', label: 'Classes', icon: '📚', group: 'Academics', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
   { href: '/attendance', label: 'Attendance', icon: '✅', group: 'Academics', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'TEACHER'] },
   { href: '/my-classes', label: 'My Classes', icon: '📚', group: 'Academics', roles: ['TEACHER'] },
   { href: '/exams', label: 'Exams & Results', icon: '📄', group: 'Academics', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'TEACHER'] },
@@ -68,7 +69,7 @@ export const NAV: NavItem[] = [
   { href: '/staff', label: 'Staff', icon: '🧑‍💼', group: 'People', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
   { href: '/recruitment', label: 'Recruitment', icon: '📋', group: 'People', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'HR_MANAGER'] },
 
-  { href: '/setup', label: 'Setup', icon: '⚙️', group: 'Administration', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
+  { href: '/setup', label: 'School configuration', icon: '⚙️', group: 'Administration', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
   { href: '/campuses', label: 'Campus Hub', icon: '🏢', group: 'Administration', roles: ['OWNER_ADMIN'] },
 
   { href: '/me', label: 'My Dashboard', icon: '🏠', group: 'My Portal', roles: ['STUDENT'] },

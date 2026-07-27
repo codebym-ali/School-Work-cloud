@@ -1,9 +1,11 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { api, apiGet, apiPost, ApiError, type AcademicYear, type Campus, type Klass, type Section, type Subject } from '@/lib/api';
+import Link from 'next/link';
+import { api, apiGet, apiPost, ApiError, type AcademicYear, type Campus, type Klass, type Section, type Subject, type SubjectCatalogueEntry } from '@/lib/api';
 import { useMe } from '@/lib/me-context';
+import { ClassManager } from '../classes/class-manager';
+import { subjectCatalogueFrom } from '@/lib/subject-match';
 
 /** Setup is a one-time, ordered job: campuses → school year → classes → sections.
  *  Each step is only useful once the one above it exists, so the page presents them
@@ -17,18 +19,20 @@ export default function SetupPage() {
   const [classes, setClasses] = useState<Klass[]>([]);
   const [sections, setSections] = useState<Section[]>([]);
   const [subjects, setSubjects] = useState<Subject[]>([]);
+  const [catalogue, setCatalogue] = useState<SubjectCatalogueEntry[]>([]);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [loaded, setLoaded] = useState(false);
 
   async function reload() {
-    const [y, c, k, s, sub] = await Promise.all([
+    const [y, c, k, s, sub, cat] = await Promise.all([
       apiGet<AcademicYear[]>('/academic-years'),
       apiGet<Campus[]>('/campuses'),
       apiGet<Klass[]>('/classes'),
       apiGet<Section[]>('/sections'),
       api.subjects.listAll().catch(() => [] as Subject[]),
+      api.subjects.catalogue().catch(() => [] as SubjectCatalogueEntry[]),
     ]);
-    setYears(y); setCampuses(c); setClasses(k); setSections(s); setSubjects(sub);
+    setYears(y); setCampuses(c); setClasses(k); setSections(s); setSubjects(sub); setCatalogue(cat);
   }
   useEffect(() => { reload().catch(() => {}).finally(() => setLoaded(true)); }, []);
 
@@ -48,17 +52,22 @@ export default function SetupPage() {
 
   // The first unfinished step is the one we open and point the reader at.
   const nextStep = !hasCampus ? 1 : !hasYear ? 2 : !(hasClass && hasSection) ? 3 : 0;
+  const setupComplete = nextStep === 0;
+  const derivedCatalogue = subjectCatalogueFrom(subjects);
+  const distinctSubjects = derivedCatalogue.length;
 
   return (
     <div className="stack">
       <div className="stack" style={{ gap: 4 }}>
-        <h1 style={{ marginBottom: 0 }}>School setup</h1>
+        <h1 style={{ marginBottom: 0 }}>School configuration</h1>
         <p className="muted" style={{ margin: 0 }}>
-          Three things to set up before you can admit students. Do them in order — each one needs the one above it.
+          {setupComplete
+            ? 'Your campuses, school years and class structure. Students, fees and results are recorded against these.'
+            : 'Three things to set up before you can admit students. Do them in order — each one needs the one above it.'}
         </p>
       </div>
 
-      {loaded && <SetupProgress done={done} nextStep={nextStep} />}
+      {loaded && !setupComplete && <SetupProgress done={done} nextStep={nextStep} />}
       {msg && <div className={`toast ${msg.ok ? 'ok' : 'err'}`}>{msg.text}</div>}
 
       <Step
@@ -70,7 +79,9 @@ export default function SetupPage() {
         count={hasCampus ? `${myCampuses.length} campus${myCampuses.length === 1 ? '' : 'es'}` : undefined}
       >
         <CampusStep campuses={myCampuses} isOwner={isOwner}
-          onCreate={(b) => run(() => apiPost('/campuses', b), 'Campus added')} />
+          onCreate={(b) => run(() => apiPost('/campuses', b), 'Campus added')}
+          onUpdate={(id, body) => run(() => api.campuses.update(id, body), 'Campus updated')}
+          onDelete={(id) => run(() => api.campuses.remove(id), 'Campus deleted')} />
       </Step>
 
       <Step
@@ -89,13 +100,23 @@ export default function SetupPage() {
       <Step
         n={3}
         title="Classes, sections & subjects"
-        blurb="Each class sits in a campus, is split into sections, and teaches a set of subjects. Students are admitted into a section."
+        blurb="Each class sits in a campus and teaches a set of subjects. A section is one classroom group with a fixed number of seats — students are admitted into a section."
         state={hasClass && hasSection ? 'done' : 'todo'}
         openByDefault={nextStep === 3 || nextStep === 0}
         lockedReason={!hasCampus ? 'Add a campus first — a class has to belong to one.' : undefined}
-        count={hasClass ? `${classes.length} class${classes.length === 1 ? '' : 'es'} · ${sections.length} section${sections.length === 1 ? '' : 's'} · ${subjects.length} subject${subjects.length === 1 ? '' : 's'}` : undefined}
+        count={hasClass ? `${classes.length} class${classes.length === 1 ? '' : 'es'} · ${sections.length} section${sections.length === 1 ? '' : 's'} · ${distinctSubjects} subject${distinctSubjects === 1 ? '' : 's'}` : undefined}
       >
-        <ClassesStep classes={classes} sections={sections} subjects={subjects} campuses={myCampuses}
+        {setupComplete ? (
+          <div className="stack" style={{ gap: 8 }}>
+            <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+              {classes.length} class{classes.length === 1 ? '' : 'es'} and {sections.length} section{sections.length === 1 ? '' : 's'} are set up.
+              Classes, sections and subjects are managed on the Classes screen.
+            </p>
+            <div><Link className="chip" href="/classes">📚 Manage classes &amp; sections →</Link></div>
+          </div>
+        ) : (
+        <ClassManager classes={classes} sections={sections} subjects={subjects} campuses={myCampuses}
+          catalogue={catalogue.length ? catalogue : derivedCatalogue}
           onCreateClass={async (b) => {
             // Return the new class so the row can open its subject form straight away —
             // a class with no subjects is the next thing to fix, so we point at it.
@@ -109,9 +130,9 @@ export default function SetupPage() {
               return null;
             }
           }}
-          onCreateSections={(classId, names, subjectChoice) =>
+          onCreateSections={(classId, names, subjectChoice, capacity) =>
             run(
-              () => Promise.all(names.map((name) => api.sections.create({ classId, name, ...subjectChoice }))),
+              () => Promise.all(names.map((name) => api.sections.create({ classId, name, capacity, ...subjectChoice }))),
               names.length === 1 ? 'Section added' : `${names.length} sections added`,
             )}
           onCreateSubjects={(classId, names) =>
@@ -119,7 +140,7 @@ export default function SetupPage() {
               names.length === 1 ? 'Subject added' : `${names.length} subjects added`)}
           onRenameClass={(id, name) => run(() => api.classes.rename(id, name), 'Class renamed')}
           onDeleteClass={(id) => run(() => api.classes.remove(id), 'Class deleted')}
-          onRenameSection={(id, name) => run(() => api.sections.rename(id, name), 'Section renamed')}
+          onUpdateSection={(id, body) => run(() => api.sections.update(id, body), 'Section updated')}
           onDeleteSection={(id) => run(() => api.sections.remove(id), 'Section deleted')}
           onDeleteSubject={(id) => run(() => api.subjects.remove(id), 'Subject deleted')}
           onCreateSubjectInline={async (classId, name) => {
@@ -132,6 +153,7 @@ export default function SetupPage() {
               return null;
             }
           }} />
+        )}
       </Step>
     </div>
   );
@@ -195,19 +217,64 @@ function Step({ n, title, blurb, state, count, openByDefault, lockedReason, chil
   );
 }
 
-function CampusStep({ campuses, isOwner, onCreate }: { campuses: Campus[]; isOwner: boolean; onCreate: (b: object) => void }) {
+function CampusStep({ campuses, isOwner, onCreate, onUpdate, onDelete }: {
+  campuses: Campus[]; isOwner: boolean;
+  onCreate: (b: object) => void;
+  onUpdate: (id: string, body: { name?: string; address?: string }) => void;
+  onDelete: (id: string) => void;
+}) {
   const [name, setName] = useState('');
   const [address, setAddress] = useState('');
+  const [editing, setEditing] = useState<{ id: string; name: string; address: string } | null>(null);
 
   return (
     <>
       {campuses.length === 0
         ? <p className="muted" style={{ margin: 0, fontSize: 13 }}>No campuses yet. Most schools start with one — you can add more later.</p>
         : (
-          <div className="chips">
-            {campuses.map((c) => <span key={c.id} className="badge">{c.name}</span>)}
+          <div className="stack" style={{ gap: 6 }}>
+            {campuses.map((c) => (
+              <div key={c.id} className="row" style={{ alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: '8px 10px', border: '1px solid #e5e7eb', borderRadius: 8 }}>
+                {editing?.id === c.id ? (
+                  <div className="inline-form" style={{ flex: 1 }}>
+                    <div style={{ minWidth: 160 }}>
+                      <label>Campus name</label>
+                      <input autoFocus value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} />
+                    </div>
+                    <div style={{ flex: 1, minWidth: 180 }}>
+                      <label>Address</label>
+                      <input value={editing.address} onChange={(e) => setEditing({ ...editing, address: e.target.value })} />
+                    </div>
+                    <button disabled={!editing.name.trim()}
+                      onClick={() => { onUpdate(editing.id, { name: editing.name.trim(), address: editing.address.trim() }); setEditing(null); }}>
+                      Save
+                    </button>
+                    <button className="ghost" onClick={() => setEditing(null)}>Cancel</button>
+                  </div>
+                ) : (
+                  <>
+                    <strong>{c.name}</strong>
+                    {c.address && <span className="muted" style={{ fontSize: 13 }}>{c.address}</span>}
+                    {isOwner && (
+                      <div className="row" style={{ gap: 8, marginLeft: 'auto' }}>
+                        <button className="ghost small" onClick={() => setEditing({ id: c.id, name: c.name, address: c.address ?? '' })}>Rename</button>
+                        <button className="ghost small" style={{ color: '#b91c1c' }}
+                          onClick={() => { if (confirm(`Delete campus "${c.name}"? This cannot be undone.`)) onDelete(c.id); }}>
+                          Delete
+                        </button>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            ))}
           </div>
         )}
+      {isOwner && campuses.length > 0 && (
+        <p className="muted" style={{ margin: 0, fontSize: 12 }}>
+          Staff logins for each campus are managed in <Link href="/campuses" style={{ fontWeight: 600 }}>Campus Hub</Link>.
+        </p>
+      )}
       {isOwner ? (
         <div className="inline-form">
           <div><label>Campus name</label><input value={name} onChange={(e) => setName(e.target.value)} placeholder="Main Campus" /></div>
@@ -258,373 +325,5 @@ function YearStep({ years, isOwner, onCreate, onSetCurrent }: { years: AcademicY
         <p className="muted" style={{ margin: 0, fontSize: 13 }}>School years are managed by the school owner.</p>
       )}
     </>
-  );
-}
-
-/** Classes and sections are one job, not two — a class without sections can't take a
- *  student, so sections are added inline on the class they belong to rather than from a
- *  separate card with its own class dropdown. */
-function ClassesStep({ classes, sections, subjects, campuses, onCreateClass, onCreateSections, onCreateSubjects, onCreateSubjectInline, onRenameClass, onDeleteClass, onRenameSection, onDeleteSection, onDeleteSubject }: {
-  classes: Klass[]; sections: Section[]; subjects: Subject[]; campuses: Campus[];
-  onCreateClass: (b: object) => Promise<string | null>;
-  onCreateSections: (classId: string, names: string[], subjectChoice: SubjectChoice) => void;
-  onCreateSubjects: (classId: string, names: string[]) => void;
-  onCreateSubjectInline: (classId: string, name: string) => Promise<Subject | null>;
-  onRenameClass: (id: string, name: string) => void;
-  onDeleteClass: (id: string) => void;
-  onRenameSection: (id: string, name: string) => void;
-  onDeleteSection: (id: string) => void;
-  onDeleteSubject: (id: string) => void;
-}) {
-  const router = useRouter();
-  const [campusId, setCampusId] = useState('');
-  const [name, setName] = useState('');
-  // The class just created — its row opens on the subject form, because a brand-new class
-  // has neither sections nor subjects and subjects are the part people can't find.
-  const [justCreated, setJustCreated] = useState<string | null>(null);
-  // 9th and 10th usually share most of their subjects — retyping them per class is the
-  // most tedious part of setting up a school, so a new class can inherit an existing list.
-  const [copyFromClass, setCopyFromClass] = useState('');
-
-  const targetCampus = campusId || (campuses.length === 1 ? campuses[0].id : '');
-
-  // "Order" decides the sort position of a class. It's a developer concept, so we assign
-  // it automatically (next number in that campus) instead of asking a school admin for it.
-  const nextOrder = (cid: string) => {
-    const inCampus = classes.filter((k) => k.campusId === cid);
-    return inCampus.length ? Math.max(...inCampus.map((k) => k.order)) + 1 : 1;
-  };
-
-  const groups = campuses
-    .map((c) => ({ id: c.id, campus: c.name, items: classes.filter((k) => k.campusId === c.id).sort((a, b) => a.order - b.order) }))
-    .filter((g) => g.items.length > 0);
-
-  return (
-    <>
-      {classes.length === 0 ? (
-        <p className="muted" style={{ margin: 0, fontSize: 13 }}>
-          No classes yet. Add your first class below — for example “Nursery”, “Grade 1” or “9th”.
-        </p>
-      ) : (
-        <div className="stack" style={{ gap: 14 }}>
-          {groups.map((g) => (
-            <div key={g.id} className="stack" style={{ gap: 8 }}>
-              {campuses.length > 1 && (
-                <div className="muted" style={{ fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.4 }}>
-                  {g.campus}
-                </div>
-              )}
-              {g.items.map((k) => (
-                <ClassRow key={k.id} klass={k}
-                  sections={sections.filter((s) => s.classId === k.id).sort((a, b) => a.name.localeCompare(b.name))}
-                  subjects={subjects.filter((s) => s.classId === k.id).sort((a, b) => a.name.localeCompare(b.name))}
-                  openSubjectsOnMount={justCreated === k.id}
-                  onAddSections={(names, choice) => onCreateSections(k.id, names, choice)}
-                  onAddSubjects={(names) => onCreateSubjects(k.id, names)}
-                  onCreateSubjectInline={(name) => onCreateSubjectInline(k.id, name)}
-                  onRename={(name) => onRenameClass(k.id, name)}
-                  onDelete={() => onDeleteClass(k.id)}
-                  onRenameSection={onRenameSection}
-                  onDeleteSection={onDeleteSection}
-                  onDeleteSubject={onDeleteSubject}
-                  onOpenStudents={(sectionId) => {
-                    const qs = new URLSearchParams({ campusId: k.campusId, classId: k.id });
-                    if (sectionId) qs.set('sectionId', sectionId);
-                    router.push(`/students?${qs.toString()}`);
-                  }} />
-              ))}
-            </div>
-          ))}
-        </div>
-      )}
-
-      <div className="inline-form">
-        {campuses.length > 1 && (
-          <div><label>Campus</label>
-            <select value={campusId} onChange={(e) => setCampusId(e.target.value)}>
-              <option value="">Select…</option>
-              {campuses.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
-          </div>
-        )}
-        <div><label>Class name</label><input value={name} onChange={(e) => setName(e.target.value)} placeholder="9th" /></div>
-        {classes.length > 0 && (
-          <div><label>Copy subjects from</label>
-            <select value={copyFromClass} onChange={(e) => setCopyFromClass(e.target.value)}>
-              <option value="">Start with none</option>
-              {classes.map((c) => {
-                const n = subjects.filter((s) => s.classId === c.id).length;
-                return <option key={c.id} value={c.id} disabled={n === 0}>{c.name}{n ? ` (${n} subjects)` : ' — no subjects'}</option>;
-              })}
-            </select>
-          </div>
-        )}
-        <button
-          disabled={!name.trim() || !targetCampus}
-          onClick={async () => {
-            const id = await onCreateClass({ campusId: targetCampus, name: name.trim(), order: nextOrder(targetCampus) });
-            setName('');
-            if (id && copyFromClass) {
-              const names = subjects.filter((s) => s.classId === copyFromClass).map((s) => s.name);
-              if (names.length) await onCreateSubjects(id, names);
-            }
-            setJustCreated(id);
-          }}
-        >
-          Add class
-        </button>
-      </div>
-    </>
-  );
-}
-
-/** How a new section gets its subject list: copy a sibling's, pick explicitly, or (neither)
- *  inherit everything the class offers. */
-export type SubjectChoice = { copySubjectsFromSectionId?: string; subjectIds?: string[] };
-
-/** One class: its sections, its subjects, when it was created, and the controls to add more.
- *  Sections and subjects both accept a comma-separated list, because entering "A, B, C" or
- *  "Maths, Physics, Urdu" in one go is how a school actually thinks about them. */
-function ClassRow({ klass, sections, subjects, openSubjectsOnMount, onAddSections, onAddSubjects, onCreateSubjectInline, onRename, onDelete, onRenameSection, onDeleteSection, onDeleteSubject, onOpenStudents }: {
-  klass: Klass; sections: Section[]; subjects: Subject[]; openSubjectsOnMount?: boolean;
-  onAddSections: (names: string[], choice: SubjectChoice) => void;
-  onAddSubjects: (names: string[]) => void;
-  onCreateSubjectInline: (name: string) => Promise<Subject | null>;
-  onRename: (name: string) => void;
-  onDelete: () => void;
-  onRenameSection: (id: string, name: string) => void;
-  onDeleteSection: (id: string) => void;
-  onDeleteSubject: (id: string) => void;
-  onOpenStudents: (sectionId?: string) => void;
-}) {
-  const [panel, setPanel] = useState<'section' | 'subject' | null>(openSubjectsOnMount ? 'subject' : null);
-  const [input, setInput] = useState('');
-  // Subject plan for the section(s) about to be created.
-  const [mode, setMode] = useState<'same' | 'choose'>('same');
-  const [copyFrom, setCopyFrom] = useState('');
-  const [picked, setPicked] = useState<string[]>([]);
-  // "Choose different subjects" often means a subject the CLASS doesn't offer yet
-  // (8-B takes Biology, 8th has never listed it) — so it can be created right here.
-  const [newSubject, setNewSubject] = useState('');
-  const [addingSubject, setAddingSubject] = useState(false);
-  const [renaming, setRenaming] = useState<string | null>(null); // class name draft, null = not renaming
-  const router = useRouter();
-
-  useEffect(() => { if (openSubjectsOnMount) setPanel('subject'); }, [openSubjectsOnMount]);
-
-  const parsed = Array.from(new Set(input.split(',').map((s) => s.trim()).filter(Boolean)));
-  const open = (which: 'section' | 'subject') => {
-    setPanel(panel === which ? null : which);
-    setInput('');
-    setMode('same');
-    setCopyFrom(sections[0]?.id ?? '');
-    setPicked(subjects.map((s) => s.id));
-  };
-  const subjectNames = (ids: string[]) => subjects.filter((s) => ids.includes(s.id)).map((s) => s.name);
-
-  /** Create a subject on the class from inside the section form, then tick it. Keeps the
-   *  operator in one place instead of cancelling out to add it and starting over. */
-  async function addSubjectInline() {
-    const name = newSubject.trim();
-    if (!name) return;
-    const existing = subjects.find((s) => s.name.toLowerCase() === name.toLowerCase());
-    if (existing) { setPicked((p) => (p.includes(existing.id) ? p : [...p, existing.id])); setNewSubject(''); return; }
-    setAddingSubject(true);
-    const created = await onCreateSubjectInline(name);
-    if (created) { setPicked((p) => [...p, created.id]); setNewSubject(''); }
-    setAddingSubject(false);
-  }
-
-  const created = klass.createdAt
-    ? new Date(klass.createdAt).toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' })
-    : null;
-
-  return (
-    <div style={{ border: '1px solid #e5e7eb', borderRadius: 8, padding: '10px 12px' }} className="stack">
-      <div className="row" style={{ alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-        {renaming === null ? (
-          <>
-            <strong style={{ minWidth: 70 }}>{klass.name}</strong>
-            {created && <span className="muted" style={{ fontSize: 12 }}>Created {created}</span>}
-          </>
-        ) : (
-          <div className="inline-form" style={{ flex: 1 }}>
-            <div style={{ flex: 1, minWidth: 160 }}>
-              <input autoFocus value={renaming} onChange={(e) => setRenaming(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && renaming.trim()) { onRename(renaming.trim()); setRenaming(null); }
-                  if (e.key === 'Escape') setRenaming(null);
-                }} />
-            </div>
-            <button type="button" disabled={!renaming.trim()} onClick={() => { onRename(renaming.trim()); setRenaming(null); }}>Save</button>
-            <button className="ghost" type="button" onClick={() => setRenaming(null)}>Cancel</button>
-          </div>
-        )}
-        {renaming === null && (
-          <div className="row" style={{ gap: 8, marginLeft: 'auto', flexWrap: 'wrap' }}>
-            <button className="ghost small" onClick={() => open('section')}>{panel === 'section' ? 'Cancel' : '+ Section'}</button>
-            <button className="ghost small" onClick={() => open('subject')}>{panel === 'subject' ? 'Cancel' : '+ Subject'}</button>
-            <button className="ghost small" onClick={() => setRenaming(klass.name)}>Rename</button>
-            <button className="ghost small" onClick={() => router.push(`/classes/${klass.id}`)}>Teachers</button>
-            <button className="ghost small" onClick={() => onOpenStudents()}>View students</button>
-            {/* The server refuses while sections/fees/exams depend on it and says which. */}
-            <button className="ghost small" style={{ color: '#b91c1c' }}
-              onClick={() => { if (confirm(`Delete class "${klass.name}"? This cannot be undone.`)) onDelete(); }}>
-              Delete
-            </button>
-          </div>
-        )}
-      </div>
-
-      <div className="chips">
-        <span className="muted" style={{ fontSize: 12, minWidth: 62 }}>Subjects</span>
-        {subjects.length
-          ? subjects.map((s) => (
-              <span key={s.id} className="badge" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                {s.name}
-                <button type="button" aria-label={`Remove ${s.name}`} title={`Remove ${s.name}`}
-                  style={{ background: 'none', border: 0, padding: 0, color: 'inherit', opacity: 0.6, cursor: 'pointer', fontSize: 12 }}
-                  onClick={() => { if (confirm(`Remove subject "${s.name}" from ${klass.name}?`)) onDeleteSubject(s.id); }}>
-                  ✕
-                </button>
-              </span>
-            ))
-          : <span className="muted" style={{ fontSize: 12 }}>None yet — add the subjects this class studies.</span>}
-      </div>
-
-      <div className="chips">
-        <span className="muted" style={{ fontSize: 12, minWidth: 62 }}>Sections</span>
-        {sections.length ? (
-          sections.map((s) => {
-            // Surface a section that studies a DIFFERENT set from the class catalogue —
-            // otherwise an elective split is invisible on this screen.
-            const own = s.subjectIds ?? [];
-            const differs = own.length > 0 && own.length !== subjects.length;
-            return (
-              <span key={s.id} className="badge" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                <button type="button" style={{ background: 'none', border: 0, padding: 0, color: 'inherit', cursor: 'pointer', font: 'inherit' }}
-                  title={differs
-                    ? `${subjectNames(own).join(', ')} — click to view students`
-                    : `View students in ${klass.name} · Section ${s.name}`}
-                  onClick={() => onOpenStudents(s.id)}>
-                  Section {s.name}{differs && ` · ${own.length} subjects`}
-                </button>
-                <button type="button" aria-label={`Rename section ${s.name}`} title="Rename"
-                  style={{ background: 'none', border: 0, padding: 0, color: 'inherit', opacity: 0.6, cursor: 'pointer', fontSize: 11 }}
-                  onClick={() => {
-                    const next = prompt(`Rename section "${s.name}" to:`, s.name);
-                    if (next && next.trim() && next.trim() !== s.name) onRenameSection(s.id, next.trim());
-                  }}>
-                  ✎
-                </button>
-                <button type="button" aria-label={`Delete section ${s.name}`} title="Delete"
-                  style={{ background: 'none', border: 0, padding: 0, color: 'inherit', opacity: 0.6, cursor: 'pointer', fontSize: 12 }}
-                  onClick={() => { if (confirm(`Delete section "${s.name}"? This cannot be undone.`)) onDeleteSection(s.id); }}>
-                  ✕
-                </button>
-              </span>
-            );
-          })
-        ) : (
-          <span className="badge" style={{ background: '#fef3c7', color: '#92400e' }}>Needs a section before students can be admitted</span>
-        )}
-      </div>
-
-      {panel === 'subject' && (
-        <div className="inline-form" style={{ marginTop: 4 }}>
-          <div style={{ flex: 1 }}>
-            <label>Subject name{parsed.length > 1 ? 's' : ''}</label>
-            <input autoFocus value={input} onChange={(e) => setInput(e.target.value)} placeholder="Maths, Physics, Urdu" />
-          </div>
-          <button disabled={!parsed.length} onClick={() => { onAddSubjects(parsed); setInput(''); setPanel(null); }}>
-            {parsed.length > 1 ? `Add ${parsed.length} subjects` : 'Add subject'}
-          </button>
-        </div>
-      )}
-
-      {panel === 'section' && (
-        <div className="stack" style={{ gap: 10, marginTop: 4, padding: 12, border: '1px solid #c7d2fe', borderRadius: 8 }}>
-          <div className="inline-form">
-            <div style={{ flex: 1 }}>
-              <label>Section name{parsed.length > 1 ? 's' : ''}</label>
-              <input autoFocus value={input} onChange={(e) => setInput(e.target.value)} placeholder="A, B, C" />
-            </div>
-          </div>
-
-          {/* Subjects usually match across sections; electives are where they diverge. */}
-          {subjects.length > 0 && (
-            <div className="stack" style={{ gap: 8 }}>
-              <span className="muted" style={{ fontSize: 12 }}>Which subjects will this section study?</span>
-              {sections.length > 0 && (
-                <label style={{ display: 'flex', gap: 8, alignItems: 'center', margin: 0, color: 'var(--ink)', fontSize: 14 }}>
-                  <input type="radio" style={{ width: 'auto' }} checked={mode === 'same'} onChange={() => setMode('same')} />
-                  Same as an existing section
-                  <select value={copyFrom} onChange={(e) => setCopyFrom(e.target.value)} disabled={mode !== 'same'} style={{ width: 'auto' }}>
-                    {sections.map((s) => <option key={s.id} value={s.id}>Section {s.name}</option>)}
-                  </select>
-                </label>
-              )}
-              <label style={{ display: 'flex', gap: 8, alignItems: 'center', margin: 0, color: 'var(--ink)', fontSize: 14 }}>
-                <input type="radio" style={{ width: 'auto' }} checked={mode === 'choose' || sections.length === 0} onChange={() => setMode('choose')} />
-                Choose different subjects
-              </label>
-              {(mode === 'choose' || sections.length === 0) && (
-                <div className="stack" style={{ gap: 8 }}>
-                  <div className="chips">
-                    {subjects.map((s) => {
-                      const on = picked.includes(s.id);
-                      return (
-                        <button key={s.id} type="button" className="badge"
-                          style={{ border: on ? '1px solid var(--brand)' : '1px solid var(--border)', cursor: 'pointer', background: on ? '#eef2ff' : '#fff', color: on ? '#3730a3' : 'var(--muted)' }}
-                          onClick={() => setPicked((p) => (on ? p.filter((x) => x !== s.id) : [...p, s.id]))}>
-                          {on ? '✓ ' : ''}{s.name}
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  <div className="inline-form">
-                    <div style={{ flex: 1, minWidth: 200 }}>
-                      <label>Subject not listed? Add it</label>
-                      <input
-                        value={newSubject}
-                        onChange={(e) => setNewSubject(e.target.value)}
-                        onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void addSubjectInline(); } }}
-                        placeholder="e.g. Biology"
-                      />
-                    </div>
-                    <button className="ghost" type="button" disabled={!newSubject.trim() || addingSubject} onClick={() => void addSubjectInline()}>
-                      {addingSubject ? 'Adding…' : 'Add subject'}
-                    </button>
-                  </div>
-                  <span className="muted" style={{ fontSize: 12 }}>
-                    Added to <strong>{klass.name}</strong>&apos;s subject list and ticked for this section.
-                  </span>
-                </div>
-              )}
-              {mode === 'same' && sections.length > 0 && (
-                <span className="muted" style={{ fontSize: 12 }}>
-                  Copies: {subjectNames(sections.find((x) => x.id === copyFrom)?.subjectIds ?? subjects.map((s) => s.id)).join(', ') || 'all subjects'}
-                </span>
-              )}
-            </div>
-          )}
-
-          <div>
-            <button disabled={!parsed.length}
-              onClick={() => {
-                const choice: SubjectChoice =
-                  subjects.length === 0 ? {}
-                    : mode === 'same' && sections.length > 0 ? { copySubjectsFromSectionId: copyFrom }
-                      : { subjectIds: picked };
-                onAddSections(parsed, choice);
-                setInput(''); setPanel(null);
-              }}>
-              {parsed.length > 1 ? `Add ${parsed.length} sections` : 'Add section'}
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
   );
 }

@@ -24,7 +24,7 @@ test.describe('exams', () => {
     const guardianPhone = `03${String(ts).slice(-9)}`;
 
     // 1) Setup: dedicated class + section for this run
-    await page.getByRole('link', { name: 'Setup', exact: true }).click();
+    await page.getByRole('link', { name: 'School configuration', exact: true }).click();
     await page.waitForURL('**/setup');
 
     const classCard = cardByHeading(page, 'Classes');

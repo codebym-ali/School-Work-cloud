@@ -52,7 +52,7 @@ describe('Campus scoping (e2e, §22.8 / P1.7)', () => {
 
   const server = () => app.getHttpServer();
   const csrfOf = (c: string[]) => (c.find((x) => x.startsWith('csrf=')) ?? '').split(';')[0].slice(5);
-  const authed = (method: 'get' | 'post', p: string, cookies: string[], csrf?: string) => {
+  const authed = (method: 'get' | 'post' | 'patch' | 'delete', p: string, cookies: string[], csrf?: string) => {
     let r = request(server())[method](p).set('Host', host).set('Cookie', cookies);
     if (csrf) r = r.set('X-CSRF-Token', csrf);
     return r;
@@ -298,6 +298,45 @@ describe('Campus scoping (e2e, §22.8 / P1.7)', () => {
 
     const admin = await authed('get', '/api/v1/dashboard', adminCookies);
     expect(admin.body.enrollmentCount).toBe(1); // campus A only
+  });
+
+  // ── Renaming & removal guards ──────────────────────────────────────────────
+  // Classes/sections/subjects were create-and-read only, so a typo was permanent. Deletes
+  // must refuse while something real depends on the row, and say what.
+  it('renames a class, and refuses to delete one that still has sections', async () => {
+    const renamed = await authed('patch', `/api/v1/classes/${classA}`, ownerCookies, ownerCsrf).send({ name: 'Grade 9 (renamed)' });
+    expect(renamed.status).toBe(200);
+    expect(renamed.body.name).toBe('Grade 9 (renamed)');
+
+    const blocked = await authed('delete', `/api/v1/classes/${classA}`, ownerCookies, ownerCsrf);
+    expect(blocked.status).toBe(409);
+    expect(blocked.body.error.message).toContain('section');
+  });
+
+  it('refuses to delete a section that still has an enrolled student', async () => {
+    const res = await authed('delete', `/api/v1/sections/${sectionA}`, ownerCookies, ownerCsrf);
+    expect(res.status).toBe(409);
+    expect(res.body.error.message).toContain('enrolment');
+  });
+
+  it('renames a subject, and deletes an unused one', async () => {
+    const created = await ownerPost('/api/v1/subjects', { classId: classA, name: 'Temp Subject' });
+    expect(created.status).toBe(201);
+
+    const renamed = await authed('patch', `/api/v1/subjects/${created.body.id}`, ownerCookies, ownerCsrf).send({ name: 'Renamed Subject' });
+    expect(renamed.status).toBe(200);
+    expect(renamed.body.name).toBe('Renamed Subject');
+
+    const removed = await authed('delete', `/api/v1/subjects/${created.body.id}`, ownerCookies, ownerCsrf);
+    expect(removed.status).toBe(204);
+  });
+
+  it('deletes an empty section, and then the now-empty class', async () => {
+    const cls = await ownerPost('/api/v1/classes', { campusId: campusA, name: 'Disposable', order: 99 });
+    const sec = await ownerPost('/api/v1/sections', { classId: cls.body.id, name: 'Z' });
+
+    expect((await authed('delete', `/api/v1/sections/${sec.body.id}`, ownerCookies, ownerCsrf)).status).toBe(204);
+    expect((await authed('delete', `/api/v1/classes/${cls.body.id}`, ownerCookies, ownerCsrf)).status).toBe(204);
   });
 
   it('dashboard is role-shaped: an ACCOUNTANT sees financial metrics only', async () => {

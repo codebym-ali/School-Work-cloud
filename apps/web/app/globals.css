@@ -59,6 +59,9 @@ a.metric-link:hover .metric-go { opacity: 1; }
 /* Pipeline summary cards keep their call-to-action visible (they're the route into a whole screen). */
 a.metric-link.pipeline-card .metric-go { opacity: 1; margin-top: 0; }
 .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+/* A wrapping list of chips/badges. NOT `.row` — that is space-between, which flings the
+   chips to opposite edges of a wide container instead of keeping them together. */
+.chips { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 
 /* App shell */
 .shell { display: grid; grid-template-columns: 220px 1fr; min-height: 100vh; }

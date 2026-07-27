@@ -27,6 +27,11 @@ export class CreateStaffDto {
 
   @IsOptional() @IsUUID() campusId?: string;
 
+  /** Set a password here and the account is usable immediately (ACTIVE) instead of sitting
+   *  INVITED with no way in — the school hands the teacher these credentials on the spot. */
+  @IsOptional() @IsString() @MinLength(10) @MaxLength(200)
+  password?: string;
+
   /** Roles to grant the created User (e.g. [TEACHER]); must align with staffType. */
   @IsOptional() @IsEnum(Role, { each: true })
   roles?: Role[];

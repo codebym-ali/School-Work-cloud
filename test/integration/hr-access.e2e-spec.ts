@@ -124,4 +124,42 @@ describe('HR access grant (e2e, RBAC)', () => {
     const actions = (await platform.auditLog.findMany({ where: { schoolId, entityId: teacherUserId } })).map((a) => a.action);
     expect(actions).toEqual(expect.arrayContaining(['HR_ACCESS_GRANTED', 'HR_ACCESS_REVOKED']));
   });
+
+  // The point of the feature: a teacher added with a password can sign in immediately,
+  // rather than sitting INVITED until someone sets one for them in Campus Hub.
+  it('a teacher created WITH a password is ACTIVE and can sign in straight away', async () => {
+    const email = `instant-${Date.now()}@demo.pk`;
+    const password = 'Teach!Secret12';
+    const res = await send('post', '/api/v1/staff', {
+      email, staffType: 'TEACHER', fullName: 'Instant Teacher', employeeCode: `EMP-${Date.now()}`,
+      designation: 'Physics Teacher', joinedAt: '2026-07-01', campusId: campusAId, password,
+    }, ownerCookies);
+    expect(res.status).toBe(201);
+    expect(res.body.loginActive).toBe(true);
+
+    const signedIn = await login(email, password);
+    expect(signedIn.status).toBe(200);
+
+    const user = await platform.user.findFirst({ where: { schoolId, email } });
+    expect(user?.status).toBe('ACTIVE');
+    expect(user?.passwordHash).toBeTruthy();
+    expect(user?.passwordChangedAt).not.toBeNull();
+  });
+
+  it('a teacher created WITHOUT a password stays INVITED and cannot sign in', async () => {
+    const email = `invited-${Date.now()}@demo.pk`;
+    const res = await send('post', '/api/v1/staff', {
+      email, staffType: 'TEACHER', fullName: 'Invited Teacher', employeeCode: `EMP-B${Date.now()}`,
+      designation: 'Maths Teacher', joinedAt: '2026-07-01', campusId: campusAId,
+    }, ownerCookies);
+    expect(res.status).toBe(201);
+    expect(res.body.loginActive).toBe(false);
+
+    const attempt = await login(email, 'Teach!Secret12');
+    expect(attempt.status).toBe(401);
+
+    const user = await platform.user.findFirst({ where: { schoolId, email } });
+    expect(user?.status).toBe('INVITED');
+    expect(user?.passwordHash).toBeNull();
+  });
 });

@@ -2,6 +2,7 @@ import { HttpStatus, Injectable } from '@nestjs/common';
 import { Prisma, Role, StaffType } from '@prisma/client';
 import { AppError, assertCampusAccess, ErrorCodes, restrictedCampusId, TenantContext } from '@common';
 import { TenantPrismaService } from '@database';
+import { PasswordService } from '../auth/password.service';
 import type { CreateSalaryStructureDto, CreateStaffDto, CreateTeacherAssignmentDto } from './dto/hr.dto';
 
 /** Staff HR (blueprint §13): profiles for all staff types, salary structures, teacher assignments. */
@@ -10,6 +11,7 @@ export class StaffService {
   constructor(
     private readonly tenantPrisma: TenantPrismaService,
     private readonly ctx: TenantContext,
+    private readonly passwords: PasswordService,
   ) {}
 
   private get db() {
@@ -19,7 +21,8 @@ export class StaffService {
     return this.ctx.requireSchoolId();
   }
 
-  /** Create a User (INVITED, no password) + StaffProfile in one operation. */
+  /** Create a User + StaffProfile in one operation. Supplying `password` makes the login
+   *  usable straight away; omitting it leaves the account INVITED until a password is set. */
   async createStaff(dto: CreateStaffDto) {
     // A campus-bound admin can only create staff in their own campus (§22.8).
     assertCampusAccess(this.ctx.user, dto.campusId ?? null);
@@ -58,9 +61,21 @@ export class StaffService {
       );
     }
 
+    // With a password the account is ACTIVE and can sign in immediately; without one it stays
+    // INVITED (no passwordHash) and an owner has to set a password before the teacher can log in.
+    const passwordHash = dto.password ? await this.passwords.hash(dto.password) : null;
+
     try {
       const user = await this.db.user.create({
-        data: { schoolId: this.sid, email: dto.email.toLowerCase(), roles, status: 'INVITED', campusId: dto.campusId },
+        data: {
+          schoolId: this.sid,
+          email: dto.email.toLowerCase(),
+          roles,
+          status: passwordHash ? 'ACTIVE' : 'INVITED',
+          passwordHash,
+          passwordChangedAt: passwordHash ? new Date() : null,
+          campusId: dto.campusId,
+        },
       });
       const staff = await this.db.staffProfile.create({
         data: {
@@ -73,7 +88,10 @@ export class StaffService {
           joinedAt: new Date(dto.joinedAt),
         },
       });
-      return { userId: user.id, staffId: staff.id, employeeCode: staff.employeeCode };
+      return {
+        userId: user.id, staffId: staff.id, employeeCode: staff.employeeCode,
+        email: user.email, loginActive: Boolean(passwordHash),
+      };
     } catch (e) {
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
         throw new AppError(ErrorCodes.CONFLICT, HttpStatus.CONFLICT, 'Email or employeeCode already exists');

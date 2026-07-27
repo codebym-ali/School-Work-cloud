@@ -17,6 +17,9 @@ import type {
   CreateSectionDto,
   CreateSubjectDto,
   UpdateCampusDto,
+  UpdateClassDto,
+  UpdateSectionDto,
+  UpdateSubjectDto,
 } from './dto/setup.dto';
 
 /**
@@ -182,17 +185,73 @@ export class SetupService {
   // ── Sections ───────────────────────────────────────────────────────────────
   async createSection(dto: CreateSectionDto) {
     await this.assertClassCampus(dto.classId);
-    return this.db.section.create({
+    const section = await this.db.section.create({
       data: { schoolId: this.sid, classId: dto.classId, name: dto.name, capacity: dto.capacity ?? 40 },
     });
+
+    // Subject list: an explicit choice, or copied from a sibling section ("same as Section A").
+    // Neither given ⇒ no rows ⇒ the section studies everything its class offers.
+    let subjectIds = dto.subjectIds;
+    if (!subjectIds && dto.copySubjectsFromSectionId) {
+      const source = await this.db.section.findFirst({
+        where: { id: dto.copySubjectsFromSectionId },
+        select: { classId: true, subjects: { select: { subjectId: true } } },
+      });
+      if (!source) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'Section to copy from not found');
+      if (source.classId !== dto.classId) {
+        throw new AppError(ErrorCodes.VALIDATION_FAILED, HttpStatus.UNPROCESSABLE_ENTITY, 'Can only copy subjects from a section of the same class');
+      }
+      subjectIds = source.subjects.map((s) => s.subjectId);
+    }
+
+    if (subjectIds?.length) {
+      // Every subject must belong to THIS class — otherwise a section could "study" a
+      // subject from another class, which nothing downstream expects.
+      const valid = await this.db.subject.findMany({
+        where: { id: { in: subjectIds }, classId: dto.classId },
+        select: { id: true },
+      });
+      if (valid.length !== subjectIds.length) {
+        throw new AppError(ErrorCodes.VALIDATION_FAILED, HttpStatus.UNPROCESSABLE_ENTITY, 'One or more subjects do not belong to this class');
+      }
+      await this.db.sectionSubject.createMany({
+        data: valid.map((s) => ({ schoolId: this.sid, sectionId: section.id, subjectId: s.id })),
+      });
+    }
+
+    return section;
   }
 
-  listSections(classId?: string) {
+  /** Replace a section's subject list (empty array ⇒ studies everything the class offers). */
+  async setSectionSubjects(sectionId: string, subjectIds: string[]) {
+    const section = await this.db.section.findFirst({ where: { id: sectionId }, select: { classId: true } });
+    if (!section) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'Section not found');
+    await this.assertClassCampus(section.classId);
+
+    if (subjectIds.length) {
+      const valid = await this.db.subject.count({ where: { id: { in: subjectIds }, classId: section.classId } });
+      if (valid !== subjectIds.length) {
+        throw new AppError(ErrorCodes.VALIDATION_FAILED, HttpStatus.UNPROCESSABLE_ENTITY, 'One or more subjects do not belong to this class');
+      }
+    }
+    await this.db.sectionSubject.deleteMany({ where: { sectionId } });
+    if (subjectIds.length) {
+      await this.db.sectionSubject.createMany({
+        data: subjectIds.map((subjectId) => ({ schoolId: this.sid, sectionId, subjectId })),
+      });
+    }
+    return { sectionId, subjectIds };
+  }
+
+  async listSections(classId?: string) {
     const restricted = restrictedCampusId(this.ctx.user);
-    return this.db.section.findMany({
+    const rows = await this.db.section.findMany({
       where: { ...(classId ? { classId } : {}), ...(restricted ? { class: { campusId: restricted } } : {}) },
       orderBy: { name: 'asc' },
+      include: { subjects: { select: { subjectId: true } } },
     });
+    // Flatten the link rows to plain ids — the client only ever needs the id list.
+    return rows.map(({ subjects, ...s }) => ({ ...s, subjectIds: subjects.map((x) => x.subjectId) }));
   }
 
   // ── Subjects ───────────────────────────────────────────────────────────────
@@ -211,6 +270,101 @@ export class SetupService {
 
   // ── helpers ──────────────────────────────────────────────────────────────────
   /** A class exists and (for campus-bound users) belongs to the caller's campus. */
+  // ── Renaming & removal ───────────────────────────────────────────────────────
+  // Classes, sections and subjects were create-and-read only, so a mis-typed name was
+  // permanent. Deletes are guarded by what actually USES the row, and the error names the
+  // blocker. Note `teacher_assignments` and `timetable_slots` carry no FK to sections or
+  // subjects, so the database will NOT stop an orphan — those counts are checked here.
+
+  async updateClass(id: string, dto: UpdateClassDto) {
+    await this.assertClassCampus(id);
+    return this.db.class.update({
+      where: { id },
+      data: { name: dto.name, minAgeYears: dto.minAgeYears, maxAgeYears: dto.maxAgeYears },
+    });
+  }
+
+  async deleteClass(id: string): Promise<void> {
+    await this.assertClassCampus(id);
+    const [sections, feeStructures, exams, batches] = await Promise.all([
+      this.db.section.count({ where: { classId: id } }),
+      this.db.feeStructure.count({ where: { classId: id } }),
+      this.db.examDefinition.count({ where: { classId: id } }),
+      this.db.feeInvoiceBatch.count({ where: { classId: id } }),
+    ]);
+    const blockers: string[] = [];
+    if (sections) blockers.push(`${sections} section(s)`);
+    if (feeStructures) blockers.push(`${feeStructures} fee structure(s)`);
+    if (exams) blockers.push(`${exams} exam(s)`);
+    if (batches) blockers.push(`${batches} fee batch(es)`);
+    if (blockers.length) {
+      throw new AppError(ErrorCodes.CONFLICT, HttpStatus.CONFLICT,
+        `This class is in use — ${blockers.join(', ')} belong to it. Remove those first.`);
+    }
+    // Its subjects are owned by the class and now provably unused (no sections ⇒ no
+    // section links; exam results require an exam, and there are none).
+    await this.db.subject.deleteMany({ where: { classId: id } });
+    await this.db.class.delete({ where: { id } });
+  }
+
+  async updateSection(id: string, dto: UpdateSectionDto) {
+    const section = await this.db.section.findFirst({ where: { id }, select: { classId: true } });
+    if (!section) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'Section not found');
+    await this.assertClassCampus(section.classId);
+    return this.db.section.update({ where: { id }, data: { name: dto.name, capacity: dto.capacity } });
+  }
+
+  async deleteSection(id: string): Promise<void> {
+    const section = await this.db.section.findFirst({ where: { id }, select: { classId: true } });
+    if (!section) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'Section not found');
+    await this.assertClassCampus(section.classId);
+
+    const [enrollments, assignments, slots] = await Promise.all([
+      this.db.studentEnrollment.count({ where: { sectionId: id } }),
+      this.db.teacherAssignment.count({ where: { sectionId: id } }),
+      this.db.timetableSlot.count({ where: { sectionId: id } }),
+    ]);
+    const blockers: string[] = [];
+    if (enrollments) blockers.push(`${enrollments} student enrolment(s)`);
+    if (assignments) blockers.push(`${assignments} teacher assignment(s)`);
+    if (slots) blockers.push(`${slots} timetable slot(s)`);
+    if (blockers.length) {
+      throw new AppError(ErrorCodes.CONFLICT, HttpStatus.CONFLICT,
+        `This section is in use — ${blockers.join(', ')} belong to it. Move or remove those first.`);
+    }
+    await this.db.section.delete({ where: { id } }); // section_subjects cascade
+  }
+
+  async updateSubject(id: string, dto: UpdateSubjectDto) {
+    const subject = await this.db.subject.findFirst({ where: { id }, select: { classId: true } });
+    if (!subject) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'Subject not found');
+    await this.assertClassCampus(subject.classId);
+    return this.db.subject.update({ where: { id }, data: { name: dto.name } });
+  }
+
+  async deleteSubject(id: string): Promise<void> {
+    const subject = await this.db.subject.findFirst({ where: { id }, select: { classId: true } });
+    if (!subject) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'Subject not found');
+    await this.assertClassCampus(subject.classId);
+
+    const [results, assignments, slots] = await Promise.all([
+      this.db.examResult.count({ where: { subjectId: id } }),
+      this.db.teacherAssignment.count({ where: { subjectId: id } }),
+      this.db.timetableSlot.count({ where: { subjectId: id } }),
+    ]);
+    const blockers: string[] = [];
+    if (results) blockers.push(`${results} exam result(s)`);
+    if (assignments) blockers.push(`${assignments} teacher assignment(s)`);
+    if (slots) blockers.push(`${slots} timetable slot(s)`);
+    if (blockers.length) {
+      throw new AppError(ErrorCodes.CONFLICT, HttpStatus.CONFLICT,
+        `This subject is in use — ${blockers.join(', ')} reference it. Remove those first.`);
+    }
+    // Curriculum links are just "this section studies it" — safe to drop with the subject.
+    await this.db.sectionSubject.deleteMany({ where: { subjectId: id } });
+    await this.db.subject.delete({ where: { id } });
+  }
+
   private async assertClassCampus(classId: string): Promise<void> {
     const klass = await this.db.class.findFirst({ where: { id: classId }, select: { campusId: true } });
     if (!klass) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'class not found');

@@ -264,6 +264,7 @@ model School {
   classes            Class[]
   sections           Section[]
   subjects           Subject[]
+  sectionSubjects    SectionSubject[]
   holidays           Holiday[]
   users              User[]
   parentProfiles     ParentProfile[]
@@ -405,6 +406,7 @@ model Section {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   enrollments StudentEnrollment[]
+  subjects    SectionSubject[]
 
   @@unique([id, schoolId])
   @@unique([classId, name])
@@ -424,10 +426,31 @@ model Subject {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   examResults ExamResult[]
+  sections    SectionSubject[]
 
   @@unique([id, schoolId])
   @@unique([classId, name])
   @@map("subjects")
+}
+
+/// Which subjects a SECTION actually studies. The class owns the catalogue (so "Maths" is one
+/// Subject row, keeping exam results and reports single-valued); a section opts into the ones
+/// it takes. That is how electives work in practice — 9-A takes Computer, 9-B takes Biology,
+/// while both share the core. Absence of rows for a section means "studies everything the
+/// class offers", so existing data keeps working without a backfill.
+model SectionSubject {
+  id        String   @id @default(uuid()) @db.Uuid
+  schoolId  String   @map("school_id") @db.Uuid
+  school    School   @relation(fields: [schoolId], references: [id])
+  sectionId String   @map("section_id") @db.Uuid
+  section   Section  @relation(fields: [sectionId, schoolId], references: [id, schoolId], onDelete: Cascade)
+  subjectId String   @map("subject_id") @db.Uuid
+  subject   Subject  @relation(fields: [subjectId, schoolId], references: [id, schoolId])
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([sectionId, subjectId])
+  @@index([schoolId, sectionId])
+  @@map("section_subjects")
 }
 
 model Holiday {

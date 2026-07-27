@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Patch, Post, Put, Query } from '@nestjs/common';
 import { Roles } from '@common';
 import { SetupService } from './setup.service';
 import {
@@ -8,6 +8,10 @@ import {
   CreateClassDto,
   CreateSectionDto,
   CreateSubjectDto,
+  SetSectionSubjectsDto,
+  UpdateClassDto,
+  UpdateSectionDto,
+  UpdateSubjectDto,
   SectionListQuery,
   UpdateCampusDto,
 } from './dto/setup.dto';
@@ -77,6 +81,19 @@ export class ClassController {
   list(@Query() q: ClassListQuery) {
     return this.setup.listClasses(q.campusId);
   }
+
+  @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
+  @Patch(':id')
+  update(@Param('id') id: string, @Body() dto: UpdateClassDto) {
+    return this.setup.updateClass(id, dto);
+  }
+
+  @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
+  @Delete(':id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  remove(@Param('id') id: string) {
+    return this.setup.deleteClass(id);
+  }
 }
 
 @Controller('sections')
@@ -93,6 +110,26 @@ export class SectionController {
   list(@Query() q: SectionListQuery) {
     return this.setup.listSections(q.classId);
   }
+
+  /** Replace which subjects this section studies (empty ⇒ everything the class offers). */
+  @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
+  @Put(':id/subjects')
+  setSubjects(@Param('id') id: string, @Body() dto: SetSectionSubjectsDto) {
+    return this.setup.setSectionSubjects(id, dto.subjectIds);
+  }
+
+  @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
+  @Patch(':id')
+  update(@Param('id') id: string, @Body() dto: UpdateSectionDto) {
+    return this.setup.updateSection(id, dto);
+  }
+
+  @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
+  @Delete(':id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  remove(@Param('id') id: string) {
+    return this.setup.deleteSection(id);
+  }
 }
 
 @Controller('subjects')
@@ -108,5 +145,18 @@ export class SubjectController {
   @Get()
   list(@Query() q: SectionListQuery) {
     return this.setup.listSubjects(q.classId);
+  }
+
+  @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
+  @Patch(':id')
+  update(@Param('id') id: string, @Body() dto: UpdateSubjectDto) {
+    return this.setup.updateSubject(id, dto);
+  }
+
+  @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
+  @Delete(':id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  remove(@Param('id') id: string) {
+    return this.setup.deleteSubject(id);
   }
 }

@@ -13,6 +13,18 @@ type Msg = { ok: boolean; text: string } | null;
 const today = () => new Date().toISOString().slice(0, 10);
 
 const STAFF_TYPES = ['TEACHER', 'ADMIN', 'ACCOUNTANT', 'CLERK', 'SUPPORT'] as const;
+
+/** Readable temporary password: no look-alike characters (0/O, 1/l/I) because this gets
+ *  written on paper and read aloud. 14 chars clears the API's 10-character minimum. */
+function generatePassword(): string {
+  const abc = 'ABCDEFGHJKMNPQRSTUVWXYZ';
+  const num = '23456789';
+  const all = `${abc}${abc.toLowerCase()}${num}`;
+  const pick = (set: string) => set[Math.floor(Math.random() * set.length)];
+  const body = Array.from({ length: 11 }, () => pick(all)).join('');
+  // Guarantee at least one of each class regardless of the random draw.
+  return `${pick(abc)}${body}${pick(num)}!`;
+}
 // Common job titles for the "role" categorization (Principal, VP, Director, …). Free-text,
 // so admins can also type their own; these just seed the picker.
 const DESIGNATION_PRESETS = [
@@ -46,6 +58,8 @@ export default function StaffPage() {
   const [fSubject, setFSubject] = useState('');
   const [fSearch, setFSearch] = useState('');
   const [addingStaff, setAddingStaff] = useState(false);
+  // Credentials to hand over, shown once after a staff member is created with a login.
+  const [newLogin, setNewLogin] = useState<{ name: string; email: string; password: string } | null>(null);
 
   const currentYear = years.find((y) => y.isCurrent) ?? null;
 
@@ -112,9 +126,36 @@ export default function StaffPage() {
       </p>
       {msg && <div className={`toast ${msg.ok ? 'ok' : 'err'}`}>{msg.text}</div>}
 
+      {/* Shown once, right after creation — the password is never retrievable again. */}
+      {newLogin && (
+        <div className="card stack" style={{ borderColor: '#86efac', background: '#f0fdf4' }}>
+          <div className="row">
+            <strong>{newLogin.name} can sign in now</strong>
+            <button className="ghost small" onClick={() => setNewLogin(null)}>Dismiss</button>
+          </div>
+          <div className="form-grid">
+            <div className="f-half"><label>Email</label><input readOnly value={newLogin.email} onFocus={(e) => e.currentTarget.select()} /></div>
+            <div className="f-half"><label>Temporary password</label><input readOnly value={newLogin.password} onFocus={(e) => e.currentTarget.select()} /></div>
+          </div>
+          <p className="muted" style={{ margin: 0, fontSize: 12 }}>
+            Copy these now — the password can&apos;t be shown again. Ask them to change it under 🔒 Security after their first sign-in.
+          </p>
+        </div>
+      )}
+
       {addingStaff && (
         <AddStaff campuses={myCampuses} lockedCampus={isOwner ? null : (me?.campusId ?? null)}
-          onCreate={async (b) => { await run(() => api.staff.create(b), 'Staff member added'); setAddingStaff(false); }} />
+          onCreate={async (b) => {
+            try {
+              const res = await api.staff.create(b);
+              await load();
+              setMsg({ ok: true, text: 'Staff member added' });
+              setAddingStaff(false);
+              if (res.loginActive && b.password) setNewLogin({ name: b.fullName ?? res.email, email: res.email, password: b.password });
+            } catch (e) {
+              setMsg({ ok: false, text: e instanceof ApiError ? e.message : 'Failed' });
+            }
+          }} />
       )}
 
       {/* Categorize-by filters */}
@@ -269,12 +310,19 @@ function AccessPanel({ userId, roles, campusId, onMsg, onRolesChanged }: {
 
 function AddStaff({ campuses, lockedCampus, onCreate }: {
   campuses: Campus[]; lockedCampus: string | null;
-  onCreate: (b: { email: string; staffType: string; fullName?: string; employeeCode: string; designation: string; joinedAt: string; campusId?: string }) => void;
+  onCreate: (b: { email: string; staffType: string; fullName?: string; employeeCode: string; designation: string; joinedAt: string; campusId?: string; password?: string }) => void;
 }) {
-  const [f, setF] = useState<Record<string, string>>({ joinedAt: today(), staffType: 'TEACHER', designation: 'Teacher', campusId: lockedCampus ?? '' });
+  const [f, setF] = useState<Record<string, string>>({
+    joinedAt: today(), staffType: 'TEACHER', designation: 'Teacher', campusId: lockedCampus ?? '',
+    password: generatePassword(),
+  });
+  // On by default: a teacher who cannot sign in is not much use, and the alternative is the
+  // owner going to Campus Hub afterwards to set a password by hand.
+  const [createLogin, setCreateLogin] = useState(true);
   const set = (k: string, v: string) => setF((p) => ({ ...p, [k]: v }));
   const campusId = lockedCampus ?? f.campusId;
-  const ready = f.fullName && f.email && f.employeeCode && f.designation && f.joinedAt && campusId;
+  const passwordOk = !createLogin || (f.password ?? '').length >= 10;
+  const ready = f.fullName && f.email && f.employeeCode && f.designation && f.joinedAt && campusId && passwordOk;
 
   return (
     <div className="card stack">
@@ -299,12 +347,43 @@ function AddStaff({ campuses, lockedCampus, onCreate }: {
           </div>
         )}
       </div>
+      <div className="stack" style={{ gap: 8, padding: 12, border: '1px solid var(--border)', borderRadius: 8 }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, margin: 0, fontSize: 14, color: 'var(--ink)' }}>
+          <input type="checkbox" style={{ width: 'auto' }} checked={createLogin} onChange={(e) => setCreateLogin(e.target.checked)} />
+          Create their login now — they can sign in straight away
+        </label>
+        {createLogin ? (
+          <>
+            <div className="inline-form">
+              <div style={{ flex: 1, minWidth: 220 }}>
+                <label>Temporary password</label>
+                <input value={f.password ?? ''} onChange={(e) => set('password', e.target.value)} />
+              </div>
+              <button className="ghost" type="button" onClick={() => set('password', generatePassword())}>Generate</button>
+            </div>
+            {!passwordOk && <div className="field-error">Password must be at least 10 characters.</div>}
+            <p className="muted" style={{ margin: 0, fontSize: 12 }}>
+              Give these to the teacher — they sign in at this school&apos;s address with their email and this password,
+              then change it under 🔒 Security.
+            </p>
+          </>
+        ) : (
+          <p className="muted" style={{ margin: 0, fontSize: 12 }}>
+            The account will be created but cannot sign in until an owner sets a password in <b>Campus Hub</b>.
+          </p>
+        )}
+      </div>
+
       <div>
         <button disabled={!ready}
-          onClick={() => onCreate({ email: f.email, staffType: f.staffType, fullName: f.fullName, employeeCode: f.employeeCode, designation: f.designation, joinedAt: f.joinedAt, campusId })}>
+          onClick={() => onCreate({
+            email: f.email, staffType: f.staffType, fullName: f.fullName, employeeCode: f.employeeCode,
+            designation: f.designation, joinedAt: f.joinedAt, campusId,
+            ...(createLogin ? { password: f.password } : {}),
+          })}>
           Add teacher
         </button>
-        <span className="muted" style={{ marginLeft: 10, fontSize: 12 }}>Invited by email — they set their own password. Assign their classes and subjects from the list below once added.</span>
+        <span className="muted" style={{ marginLeft: 10, fontSize: 12 }}>Assign their classes and subjects from the list below once added.</span>
       </div>
     </div>
   );

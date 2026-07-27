@@ -80,8 +80,9 @@ export interface Dashboard {
 export interface Paged<T> { data: T[]; total: number; page: number; pageSize: number }
 export interface Campus { id: string; name: string }
 export interface AcademicYear { id: string; name: string; isCurrent: boolean }
-export interface Klass { id: string; name: string; order: number; campusId: string }
-export interface Section { id: string; name: string; classId: string }
+export interface Klass { id: string; name: string; order: number; campusId: string; createdAt?: string }
+/** `subjectIds` empty ⇒ the section studies every subject its class offers. */
+export interface Section { id: string; name: string; classId: string; subjectIds?: string[] }
 export type StudentStatus = 'ACTIVE' | 'SUSPENDED' | 'RESTRICTED' | 'STRUCK_OFF' | 'WITHDRAWN' | 'GRADUATED';
 export interface Student { id: string; fullName: string; grNumber: string; registrationNo: string | null; gender: string; isActive: boolean; status: StudentStatus; statusReason: string | null; statusEndsOn: string | null }
 export interface StudentDetail {
@@ -277,8 +278,10 @@ export const api = {
   },
   staff: {
     list: () => apiGet<ManagedTeacher[]>('/staff'),
-    create: (body: { email: string; staffType: string; fullName?: string; employeeCode: string; designation: string; joinedAt: string; campusId?: string; roles?: string[] }) =>
-      apiPost<{ userId: string; staffId: string; employeeCode: string }>('/staff', body),
+    // `password` (min 10) makes the login usable immediately; omit it and the account stays
+    // INVITED until an owner sets one.
+    create: (body: { email: string; staffType: string; fullName?: string; employeeCode: string; designation: string; joinedAt: string; campusId?: string; roles?: string[]; password?: string }) =>
+      apiPost<{ userId: string; staffId: string; employeeCode: string; email: string; loginActive: boolean }>('/staff', body),
     myAttendance: () => apiGet<StaffAttendanceRow[]>('/staff-attendance/mine'),
   },
   staffLeaves: {
@@ -297,8 +300,24 @@ export const api = {
       apiPost<TeacherAssignment>('/teacher-assignments', body),
     remove: (id: string) => apiDelete(`/teacher-assignments/${id}`),
   },
+  classes: {
+    rename: (id: string, name: string) => apiPatch<Klass>(`/classes/${id}`, { name }),
+    remove: (id: string) => apiDelete<null>(`/classes/${id}`),
+  },
+  sections: {
+    create: (body: { classId: string; name: string; subjectIds?: string[]; copySubjectsFromSectionId?: string }) =>
+      apiPost<Section>('/sections', body),
+    setSubjects: (id: string, subjectIds: string[]) => apiPut<{ sectionId: string; subjectIds: string[] }>(`/sections/${id}/subjects`, { subjectIds }),
+    rename: (id: string, name: string) => apiPatch<Section>(`/sections/${id}`, { name }),
+    remove: (id: string) => apiDelete<null>(`/sections/${id}`),
+  },
   subjects: {
     list: (classId: string) => apiGet<Subject[]>(`/subjects?classId=${classId}`),
+    /** Every subject in scope — one call instead of one per class on the Setup screen. */
+    listAll: () => apiGet<Subject[]>('/subjects'),
+    create: (classId: string, name: string) => apiPost<Subject>('/subjects', { classId, name }),
+    rename: (id: string, name: string) => apiPatch<Subject>(`/subjects/${id}`, { name }),
+    remove: (id: string) => apiDelete<null>(`/subjects/${id}`),
   },
   terms: {
     remove: (id: string) => apiDelete<{ ok: boolean }>(`/terms/${id}`),

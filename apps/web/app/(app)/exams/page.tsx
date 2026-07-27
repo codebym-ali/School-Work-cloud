@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import {
   api, apiGet, apiPost, apiPut, ApiError,
   type AcademicYear, type Campus, type Exam, type ExamResult, type GradeBand,
@@ -82,8 +83,7 @@ function ExamsAdminConsole() {
       <h1>Exams</h1>
       {msg && <div className={`toast ${msg.ok ? 'ok' : 'err'}`}>{msg.text}</div>}
 
-      <SubjectsCard subjects={subjects} classes={classes} classLabel={classLabel}
-        onCreate={(b) => run(() => apiPost('/subjects', b), 'Subject created', reloadBase)} />
+      <SubjectsCard subjects={subjects} classes={classes} />
 
       <GradeScaleCard years={years}
         onSaved={(ok, text) => setMsg({ ok, text })} />
@@ -128,22 +128,32 @@ function ExamsAdminConsole() {
   );
 }
 
-function SubjectsCard({ subjects, classes, classLabel, onCreate }: { subjects: Subject[]; classes: Klass[]; classLabel: (c: Klass) => string; onCreate: (b: Record<string, string>) => void }) {
-  const [form, setForm] = useState<Record<string, string>>({});
+/** Read-only. Subjects are academic structure and belong with classes and sections, so they
+ *  are created in Setup — having two places to add them left it ambiguous which was canonical. */
+function SubjectsCard({ subjects, classes }: { subjects: Subject[]; classes: Klass[] }) {
   const nameFor = (id: string) => classes.find((c) => c.id === id)?.name ?? '?';
+  const byClass = classes
+    .map((c) => ({ c, items: subjects.filter((s) => s.classId === c.id) }))
+    .filter((g) => g.items.length > 0);
+
   return (
     <div className="card stack">
-      <h2 style={{ margin: 0, fontSize: 17 }}>Subjects</h2>
-      <div className="muted">{subjects.length ? subjects.map((s) => `${nameFor(s.classId)}: ${s.name}`).join(' · ') : 'None yet.'}</div>
-      <div className="inline-form">
-        <div><label>Class</label>
-          <select value={form.classId ?? ''} onChange={(e) => setForm({ ...form, classId: e.target.value })}>
-            <option value="">Select…</option>{classes.map((c) => <option key={c.id} value={c.id}>{classLabel(c)}</option>)}
-          </select>
-        </div>
-        <div><label>Name</label><input value={form.name ?? ''} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Mathematics" /></div>
-        <button onClick={() => onCreate(form)} disabled={!form.classId || !form.name}>Add subject</button>
+      <div className="row">
+        <h2 style={{ margin: 0, fontSize: 17 }}>Subjects</h2>
+        <Link className="ghost small" href="/setup" style={{ textDecoration: 'none' }}>Manage in Setup →</Link>
       </div>
+      {byClass.length === 0 ? (
+        <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+          No subjects yet — add them to a class in <Link href="/setup">Setup</Link>.
+        </p>
+      ) : (
+        byClass.map(({ c, items }) => (
+          <div className="chips" key={c.id}>
+            <span className="muted" style={{ fontSize: 12, minWidth: 62 }}>{nameFor(c.id)}</span>
+            {items.map((s) => <span key={s.id} className="badge">{s.name}</span>)}
+          </div>
+        ))
+      )}
     </div>
   );
 }

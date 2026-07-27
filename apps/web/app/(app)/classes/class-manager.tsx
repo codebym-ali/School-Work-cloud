@@ -8,14 +8,14 @@ import { nearestSubject } from '@/lib/subject-match';
 /** Classes and sections are one job, not two — a class without sections can't take a
  *  student, so sections are added inline on the class they belong to rather than from a
  *  separate card with its own class dropdown. */
-export function ClassManager({ classes, sections, subjects, campuses, catalogue, showTools = false, onCreateClass, onCreateSections, onCreateSubjects, onCreateSubjectInline, onRenameClass, onDeleteClass, onReorderClass, onUpdateSection, onDeleteSection, onDeleteSubject }: {
+export function ClassManager({ classes, sections, subjects, campuses, catalogue, showTools = false, onCreateClass, onCreateSections, onCreateSubjects, onCreateSubjectInline, onUpdateClass, onDeleteClass, onReorderClass, onUpdateSection, onDeleteSection, onDeleteSubject }: {
   classes: Klass[]; sections: Section[]; subjects: Subject[]; campuses: Campus[]; catalogue: SubjectCatalogueEntry[];
   showTools?: boolean;
   onCreateClass: (b: object) => Promise<string | null>;
   onCreateSections: (classId: string, names: string[], subjectChoice: SubjectChoice, capacity?: number) => void;
   onCreateSubjects: (classId: string, names: string[]) => void;
   onCreateSubjectInline: (classId: string, name: string) => Promise<Subject | null>;
-  onRenameClass: (id: string, name: string) => void;
+  onUpdateClass: (id: string, body: { name?: string; minAgeYears?: number; maxAgeYears?: number }) => void;
   onDeleteClass: (id: string) => void;
   onReorderClass?: (updates: { id: string; order: number }[]) => void;
   onUpdateSection: (id: string, body: { name?: string; capacity?: number }) => void;
@@ -103,7 +103,7 @@ export function ClassManager({ classes, sections, subjects, campuses, catalogue,
                   onAddSections={(names, choice, capacity) => onCreateSections(k.id, names, choice, capacity)}
                   onAddSubjects={(names) => onCreateSubjects(k.id, names)}
                   onCreateSubjectInline={(name) => onCreateSubjectInline(k.id, name)}
-                  onRename={(name) => onRenameClass(k.id, name)}
+                  onUpdate={(body) => onUpdateClass(k.id, body)}
                   onDelete={() => onDeleteClass(k.id)}
                   onMoveUp={showTools && onReorderClass && index > 0
                     ? () => onReorderClass(resequence(g.items, index, index - 1))
@@ -185,12 +185,12 @@ function resequence(items: Klass[], from: number, to: number): { id: string; ord
 /** One class: its sections, its subjects, when it was created, and the controls to add more.
  *  Sections and subjects both accept a comma-separated list, because entering "A, B, C" or
  *  "Maths, Physics, Urdu" in one go is how a school actually thinks about them. */
-function ClassRow({ klass, sections, subjects, catalogue, catalogueListId, openSubjectsOnMount, onAddSections, onAddSubjects, onCreateSubjectInline, onRename, onDelete, onMoveUp, onMoveDown, onUpdateSection, onDeleteSection, onDeleteSubject, onOpenStudents }: {
+function ClassRow({ klass, sections, subjects, catalogue, catalogueListId, openSubjectsOnMount, onAddSections, onAddSubjects, onCreateSubjectInline, onUpdate, onDelete, onMoveUp, onMoveDown, onUpdateSection, onDeleteSection, onDeleteSubject, onOpenStudents }: {
   klass: Klass; sections: Section[]; subjects: Subject[]; catalogue: SubjectCatalogueEntry[]; catalogueListId: string; openSubjectsOnMount?: boolean;
   onAddSections: (names: string[], choice: SubjectChoice, capacity?: number) => void;
   onAddSubjects: (names: string[]) => void;
   onCreateSubjectInline: (name: string) => Promise<Subject | null>;
-  onRename: (name: string) => void;
+  onUpdate: (body: { name?: string; minAgeYears?: number; maxAgeYears?: number }) => void;
   onDelete: () => void;
   onMoveUp?: () => void;
   onMoveDown?: () => void;
@@ -209,7 +209,7 @@ function ClassRow({ klass, sections, subjects, catalogue, catalogueListId, openS
   // (8-B takes Biology, 8th has never listed it) — so it can be created right here.
   const [newSubject, setNewSubject] = useState('');
   const [addingSubject, setAddingSubject] = useState(false);
-  const [renaming, setRenaming] = useState<string | null>(null); // class name draft, null = not renaming
+  const [renaming, setRenaming] = useState<{ name: string; minAge: string; maxAge: string } | null>(null);
   const [editingSection, setEditingSection] = useState<{ id: string; name: string; capacity: string } | null>(null);
   const [newCapacity, setNewCapacity] = useState('40');
   const [nameWarnings, setNameWarnings] = useState<{ typed: string; suggestion: string; classCount: number }[] | null>(null);
@@ -272,25 +272,70 @@ function ClassRow({ klass, sections, subjects, catalogue, catalogueListId, openS
     ? new Date(klass.createdAt).toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' })
     : null;
 
+  const ageMin = renaming ? Number(renaming.minAge) : NaN;
+  const ageMax = renaming ? Number(renaming.maxAge) : NaN;
+  const ageInvalid = Boolean(renaming?.minAge && renaming?.maxAge && ageMin >= ageMax);
+
+  function saveClass() {
+    if (!renaming || !renaming.name.trim() || ageInvalid) return;
+    onUpdate({
+      name: renaming.name.trim(),
+      minAgeYears: renaming.minAge ? Number(renaming.minAge) : undefined,
+      maxAgeYears: renaming.maxAge ? Number(renaming.maxAge) : undefined,
+    });
+    setRenaming(null);
+  }
+
+  const needsSection = sections.length === 0;
+  const needsSubjects = subjects.length === 0;
+  const ready = !needsSection && !needsSubjects;
+  const strengthKnown = sections.some((s) => s.enrolled != null);
+  const strength = sections.reduce((n, s) => n + (s.enrolled ?? 0), 0);
+  const ageRange = klass.minAgeYears != null || klass.maxAgeYears != null
+    ? `Age ${klass.minAgeYears ?? '—'}–${klass.maxAgeYears ?? '—'}`
+    : null;
+
   return (
     <div style={{ border: '1px solid #e5e7eb', borderRadius: 8, padding: '10px 12px' }} className="stack">
       <div className="row" style={{ alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
         {renaming === null ? (
           <>
-            <strong style={{ minWidth: 70 }}>{klass.name}</strong>
-            {created && <span className="muted" style={{ fontSize: 12 }}>Created {created}</span>}
+            <strong style={{ minWidth: 70 }} title={created ? `Created ${created}` : undefined}>{klass.name}</strong>
+            {ready
+              ? <span className="badge ok">Ready</span>
+              : <span className="badge warn">
+                  {needsSection && needsSubjects ? 'Needs a section and subjects' : needsSection ? 'Needs a section' : 'Needs subjects'}
+                </span>}
+            {strengthKnown && (
+              <span className="muted" style={{ fontSize: 12 }}>{strength} student{strength === 1 ? '' : 's'}</span>
+            )}
+            {ageRange && <span className="muted" style={{ fontSize: 12 }}>{ageRange}</span>}
           </>
         ) : (
           <div className="inline-form" style={{ flex: 1 }}>
             <div style={{ flex: 1, minWidth: 160 }}>
-              <input autoFocus value={renaming} onChange={(e) => setRenaming(e.target.value)}
+              <label>Class name</label>
+              <input autoFocus value={renaming.name} onChange={(e) => setRenaming({ ...renaming, name: e.target.value })}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter' && renaming.trim()) { onRename(renaming.trim()); setRenaming(null); }
+                  if (e.key === 'Enter' && renaming.name.trim()) saveClass();
                   if (e.key === 'Escape') setRenaming(null);
                 }} />
             </div>
-            <button type="button" disabled={!renaming.trim()} onClick={() => { onRename(renaming.trim()); setRenaming(null); }}>Save</button>
+            <div style={{ maxWidth: 110 }}>
+              <label>Min age</label>
+              <input type="number" min={2} max={30} value={renaming.minAge}
+                onChange={(e) => setRenaming({ ...renaming, minAge: e.target.value })} placeholder="any" />
+            </div>
+            <div style={{ maxWidth: 110 }}>
+              <label>Max age</label>
+              <input type="number" min={2} max={30} value={renaming.maxAge}
+                onChange={(e) => setRenaming({ ...renaming, maxAge: e.target.value })} placeholder="any" />
+            </div>
+            <button type="button" disabled={!renaming.name.trim() || ageInvalid} onClick={saveClass}>Save</button>
             <button className="ghost" type="button" onClick={() => setRenaming(null)}>Cancel</button>
+            <span className="muted" style={{ fontSize: 12 }}>
+              {ageInvalid ? 'Min age must be below max age.' : 'Age warns during admission; the controller can override.'}
+            </span>
           </div>
         )}
         {renaming === null && (
@@ -305,7 +350,7 @@ function ClassRow({ klass, sections, subjects, catalogue, catalogueListId, openS
             )}
             <button className="ghost small" onClick={() => open('section')}>{panel === 'section' ? 'Cancel' : '+ Section'}</button>
             <button className="ghost small" onClick={() => open('subject')}>{panel === 'subject' ? 'Cancel' : '+ Subject'}</button>
-            <button className="ghost small" onClick={() => setRenaming(klass.name)}>Rename</button>
+            <button className="ghost small" onClick={() => setRenaming({ name: klass.name, minAge: klass.minAgeYears?.toString() ?? '', maxAge: klass.maxAgeYears?.toString() ?? '' })}>Edit</button>
             <button className="ghost small" onClick={() => router.push(`/classes/${klass.id}`)}>Teachers</button>
             <button className="ghost small" onClick={() => onOpenStudents()}>View students</button>
             {/* The server refuses while sections/fees/exams depend on it and says which. */}
@@ -340,18 +385,21 @@ function ClassRow({ klass, sections, subjects, catalogue, catalogueListId, openS
             // Surface a section that studies a DIFFERENT set from the class catalogue —
             // otherwise an elective split is invisible on this screen.
             const own = s.subjectIds ?? [];
-            const differs = own.length > 0 && own.length !== subjects.length;
+            const inheritsAll = own.length === 0 || own.length === subjects.length;
+            const subjectLabel = subjects.length === 0
+              ? null
+              : inheritsAll ? `all ${subjects.length} subjects` : `${own.length} of ${subjects.length} subjects`;
             const taken = s.enrolled;
             const counted = taken != null;
             const full = counted && taken >= s.capacity;
             return (
               <span key={s.id} className="badge" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                 <button type="button" style={{ background: 'none', border: 0, padding: 0, color: 'inherit', cursor: 'pointer', font: 'inherit' }}
-                  title={differs
+                  title={!inheritsAll
                     ? `${subjectNames(own).join(', ')} — click to view students`
                     : `View students in ${klass.name} · Section ${s.name}`}
                   onClick={() => onOpenStudents(s.id)}>
-                  Section {s.name}{differs && ` · ${own.length} subjects`}
+                  Section {s.name}{subjectLabel ? ` · ${subjectLabel}` : ''}
                 </button>
                 <span title={counted
                     ? `${taken} of ${s.capacity} seats filled`

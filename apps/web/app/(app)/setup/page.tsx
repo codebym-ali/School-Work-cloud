@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { api, apiGet, apiPost, ApiError, type AcademicYear, type Campus, type Klass, type Section, type Subject, type SubjectCatalogueEntry } from '@/lib/api';
 import { useMe } from '@/lib/me-context';
@@ -47,11 +47,20 @@ export default function SetupPage() {
   const hasCampus = myCampuses.length > 0;
   const hasYear = years.some((y) => y.isCurrent);
   const hasClass = classes.length > 0;
-  const hasSection = sections.length > 0;
-  const done = [hasCampus, hasYear, hasClass && hasSection].filter(Boolean).length;
+  // A class can only take a student once it has both a section and a subject, so the step is
+  // only "done" when every class does — a single unfinished class must not read as complete.
+  const blockers = classes
+    .map((k) => ({
+      name: k.name,
+      needsSection: !sections.some((s) => s.classId === k.id),
+      needsSubjects: !subjects.some((s) => s.classId === k.id),
+    }))
+    .filter((b) => b.needsSection || b.needsSubjects);
+  const classesReady = hasClass && blockers.length === 0;
+  const done = [hasCampus, hasYear, classesReady].filter(Boolean).length;
 
   // The first unfinished step is the one we open and point the reader at.
-  const nextStep = !hasCampus ? 1 : !hasYear ? 2 : !(hasClass && hasSection) ? 3 : 0;
+  const nextStep = !hasCampus ? 1 : !hasYear ? 2 : !classesReady ? 3 : 0;
   const setupComplete = nextStep === 0;
   const derivedCatalogue = subjectCatalogueFrom(subjects);
   const distinctSubjects = derivedCatalogue.length;
@@ -70,6 +79,10 @@ export default function SetupPage() {
       {loaded && !setupComplete && <SetupProgress done={done} nextStep={nextStep} />}
       {msg && <div className={`toast ${msg.ok ? 'ok' : 'err'}`}>{msg.text}</div>}
 
+      {!loaded ? (
+        <div className="card"><p className="muted" style={{ margin: 0 }}>Loading your school…</p></div>
+      ) : (
+      <>
       <Step
         n={1}
         title="Campuses"
@@ -101,7 +114,7 @@ export default function SetupPage() {
         n={3}
         title="Classes, sections & subjects"
         blurb="Each class sits in a campus and teaches a set of subjects. A section is one classroom group with a fixed number of seats — students are admitted into a section."
-        state={hasClass && hasSection ? 'done' : 'todo'}
+        state={classesReady ? 'done' : 'todo'}
         openByDefault={nextStep === 3 || nextStep === 0}
         lockedReason={!hasCampus ? 'Add a campus first — a class has to belong to one.' : undefined}
         count={hasClass ? `${classes.length} class${classes.length === 1 ? '' : 'es'} · ${sections.length} section${sections.length === 1 ? '' : 's'} · ${distinctSubjects} subject${distinctSubjects === 1 ? '' : 's'}` : undefined}
@@ -115,6 +128,13 @@ export default function SetupPage() {
             <div><Link className="chip" href="/classes">📚 Manage classes &amp; sections →</Link></div>
           </div>
         ) : (
+        <>
+        {blockers.length > 0 && (
+          <div className="toast warn">
+            {blockers.length} class{blockers.length === 1 ? '' : 'es'} cannot take students yet:{' '}
+            {blockers.map((b) => `${b.name} (${b.needsSection && b.needsSubjects ? 'no section or subjects' : b.needsSection ? 'no section' : 'no subjects'})`).join(', ')}.
+          </div>
+        )}
         <ClassManager classes={classes} sections={sections} subjects={subjects} campuses={myCampuses}
           catalogue={catalogue.length ? catalogue : derivedCatalogue}
           onCreateClass={async (b) => {
@@ -138,7 +158,7 @@ export default function SetupPage() {
           onCreateSubjects={(classId, names) =>
             run(() => Promise.all(names.map((name) => api.subjects.create(classId, name))),
               names.length === 1 ? 'Subject added' : `${names.length} subjects added`)}
-          onRenameClass={(id, name) => run(() => api.classes.rename(id, name), 'Class renamed')}
+          onUpdateClass={(id, body) => run(() => api.classes.update(id, body), 'Class updated')}
           onDeleteClass={(id) => run(() => api.classes.remove(id), 'Class deleted')}
           onUpdateSection={(id, body) => run(() => api.sections.update(id, body), 'Section updated')}
           onDeleteSection={(id) => run(() => api.sections.remove(id), 'Section deleted')}
@@ -153,8 +173,11 @@ export default function SetupPage() {
               return null;
             }
           }} />
+        </>
         )}
       </Step>
+      </>
+      )}
     </div>
   );
 }
@@ -186,14 +209,15 @@ function Step({ n, title, blurb, state, count, openByDefault, lockedReason, chil
   openByDefault: boolean; lockedReason?: string; children: React.ReactNode;
 }) {
   const [open, setOpen] = useState(openByDefault);
-  useEffect(() => { setOpen(openByDefault); }, [openByDefault]);
+  const touched = useRef(false);
+  useEffect(() => { if (!touched.current) setOpen(openByDefault); }, [openByDefault]);
   const locked = Boolean(lockedReason);
 
   return (
     <div className="card stack" style={{ gap: 12, opacity: locked ? 0.65 : 1 }}>
       <div
         className="row"
-        onClick={() => !locked && setOpen((v) => !v)}
+        onClick={() => { if (!locked) { touched.current = true; setOpen((v) => !v); } }}
         style={{ alignItems: 'flex-start', gap: 12, cursor: locked ? 'default' : 'pointer' }}
       >
         <div style={{

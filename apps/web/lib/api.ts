@@ -80,7 +80,7 @@ export interface Dashboard {
 export interface Paged<T> { data: T[]; total: number; page: number; pageSize: number }
 export interface Campus { id: string; name: string; address?: string | null }
 export interface AcademicYear { id: string; name: string; isCurrent: boolean }
-export interface Klass { id: string; name: string; order: number; campusId: string; createdAt?: string }
+export interface Klass { id: string; name: string; order: number; campusId: string; createdAt?: string; minAgeYears?: number | null; maxAgeYears?: number | null }
 /** `subjectIds` empty ⇒ the section studies every subject its class offers. */
 export interface Section { id: string; name: string; classId: string; subjectIds?: string[]; capacity: number; enrolled?: number | null }
 export type StudentStatus = 'ACTIVE' | 'SUSPENDED' | 'RESTRICTED' | 'STRUCK_OFF' | 'WITHDRAWN' | 'GRADUATED';

@@ -544,7 +544,33 @@ is unsupported). So split by **layer**, which is clean and leaves each commit in
 
 **Gate before pushing:** web tsc + lint, api build, **restart the API** and re-verify seats/catalogue live.
 
-### Step 1 — Phase 1b · truth & safety *(3–4 d, no decisions)*
+### Step 1 — Phase 1b · truth & safety — ⏳ **TRUTH HALF DONE 2026-07-27, safety half open**
+
+**Done (truth):**
+- **SU-07/08 — honest ✓.** Step 3 is complete only when **every** class has ≥1 section *and* ≥1 subject
+  (`classesReady`), and `nextStep`/progress derive from it. When it isn't, a warning **names the
+  offenders**: *"2 classes cannot take students yet: 9th (no section), 10th (no subjects)"*.
+- **SU-03 — absence no longer carries meaning.** Sections always state their subjects:
+  `Section A · all 7 subjects` / `Section B · 6 of 7 subjects`. Empty `subjectIds` correctly reads as
+  *inherits all*, which is what the API means by it.
+- **SU-28/29 — strength over trivia.** Class row shows a **Ready / Needs a section / Needs subjects**
+  pill plus live student count and age band; `Created …` demoted to a tooltip on the class name.
+- **SU-41 — age band configurable at last.** Rename became a proper class editor (name + min/max age)
+  with a min<max guard. `UpdateClassDto` already accepted the fields — only the UI was missing.
+- **SU-18 — no false empty state.** Steps render a skeleton until `loaded`, so a configured school never
+  flashes as "nothing set up".
+- **SU-31 — panels stop fighting the user.** A manual collapse is remembered (`touched` ref); derived
+  state only syncs until the user first interacts.
+- Prop rename `onRenameClass` → `onUpdateClass` across manager + both pages.
+- Gates: web tsc ✅ · web lint ✅ · `/setup` + `/classes` serve 200, no compile errors.
+- **Live UI verification blocked** by the preview pane dropping `*.localhost` cookies (API login itself
+  returns 200 — tooling limitation, not an app fault). Logic is gated by tsc/lint + route smoke only.
+
+**Still open (safety half):** SU-10/11/12 (archive-before-delete + app modal replacing `confirm()`,
+needs `isActive` on the update DTOs + list filtering + matrix rows), SU-13/14 (action-row hierarchy),
+SU-15 (row-level feedback), SU-17 (disabled-reason text), SU-19 (targeted refetch).
+
+### Step 1 — Phase 1b · original scope *(3–4 d, no decisions)*
 The largest remaining slice; do it before any further restructuring.
 1. Honest ✓ (**SU-07/08**) + per-class status pills — *the "you can admit students" claim must be true.*
 2. Always-label section subjects (**SU-03**) — *closes the original complaint.*

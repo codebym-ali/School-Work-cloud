@@ -96,7 +96,7 @@ export default function ClassesPage() {
             onCreateSubjects={(classId, names) =>
               run(() => Promise.all(names.map((name) => api.subjects.create(classId, name))),
                 names.length === 1 ? 'Subject added' : `${names.length} subjects added`)}
-            onRenameClass={(id, name) => run(() => api.classes.rename(id, name), 'Class renamed')}
+            onUpdateClass={(id, body) => run(() => api.classes.update(id, body), 'Class updated')}
             onDeleteClass={(id) => run(() => api.classes.remove(id), 'Class deleted')}
             onReorderClass={(updates) =>
               run(async () => {

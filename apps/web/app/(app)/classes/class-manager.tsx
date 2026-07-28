@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { type Campus, type Klass, type Section, type Subject, type SubjectCatalogueEntry } from '@/lib/api';
 import { nearestSubject } from '@/lib/subject-match';
+import { ConfirmDialog } from './confirm-dialog';
 
 /** Classes and sections are one job, not two — a class without sections can't take a
  *  student, so sections are added inline on the class they belong to rather than from a
@@ -16,11 +17,11 @@ export function ClassManager({ classes, sections, subjects, campuses, catalogue,
   onCreateSubjects: (classId: string, names: string[]) => void;
   onCreateSubjectInline: (classId: string, name: string) => Promise<Subject | null>;
   onUpdateClass: (id: string, body: { name?: string; minAgeYears?: number; maxAgeYears?: number }) => void;
-  onDeleteClass: (id: string) => void;
+  onDeleteClass: (id: string) => Promise<string | null> | void;
   onReorderClass?: (updates: { id: string; order: number }[]) => void;
   onUpdateSection: (id: string, body: { name?: string; capacity?: number }) => void;
-  onDeleteSection: (id: string) => void;
-  onDeleteSubject: (id: string) => void;
+  onDeleteSection: (id: string) => Promise<string | null> | void;
+  onDeleteSubject: (id: string) => Promise<string | null> | void;
 }) {
   const router = useRouter();
   const [campusId, setCampusId] = useState('');
@@ -160,6 +161,11 @@ export function ClassManager({ classes, sections, subjects, campuses, catalogue,
         >
           Add class
         </button>
+        {(!name.trim() || !targetCampus) && (
+          <span className="muted" style={{ fontSize: 12 }}>
+            {!targetCampus ? 'Choose a campus first.' : 'Enter a class name.'}
+          </span>
+        )}
       </div>
 
       <datalist id={catalogueListId}>
@@ -191,12 +197,12 @@ function ClassRow({ klass, sections, subjects, catalogue, catalogueListId, openS
   onAddSubjects: (names: string[]) => void;
   onCreateSubjectInline: (name: string) => Promise<Subject | null>;
   onUpdate: (body: { name?: string; minAgeYears?: number; maxAgeYears?: number }) => void;
-  onDelete: () => void;
+  onDelete: () => Promise<string | null> | void;
   onMoveUp?: () => void;
   onMoveDown?: () => void;
   onUpdateSection: (id: string, body: { name?: string; capacity?: number }) => void;
-  onDeleteSection: (id: string) => void;
-  onDeleteSubject: (id: string) => void;
+  onDeleteSection: (id: string) => Promise<string | null> | void;
+  onDeleteSubject: (id: string) => Promise<string | null> | void;
   onOpenStudents: (sectionId?: string) => void;
 }) {
   const [panel, setPanel] = useState<'section' | 'subject' | null>(openSubjectsOnMount ? 'subject' : null);
@@ -213,6 +219,10 @@ function ClassRow({ klass, sections, subjects, catalogue, catalogueListId, openS
   const [editingSection, setEditingSection] = useState<{ id: string; name: string; capacity: string } | null>(null);
   const [newCapacity, setNewCapacity] = useState('40');
   const [nameWarnings, setNameWarnings] = useState<{ typed: string; suggestion: string; classCount: number }[] | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<{
+    title: string; body: string; confirmLabel: string; run: () => Promise<string | null> | void;
+  } | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
   const router = useRouter();
 
   useEffect(() => { if (openSubjectsOnMount) setPanel('subject'); }, [openSubjectsOnMount]);
@@ -348,16 +358,44 @@ function ClassRow({ klass, sections, subjects, catalogue, catalogueListId, openS
                   disabled={!onMoveDown} onClick={onMoveDown}>↓</button>
               </span>
             )}
-            <button className="ghost small" onClick={() => open('section')}>{panel === 'section' ? 'Cancel' : '+ Section'}</button>
+            <button className="small" onClick={() => open('section')}>{panel === 'section' ? 'Cancel' : '+ Section'}</button>
             <button className="ghost small" onClick={() => open('subject')}>{panel === 'subject' ? 'Cancel' : '+ Subject'}</button>
-            <button className="ghost small" onClick={() => setRenaming({ name: klass.name, minAge: klass.minAgeYears?.toString() ?? '', maxAge: klass.maxAgeYears?.toString() ?? '' })}>Edit</button>
-            <button className="ghost small" onClick={() => router.push(`/classes/${klass.id}`)}>Teachers</button>
-            <button className="ghost small" onClick={() => onOpenStudents()}>View students</button>
-            {/* The server refuses while sections/fees/exams depend on it and says which. */}
-            <button className="ghost small" style={{ color: '#b91c1c' }}
-              onClick={() => { if (confirm(`Delete class "${klass.name}"? This cannot be undone.`)) onDelete(); }}>
-              Delete
-            </button>
+            <span style={{ position: 'relative' }}>
+              <button className="ghost small" aria-haspopup="menu" aria-expanded={menuOpen}
+                aria-label={`More actions for ${klass.name}`} onClick={() => setMenuOpen((v) => !v)}>⋯</button>
+              {menuOpen && (
+                <span role="menu" onMouseLeave={() => setMenuOpen(false)}
+                  style={{
+                    position: 'absolute', right: 0, top: '100%', marginTop: 4, zIndex: 20,
+                    background: '#fff', border: '1px solid var(--border)', borderRadius: 8,
+                    boxShadow: '0 6px 18px rgba(15,23,42,0.12)', padding: 4, display: 'grid', minWidth: 168,
+                  }}>
+                  <button className="ghost small" role="menuitem" style={{ textAlign: 'left' }}
+                    onClick={() => { setMenuOpen(false); setRenaming({ name: klass.name, minAge: klass.minAgeYears?.toString() ?? '', maxAge: klass.maxAgeYears?.toString() ?? '' }); }}>
+                    Edit name &amp; age
+                  </button>
+                  <button className="ghost small" role="menuitem" style={{ textAlign: 'left' }}
+                    onClick={() => { setMenuOpen(false); router.push(`/classes/${klass.id}`); }}>Teachers</button>
+                  <button className="ghost small" role="menuitem" style={{ textAlign: 'left' }}
+                    onClick={() => { setMenuOpen(false); onOpenStudents(); }}>View students</button>
+                  {/* The server refuses while sections/fees/exams depend on it and says which. */}
+                  <button className="ghost small" role="menuitem" style={{ textAlign: 'left', color: '#b91c1c' }}
+                    onClick={() => {
+                      setMenuOpen(false);
+                      setPendingDelete({
+                        title: `Delete class “${klass.name}”?`,
+                        body: sections.length || subjects.length
+                          ? `It has ${sections.length} section${sections.length === 1 ? '' : 's'} and ${subjects.length} subject${subjects.length === 1 ? '' : 's'}. Deleting is blocked while students, fees or exams depend on it.`
+                          : 'This class has no sections or subjects yet.',
+                        confirmLabel: 'Delete class',
+                        run: () => onDelete(),
+                      });
+                    }}>
+                    Delete class
+                  </button>
+                </span>
+              )}
+            </span>
           </div>
         )}
       </div>
@@ -370,7 +408,12 @@ function ClassRow({ klass, sections, subjects, catalogue, catalogueListId, openS
                 {s.name}
                 <button type="button" aria-label={`Remove ${s.name}`} title={`Remove ${s.name}`}
                   style={{ background: 'none', border: 0, padding: '4px 6px', color: 'inherit', opacity: 0.7, cursor: 'pointer', fontSize: 12, minWidth: 24, minHeight: 24 }}
-                  onClick={() => { if (confirm(`Remove subject "${s.name}" from ${klass.name}?`)) onDeleteSubject(s.id); }}>
+                  onClick={() => setPendingDelete({
+                    title: `Remove “${s.name}” from ${klass.name}?`,
+                    body: 'Removal is blocked while exam results, teacher assignments or timetable slots reference this subject.',
+                    confirmLabel: 'Remove subject',
+                    run: () => onDeleteSubject(s.id),
+                  })}>
                   ✕
                 </button>
               </span>
@@ -417,7 +460,14 @@ function ClassRow({ klass, sections, subjects, catalogue, catalogueListId, openS
                 </button>
                 <button type="button" aria-label={`Delete section ${s.name}`} title="Delete"
                   style={{ background: 'none', border: 0, padding: '4px 6px', color: 'inherit', opacity: 0.7, cursor: 'pointer', fontSize: 12, minWidth: 24, minHeight: 24 }}
-                  onClick={() => { if (confirm(`Delete section "${s.name}"? This cannot be undone.`)) onDeleteSection(s.id); }}>
+                  onClick={() => setPendingDelete({
+                    title: `Delete Section ${s.name}?`,
+                    body: counted && taken > 0
+                      ? `${taken} student${taken === 1 ? ' is' : 's are'} enrolled — deleting will be refused until they are moved.`
+                      : 'Deleting is blocked while students, teacher assignments or timetable slots belong to it.',
+                    confirmLabel: 'Delete section',
+                    run: () => onDeleteSection(s.id),
+                  })}>
                   ✕
                 </button>
               </span>
@@ -593,6 +643,15 @@ function ClassRow({ klass, sections, subjects, catalogue, catalogueListId, openS
             </button>
           </div>
         </div>
+      )}
+
+      {pendingDelete && (
+        <ConfirmDialog
+          title={pendingDelete.title}
+          body={pendingDelete.body}
+          confirmLabel={pendingDelete.confirmLabel}
+          onConfirm={pendingDelete.run}
+          onClose={() => setPendingDelete(null)} />
       )}
     </div>
   );

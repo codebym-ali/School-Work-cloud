@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { api, apiGet, apiPost, ApiError, type AcademicYear, type Campus, type Klass, type Section, type Subject, type SubjectCatalogueEntry } from '@/lib/api';
 import { useMe } from '@/lib/me-context';
 import { ClassManager } from '../classes/class-manager';
+import { ConfirmDialog } from '../classes/confirm-dialog';
 import { subjectCatalogueFrom } from '@/lib/subject-match';
 
 /** Setup is a one-time, ordered job: campuses → school year → classes → sections.
@@ -36,9 +37,17 @@ export default function SetupPage() {
   }
   useEffect(() => { reload().catch(() => {}).finally(() => setLoaded(true)); }, []);
 
-  async function run(fn: () => Promise<unknown>, ok: string) {
-    try { await fn(); await reload(); setMsg({ ok: true, text: ok }); }
-    catch (e) { setMsg({ ok: false, text: e instanceof ApiError ? e.message : 'Something went wrong. Please try again.' }); }
+  async function run(fn: () => Promise<unknown>, ok: string): Promise<string | null> {
+    try {
+      await fn();
+      await reload();
+      setMsg({ ok: true, text: ok });
+      return null;
+    } catch (e) {
+      const text = e instanceof ApiError ? e.message : 'Something went wrong. Please try again.';
+      setMsg({ ok: false, text });
+      return text;
+    }
   }
 
   // A campus-bound admin only works within their own campus (the API force-scopes anyway).
@@ -245,11 +254,12 @@ function CampusStep({ campuses, isOwner, onCreate, onUpdate, onDelete }: {
   campuses: Campus[]; isOwner: boolean;
   onCreate: (b: object) => void;
   onUpdate: (id: string, body: { name?: string; address?: string }) => void;
-  onDelete: (id: string) => void;
+  onDelete: (id: string) => Promise<string | null> | void;
 }) {
   const [name, setName] = useState('');
   const [address, setAddress] = useState('');
   const [editing, setEditing] = useState<{ id: string; name: string; address: string } | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<Campus | null>(null);
 
   return (
     <>
@@ -283,7 +293,7 @@ function CampusStep({ campuses, isOwner, onCreate, onUpdate, onDelete }: {
                       <div className="row" style={{ gap: 8, marginLeft: 'auto' }}>
                         <button className="ghost small" onClick={() => setEditing({ id: c.id, name: c.name, address: c.address ?? '' })}>Rename</button>
                         <button className="ghost small" style={{ color: '#b91c1c' }}
-                          onClick={() => { if (confirm(`Delete campus "${c.name}"? This cannot be undone.`)) onDelete(c.id); }}>
+                          onClick={() => setPendingDelete(c)}>
                           Delete
                         </button>
                       </div>
@@ -298,6 +308,14 @@ function CampusStep({ campuses, isOwner, onCreate, onUpdate, onDelete }: {
         <p className="muted" style={{ margin: 0, fontSize: 12 }}>
           Staff logins for each campus are managed in <Link href="/campuses" style={{ fontWeight: 600 }}>Campus Hub</Link>.
         </p>
+      )}
+      {pendingDelete && (
+        <ConfirmDialog
+          title={`Delete campus “${pendingDelete.name}”?`}
+          body="Deleting is blocked while classes, users, inquiries, vacancies or applications belong to this campus."
+          confirmLabel="Delete campus"
+          onConfirm={() => onDelete(pendingDelete.id)}
+          onClose={() => setPendingDelete(null)} />
       )}
       {isOwner ? (
         <div className="inline-form">

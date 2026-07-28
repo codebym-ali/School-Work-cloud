@@ -33,9 +33,17 @@ export default function ClassesPage() {
   }
   useEffect(() => { reload().catch(() => {}).finally(() => setLoaded(true)); }, []);
 
-  async function run(fn: () => Promise<unknown>, ok: string) {
-    try { await fn(); await reload(); setMsg({ ok: true, text: ok }); }
-    catch (e) { setMsg({ ok: false, text: e instanceof ApiError ? e.message : 'Something went wrong. Please try again.' }); }
+  async function run(fn: () => Promise<unknown>, ok: string): Promise<string | null> {
+    try {
+      await fn();
+      await reload();
+      setMsg({ ok: true, text: ok });
+      return null;
+    } catch (e) {
+      const text = e instanceof ApiError ? e.message : 'Something went wrong. Please try again.';
+      setMsg({ ok: false, text });
+      return text;
+    }
   }
 
   const myCampuses = isOwner ? campuses : campuses.filter((c) => c.id === me?.campusId);

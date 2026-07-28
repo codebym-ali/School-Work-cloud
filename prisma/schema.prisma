@@ -1282,6 +1282,11 @@ model TeacherApplication {
   availableJoiningDate DateTime?               @map("available_joining_date") @db.Date
   status              TeacherApplicationStatus @default(SUBMITTED)
   details             Json // personal, contact, education, experience, skills (full form)
+  /// AES-256-GCM (§32), mirroring ParentProfile.cnicEnc. The CNIC is a national ID and was
+  /// previously stored in plaintext inside `details` — the same data class the parent record
+  /// already encrypted. Extracted from the JSON on write; write-only, like every other
+  /// encrypted field here (nothing decrypts it), so reads expose `hasCnic` instead.
+  cnicEnc             String?                  @map("cnic_enc")
   createdById         String                   @map("created_by_id") @db.Uuid
   createdBy           User                     @relation(fields: [createdById, schoolId], references: [id, schoolId])
   createdAt           DateTime                 @default(now()) @map("created_at")

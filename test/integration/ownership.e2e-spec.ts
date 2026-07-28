@@ -10,6 +10,7 @@ import { AppModule } from '../../apps/api/src/app.module';
 import { ProvisioningService } from '../../apps/api/src/modules/platform/provisioning.service';
 import { admissionController } from './support/admission';
 import { SMS_QUEUE } from '../../apps/api/src/modules/comms/sms/sms.types';
+import { destroyTenant } from './support/tenant';
 
 /**
  * Guardian-of-student ownership (blueprint §22.8, playbook P1.7). A PARENT is confined
@@ -101,72 +102,54 @@ describe('Guardian ownership (e2e, §22.8 / P1.7)', () => {
     const queue = app.get<Queue>(SMS_QUEUE, { strict: false });
     await queue.obliterate({ force: true }).catch(() => undefined);
     await queue.close().catch(() => undefined);
-    const tables = [
-      'auditLog', 'studentLeave', 'reportCard', 'attendanceRecord', 'smsLog', 'smsCreditLedger', 'smsTemplate',
-      'studentGuardian', 'studentEnrollment', 'student', 'parentProfile', 'refreshToken', 'user',
-      'section', 'class', 'academicYear', 'campus', 'school',
-    ] as const;
-    for (const t of tables) {
-      const d = platform[t] as unknown as { deleteMany: (a: unknown) => Promise<unknown> };
-      await d.deleteMany({ where: t === 'school' ? { id: schoolId } : { schoolId } }).catch(() => undefined);
-    }
+    await destroyTenant(platform, schoolId);
     await app.close();
   });
 
-  it('PARENT can read their own child’s report cards but not another’s (403)', async () => {
-    expect((await authed('get', `/api/v1/students/${student1}/report-cards`, parentCookies)).status).toBe(200);
+  // ── After the parent-portal removal (2026-07-28) ────────────────────────────
+  // These were the GuardianOfStudent tests. Parents have no logins and no portal, so the
+  // property under test is no longer "a parent sees only their own child" — it is
+  // "a non-admin sees nothing". The routes below carry NO @Roles, so these in-service
+  // guards are the only protection and are worth asserting harder than before.
+
+  it('denies a non-admin the admin report-card surface entirely', async () => {
+    // Was: parent 200 for their own child, 403 for another's. Now: denied for both.
+    expect((await authed('get', `/api/v1/students/${student1}/report-cards`, parentCookies)).status).toBe(403);
     const cross = await authed('get', `/api/v1/students/${student2}/report-cards`, parentCookies);
     expect(cross.status).toBe(403);
     expect(cross.body.error.code).toBe('FORBIDDEN');
   });
 
-  it('PARENT student-leaves list is scoped to their own children', async () => {
-    const res = await authed('get', '/api/v1/student-leaves', parentCookies);
-    expect(res.status).toBe(200);
-    const studentIds = (res.body.data as Array<{ studentId: string }>).map((l) => l.studentId);
-    expect(studentIds).not.toContain(student2);
-  });
-
-  it('PARENT cannot file a leave for another family’s child (403), but can for their own', async () => {
-    const cross = await authed('post', '/api/v1/student-leaves', parentCookies, parentCsrf)
-      .send({ studentId: student2, fromDate: '2026-09-01', toDate: '2026-09-02', reason: 'nope' });
-    expect(cross.status).toBe(403);
-
-    const own = await authed('post', '/api/v1/student-leaves', parentCookies, parentCsrf)
-      .send({ studentId: student1, fromDate: '2026-09-01', toDate: '2026-09-02', reason: 'ok' });
-    expect(own.status).toBe(201);
-  });
-
-  it('OWNER_ADMIN can read any student’s report cards (no regression)', async () => {
+  it('OWNER_ADMIN can still read any student’s report cards (no regression)', async () => {
     expect((await authed('get', `/api/v1/students/${student2}/report-cards`, ownerCookies)).status).toBe(200);
   });
 
-  // ── Parent portal (§28 — PARENT column) ──────────────────────────────────────
-  it('parent /children lists only their own child', async () => {
-    const res = await authed('get', '/api/v1/parent/children', parentCookies);
+  it('student-leaves list leaks nothing to a non-admin', async () => {
+    // GET /student-leaves has no @Roles; the in-service filter must return an empty set
+    // rather than every leave in the school.
+    const res = await authed('get', '/api/v1/student-leaves', parentCookies);
     expect(res.status).toBe(200);
-    const ids = (res.body as Array<{ studentId: string }>).map((c) => c.studentId);
-    expect(ids).toContain(student1);
-    expect(ids).not.toContain(student2);
-    expect(res.body[0]).toMatchObject({ fullName: 'Child One', relation: 'FATHER' });
+    const studentIds = (res.body.data as Array<{ studentId: string }>).map((l) => l.studentId);
+    expect(studentIds).not.toContain(student1);
+    expect(studentIds).not.toContain(student2);
   });
 
-  it('parent can read every panel for their own child (overview/attendance/results/fees)', async () => {
-    for (const sub of ['overview', 'attendance', 'results', 'fees']) {
-      const res = await authed('get', `/api/v1/parent/children/${student1}/${sub}`, parentCookies);
-      expect(res.status).toBe(200);
-    }
-  });
-
-  it('parent is denied every panel for another family’s child (403)', async () => {
-    for (const sub of ['overview', 'attendance', 'results', 'fees']) {
-      const res = await authed('get', `/api/v1/parent/children/${student2}/${sub}`, parentCookies);
+  it('a non-admin can no longer file a student leave (403)', async () => {
+    // PARENT was removed from @Roles on POST /student-leaves — filing is now staff-only.
+    for (const sid of [student1, student2]) {
+      const res = await authed('post', '/api/v1/student-leaves', parentCookies, parentCsrf)
+        .send({ studentId: sid, fromDate: '2026-09-01', toDate: '2026-09-02', reason: 'x' });
       expect(res.status).toBe(403);
-      expect(res.body.error.code).toBe('FORBIDDEN');
     }
   });
 
-  it('a non-parent (OWNER_ADMIN) is denied the parent portal (403)', async () => {
-    expect((await authed('get', '/api/v1/parent/children', ownerCookies)).status).toBe(403);
+  // Regression guard: the portal must stay gone. If someone reinstates the controller these
+  // flip to 401/403/200 and this fails loudly.
+  it('the parent portal routes no longer exist (404)', async () => {
+    expect((await authed('get', '/api/v1/parent/children', parentCookies)).status).toBe(404);
+    for (const sub of ['overview', 'attendance', 'results', 'fees']) {
+      expect((await authed('get', `/api/v1/parent/children/${student1}/${sub}`, parentCookies)).status).toBe(404);
+    }
+    expect((await authed('get', '/api/v1/parent/children', ownerCookies)).status).toBe(404);
   });
 });

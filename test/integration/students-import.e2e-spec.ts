@@ -7,6 +7,7 @@ import { PlatformPrismaService } from '@database';
 import { AppModule } from '../../apps/api/src/app.module';
 import { ProvisioningService } from '../../apps/api/src/modules/platform/provisioning.service';
 import { admissionController } from './support/admission';
+import { destroyTenant } from './support/tenant';
 
 /**
  * Bulk student CSV import (§22.6). Verifies: the file is validated as a whole (bad rows
@@ -60,14 +61,7 @@ describe('Students CSV import (e2e, §22.6)', () => {
   });
 
   afterAll(async () => {
-    const tables = [
-      'studentGuardian', 'studentEnrollment', 'student', 'parentProfile', 'refreshToken', 'user',
-      'section', 'class', 'academicYear', 'smsTemplate', 'smsCreditLedger', 'campus', 'school',
-    ] as const;
-    for (const t of tables) {
-      const d = platform[t] as unknown as { deleteMany: (a: unknown) => Promise<unknown> };
-      await d.deleteMany({ where: t === 'school' ? { id: schoolId } : { schoolId } }).catch(() => undefined);
-    }
+    await destroyTenant(platform, schoolId);
     await app.close();
   });
 

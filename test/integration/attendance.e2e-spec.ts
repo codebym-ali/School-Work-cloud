@@ -12,6 +12,7 @@ import { ProvisioningService } from '../../apps/api/src/modules/platform/provisi
 import { admissionController } from './support/admission';
 import { SmsService } from '../../apps/api/src/modules/comms/sms/sms.service';
 import { SMS_QUEUE } from '../../apps/api/src/modules/comms/sms/sms.types';
+import { destroyTenant } from './support/tenant';
 
 /**
  * M3 gate (roadmap M3): mark attendance green + absence SMS verified.
@@ -122,15 +123,7 @@ describe('Attendance + absence SMS (e2e, §9/§14)', () => {
     const queue = app.get<Queue>(SMS_QUEUE, { strict: false });
     await queue.obliterate({ force: true }).catch(() => undefined);
     await queue.close().catch(() => undefined);
-    const tables = [
-      'auditLog', 'smsLog', 'smsCreditLedger', 'smsTemplate', 'attendanceRecord', 'admission',
-      'entryTest', 'studentGuardian', 'studentEnrollment', 'student', 'inquiry', 'parentProfile',
-      'refreshToken', 'user', 'subject', 'section', 'class', 'academicYear', 'campus', 'school',
-    ] as const;
-    for (const t of tables) {
-      const d = platform[t] as unknown as { deleteMany: (a: unknown) => Promise<unknown> };
-      await d.deleteMany({ where: t === 'school' ? { id: schoolId } : { schoolId } }).catch(() => undefined);
-    }
+    await destroyTenant(platform, schoolId);
     await app.close();
   });
 

@@ -88,6 +88,36 @@ Copy verbatim from [[consistency-register]] §6. The load-bearing ones:
 - Status codes, pagination (default 25 / max 100), `Idempotency-Key` on payments/reversals/advances/manual-SMS — see [[consistency-register]] §8.
 - Tenant addressing by subdomain `{slug}.platform.pk`; vendor console at `admin.platform.pk`.
 
+## Parent portal — REMOVED (decided 2026-07-28, scope A)
+
+**Decision: parents do NOT get logins. Not now, not later.** The parent self-service dashboard is
+being removed; the **guardian data model stays**. This is a product decision, deliberately recorded
+here so it is not silently reversed by someone reading `docs/` or the blueprint (§5, §23), both of
+which still describe a parent portal and are now **stale on this point**.
+
+**Why it was safe:** the portal was already unreachable. A parent `User` is created `INVITED` with
+**no password** (`guardians.service.ts`), `PARENT` is **not in `MANAGEABLE_ROLES`** so `/users`
+cannot create or manage one, `PARENT` is **not in Campus Hub's role groups** so no screen offers a
+password reset, and parent emails are often synthesised placeholders (`p-<uuid>@invite.local`).
+No parent has ever been able to sign in. This is retiring dead surface, not removing a feature.
+
+**What must NEVER be deleted with it** — the guardian data model is load-bearing:
+- `GuardianResolutionDto` is **required** to admit a student (`createStudentCore`) — no guardian, no admission
+- every SMS (absence, fee receipt, result-ready, leave status) resolves `primaryGuardian(studentId)`
+- phone verification (§14) exists **solely** so student PII is never sent to an unverified guardian number
+- `guardian_credits` is the advance-payment ledger (§12); invoices are effectively billed to the guardian
+- `student_guardians` is the parent↔child link shown throughout the admin UI
+
+**Consequence for the PARENT role (scope A keeps it):** the role stays in the enum and parent `User`
+rows are still created, because removing them is an enum rebuild + data migration and mixing that
+with a deletion would make a failure ambiguous. Retiring the role is a **separate follow-up (scope B)**.
+Noted while fresh: if parents never log in, creating a `User` + placeholder email per guardian is
+pure waste — it is why an earlier cleanup had to remove 557 parent accounts.
+
+**Adjacent gates go too:** `PARENT` in `leaves.controller` (@Roles) and the GuardianOfStudent read
+path in `report-cards.service` have **no client** once the portal is gone, so they are removed in
+Phase 2. Recorded because it is a product call, not a mechanical cleanup.
+
 ## Locked catalogs (do not re-order / rename)
 - **24 enums**, **48 model→table maps**, **14 error codes**, **15 audit actions**, all magic numbers → [[consistency-register]].
 

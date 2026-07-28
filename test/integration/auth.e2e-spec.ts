@@ -6,6 +6,7 @@ import * as argon2 from 'argon2';
 import { randomUUID } from 'node:crypto';
 import { AppModule } from '../../apps/api/src/app.module';
 import { PlatformPrismaService } from '@database';
+import { destroyTenant } from './support/tenant';
 
 /**
  * End-to-end auth + tenancy pipeline (blueprint §19, §22): tenant resolution from
@@ -54,12 +55,7 @@ describe('Auth + tenancy pipeline (e2e)', () => {
   });
 
   afterAll(async () => {
-    for (const id of [schoolA, schoolB]) {
-      await platform.refreshToken.deleteMany({ where: { schoolId: id } });
-      await platform.user.deleteMany({ where: { schoolId: id } });
-      await platform.campus.deleteMany({ where: { schoolId: id } });
-      await platform.school.deleteMany({ where: { id } });
-    }
+    for (const id of [schoolA, schoolB]) await destroyTenant(platform, id);
     await app.close();
   });
 

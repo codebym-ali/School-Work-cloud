@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { PlatformPrismaService } from '@database';
 import { AppModule } from '../../apps/api/src/app.module';
 import { ProvisioningService } from '../../apps/api/src/modules/platform/provisioning.service';
+import { destroyTenant } from './support/tenant';
 
 /**
  * Recruitment — vacancies (HR module, first slice). Proves the vertical slice end-to-end:
@@ -61,11 +62,7 @@ describe('Recruitment / vacancies (e2e, HR)', () => {
   });
 
   afterAll(async () => {
-    const tables = ['auditLog', 'vacancy', 'refreshToken', 'user', 'campus', 'smsTemplate', 'smsCreditLedger', 'school'] as const;
-    for (const t of tables) {
-      const d = platform[t] as unknown as { deleteMany: (a: unknown) => Promise<unknown> };
-      await d.deleteMany({ where: t === 'school' ? { id: schoolId } : { schoolId } }).catch(() => undefined);
-    }
+    await destroyTenant(platform, schoolId);
     await app.close();
   });
 

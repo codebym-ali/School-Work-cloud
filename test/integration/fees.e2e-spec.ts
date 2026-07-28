@@ -12,6 +12,7 @@ import { ProvisioningService } from '../../apps/api/src/modules/platform/provisi
 import { admissionController } from './support/admission';
 import { SmsService } from '../../apps/api/src/modules/comms/sms/sms.service';
 import { SMS_QUEUE } from '../../apps/api/src/modules/comms/sms/sms.types';
+import { destroyTenant } from './support/tenant';
 
 /**
  * M4 gate (roadmap M4): collect-fee E2E + fee-integrity-check clean.
@@ -109,16 +110,7 @@ describe('Fees end-to-end (e2e, §12)', () => {
     const queue = app.get<Queue>(SMS_QUEUE, { strict: false });
     await queue.obliterate({ force: true }).catch(() => undefined);
     await queue.close().catch(() => undefined);
-    const tables = [
-      'auditLog', 'paymentReversal', 'feePayment', 'feeInvoiceItem', 'feeInvoice', 'feeInvoiceBatch',
-      'discount', 'lateFeePolicy', 'feeStructure', 'feeHead', 'guardianCredit', 'idempotencyKey',
-      'smsLog', 'smsCreditLedger', 'smsTemplate', 'studentGuardian', 'studentEnrollment', 'student',
-      'inquiry', 'parentProfile', 'refreshToken', 'user', 'subject', 'section', 'class', 'academicYear', 'campus', 'school',
-    ] as const;
-    for (const t of tables) {
-      const d = platform[t] as unknown as { deleteMany: (a: unknown) => Promise<unknown> };
-      await d.deleteMany({ where: t === 'school' ? { id: schoolId } : { schoolId } }).catch(() => undefined);
-    }
+    await destroyTenant(platform, schoolId);
     await app.close();
   });
 

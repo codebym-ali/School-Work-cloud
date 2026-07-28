@@ -553,7 +553,9 @@ function TeacherDetail({ id, onBack }: { id: string; onBack: () => void }) {
               <Row k="Father / guardian" v={app.details.fatherName} />
               <Row k="Date of birth" v={app.details.dateOfBirth?.slice?.(0, 10)} />
               <Row k="Gender" v={app.details.gender} />
-              <Row k="CNIC" v={app.details.cnic} />
+              {/* Encrypted at rest and never returned (audit fix #5) — show that it is on
+                  file rather than a blank, which would read as "never captured". */}
+              <Row k="CNIC" v={app.hasCnic ? 'On file (encrypted)' : undefined} />
               <Row k="Marital status" v={app.details.maritalStatus} />
               <Row k="Nationality" v={app.details.nationality} />
               <Row k="Email" v={app.email} /><Row k="Mobile" v={app.mobile} /><Row k="WhatsApp" v={app.details.whatsapp} />

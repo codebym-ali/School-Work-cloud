@@ -9,6 +9,9 @@
  */
 export type MatrixRole = 'OWNER_ADMIN' | 'CAMPUS_ADMIN' | 'ADMISSION_CONTROLLER' | 'ACCOUNTANT' | 'TEACHER' | 'PARENT';
 
+// PARENT is retained even though its portal was removed (2026-07-28): the role still exists,
+// and every row's deny-side asserts a PARENT-bearing session reaches NOTHING. That is a
+// regression guard worth keeping until the role itself is retired (scope B).
 export const MATRIX_ROLES: MatrixRole[] = ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ADMISSION_CONTROLLER', 'ACCOUNTANT', 'TEACHER', 'PARENT'];
 
 export interface MatrixRow {
@@ -74,7 +77,4 @@ export const PERMISSION_MATRIX: MatrixRow[] = [
   // Teacher self-service — TEACHER-only; positive path needs a linked StaffProfile so it's
   // scope-gated (deny side is the guarantee here).
   { label: 'teacher my-classes', method: 'get', path: '/api/v1/teaching/my-classes', allow: ['TEACHER'], scopeGated: true },
-  // Parent self-service — PARENT-only; returns the caller's children (empty for the seeded
-  // parent), so the positive path is asserted directly.
-  { label: 'parent children', method: 'get', path: '/api/v1/parent/children', allow: ['PARENT'] },
 ];

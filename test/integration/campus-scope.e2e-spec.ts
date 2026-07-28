@@ -10,6 +10,7 @@ import { AppModule } from '../../apps/api/src/app.module';
 import { ProvisioningService } from '../../apps/api/src/modules/platform/provisioning.service';
 import { admissionController } from './support/admission';
 import { SMS_QUEUE } from '../../apps/api/src/modules/comms/sms/sms.types';
+import { destroyTenant } from './support/tenant';
 
 /**
  * Campus scoping (blueprint §22.8, security playbook P1.7). One school with TWO campuses
@@ -156,16 +157,7 @@ describe('Campus scoping (e2e, §22.8 / P1.7)', () => {
     const queue = app.get<Queue>(SMS_QUEUE, { strict: false });
     await queue.obliterate({ force: true }).catch(() => undefined);
     await queue.close().catch(() => undefined);
-    const tables = [
-      'auditLog', 'feePayment', 'feeInvoiceItem', 'feeInvoice', 'feeInvoiceBatch', 'feeStructure', 'feeHead',
-      'idempotencyKey', 'attendanceRecord', 'smsLog', 'smsCreditLedger', 'smsTemplate',
-      'studentGuardian', 'studentEnrollment', 'student', 'parentProfile', 'refreshToken', 'user',
-      'section', 'class', 'academicYear', 'campus', 'school',
-    ] as const;
-    for (const t of tables) {
-      const d = platform[t] as unknown as { deleteMany: (a: unknown) => Promise<unknown> };
-      await d.deleteMany({ where: t === 'school' ? { id: schoolId } : { schoolId } }).catch(() => undefined);
-    }
+    await destroyTenant(platform, schoolId);
     await app.close();
   });
 

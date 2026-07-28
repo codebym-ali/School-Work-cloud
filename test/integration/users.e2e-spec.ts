@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { PlatformPrismaService } from '@database';
 import { AppModule } from '../../apps/api/src/app.module';
 import { ProvisioningService } from '../../apps/api/src/modules/platform/provisioning.service';
+import { destroyTenant } from './support/tenant';
 
 /**
  * Users & roles (§23, §22.8): the owner provisions a campus-admin login bound to a campus,
@@ -57,11 +58,7 @@ describe('Users & roles (e2e, §23)', () => {
   });
 
   afterAll(async () => {
-    const tables = ['auditLog', 'refreshToken', 'user', 'campus', 'smsTemplate', 'smsCreditLedger', 'school'] as const;
-    for (const t of tables) {
-      const d = platform[t] as unknown as { deleteMany: (a: unknown) => Promise<unknown> };
-      await d.deleteMany({ where: t === 'school' ? { id: schoolId } : { schoolId } }).catch(() => undefined);
-    }
+    await destroyTenant(platform, schoolId);
     await app.close();
   });
 

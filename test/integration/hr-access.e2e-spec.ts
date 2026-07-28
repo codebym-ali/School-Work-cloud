@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { PlatformPrismaService } from '@database';
 import { AppModule } from '../../apps/api/src/app.module';
 import { ProvisioningService } from '../../apps/api/src/modules/platform/provisioning.service';
+import { destroyTenant } from './support/tenant';
 
 /**
  * HR access (RBAC): only OWNER_ADMIN may grant the HR_MANAGER role on an EXISTING employee,
@@ -60,11 +61,7 @@ describe('HR access grant (e2e, RBAC)', () => {
   });
 
   afterAll(async () => {
-    const tables = ['auditLog', 'vacancy', 'refreshToken', 'user', 'campus', 'smsTemplate', 'smsCreditLedger', 'school'] as const;
-    for (const t of tables) {
-      const d = platform[t] as unknown as { deleteMany: (a: unknown) => Promise<unknown> };
-      await d.deleteMany({ where: t === 'school' ? { id: schoolId } : { schoolId } }).catch(() => undefined);
-    }
+    await destroyTenant(platform, schoolId);
     await app.close();
   });
 

@@ -171,7 +171,9 @@ export interface TeacherAssignment { id: string; staffId: string; academicYearId
 export interface TeacherExperience { schoolName: string; position?: string; subjectsTaught?: string; gradesTaught?: string; duration?: string; reasonForLeaving?: string }
 export interface TeacherEducation { qualification: string; degreeTitle?: string; majorSubject?: string; university?: string; passingYear?: number; cgpa?: string }
 export interface TeacherDetails {
-  fatherName?: string; dateOfBirth?: string; gender?: string; cnic?: string; maritalStatus?: string; nationality?: string; photoUrl?: string;
+  fatherName?: string; dateOfBirth?: string; gender?: string;
+  /** SENT on create, never RETURNED — the server encrypts it into its own column (see `hasCnic`). */
+  cnic?: string; maritalStatus?: string; nationality?: string; photoUrl?: string;
   whatsapp?: string; currentAddress?: string; permanentAddress?: string; city?: string; province?: string; postalCode?: string;
   preferredSubjects?: string; gradeLevels?: string;
   /** List of qualifications. The flat fields below are legacy (a single, highest one). */
@@ -188,7 +190,8 @@ export interface TeacherApplicationSummary {
   positionAppliedFor: string; department: string; employmentType: string;
   expectedSalary: string | null; availableJoiningDate: string | null; status: string; createdAt: string;
 }
-export interface TeacherApplicationDetail extends TeacherApplicationSummary { details: TeacherDetails }
+/** `hasCnic` replaces the value: the CNIC is encrypted at rest and never returned. */
+export interface TeacherApplicationDetail extends TeacherApplicationSummary { details: TeacherDetails; hasCnic?: boolean }
 export interface CreateTeacherApplicationBody {
   campusId: string; fullName: string; email: string; mobile: string; positionAppliedFor: string; department: string;
   employmentType: string; expectedSalary?: number; availableJoiningDate?: string; details: TeacherDetails;
@@ -223,18 +226,6 @@ export interface RecruitmentSummary {
   hiredThisMonth: number;
 }
 
-export interface ParentChild {
-  studentId: string; fullName: string; grNumber: string; registrationNo: string | null;
-  relation: string; isPrimary: boolean;
-  className: string | null; sectionName: string | null; rollNumber: number | null;
-  attendancePercent: number | null; outstandingFees: number;
-}
-export interface ParentOverview {
-  student: { fullName: string; grNumber: string; registrationNo: string | null; gender: string; dateOfBirth: string };
-  enrollment: { className: string; sectionName: string; rollNumber: number | null; year: string } | null;
-  guardians: Array<{ name: string; phone: string; relation: string; isPrimary: boolean }>;
-  attendancePercent: number | null; outstandingFees: number; reportCards: number;
-}
 
 export interface TeacherClass {
   assignmentId: string; sectionId: string; sectionName: string; classId: string | null; className: string;
@@ -388,15 +379,11 @@ export const api = {
     myClasses: () => apiGet<TeacherClass[]>('/teaching/my-classes'),
     roster: (sectionId: string) => apiGet<RosterRow[]>(`/teaching/sections/${sectionId}/roster`),
   },
-  parent: {
-    children: () => apiGet<ParentChild[]>('/parent/children'),
-    overview: (studentId: string) => apiGet<ParentOverview>(`/parent/children/${studentId}/overview`),
-    attendance: (studentId: string) => apiGet<PortalAttendance[]>(`/parent/children/${studentId}/attendance`),
-    results: (studentId: string) => apiGet<PortalResult[]>(`/parent/children/${studentId}/results`),
-    fees: (studentId: string) => apiGet<PortalFee[]>(`/parent/children/${studentId}/fees`),
-  },
   studentLeaves: {
-    // Parent-scoped on the server → only the caller's own children's leaves.
+    // NO CALLER since the parent portal was removed (2026-07-28). Kept on purpose: the server
+    // endpoints still admit OWNER_ADMIN/CAMPUS_ADMIN/TEACHER and the dashboard shows a
+    // "Pending leaves" metric, so this is the client for the admin leave screen that does not
+    // exist yet. Delete it if that screen is never built.
     list: (studentId: string) => apiGet<{ data: StudentLeave[] }>(`/student-leaves?studentId=${studentId}`),
     apply: (body: { studentId: string; fromDate: string; toDate: string; reason: string }) => apiPost<StudentLeave>('/student-leaves', body),
     cancel: (id: string) => apiPost<StudentLeave>(`/student-leaves/${id}/cancel`, {}),

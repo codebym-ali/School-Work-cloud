@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { PlatformPrismaService } from '@database';
 import { AppModule } from '../../apps/api/src/app.module';
 import { ProvisioningService } from '../../apps/api/src/modules/platform/provisioning.service';
+import { destroyTenant } from './support/tenant';
 
 /**
  * Teacher applications (HR — Add Teacher form). Proves the full form persists and reads back
@@ -71,11 +72,7 @@ describe('Teacher applications (e2e, HR)', () => {
   });
 
   afterAll(async () => {
-    const tables = ['auditLog', 'teacherApplication', 'vacancy', 'staffProfile', 'refreshToken', 'user', 'campus', 'smsTemplate', 'smsCreditLedger', 'school'] as const;
-    for (const t of tables) {
-      const d = platform[t] as unknown as { deleteMany: (a: unknown) => Promise<unknown> };
-      await d.deleteMany({ where: t === 'school' ? { id: schoolId } : { schoolId } }).catch(() => undefined);
-    }
+    await destroyTenant(platform, schoolId);
     await app.close();
   });
 
@@ -87,8 +84,38 @@ describe('Teacher applications (e2e, HR)', () => {
 
     const detail = await get(`/api/v1/teacher-applications/${id}`, ownerCookies);
     expect(detail.status).toBe(200);
-    expect(detail.body.details).toMatchObject({ cnic: '35202-1234567-8', fatherName: 'Khalid Khan', highestQualification: 'M.Sc Physics' });
+    // `cnic` is deliberately absent — it is encrypted into its own column (audit fix #5) and
+    // surfaced as `hasCnic`. The rest of the blob reads back unchanged.
+    expect(detail.body.details).toMatchObject({ fatherName: 'Khalid Khan', highestQualification: 'M.Sc Physics' });
+    expect(detail.body.details.cnic).toBeUndefined();
+    expect(detail.body.hasCnic).toBe(true);
     expect(detail.body.details.experiences[0]).toMatchObject({ schoolName: 'City School', reasonForLeaving: 'Growth' });
+  });
+
+  // Audit fix #5: the CNIC is a national ID and must never sit in plaintext. It is extracted
+  // from the details blob and AES-256-GCM encrypted into its own column, like ParentProfile's.
+  it('never stores the CNIC in plaintext, and does not return it', async () => {
+    const body = fullBody(campusAId) as { fullName: string; email: string; details: Record<string, unknown> };
+    body.fullName = 'Encrypted Cnic';
+    body.email = `enc-${Date.now()}@demo.pk`;
+    body.details.cnic = '35202-9999999-9';
+
+    const created = await post('/api/v1/teacher-applications', body, ownerCookies);
+    expect(created.status).toBe(201);
+
+    const row = await platform.teacherApplication.findFirst({ where: { id: created.body.id } });
+    // Stripped from the JSON…
+    expect((row!.details as Record<string, unknown>).cnic).toBeUndefined();
+    expect(JSON.stringify(row!.details)).not.toContain('35202-9999999-9');
+    // …and stored as versioned ciphertext, not the raw value.
+    expect(row!.cnicEnc).toMatch(/^v1\./);
+    expect(row!.cnicEnc).not.toContain('35202-9999999-9');
+
+    // The read path exposes only that one is on file.
+    const detail = await get(`/api/v1/teacher-applications/${created.body.id}`, ownerCookies);
+    expect(detail.status).toBe(200);
+    expect(detail.body.hasCnic).toBe(true);
+    expect(JSON.stringify(detail.body)).not.toContain('35202-9999999-9');
   });
 
   // Nested `details` validation must still bite. CNIC is optional now (a school hires

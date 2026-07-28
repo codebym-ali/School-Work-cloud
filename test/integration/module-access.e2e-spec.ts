@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { PlatformPrismaService } from '@database';
 import { AppModule } from '../../apps/api/src/app.module';
 import { ProvisioningService } from '../../apps/api/src/modules/platform/provisioning.service';
+import { destroyTenant } from './support/tenant';
 
 /**
  * Module (functionality) access (§23 extension). A granted role unlocks all of its modules by
@@ -59,11 +60,7 @@ describe('Module access (e2e, §23)', () => {
   });
 
   afterAll(async () => {
-    const tables = ['auditLog', 'moduleAccess', 'vacancy', 'refreshToken', 'user', 'campus', 'smsTemplate', 'smsCreditLedger', 'school'] as const;
-    for (const t of tables) {
-      const d = platform[t] as unknown as { deleteMany: (a: unknown) => Promise<unknown> };
-      await d.deleteMany({ where: t === 'school' ? { id: schoolId } : { schoolId } }).catch(() => undefined);
-    }
+    await destroyTenant(platform, schoolId);
     await app.close();
   });
 

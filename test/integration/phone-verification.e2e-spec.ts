@@ -8,6 +8,7 @@ import { AppModule } from '../../apps/api/src/app.module';
 import { ProvisioningService } from '../../apps/api/src/modules/platform/provisioning.service';
 import { admissionController } from './support/admission';
 import { SMS_GATEWAY, type SendResult } from '../../apps/api/src/modules/comms/sms/sms-gateway';
+import { destroyTenant } from './support/tenant';
 
 /**
  * Guardian phone OTP verification (§14). A capturing SMS gateway lets us read the code the
@@ -72,14 +73,7 @@ describe('Guardian phone OTP (e2e, §14)', () => {
   });
 
   afterAll(async () => {
-    const tables = [
-      'studentGuardian', 'studentEnrollment', 'student', 'parentProfile', 'refreshToken', 'user',
-      'section', 'class', 'academicYear', 'smsTemplate', 'smsCreditLedger', 'campus', 'school',
-    ] as const;
-    for (const t of tables) {
-      const d = platform[t] as unknown as { deleteMany: (a: unknown) => Promise<unknown> };
-      await d.deleteMany({ where: t === 'school' ? { id: schoolId } : { schoolId } }).catch(() => undefined);
-    }
+    await destroyTenant(platform, schoolId);
     await app.close();
   });
 

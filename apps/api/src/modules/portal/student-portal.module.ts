@@ -1,12 +1,12 @@
 import { Module } from '@nestjs/common';
 import { StudentPortalController } from './student-portal.controller';
 import { StudentPortalService } from './student-portal.service';
-import { ParentPortalController } from './parent-portal.controller';
-import { ParentPortalService } from './parent-portal.service';
 
-/** Self-service portals — STUDENT (self-scoped) and PARENT (guardian-scoped) (blueprint §28). */
+/** Student self-service portal — self-scoped (blueprint §28). The parent portal was removed
+ *  on 2026-07-28: parents get no logins (see Key Decisions). Guardian DATA is unaffected —
+ *  admissions still require a guardian and every SMS still resolves the primary guardian. */
 @Module({
-  controllers: [StudentPortalController, ParentPortalController],
-  providers: [StudentPortalService, ParentPortalService],
+  controllers: [StudentPortalController],
+  providers: [StudentPortalService],
 })
 export class StudentPortalModule {}

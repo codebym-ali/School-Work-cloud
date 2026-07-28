@@ -77,7 +77,6 @@ export const NAV: NavItem[] = [
   { href: '/me/results', label: 'My Results', icon: '📄', group: 'My Portal', roles: ['STUDENT'] },
   { href: '/me/fees', label: 'My Fees', icon: '💳', group: 'My Portal', roles: ['STUDENT'] },
 
-  { href: '/parent', label: 'My Children', icon: '👨‍👩‍👧', group: 'My Portal', roles: ['PARENT'] },
 
   { href: '/my-attendance', label: 'My Attendance', icon: '✅', group: 'My Portal', roles: ['STAFF'] },
   { href: '/my-leaves', label: 'My Leaves', icon: '🗓️', group: 'My Portal', roles: ['STAFF'] },
@@ -106,7 +105,10 @@ const ROLE_INFO: { role: Role; label: string; landing: string }[] = [
   { role: 'HR_MANAGER', label: 'HR Manager', landing: '/recruitment' },
   { role: 'TEACHER', label: 'Teacher', landing: '/attendance' },
   { role: 'STAFF', label: 'Staff', landing: '/my-attendance' },
-  { role: 'PARENT', label: 'Parent', landing: '/parent' },
+  // Parent portal removed 2026-07-28 (see Key Decisions). Parents have no logins and no
+  // screens; landing on the admin-gated dashboard yields the shell's "Not authorized" card,
+  // which is truthful, instead of a 404 on a deleted route.
+  { role: 'PARENT', label: 'Parent', landing: '/dashboard' },
   { role: 'STUDENT', label: 'Student', landing: '/me' },
 ];
 

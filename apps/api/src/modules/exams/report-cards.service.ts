@@ -165,17 +165,18 @@ export class ReportCardsService {
     // Two independent §22.8/P1.7 gates, applied in order:
     //  1. Campus scope — a campus-bound admin may only read a student ACTIVE in their campus
     //     (mirrors StudentsService.getOne, so the two surfaces agree). OWNER_ADMIN is school-wide.
-    //  2. GuardianOfStudent — a non-admin (a PARENT) may only read their own child's cards.
+    //  2. Everyone else is denied. This route carries NO @Roles, so any authenticated caller
+    //     reaches it and the check below is the only protection. It used to allow a guardian
+    //     of the student (the parent portal, removed 2026-07-28); with parents gone the lookup
+    //     could never succeed, so it is now an outright deny — same outcome, honestly stated.
+    //     A student reads their own results via /portal/results, not this admin surface.
     const restricted = restrictedCampusId(user);
     if (restricted !== null && isAdminRole(user)) {
       if (!enrollments.some((e) => e.status === 'ACTIVE' && e.campusId === restricted)) {
         throw new AppError(ErrorCodes.FORBIDDEN, HttpStatus.FORBIDDEN, 'Student belongs to another campus');
       }
     } else if (!isAdminRole(user)) {
-      const link = user
-        ? await this.db.studentGuardian.findFirst({ where: { studentId, parent: { userId: user.userId } } })
-        : null;
-      if (!link) throw new AppError(ErrorCodes.FORBIDDEN, HttpStatus.FORBIDDEN, 'Not permitted to view this student');
+      throw new AppError(ErrorCodes.FORBIDDEN, HttpStatus.FORBIDDEN, 'Not permitted to view this student');
     }
 
     return this.db.reportCard.findMany({

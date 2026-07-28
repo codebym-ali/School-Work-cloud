@@ -9,6 +9,7 @@ import { AppModule } from '../../apps/api/src/app.module';
 import { ProvisioningService } from '../../apps/api/src/modules/platform/provisioning.service';
 import { admissionController } from './support/admission';
 import { SMS_QUEUE } from '../../apps/api/src/modules/comms/sms/sms.types';
+import { destroyTenant } from './support/tenant';
 
 /** M3 leaves (§10): request -> overlap guard -> approve (writes ON_LEAVE) -> reject/cancel + state machine. */
 describe('Leaves (e2e, §10)', () => {
@@ -63,15 +64,7 @@ describe('Leaves (e2e, §10)', () => {
     const queue = app.get<Queue>(SMS_QUEUE, { strict: false });
     await queue.obliterate({ force: true }).catch(() => undefined);
     await queue.close().catch(() => undefined);
-    const tables = [
-      'auditLog', 'smsLog', 'smsCreditLedger', 'smsTemplate', 'attendanceRecord', 'studentLeave', 'admission',
-      'entryTest', 'studentGuardian', 'studentEnrollment', 'student', 'inquiry', 'parentProfile',
-      'refreshToken', 'user', 'subject', 'section', 'class', 'academicYear', 'campus', 'school',
-    ] as const;
-    for (const t of tables) {
-      const d = platform[t] as unknown as { deleteMany: (a: unknown) => Promise<unknown> };
-      await d.deleteMany({ where: t === 'school' ? { id: schoolId } : { schoolId } }).catch(() => undefined);
-    }
+    await destroyTenant(platform, schoolId);
     await app.close();
   });
 

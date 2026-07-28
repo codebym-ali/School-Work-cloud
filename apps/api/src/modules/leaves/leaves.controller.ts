@@ -12,7 +12,8 @@ import {
 export class StudentLeavesController {
   constructor(private readonly leaves: LeavesService) {}
 
-  @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN', 'TEACHER', 'PARENT')
+  // PARENT dropped 2026-07-28 — the parent portal was its only client (see Key Decisions).
+  @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN', 'TEACHER')
   @Post()
   create(@Body() dto: CreateStudentLeaveDto) {
     return this.leaves.createStudentLeave(dto);

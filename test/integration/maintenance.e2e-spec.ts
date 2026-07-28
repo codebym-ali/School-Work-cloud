@@ -6,6 +6,7 @@ import { CommonModule } from '@common';
 import { DatabaseModule, PlatformPrismaService } from '@database';
 import { FeeJobsService } from '../../apps/api/src/modules/fees/fee-jobs.service';
 import { MaintenanceService } from '../../apps/worker/src/maintenance/maintenance.service';
+import { destroyTenant } from './support/tenant';
 
 /**
  * Cross-tenant nightly maintenance runner (blueprint §27). Verifies the runner iterates
@@ -40,11 +41,7 @@ describe('Maintenance runner (e2e, §27)', () => {
   });
 
   afterAll(async () => {
-    const ids = { in: [schoolA, schoolB, suspended] };
-    await platform.idempotencyKey.deleteMany({ where: { schoolId: ids } });
-    await platform.smsLog.deleteMany({ where: { schoolId: ids } });
-    await platform.smsCreditLedger.deleteMany({ where: { schoolId: ids } });
-    await platform.school.deleteMany({ where: { id: ids } });
+    for (const id of [schoolA, schoolB, suspended]) await destroyTenant(platform, id);
     await app.close();
   });
 

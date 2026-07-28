@@ -7,6 +7,7 @@ import { AppModule } from '../../apps/api/src/app.module';
 import { PlatformPrismaService } from '@database';
 import { ProvisioningService } from '../../apps/api/src/modules/platform/provisioning.service';
 import { admissionController } from './support/admission';
+import { destroyTenant } from './support/tenant';
 
 /**
  * M2 milestone gate (roadmap M2): the ADMIT journey end-to-end —
@@ -72,16 +73,7 @@ describe('Admit journey (e2e, §8)', () => {
   });
 
   afterAll(async () => {
-    const tables = [
-      'auditLog', 'admission', 'entryTest', 'studentGuardian', 'studentEnrollment',
-      'student', 'inquiry', 'parentProfile', 'refreshToken', 'user', 'subject',
-      'section', 'class', 'academicYear', 'campus', 'school',
-    ] as const;
-    for (const t of tables) {
-      const delegate = platform[t] as unknown as { deleteMany: (a: unknown) => Promise<unknown> };
-      const where = t === 'school' ? { id: schoolId } : { schoolId };
-      await delegate.deleteMany({ where }).catch(() => undefined);
-    }
+    await destroyTenant(platform, schoolId);
     await app.close();
   });
 

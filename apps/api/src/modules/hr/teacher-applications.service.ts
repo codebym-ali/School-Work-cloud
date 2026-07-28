@@ -1,7 +1,8 @@
-import { HttpStatus, Injectable } from '@nestjs/common';
+import { HttpStatus, Inject, Injectable } from '@nestjs/common';
 import { Prisma, TeacherApplicationStatus } from '@prisma/client';
 import {
-  AppError, assertCampusAccess, AuditActions, effectiveCampusFilter, ErrorCodes, TenantContext,
+  AppError, assertCampusAccess, AuditActions, effectiveCampusFilter, ErrorCodes,
+  FIELD_ENCRYPTION, FieldEncryption, TenantContext,
 } from '@common';
 import { AuditService, TenantPrismaService } from '@database';
 import { AccessService } from '../access/access.service';
@@ -26,6 +27,7 @@ export class TeacherApplicationsService {
     private readonly audit: AuditService,
     private readonly staff: StaffService,
     private readonly access: AccessService,
+    @Inject(FIELD_ENCRYPTION) private readonly crypto: FieldEncryption,
   ) {}
 
   private get db() {
@@ -41,6 +43,11 @@ export class TeacherApplicationsService {
     const campus = await this.db.campus.findFirst({ where: { id: dto.campusId }, select: { id: true } });
     if (!campus) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'Campus not found');
 
+    // The CNIC is a national ID. Pull it OUT of the JSON blob and store it encrypted in its
+    // own column — a blob cannot be selectively protected, and ParentProfile already treats
+    // the same data class this way. `details` is persisted without it.
+    const { cnic, ...detailsWithoutCnic } = (dto.details ?? {}) as Record<string, unknown>;
+
     const app = await this.db.teacherApplication.create({
       data: {
         schoolId: this.sid,
@@ -53,7 +60,8 @@ export class TeacherApplicationsService {
         employmentType: dto.employmentType,
         expectedSalary: dto.expectedSalary ?? null,
         availableJoiningDate: dto.availableJoiningDate ? new Date(dto.availableJoiningDate) : null,
-        details: dto.details as unknown as Prisma.InputJsonValue,
+        details: detailsWithoutCnic as unknown as Prisma.InputJsonValue,
+        cnicEnc: typeof cnic === 'string' && cnic.trim() ? this.crypto.encrypt(cnic.trim()) : null,
         createdById: this.ctx.user!.userId,
       },
       include: { campus: { select: { name: true } } },
@@ -95,7 +103,10 @@ export class TeacherApplicationsService {
     });
     if (!app) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'Application not found');
     assertCampusAccess(this.ctx.user, app.campusId);
-    return { ...this.shapeSummary(app), details: app.details };
+    // Encrypted fields are write-only here (nothing in the codebase decrypts a CNIC), so the
+    // reader gets a flag rather than the value — and rather than silence, which would suggest
+    // it was never captured.
+    return { ...this.shapeSummary(app), details: app.details, hasCnic: Boolean(app.cnicEnc) };
   }
 
   /**

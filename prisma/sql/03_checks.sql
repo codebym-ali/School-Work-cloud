@@ -27,3 +27,89 @@ ALTER TABLE staff_leaves
 ALTER TABLE grade_scales DROP CONSTRAINT IF EXISTS chk_grade_range;
 ALTER TABLE grade_scales
   ADD CONSTRAINT chk_grade_range CHECK (max_percent >= min_percent);
+
+-- ── Audit fix #7 ────────────────────────────────────────────────────────────
+-- Business rules that lived only in service code. Anything writing outside those
+-- services (a script, a future endpoint, a bad migration) could corrupt silently.
+-- Every one below was verified against live data before being added.
+
+-- Money is never negative (§12). fee_payments must be a real movement, not a no-op;
+-- reversals are recorded in payment_reversals, not as zero/negative payments.
+ALTER TABLE fee_structures DROP CONSTRAINT IF EXISTS chk_fee_structure_amount_non_negative;
+ALTER TABLE fee_structures
+  ADD CONSTRAINT chk_fee_structure_amount_non_negative CHECK (amount >= 0);
+
+ALTER TABLE fee_invoices DROP CONSTRAINT IF EXISTS chk_invoice_amounts_non_negative;
+ALTER TABLE fee_invoices
+  ADD CONSTRAINT chk_invoice_amounts_non_negative CHECK (total_amount >= 0 AND paid_amount >= 0);
+
+ALTER TABLE fee_payments DROP CONSTRAINT IF EXISTS chk_payment_positive;
+ALTER TABLE fee_payments
+  ADD CONSTRAINT chk_payment_positive CHECK (amount_paid > 0);
+
+ALTER TABLE salary_structures DROP CONSTRAINT IF EXISTS chk_salary_basic_non_negative;
+ALTER TABLE salary_structures
+  ADD CONSTRAINT chk_salary_basic_non_negative CHECK (basic >= 0);
+
+ALTER TABLE late_fee_policies DROP CONSTRAINT IF EXISTS chk_late_fee_sane;
+ALTER TABLE late_fee_policies
+  ADD CONSTRAINT chk_late_fee_sane CHECK (
+    grace_days >= 0 AND amount >= 0 AND (max_amount IS NULL OR max_amount >= 0)
+  );
+
+-- Percentages stay within 0..100.
+ALTER TABLE exam_definitions DROP CONSTRAINT IF EXISTS chk_weightage_percent_range;
+ALTER TABLE exam_definitions
+  ADD CONSTRAINT chk_weightage_percent_range CHECK (weightage_percent >= 0 AND weightage_percent <= 100);
+
+ALTER TABLE report_cards DROP CONSTRAINT IF EXISTS chk_overall_percent_range;
+ALTER TABLE report_cards
+  ADD CONSTRAINT chk_overall_percent_range CHECK (overall_percent >= 0 AND overall_percent <= 100);
+
+-- A PERCENT discount is a percentage; a FIXED one is an amount. Only the former is capped.
+ALTER TABLE discounts DROP CONSTRAINT IF EXISTS chk_discount_value_range;
+ALTER TABLE discounts
+  ADD CONSTRAINT chk_discount_value_range CHECK (
+    value >= 0 AND (type <> 'PERCENT' OR value <= 100)
+  );
+
+-- Structure sanity.
+ALTER TABLE sections DROP CONSTRAINT IF EXISTS chk_section_capacity_positive;
+ALTER TABLE sections
+  ADD CONSTRAINT chk_section_capacity_positive CHECK (capacity > 0);
+
+ALTER TABLE classes DROP CONSTRAINT IF EXISTS chk_class_order_non_negative;
+ALTER TABLE classes
+  ADD CONSTRAINT chk_class_order_non_negative CHECK ("order" >= 0);
+
+ALTER TABLE classes DROP CONSTRAINT IF EXISTS chk_class_age_band;
+ALTER TABLE classes
+  ADD CONSTRAINT chk_class_age_band CHECK (
+    min_age_years IS NULL OR max_age_years IS NULL OR max_age_years >= min_age_years
+  );
+
+-- Date ordering (mirrors checks the services already make, so they cannot be bypassed).
+ALTER TABLE academic_years DROP CONSTRAINT IF EXISTS chk_academic_year_dates;
+ALTER TABLE academic_years
+  ADD CONSTRAINT chk_academic_year_dates CHECK (end_date > start_date);
+
+ALTER TABLE staff_profiles DROP CONSTRAINT IF EXISTS chk_staff_employment_dates;
+ALTER TABLE staff_profiles
+  ADD CONSTRAINT chk_staff_employment_dates CHECK (left_at IS NULL OR left_at >= joined_at);
+
+ALTER TABLE student_enrollments DROP CONSTRAINT IF EXISTS chk_enrollment_dates;
+ALTER TABLE student_enrollments
+  ADD CONSTRAINT chk_enrollment_dates CHECK (ended_at IS NULL OR ended_at >= started_at);
+
+-- A suspension must end after it starts (StudentsService.changeStatus enforces this too).
+ALTER TABLE students DROP CONSTRAINT IF EXISTS chk_student_status_window;
+ALTER TABLE students
+  ADD CONSTRAINT chk_student_status_window CHECK (
+    status_ends_on IS NULL OR status_effective_from IS NULL OR status_ends_on > status_effective_from
+  );
+
+-- NOT segments > 0: a withheld message (unverified number) is logged with segments = 0
+-- so the attempt is recorded without charging credits — see SmsService.logUnverified.
+ALTER TABLE sms_logs DROP CONSTRAINT IF EXISTS chk_sms_segments_non_negative;
+ALTER TABLE sms_logs
+  ADD CONSTRAINT chk_sms_segments_non_negative CHECK (segments >= 0);

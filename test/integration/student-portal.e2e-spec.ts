@@ -8,6 +8,7 @@ import { PlatformPrismaService } from '@database';
 import { AppModule } from '../../apps/api/src/app.module';
 import { ProvisioningService } from '../../apps/api/src/modules/platform/provisioning.service';
 import { admissionController } from './support/admission';
+import { destroyTenant } from './support/tenant';
 
 /**
  * Student self-service portal (§28, matrix §23 STUDENT column). Read-only, self-scoped:
@@ -69,14 +70,7 @@ describe('Student portal (e2e, §28)', () => {
   });
 
   afterAll(async () => {
-    const tables = [
-      'studentGuardian', 'studentEnrollment', 'student', 'parentProfile', 'refreshToken', 'user',
-      'section', 'class', 'academicYear', 'smsTemplate', 'smsCreditLedger', 'campus', 'school',
-    ] as const;
-    for (const t of tables) {
-      const d = platform[t] as unknown as { deleteMany: (a: unknown) => Promise<unknown> };
-      await d.deleteMany({ where: t === 'school' ? { id: schoolId } : { schoolId } }).catch(() => undefined);
-    }
+    await destroyTenant(platform, schoolId);
     await app.close();
   });
 

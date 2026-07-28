@@ -6,6 +6,7 @@ import * as argon2 from 'argon2';
 import { randomUUID } from 'node:crypto';
 import { AppModule } from '../../apps/api/src/app.module';
 import { PlatformPrismaService } from '@database';
+import { destroyTenant } from './support/tenant';
 
 /**
  * Vendor console (blueprint §24): a platform admin authenticates cross-tenant (no
@@ -68,14 +69,7 @@ describe('Platform vendor console (e2e, §24)', () => {
   });
 
   afterAll(async () => {
-    for (const sid of [schoolId, provSchoolId].filter(Boolean) as string[]) {
-      await platform.refreshToken.deleteMany({ where: { schoolId: sid } });
-      await platform.smsCreditLedger.deleteMany({ where: { schoolId: sid } });
-      await platform.smsTemplate.deleteMany({ where: { schoolId: sid } });
-      await platform.user.deleteMany({ where: { schoolId: sid } });
-      await platform.campus.deleteMany({ where: { schoolId: sid } });
-      await platform.school.deleteMany({ where: { id: sid } });
-    }
+    for (const sid of [schoolId, provSchoolId].filter(Boolean) as string[]) await destroyTenant(platform, sid);
     await platform.platformRefreshToken.deleteMany({ where: { platformUserId } });
     await platform.platformUser.deleteMany({ where: { id: platformUserId } });
     await app.close();

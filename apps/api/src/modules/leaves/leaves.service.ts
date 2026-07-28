@@ -43,8 +43,9 @@ export class LeavesService {
 
   // ── Student leaves ─────────────────────────────────────────────────────────
   async createStudentLeave(dto: CreateStudentLeaveDto) {
-    // GuardianOfStudent (§22.8, P1.7): a PARENT may only file leave for their own child;
-    // admins and teachers act on behalf of students in their scope.
+    // Deny-by-default for anyone who is not an admin or teacher (§22.8, P1.7). This outlived
+    // the parent portal on purpose: it is the only thing standing between a non-admin caller
+    // and another student's record, so it must NOT be removed as "parent code".
     const user = this.ctx.user!;
     if (!isAdminRole(user) && !user.roles.includes('TEACHER')) {
       const link = await this.db.studentGuardian.findFirst({ where: { studentId: dto.studentId, parent: { userId: user.userId } } });
@@ -108,7 +109,9 @@ export class LeavesService {
   }
 
   async listStudentLeaves(q: LeaveListQuery): Promise<Paginated<unknown>> {
-    // A PARENT sees only their own children's leaves (force-scoped, deny-by-default).
+    // GET /student-leaves has NO @Roles, so any authenticated caller reaches it — this filter
+    // is what stops a non-admin (e.g. a STUDENT) seeing every leave in the school. Kept
+    // deliberately after the parent portal was removed; it now denies rather than scopes.
     const user = this.ctx.user!;
     const parentScope = !isAdminRole(user) && !user.roles.includes('TEACHER');
     const where = {

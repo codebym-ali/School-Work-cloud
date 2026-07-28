@@ -8,6 +8,7 @@ import { PlatformPrismaService } from '@database';
 import { AppModule } from '../../apps/api/src/app.module';
 import { ProvisioningService } from '../../apps/api/src/modules/platform/provisioning.service';
 import { MATRIX_ROLES, PERMISSION_MATRIX, type MatrixRole } from '../matrix/permission-matrix';
+import { destroyTenant } from './support/tenant';
 
 /**
  * Matrix-conformance harness (blueprint §23, playbook P1.14). Seeds one user per role,
@@ -72,10 +73,7 @@ describe('Matrix conformance (e2e, §23 / P1.14)', () => {
   });
 
   afterAll(async () => {
-    for (const t of ['refreshToken', 'user', 'campus', 'academicYear', 'school'] as const) {
-      const d = platform[t] as unknown as { deleteMany: (a: unknown) => Promise<unknown> };
-      await d.deleteMany({ where: t === 'school' ? { id: schoolId } : { schoolId } }).catch(() => undefined);
-    }
+    await destroyTenant(platform, schoolId);
     await app.close();
   });
 

@@ -566,9 +566,31 @@ is unsupported). So split by **layer**, which is clean and leaves each commit in
 - **Live UI verification blocked** by the preview pane dropping `*.localhost` cookies (API login itself
   returns 200 — tooling limitation, not an app fault). Logic is gated by tsc/lint + route smoke only.
 
-**Still open (safety half):** SU-10/11/12 (archive-before-delete + app modal replacing `confirm()`,
-needs `isActive` on the update DTOs + list filtering + matrix rows), SU-13/14 (action-row hierarchy),
-SU-15 (row-level feedback), SU-17 (disabled-reason text), SU-19 (targeted refetch).
+**Safety half — done 2026-07-28 (`e84f178`), except archive:**
+- **SU-11/12 — `confirm()` is gone.** New `classes/confirm-dialog.tsx` replaces every native
+  `confirm()`/`prompt()` on both screens. This was the real interaction risk: Chrome's *"prevent this
+  page from creating additional dialogs"* removed the old guard entirely after one use, so subsequent
+  deletes fired **with no confirmation at all**. The in-app dialog cannot be suppressed, traps focus,
+  and closes on Escape.
+- **Blast radius stated.** A class names its section/subject counts, a section names its enrolled
+  students, a subject names the exam results / assignments / timetable slots that will block it.
+- **SU-15 — feedback where the click was.** `run()` now returns the failure message and the dialog
+  renders it **inline**, so a refused delete explains itself instead of only writing a toast at the top
+  of the page. (Non-destructive actions still use the page toast — full row-level messaging is open.)
+- **SU-13/14 — hierarchy.** `+ Section` primary, `+ Subject` secondary, and Edit / Teachers / View
+  students / Delete moved into an **⋯ overflow menu**, so Delete no longer sits among routine actions
+  nor relocates as the row wraps.
+- **SU-17** — disabled "Add class" states the reason.
+- **Correction to the earlier framing:** the server *already* refuses class, section and subject deletes
+  when dependents exist and names them (`deleteClass`/`deleteSection`/`deleteSubject`). The catastrophic
+  path was never open — this slice closes the **interaction** risk, not a data-loss hole.
+- Gates: web tsc ✅ · web lint ✅ · `/setup` + `/classes` 200 · no `confirm(`/`prompt(` left in either screen.
+
+**Still open:** **SU-10 archive-before-delete** — deliberately deferred. `isActive` exists on Class and
+Section, but "archived" only means something if archived classes also disappear from the admission,
+exam, fees and attendance pickers, and that risks blank labels on historical records that resolve names
+through the same list endpoints. That is a **product decision (D5)**, not a code detail. Also open:
+**SU-19** (targeted refetch).
 
 ### Step 1 — Phase 1b · original scope *(3–4 d, no decisions)*
 The largest remaining slice; do it before any further restructuring.

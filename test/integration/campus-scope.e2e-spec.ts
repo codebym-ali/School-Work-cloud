@@ -339,6 +339,33 @@ describe('Campus scoping (e2e, §22.8 / P1.7)', () => {
     expect((await authed('delete', `/api/v1/classes/${cls.body.id}`, ownerCookies, ownerCsrf)).status).toBe(204);
   });
 
+  // Destructive actions must leave a trail. audit_logs has no FK to the entity (so the row
+  // survives the delete), which means oldValue has to carry enough identity to say WHAT went.
+  it('records an audit row naming what was deleted (class, section, subject)', async () => {
+    const cls = await ownerPost('/api/v1/classes', { campusId: campusA, name: 'Audited Class', order: 98 });
+    const sec = await ownerPost('/api/v1/sections', { classId: cls.body.id, name: 'Q' });
+    const sub = await ownerPost('/api/v1/subjects', { classId: cls.body.id, name: 'Audited Subject' });
+
+    await authed('delete', `/api/v1/subjects/${sub.body.id}`, ownerCookies, ownerCsrf);
+    await authed('delete', `/api/v1/sections/${sec.body.id}`, ownerCookies, ownerCsrf);
+    await authed('delete', `/api/v1/classes/${cls.body.id}`, ownerCookies, ownerCsrf);
+
+    // Scope to the ids created HERE — earlier tests in this spec also delete structure now,
+    // so filtering by action alone would pick their rows up too.
+    const rows = await platform.auditLog.findMany({
+      where: { schoolId, entityId: { in: [cls.body.id, sec.body.id, sub.body.id] } },
+    });
+    expect(rows.map((r) => r.action).sort()).toEqual(['CLASS_DELETED', 'SECTION_DELETED', 'SUBJECT_DELETED']);
+
+    // The names must survive — the entityIds now dangle.
+    const byAction = new Map(rows.map((r) => [r.action, r.oldValue as Record<string, unknown>]));
+    expect(byAction.get('CLASS_DELETED')?.name).toBe('Audited Class');
+    expect(byAction.get('SECTION_DELETED')?.name).toBe('Q');
+    expect(byAction.get('SUBJECT_DELETED')?.name).toBe('Audited Subject');
+    // Every row names the actor.
+    expect(rows.every((r) => Boolean(r.userId))).toBe(true);
+  });
+
   it('dashboard is role-shaped: an ACCOUNTANT sees financial metrics only', async () => {
     const acct = await authed('get', '/api/v1/dashboard', acctCookies);
     expect(acct.body.visible).toEqual(['enrollmentCount', 'monthCollections', 'defaulterCount']);

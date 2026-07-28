@@ -282,8 +282,8 @@ export class StudentsService {
   }
 
   async update(id: string, dto: UpdateStudentDto) {
-    await this.getOne(id);
-    return this.db.student.update({
+    const before = await this.getOne(id);
+    const updated = await this.db.student.update({
       where: { id },
       data: {
         fullName: dto.fullName,
@@ -291,6 +291,14 @@ export class StudentsService {
         dateOfBirth: dto.dateOfBirth ? new Date(dto.dateOfBirth) : undefined,
       },
     });
+    await this.audit.record({
+      action: AuditActions.STUDENT_UPDATED,
+      entityType: 'Student',
+      entityId: id,
+      oldValue: { fullName: before.fullName, gender: before.gender, dateOfBirth: before.dateOfBirth },
+      newValue: { fullName: updated.fullName, gender: updated.gender, dateOfBirth: updated.dateOfBirth },
+    });
+    return updated;
   }
 
   // ── Lifecycle status ─────────────────────────────────────────────────────────
@@ -385,7 +393,7 @@ export class StudentsService {
    * accounting trail, so it is refused and the caller is pointed at withdrawal instead.
    */
   async softDelete(id: string): Promise<void> {
-    await this.getOne(id);
+    const student = await this.getOne(id);
 
     const paid = await this.db.feePayment.findFirst({ where: { invoice: { studentId: id } }, select: { id: true } });
     const doc = await this.db.document.findFirst({ where: { studentId: id }, select: { id: true } });
@@ -402,6 +410,22 @@ export class StudentsService {
     await this.db.studentEnrollment.updateMany({
       where: { studentId: id, status: 'ACTIVE' },
       data: { status: 'WITHDRAWN', endedAt: new Date() },
+    });
+
+    // Removing a child's record is the most consequential action in the product and was
+    // leaving no trace at all. oldValue carries the identifying fields so the trail still
+    // says WHO was removed once the row is filtered out of every read.
+    await this.audit.record({
+      action: AuditActions.STUDENT_DELETED,
+      entityType: 'Student',
+      entityId: id,
+      oldValue: {
+        fullName: student.fullName,
+        grNumber: student.grNumber,
+        registrationNo: student.registrationNo,
+        status: student.status,
+      },
+      newValue: { deleted: true },
     });
   }
 

@@ -25,3 +25,21 @@ CREATE UNIQUE INDEX IF NOT EXISTS fee_invoices_one_batch_per_student_month
 CREATE UNIQUE INDEX IF NOT EXISTS fee_payments_unique_txn_ref
   ON fee_payments (school_id, method, transaction_ref)
   WHERE transaction_ref IS NOT NULL;
+
+-- Identity that a REMOVED record must not keep holding (§17.1, audit fix #3).
+-- A plain UNIQUE spans soft-deleted rows, so a departed teacher owned their email for ever
+-- and a mis-keyed admission owned its GR number for ever. Deleting means "this should never
+-- have existed" — softDelete refuses once fees or certificates are attached — so only
+-- mistakes free their identifier. A WITHDRAWN or STRUCK_OFF student is not deleted and
+-- keeps their GR number, which is what a school register requires.
+CREATE UNIQUE INDEX IF NOT EXISTS users_one_live_email_per_school
+  ON users (school_id, email)
+  WHERE deleted_at IS NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS students_one_live_gr_number_per_school
+  ON students (school_id, gr_number)
+  WHERE deleted_at IS NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS students_one_live_registration_no_per_school
+  ON students (school_id, registration_no)
+  WHERE deleted_at IS NULL;

@@ -34,7 +34,7 @@ describe('HR access grant (e2e, RBAC)', () => {
     return { status: res.status, cookies: res.headers['set-cookie'] as unknown as string[] };
   };
   const csrfOf = (c: string[]) => (c.find((x) => x.startsWith('csrf=')) ?? '').split(';')[0].slice(5);
-  const send = (method: 'post' | 'patch', p: string, b: object, cookies: string[]) =>
+  const send = (method: 'post' | 'patch' | 'delete', p: string, b: object, cookies: string[]) =>
     request(server())[method](p).set('Host', host).set('Cookie', cookies).set('X-CSRF-Token', csrfOf(cookies)).send(b);
   const get = (p: string, cookies: string[]) => request(server()).get(p).set('Host', host).set('Cookie', cookies);
 
@@ -123,6 +123,38 @@ describe('HR access grant (e2e, RBAC)', () => {
   it('writes an audit log for the grant and the revoke', async () => {
     const actions = (await platform.auditLog.findMany({ where: { schoolId, entityId: teacherUserId } })).map((a) => a.action);
     expect(actions).toEqual(expect.arrayContaining(['HR_ACCESS_GRANTED', 'HR_ACCESS_REVOKED']));
+  });
+
+  // Audit fix #3: the unique on (school_id, email) is partial (WHERE deleted_at IS NULL),
+  // so a REMOVED account no longer owns its address for ever. Before this, re-hiring
+  // someone — or reusing a mis-typed address — was impossible with no visible record to clear.
+  it("frees a removed teacher's email for reuse", async () => {
+    const email = `rehire-${Date.now()}@demo.pk`;
+    const first = await send('post', '/api/v1/staff', {
+      email, staffType: 'TEACHER', fullName: 'First Hire', employeeCode: `EMP-R${Date.now()}`,
+      designation: 'Teacher', joinedAt: '2026-07-01', campusId: campusAId, password: 'Teach!Secret12',
+    }, ownerCookies);
+    expect(first.status).toBe(201);
+
+    // Still taken while the account is live.
+    const clash = await send('post', '/api/v1/staff', {
+      email, staffType: 'TEACHER', fullName: 'Clash', employeeCode: `EMP-C${Date.now()}`,
+      designation: 'Teacher', joinedAt: '2026-07-01', campusId: campusAId,
+    }, ownerCookies);
+    expect(clash.status).toBe(409);
+
+    // Remove the account (soft-delete), then the address is free again.
+    await send('delete', `/api/v1/users/${first.body.userId}`, {}, ownerCookies);
+    const rehired = await send('post', '/api/v1/staff', {
+      email, staffType: 'TEACHER', fullName: 'Re-hired', employeeCode: `EMP-N${Date.now()}`,
+      designation: 'Teacher', joinedAt: '2026-08-01', campusId: campusAId, password: 'Teach!Secret12',
+    }, ownerCookies);
+    expect(rehired.status).toBe(201);
+
+    // Both rows coexist: one removed, one live — no duplication of a LIVE address.
+    const rows = await platform.user.findMany({ where: { schoolId, email } });
+    expect(rows).toHaveLength(2);
+    expect(rows.filter((r) => r.deletedAt === null)).toHaveLength(1);
   });
 
   // The point of the feature: a teacher added with a password can sign in immediately,

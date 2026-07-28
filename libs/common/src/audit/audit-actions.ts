@@ -11,9 +11,19 @@ export const AuditActions = {
   STUDENT_DELETED: 'STUDENT_DELETED',
   STUDENT_STATUS_CHANGED: 'STUDENT_STATUS_CHANGED',
   GUARDIAN_LINKED: 'GUARDIAN_LINKED',
+  GUARDIAN_UNLINKED: 'GUARDIAN_UNLINKED',
   PRIMARY_GUARDIAN_CHANGED: 'PRIMARY_GUARDIAN_CHANGED',
   ENROLLMENT_TRANSFERRED: 'ENROLLMENT_TRANSFERRED',
   ACADEMIC_YEAR_SET_CURRENT: 'ACADEMIC_YEAR_SET_CURRENT',
+
+  // Structural deletes (setup). audit_logs has no FK to the entity — by design, so the row
+  // outlives what it describes — which means oldValue must carry enough identity to say
+  // WHAT was destroyed, not just its now-dangling id.
+  CAMPUS_DELETED: 'CAMPUS_DELETED',
+  CLASS_DELETED: 'CLASS_DELETED',
+  SECTION_DELETED: 'SECTION_DELETED',
+  SUBJECT_DELETED: 'SUBJECT_DELETED',
+  TEACHER_ASSIGNMENT_REMOVED: 'TEACHER_ASSIGNMENT_REMOVED',
 
   // auth / platform (M1)
   ROLE_CHANGED: 'ROLE_CHANGED',

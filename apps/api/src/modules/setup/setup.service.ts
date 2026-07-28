@@ -105,7 +105,7 @@ export class SetupService {
   /** Delete a campus only when nothing depends on it (no cascade — §17). Blocks with a
    *  clear reason if classes/users/records still belong to it. */
   async deleteCampus(id: string): Promise<void> {
-    const campus = await this.db.campus.findFirst({ where: { id }, select: { id: true } });
+    const campus = await this.db.campus.findFirst({ where: { id }, select: { id: true, name: true, address: true } });
     if (!campus) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'Campus not found');
 
     // Every table that references campuses is counted here, so the error names the actual
@@ -135,6 +135,12 @@ export class SetupService {
       // delete below fails on a reference to users nobody can see any more.
       await this.db.user.updateMany({ where: { campusId: id, deletedAt: { not: null } }, data: { campusId: null } });
       await this.db.campus.delete({ where: { id } });
+      await this.audit.record({
+        action: AuditActions.CAMPUS_DELETED,
+        entityType: 'Campus',
+        entityId: id,
+        oldValue: { name: campus.name, address: campus.address },
+      });
     } catch (e) {
       // Safety net only — the counts above cover every table that references campuses today,
       // so reaching here means a new reference was added without updating that list.
@@ -310,6 +316,8 @@ export class SetupService {
 
   async deleteClass(id: string): Promise<void> {
     await this.assertClassCampus(id);
+    const klass = await this.db.class.findFirst({ where: { id }, select: { name: true, campusId: true } });
+    if (!klass) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'Class not found');
     const [sections, feeStructures, exams, batches] = await Promise.all([
       this.db.section.count({ where: { classId: id } }),
       this.db.feeStructure.count({ where: { classId: id } }),
@@ -327,8 +335,15 @@ export class SetupService {
     }
     // Its subjects are owned by the class and now provably unused (no sections ⇒ no
     // section links; exam results require an exam, and there are none).
+    const subjectNames = (await this.db.subject.findMany({ where: { classId: id }, select: { name: true } })).map((x) => x.name);
     await this.db.subject.deleteMany({ where: { classId: id } });
     await this.db.class.delete({ where: { id } });
+    await this.audit.record({
+      action: AuditActions.CLASS_DELETED,
+      entityType: 'Class',
+      entityId: id,
+      oldValue: { name: klass.name, campusId: klass.campusId, subjectsRemoved: subjectNames },
+    });
   }
 
   async updateSection(id: string, dto: UpdateSectionDto) {
@@ -339,6 +354,7 @@ export class SetupService {
   }
 
   async deleteSection(id: string): Promise<void> {
+    const sectionRow = await this.db.section.findFirst({ where: { id }, select: { name: true } });
     const section = await this.db.section.findFirst({ where: { id }, select: { classId: true } });
     if (!section) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'Section not found');
     await this.assertClassCampus(section.classId);
@@ -357,6 +373,12 @@ export class SetupService {
         `This section is in use — ${blockers.join(', ')} belong to it. Move or remove those first.`);
     }
     await this.db.section.delete({ where: { id } }); // section_subjects cascade
+    await this.audit.record({
+      action: AuditActions.SECTION_DELETED,
+      entityType: 'Section',
+      entityId: id,
+      oldValue: { name: sectionRow?.name, classId: section.classId },
+    });
   }
 
   async updateSubject(id: string, dto: UpdateSubjectDto) {
@@ -367,6 +389,7 @@ export class SetupService {
   }
 
   async deleteSubject(id: string): Promise<void> {
+    const subjectRow = await this.db.subject.findFirst({ where: { id }, select: { name: true } });
     const subject = await this.db.subject.findFirst({ where: { id }, select: { classId: true } });
     if (!subject) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'Subject not found');
     await this.assertClassCampus(subject.classId);
@@ -387,6 +410,12 @@ export class SetupService {
     // Curriculum links are just "this section studies it" — safe to drop with the subject.
     await this.db.sectionSubject.deleteMany({ where: { subjectId: id } });
     await this.db.subject.delete({ where: { id } });
+    await this.audit.record({
+      action: AuditActions.SUBJECT_DELETED,
+      entityType: 'Subject',
+      entityId: id,
+      oldValue: { name: subjectRow?.name, classId: subject.classId },
+    });
   }
 
   private async assertClassCampus(classId: string): Promise<void> {

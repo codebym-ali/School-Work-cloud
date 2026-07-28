@@ -96,7 +96,9 @@ export class UsersService {
     }
 
     const email = dto.email.toLowerCase();
-    if (await this.db.user.findFirst({ where: { email }, select: { id: true } })) {
+    // Only a LIVE account blocks the address — the unique index is partial
+    // (WHERE deleted_at IS NULL), so a removed user's email can be reused.
+    if (await this.db.user.findFirst({ where: { email, deletedAt: null }, select: { id: true } })) {
       throw new AppError(ErrorCodes.CONFLICT, HttpStatus.CONFLICT, 'A user with this email already exists');
     }
 

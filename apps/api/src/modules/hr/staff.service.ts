@@ -1,7 +1,7 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { Prisma, Role, StaffType } from '@prisma/client';
-import { AppError, assertCampusAccess, ErrorCodes, restrictedCampusId, TenantContext } from '@common';
-import { TenantPrismaService } from '@database';
+import { AppError, assertCampusAccess, AuditActions, ErrorCodes, restrictedCampusId, TenantContext } from '@common';
+import { AuditService, TenantPrismaService } from '@database';
 import { PasswordService } from '../auth/password.service';
 import type { CreateSalaryStructureDto, CreateStaffDto, CreateTeacherAssignmentDto } from './dto/hr.dto';
 
@@ -12,6 +12,7 @@ export class StaffService {
     private readonly tenantPrisma: TenantPrismaService,
     private readonly ctx: TenantContext,
     private readonly passwords: PasswordService,
+    private readonly audit: AuditService,
   ) {}
 
   private get db() {
@@ -34,7 +35,10 @@ export class StaffService {
     // Pre-check instead, and say plainly when the clash is with a removed record.
     const email = dto.email.toLowerCase();
     const [emailOwner, codeOwner] = await Promise.all([
-      this.db.user.findFirst({ where: { email }, select: { deletedAt: true } }),
+      // Only a LIVE account blocks the address. The unique index is partial
+      // (WHERE deleted_at IS NULL), so a removed colleague's email is reusable — this
+      // pre-check exists for the message, and must not be stricter than the constraint.
+      this.db.user.findFirst({ where: { email, deletedAt: null }, select: { deletedAt: true } }),
       this.db.staffProfile.findFirst({
         where: { employeeCode: dto.employeeCode },
         select: { user: { select: { deletedAt: true } } },
@@ -44,10 +48,8 @@ export class StaffService {
       throw new AppError(
         ErrorCodes.CONFLICT,
         HttpStatus.CONFLICT,
-        emailOwner.deletedAt
-          ? `A removed staff member still uses the email ${email}. Restore them instead, or use a different email.`
-          : `Someone already uses the email ${email}.`,
-        [{ field: 'email', issue: emailOwner.deletedAt ? 'taken-by-removed' : 'duplicate' }],
+        `Someone already uses the email ${email}.`,
+        [{ field: 'email', issue: 'duplicate' }],
       );
     }
     if (codeOwner) {
@@ -178,9 +180,23 @@ export class StaffService {
   async deleteAssignment(id: string) {
     // Scope the delete so a campus-bound user can't remove another campus's assignment.
     const restricted = restrictedCampusId(this.ctx.user);
-    await this.db.teacherAssignment.deleteMany({
+    // Read first: after deleteMany the row is gone and the audit could only record an id.
+    const before = await this.db.teacherAssignment.findFirst({
+      where: { id, ...(restricted ? { staff: { user: { campusId: restricted } } } : {}) },
+      select: { staffId: true, sectionId: true, subjectId: true, academicYearId: true },
+    });
+    const { count } = await this.db.teacherAssignment.deleteMany({
       where: { id, ...(restricted ? { staff: { user: { campusId: restricted } } } : {}) },
     });
+    // deleteMany is a no-op when the scope filter excludes the row — don't audit a non-event.
+    if (count > 0 && before) {
+      await this.audit.record({
+        action: AuditActions.TEACHER_ASSIGNMENT_REMOVED,
+        entityType: 'TeacherAssignment',
+        entityId: id,
+        oldValue: before,
+      });
+    }
   }
 }
 

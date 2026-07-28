@@ -191,5 +191,16 @@ describe('Student status + delete guard (e2e)', () => {
     expect(ok.status).toBe(204);
     const s = await platform.student.findFirst({ where: { id: studentId } });
     expect(s?.deletedAt).not.toBeNull();
+
+    // Removing a child's record must leave a trail naming WHO was removed — after the
+    // delete the student is filtered out of every read, so the id alone proves nothing.
+    const audit = await platform.auditLog.findFirst({
+      where: { schoolId, entityId: studentId, action: 'STUDENT_DELETED' },
+    });
+    expect(audit).not.toBeNull();
+    expect(audit!.userId).toBeTruthy(); // the actor
+    const old = audit!.oldValue as Record<string, unknown>;
+    expect(old.fullName).toBe('Status Kid');
+    expect(old.grNumber).toBeTruthy();
   });
 });

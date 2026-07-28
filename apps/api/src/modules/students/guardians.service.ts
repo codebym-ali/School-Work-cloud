@@ -7,9 +7,10 @@ import {
   FIELD_ENCRYPTION,
   FieldEncryption,
   normalizePkPhone,
+  AuditActions,
   TenantContext,
 } from '@common';
-import { TenantPrismaService } from '@database';
+import { AuditService, TenantPrismaService } from '@database';
 import type { GuardianResolutionDto } from './dto/student.dto';
 
 /**
@@ -24,6 +25,7 @@ export class GuardiansService {
     private readonly tenantPrisma: TenantPrismaService,
     private readonly ctx: TenantContext,
     @Inject(FIELD_ENCRYPTION) private readonly crypto: FieldEncryption,
+    private readonly audit: AuditService,
   ) {}
 
   private get db() {
@@ -116,6 +118,12 @@ export class GuardiansService {
     await this.db.studentGuardian.create({
       data: { schoolId: this.sid, studentId, parentId, relation, isPrimary },
     });
+    await this.audit.record({
+      action: AuditActions.GUARDIAN_LINKED,
+      entityType: 'Student',
+      entityId: studentId,
+      newValue: { parentId, relation, isPrimary },
+    });
   }
 
   async setPrimary(studentId: string, guardianLinkId: string): Promise<void> {
@@ -126,6 +134,13 @@ export class GuardiansService {
       data: { isPrimary: false },
     });
     await this.db.studentGuardian.update({ where: { id: guardianLinkId }, data: { isPrimary: true } });
+    // Who receives fee notices and is contacted first — a meaningful change of responsibility.
+    await this.audit.record({
+      action: AuditActions.PRIMARY_GUARDIAN_CHANGED,
+      entityType: 'Student',
+      entityId: studentId,
+      newValue: { parentId: link.parentId, guardianLinkId },
+    });
   }
 
   async remove(studentId: string, guardianLinkId: string): Promise<void> {
@@ -135,5 +150,14 @@ export class GuardiansService {
       throw new AppError(ErrorCodes.CONFLICT, HttpStatus.CONFLICT, 'Set another guardian primary before removing this one');
     }
     await this.db.studentGuardian.delete({ where: { id: guardianLinkId } });
+
+    // The link row is gone, so record who the guardian WAS — the id alone would dangle.
+    const parent = await this.db.parentProfile.findFirst({ where: { id: link.parentId }, select: { fullName: true, phone: true } });
+    await this.audit.record({
+      action: AuditActions.GUARDIAN_UNLINKED,
+      entityType: 'Student',
+      entityId: studentId,
+      oldValue: { parentId: link.parentId, name: parent?.fullName, phone: parent?.phone, relation: link.relation },
+    });
   }
 }

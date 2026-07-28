@@ -341,6 +341,9 @@ model Campus {
   classes   Class[]
   inquiries Inquiry[]
   vacancies Vacancy[]
+  enrollments StudentEnrollment[]
+  holidays  Holiday[]
+  feeStructures FeeStructure[]
   teacherApplications TeacherApplication[]
 
   @@unique([id, schoolId]) // composite target for child tenant-chain FKs
@@ -361,6 +364,9 @@ model AcademicYear {
 
   enrollments StudentEnrollment[]
   terms       Term[]
+  teacherAssignments TeacherAssignment[]
+  feeStructures      FeeStructure[]
+  invoiceBatches     FeeInvoiceBatch[]
 
   @@unique([id, schoolId])
   @@unique([schoolId, name])
@@ -384,8 +390,11 @@ model Class {
 
   sections        Section[]
   subjects        Subject[]
+  enrollments     StudentEnrollment[]
   feeStructures   FeeStructure[]
   examDefinitions ExamDefinition[]
+  inquiries       Inquiry[]
+  invoiceBatches  FeeInvoiceBatch[]
 
   @@unique([id, schoolId])
   @@unique([campusId, name])
@@ -407,6 +416,7 @@ model Section {
 
   enrollments StudentEnrollment[]
   subjects    SectionSubject[]
+  teacherAssignments TeacherAssignment[]
 
   @@unique([id, schoolId])
   @@unique([classId, name])
@@ -427,9 +437,11 @@ model Subject {
 
   examResults ExamResult[]
   sections    SectionSubject[]
+  teacherAssignments TeacherAssignment[]
 
   @@unique([id, schoolId])
   @@unique([classId, name])
+  @@index([classId, schoolId])
   @@map("subjects")
 }
 
@@ -450,6 +462,7 @@ model SectionSubject {
 
   @@unique([sectionId, subjectId])
   @@index([schoolId, sectionId])
+  @@index([subjectId, schoolId])
   @@map("section_subjects")
 }
 
@@ -460,8 +473,10 @@ model Holiday {
   date     DateTime @db.Date
   name     String
   campusId String?  @map("campus_id") @db.Uuid // null = all campuses
+  campus   Campus?  @relation(fields: [campusId, schoolId], references: [id, schoolId])
 
   @@unique([schoolId, date, campusId])
+  @@index([campusId, schoolId])
   @@map("holidays")
 }
 
@@ -499,8 +514,11 @@ model User {
   moduleAccess       ModuleAccess[]
 
   @@unique([id, schoolId])
-  @@unique([schoolId, email])
+  // Partial unique in 02_partial_uniques.sql: (school_id, email) WHERE deleted_at IS NULL.
+  // Plain @@unique spanned removed accounts, so a departed teacher owned their address for
+  // ever and re-hiring them was impossible.
   @@index([schoolId], map: "users_school_idx")
+  @@index([campusId, schoolId])
   @@map("users")
 }
 
@@ -518,6 +536,7 @@ model RefreshToken {
   createdAt DateTime  @default(now()) @map("created_at")
 
   @@index([userId, familyId])
+  @@index([userId, schoolId])
   @@map("refresh_tokens")
 }
 
@@ -593,8 +612,12 @@ model Student {
   leaves      StudentLeave[]
 
   @@unique([id, schoolId])
-  @@unique([schoolId, grNumber])
-  @@unique([schoolId, registrationNo])
+  // Partial uniques in 02_partial_uniques.sql: (school_id, gr_number) and
+  // (school_id, registration_no) WHERE deleted_at IS NULL. A plain @@unique spans
+  // soft-deleted rows, so a mis-keyed admission held its GR number for ever. Deleting
+  // means "this record should never have existed" (students.service.softDelete refuses
+  // once fees or certificates exist), so only mistakes free their number — a withdrawn
+  // or struck-off student is NOT deleted and keeps theirs.
   @@unique([userId, schoolId]) // composite target for one-to-one relation from User
   @@index([schoolId, status])
   @@map("students")
@@ -613,6 +636,7 @@ model StudentGuardian {
   @@unique([studentId, parentId])
   // Partial unique in SQL migration: one is_primary=true per student
   @@index([schoolId, parentId])
+  @@index([studentId, schoolId])
   @@map("student_guardians")
 }
 
@@ -625,7 +649,9 @@ model StudentEnrollment {
   academicYearId String           @map("academic_year_id") @db.Uuid
   academicYear   AcademicYear     @relation(fields: [academicYearId, schoolId], references: [id, schoolId])
   campusId       String           @map("campus_id") @db.Uuid
+  campus         Campus           @relation(fields: [campusId, schoolId], references: [id, schoolId])
   classId        String           @map("class_id") @db.Uuid
+  class          Class            @relation(fields: [classId, schoolId], references: [id, schoolId])
   sectionId      String           @map("section_id") @db.Uuid
   section        Section          @relation(fields: [sectionId, schoolId], references: [id, schoolId])
   rollNumber     Int?             @map("roll_number")
@@ -644,6 +670,10 @@ model StudentEnrollment {
   @@unique([sectionId, academicYearId, rollNumber])
   @@index([schoolId, academicYearId, sectionId, status])
   @@index([studentId])
+  @@index([classId, schoolId])
+  @@index([studentId, schoolId])
+  @@index([sectionId, schoolId])
+  @@index([campusId, schoolId])
   @@map("student_enrollments")
 }
 
@@ -685,12 +715,18 @@ model TeacherAssignment {
   staffId        String       @map("staff_id") @db.Uuid
   staff          StaffProfile @relation(fields: [staffId, schoolId], references: [id, schoolId])
   academicYearId String       @map("academic_year_id") @db.Uuid
+  academicYear   AcademicYear @relation(fields: [academicYearId, schoolId], references: [id, schoolId])
   sectionId      String       @map("section_id") @db.Uuid
+  section        Section      @relation(fields: [sectionId, schoolId], references: [id, schoolId])
   subjectId      String?      @map("subject_id") @db.Uuid // null => homeroom/class-teacher of the section
+  subject        Subject?     @relation(fields: [subjectId, schoolId], references: [id, schoolId])
   createdAt      DateTime     @default(now()) @map("created_at")
 
   @@unique([staffId, academicYearId, sectionId, subjectId])
   @@index([schoolId, academicYearId, sectionId])
+  @@index([sectionId, schoolId])
+  @@index([subjectId, schoolId])
+  @@index([staffId, schoolId])
   @@map("teacher_assignments")
 }
 
@@ -705,6 +741,7 @@ model Inquiry {
   guardianPhone  String        @map("guardian_phone") // normalized E.164
   studentName    String        @map("student_name")
   desiredClassId String        @map("desired_class_id") @db.Uuid
+  desiredClass   Class         @relation(fields: [desiredClassId, schoolId], references: [id, schoolId])
   status         InquiryStatus @default(INQUIRY)
   statusReason   String?       @map("status_reason") // required for REJECTED/WITHDRAWN
   createdById    String?       @map("created_by_id") @db.Uuid
@@ -717,6 +754,7 @@ model Inquiry {
   @@unique([id, schoolId])
   @@index([schoolId, campusId, status])
   @@index([schoolId, guardianPhone])
+  @@index([desiredClassId, schoolId])
   @@map("inquiries")
 }
 
@@ -769,11 +807,13 @@ model FeeStructure {
   schoolId       String       @map("school_id") @db.Uuid
   school         School       @relation(fields: [schoolId], references: [id])
   campusId       String       @map("campus_id") @db.Uuid
+  campus         Campus       @relation(fields: [campusId, schoolId], references: [id, schoolId])
   classId        String       @map("class_id") @db.Uuid
   class          Class        @relation(fields: [classId, schoolId], references: [id, schoolId])
   feeHeadId      String       @map("fee_head_id") @db.Uuid
   feeHead        FeeHead      @relation(fields: [feeHeadId, schoolId], references: [id, schoolId])
   academicYearId String       @map("academic_year_id") @db.Uuid
+  academicYear   AcademicYear @relation(fields: [academicYearId, schoolId], references: [id, schoolId])
   amount         Decimal      @db.Decimal(12, 2)
   frequency      FeeFrequency
   isActive       Boolean      @default(true) @map("is_active")
@@ -782,6 +822,9 @@ model FeeStructure {
 
   @@unique([classId, feeHeadId, academicYearId, frequency])
   @@index([schoolId, campusId, classId])
+  @@index([classId, schoolId])
+  @@index([academicYearId, schoolId])
+  @@index([feeHeadId, schoolId])
   @@map("fee_structures")
 }
 
@@ -790,7 +833,9 @@ model FeeInvoiceBatch {
   schoolId       String   @map("school_id") @db.Uuid
   school         School   @relation(fields: [schoolId], references: [id])
   classId        String   @map("class_id") @db.Uuid
+  class          Class    @relation(fields: [classId, schoolId], references: [id, schoolId])
   academicYearId String   @map("academic_year_id") @db.Uuid
+  academicYear   AcademicYear @relation(fields: [academicYearId, schoolId], references: [id, schoolId])
   month          Int
   year           Int
   status         String   @default("QUEUED") // QUEUED | RUNNING | DONE | FAILED
@@ -798,6 +843,7 @@ model FeeInvoiceBatch {
   createdAt      DateTime @default(now()) @map("created_at")
 
   @@unique([schoolId, classId, month, year]) // idempotent generation (audit C-5)
+  @@index([academicYearId, schoolId])
   @@map("fee_invoice_batches")
 }
 
@@ -826,6 +872,7 @@ model FeeInvoice {
   // Partial unique in SQL migration: one batch-generated invoice per (student, month, year)
   @@index([schoolId, studentId, status])
   @@index([schoolId, status, dueDate])
+  @@index([enrollmentId, schoolId])
   @@map("fee_invoices")
 }
 
@@ -840,6 +887,7 @@ model FeeInvoiceItem {
   amount      Decimal         @db.Decimal(12, 2) // negative for DISCOUNT/WAIVER
 
   @@index([invoiceId])
+  @@index([invoiceId, schoolId])
   @@map("fee_invoice_items")
 }
 
@@ -863,6 +911,8 @@ model FeePayment {
   @@unique([schoolId, receiptNo])
   // Partial unique in SQL migration: [schoolId, method, transaction_ref] where transaction_ref not null
   @@index([schoolId, paidAt])
+  @@index([collectedById, schoolId])
+  @@index([invoiceId, schoolId])
   @@map("fee_payments")
 }
 
@@ -900,6 +950,7 @@ model Discount {
   updatedAt    DateTime       @updatedAt @map("updated_at")
 
   @@index([schoolId, studentId, status])
+  @@index([approvedById, schoolId])
   @@map("discounts")
 }
 
@@ -948,6 +999,8 @@ model AttendanceRecord {
 
   @@unique([enrollmentId, date, session])
   @@index([schoolId, date])
+  @@index([markedById, schoolId])
+  @@index([enrollmentId, schoolId])
   @@map("attendance_records")
 }
 
@@ -966,6 +1019,7 @@ model StaffAttendance {
 
   @@unique([staffId, date, session])
   @@index([schoolId, date])
+  @@index([staffId, schoolId])
   @@map("staff_attendance")
 }
 
@@ -988,6 +1042,7 @@ model StudentLeave {
 
   @@index([schoolId, status])
   @@index([studentId, fromDate, toDate])
+  @@index([studentId, schoolId])
   @@map("student_leaves")
 }
 
@@ -1010,6 +1065,7 @@ model StaffLeave {
   updatedAt       DateTime       @updatedAt @map("updated_at")
 
   @@index([schoolId, status])
+  @@index([staffId, schoolId])
   @@map("staff_leaves")
 }
 
@@ -1042,6 +1098,7 @@ model Term {
 
   @@unique([id, schoolId])
   @@unique([academicYearId, name])
+  @@index([academicYearId, schoolId])
   @@map("terms")
 }
 
@@ -1067,6 +1124,7 @@ model ExamDefinition {
 
   @@unique([id, schoolId])
   @@index([schoolId, classId, termId])
+  @@index([termId, schoolId])
   @@map("exam_definitions")
 }
 
@@ -1089,6 +1147,8 @@ model ExamResult {
 
   @@unique([examId, enrollmentId, subjectId])
   @@index([schoolId, enrollmentId])
+  @@index([examId, schoolId])
+  @@index([subjectId, schoolId])
   @@map("exam_results")
 }
 
@@ -1175,6 +1235,7 @@ model Payslip {
 
   @@unique([runId, staffId])
   @@index([schoolId, staffId])
+  @@index([runId, schoolId])
   @@map("payslips")
 }
 
@@ -1198,6 +1259,8 @@ model Vacancy {
   updatedAt      DateTime       @updatedAt @map("updated_at")
 
   @@index([schoolId, status])
+  @@index([createdById, schoolId])
+  @@index([campusId, schoolId])
   @@map("vacancies")
 }
 
@@ -1225,6 +1288,8 @@ model TeacherApplication {
   updatedAt           DateTime                 @updatedAt @map("updated_at")
 
   @@index([schoolId, status])
+  @@index([createdById, schoolId])
+  @@index([campusId, schoolId])
   @@map("teacher_applications")
 }
 
@@ -1245,6 +1310,7 @@ model ModuleAccess {
 
   @@unique([userId, moduleKey])
   @@index([schoolId])
+  @@index([userId, schoolId])
   @@map("module_access")
 }
 

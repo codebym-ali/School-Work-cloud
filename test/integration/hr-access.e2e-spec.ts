@@ -152,6 +152,14 @@ describe('HR access grant (e2e, RBAC)', () => {
     const rows = await platform.user.findMany({ where: { schoolId, email } });
     expect(rows).toHaveLength(2);
     expect(rows.filter((r) => r.deletedAt === null)).toHaveLength(1);
+
+    // …and the re-hired person can actually SIGN IN. Making the email unique only among live
+    // rows means an email no longer identifies one user, so every lookup by email must say
+    // which one it wants. `auth.login` did not, and an unordered findFirst is free to return
+    // the REMOVED row — whereupon the deletedAt guard rejects a perfectly valid password.
+    // Re-hiring someone silently locked them out; this asserts it does not.
+    const signedIn = await login(email, 'Teach!Secret12');
+    expect(signedIn.status).toBe(200);
   });
 
   // The point of the feature: a teacher added with a password can sign in immediately,

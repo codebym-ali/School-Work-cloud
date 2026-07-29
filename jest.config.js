@@ -28,12 +28,9 @@ module.exports = {
       ...base,
       displayName: 'integration',
       testMatch: ['<rootDir>/test/integration/**/*.e2e-spec.ts'],
-      // Every suite boots the whole AppModule (Nest DI + Prisma + Redis) in beforeAll.
-      // Jest's 5s default is not a realistic budget for that: it only ever passed because
-      // ts-jest's cache happened to be warm, and any cold run (fresh clone, cleared
-      // .tsbuildinfo, CI) failed dozens of specs with "Exceeded timeout of 5000 ms for a
-      // hook" — setup timeouts masquerading as product failures.
-      testTimeout: 30000,
+      // Raises the 5s default to 30s — see the file for why it is not `testTimeout` here
+      // (a project-level `testTimeout` is silently ignored: "Unknown option", 5s kept).
+      setupFilesAfterEnv: ['<rootDir>/test/integration/support/timeout.ts'],
       // A live worker competes for the shared BullMQ "sms" queue and silently corrupts the
       // SMS assertions. Refuse to start rather than produce confusing failures.
       globalSetup: '<rootDir>/test/integration/support/no-worker.js',

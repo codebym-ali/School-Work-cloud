@@ -65,8 +65,15 @@ export class AuthService {
     const invalid = () =>
       new AppError(ErrorCodes.INVALID_CREDENTIALS, HttpStatus.UNAUTHORIZED, 'Invalid email or password');
 
-    const user = await this.db.user.findFirst({ where: { email: dto.email.toLowerCase() } });
-    // Constant-ish response: never reveal whether the email exists (§22.3).
+    // `deletedAt: null` is load-bearing, not defensive. The (school_id, email) unique is
+    // PARTIAL (WHERE deleted_at IS NULL), so a removed account and a live one may share an
+    // address — re-hiring someone is the intended case. An unscoped findFirst is then free to
+    // return the REMOVED row, and the deletedAt guard below rejects a perfectly valid password:
+    // the re-hired user is silently locked out. Covered by hr-access.e2e-spec.
+    const user = await this.db.user.findFirst({ where: { email: dto.email.toLowerCase(), deletedAt: null } });
+    // Constant-ish response: never reveal whether the email exists (§22.3). The deletedAt test
+    // is now redundant with the query above and stays only so widening that query cannot
+    // silently re-admit removed accounts.
     if (!user || user.status === 'DISABLED' || user.deletedAt || !user.passwordHash) {
       // Still spend time hashing to reduce timing signal.
       await this.passwords.verify(
@@ -313,7 +320,10 @@ export class AuthService {
   }
 
   async forgotPassword(dto: ForgotPasswordDto): Promise<void> {
-    const user = await this.db.user.findFirst({ where: { email: dto.email.toLowerCase() } });
+    // Same partial-unique hazard as login: unscoped, this can mint a reset token against a
+    // REMOVED account while a live one holds the same address — the user resets a disabled
+    // account and still cannot sign in.
+    const user = await this.db.user.findFirst({ where: { email: dto.email.toLowerCase(), deletedAt: null } });
     if (user) {
       const raw = randomBytes(32).toString('base64url');
       await this.db.passwordResetToken.create({

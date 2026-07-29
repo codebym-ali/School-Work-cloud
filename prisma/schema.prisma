@@ -237,60 +237,60 @@ enum DiscountStatus {
 
 // ── Tenant root & platform ───────────────────────────────────────────────────
 model School {
-  id            String    @id @default(uuid()) @db.Uuid
-  name          String
-  subdomain     String    @unique
-  customDomain  String?   @unique @map("custom_domain")
-  planTier      PlanTier  @default(BASIC) @map("plan_tier")
-  isActive      Boolean   @default(true) @map("is_active")
-  suspendedAt   DateTime? @map("suspended_at")
-  grNumberMode  String    @default("AUTO") @map("gr_number_mode") // AUTO | MANUAL
-  grPrefix      String    @default("") @map("gr_prefix")
-  nextGrNumber  Int       @default(1) @map("next_gr_number")
-  registrationNoMode String @default("AUTO") @map("registration_no_mode") // AUTO | MANUAL
-  registrationPrefix String @default("") @map("registration_prefix")
-  nextRegistrationNo Int    @default(1) @map("next_registration_no")
-  nextReceiptNo Int       @default(1) @map("next_receipt_no")
-  settings      Json      @default("{}") // typed via Zod SchoolSettings in code (§17.1)
-  createdAt     DateTime  @default(now()) @map("created_at")
-  updatedAt     DateTime  @updatedAt @map("updated_at")
+  id                 String    @id @default(uuid()) @db.Uuid
+  name               String
+  subdomain          String    @unique
+  customDomain       String?   @unique @map("custom_domain")
+  planTier           PlanTier  @default(BASIC) @map("plan_tier")
+  isActive           Boolean   @default(true) @map("is_active")
+  suspendedAt        DateTime? @map("suspended_at")
+  grNumberMode       String    @default("AUTO") @map("gr_number_mode") // AUTO | MANUAL
+  grPrefix           String    @default("") @map("gr_prefix")
+  nextGrNumber       Int       @default(1) @map("next_gr_number")
+  registrationNoMode String    @default("AUTO") @map("registration_no_mode") // AUTO | MANUAL
+  registrationPrefix String    @default("") @map("registration_prefix")
+  nextRegistrationNo Int       @default(1) @map("next_registration_no")
+  nextReceiptNo      Int       @default(1) @map("next_receipt_no")
+  settings           Json      @default("{}") // typed via Zod SchoolSettings in code (§17.1)
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
 
   // back-relations (every tenant model)
-  campuses           Campus[]
-  vacancies          Vacancy[]
+  campuses            Campus[]
+  vacancies           Vacancy[]
   teacherApplications TeacherApplication[]
-  moduleAccess       ModuleAccess[]
-  academicYears      AcademicYear[]
-  classes            Class[]
-  sections           Section[]
-  subjects           Subject[]
-  sectionSubjects    SectionSubject[]
-  holidays           Holiday[]
-  users              User[]
-  parentProfiles     ParentProfile[]
-  students           Student[]
-  enrollments        StudentEnrollment[]
-  staffProfiles      StaffProfile[]
-  teacherAssignments TeacherAssignment[]
-  inquiries          Inquiry[]
-  feeHeads           FeeHead[]
-  feeStructures      FeeStructure[]
-  feeInvoiceBatches  FeeInvoiceBatch[]
-  feeInvoices        FeeInvoice[]
-  feePayments        FeePayment[]
-  discounts          Discount[]
-  lateFeePolicy      LateFeePolicy?
-  attendanceRecords  AttendanceRecord[]
-  studentLeaves      StudentLeave[]
-  staffLeaves        StaffLeave[]
-  gradeScales        GradeScale[]
-  terms              Term[]
-  examDefinitions    ExamDefinition[]
-  examResults        ExamResult[]
-  smsTemplates       SmsTemplate[]
-  smsLogs            SmsLog[]
-  documents          Document[]
-  auditLogs          AuditLog[]
+  moduleAccess        ModuleAccess[]
+  academicYears       AcademicYear[]
+  classes             Class[]
+  sections            Section[]
+  subjects            Subject[]
+  sectionSubjects     SectionSubject[]
+  holidays            Holiday[]
+  users               User[]
+  parentProfiles      ParentProfile[]
+  students            Student[]
+  enrollments         StudentEnrollment[]
+  staffProfiles       StaffProfile[]
+  teacherAssignments  TeacherAssignment[]
+  inquiries           Inquiry[]
+  feeHeads            FeeHead[]
+  feeStructures       FeeStructure[]
+  feeInvoiceBatches   FeeInvoiceBatch[]
+  feeInvoices         FeeInvoice[]
+  feePayments         FeePayment[]
+  discounts           Discount[]
+  lateFeePolicy       LateFeePolicy?
+  attendanceRecords   AttendanceRecord[]
+  studentLeaves       StudentLeave[]
+  staffLeaves         StaffLeave[]
+  gradeScales         GradeScale[]
+  terms               Term[]
+  examDefinitions     ExamDefinition[]
+  examResults         ExamResult[]
+  smsTemplates        SmsTemplate[]
+  smsLogs             SmsLog[]
+  documents           Document[]
+  auditLogs           AuditLog[]
 
   @@map("schools")
 }
@@ -337,13 +337,13 @@ model Campus {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  users     User[]
-  classes   Class[]
-  inquiries Inquiry[]
-  vacancies Vacancy[]
-  enrollments StudentEnrollment[]
-  holidays  Holiday[]
-  feeStructures FeeStructure[]
+  users               User[]
+  classes             Class[]
+  inquiries           Inquiry[]
+  vacancies           Vacancy[]
+  enrollments         StudentEnrollment[]
+  holidays            Holiday[]
+  feeStructures       FeeStructure[]
   teacherApplications TeacherApplication[]
 
   @@unique([id, schoolId]) // composite target for child tenant-chain FKs
@@ -362,8 +362,8 @@ model AcademicYear {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  enrollments StudentEnrollment[]
-  terms       Term[]
+  enrollments        StudentEnrollment[]
+  terms              Term[]
   teacherAssignments TeacherAssignment[]
   feeStructures      FeeStructure[]
   invoiceBatches     FeeInvoiceBatch[]
@@ -414,8 +414,8 @@ model Section {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  enrollments StudentEnrollment[]
-  subjects    SectionSubject[]
+  enrollments        StudentEnrollment[]
+  subjects           SectionSubject[]
   teacherAssignments TeacherAssignment[]
 
   @@unique([id, schoolId])
@@ -435,8 +435,8 @@ model Subject {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  examResults ExamResult[]
-  sections    SectionSubject[]
+  examResults        ExamResult[]
+  sections           SectionSubject[]
   teacherAssignments TeacherAssignment[]
 
   @@unique([id, schoolId])
@@ -502,16 +502,36 @@ model User {
   createdAt         DateTime   @default(now()) @map("created_at")
   updatedAt         DateTime   @updatedAt @map("updated_at")
 
-  refreshTokens      RefreshToken[]
-  parentProfile      ParentProfile?
-  student            Student?
-  staffProfile       StaffProfile?
-  collectedPayments  FeePayment[]
-  approvedDiscounts  Discount[]
-  markedAttendance   AttendanceRecord[]
-  createdVacancies   Vacancy[]
+  refreshTokens              RefreshToken[]
+  parentProfile              ParentProfile?
+  student                    Student?             @relation("StudentLogin")
+  staffProfile               StaffProfile?
+  collectedPayments          FeePayment[]
+  approvedDiscounts          Discount[]
+  markedAttendance           AttendanceRecord[]
+  createdVacancies           Vacancy[]
   createdTeacherApplications TeacherApplication[]
-  moduleAccess       ModuleAccess[]
+  moduleAccess               ModuleAccess[]
+
+  // Actor back-relations. Every *_by_id column references a real user so the audit trail
+  // cannot point at a ghost; `onDelete` is Prisma's default Restrict, which never fires in
+  // practice because users are only ever SOFT-deleted (`deletedAt`), never removed.
+  createdStudents        Student[]         @relation("StudentCreatedBy")
+  createdInquiries       Inquiry[]
+  admittedStudents       Admission[]
+  createdInvoiceBatches  FeeInvoiceBatch[]
+  approvedReversals      PaymentReversal[]
+  createdGuardianCredits GuardianCredit[]
+  requestedStudentLeaves StudentLeave[]    @relation("StudentLeaveRequestedBy")
+  decidedStudentLeaves   StudentLeave[]    @relation("StudentLeaveDecidedBy")
+  decidedStaffLeaves     StaffLeave[]
+  publishedExams         ExamDefinition[]
+  enteredExamResults     ExamResult[]
+  approvedPayrollRuns    PayrollRun[]      @relation("PayrollRunApprovedBy")
+  createdPayrollRuns     PayrollRun[]      @relation("PayrollRunCreatedBy")
+  updatedSmsTemplates    SmsTemplate[]
+  issuedDocuments        Document[]
+  auditLogs              AuditLog[]
 
   @@unique([id, schoolId])
   // Partial unique in 02_partial_uniques.sql: (school_id, email) WHERE deleted_at IS NULL.
@@ -580,29 +600,30 @@ model ParentProfile {
 }
 
 model Student {
-  id          String    @id @default(uuid()) @db.Uuid
-  schoolId    String    @map("school_id") @db.Uuid
-  school      School    @relation(fields: [schoolId], references: [id])
-  userId      String?   @unique @map("user_id") @db.Uuid // student portal login (audit C-8)
-  user        User?     @relation(fields: [userId, schoolId], references: [id, schoolId])
-  grNumber       String  @map("gr_number")
-  registrationNo String? @map("registration_no") // admission-form reg. no (auto, per-school)
-  cnicHash       String? @map("cnic_hash") // HMAC of the student's CNIC/B-Form — 2nd factor for the CNIC+regNo portal login (§28)
-  fullName    String    @map("full_name")
-  gender      Gender
-  dateOfBirth DateTime  @map("date_of_birth") @db.Date
-  photoKey    String?   @map("photo_key")
+  id                  String        @id @default(uuid()) @db.Uuid
+  schoolId            String        @map("school_id") @db.Uuid
+  school              School        @relation(fields: [schoolId], references: [id])
+  userId              String?       @unique @map("user_id") @db.Uuid // student portal login (audit C-8)
+  user                User?         @relation("StudentLogin", fields: [userId, schoolId], references: [id, schoolId])
+  grNumber            String        @map("gr_number")
+  registrationNo      String?       @map("registration_no") // admission-form reg. no (auto, per-school)
+  cnicHash            String?       @map("cnic_hash") // HMAC of the student's CNIC/B-Form — 2nd factor for the CNIC+regNo portal login (§28)
+  fullName            String        @map("full_name")
+  gender              Gender
+  dateOfBirth         DateTime      @map("date_of_birth") @db.Date
+  photoKey            String?       @map("photo_key")
   /// Derived mirror of `status == ACTIVE`, kept in sync on every status write. Many reads
   /// still filter on it; retire once those move to `status`.
-  isActive    Boolean   @default(true) @map("is_active")
+  isActive            Boolean       @default(true) @map("is_active")
   status              StudentStatus @default(ACTIVE)
   statusReason        String?       @map("status_reason")
   statusEffectiveFrom DateTime?     @map("status_effective_from") @db.Date
   statusEndsOn        DateTime?     @map("status_ends_on") @db.Date // SUSPENDED only — auto-restore date
-  deletedAt   DateTime? @map("deleted_at")
-  createdById String?   @map("created_by_id") @db.Uuid
-  createdAt   DateTime  @default(now()) @map("created_at")
-  updatedAt   DateTime  @updatedAt @map("updated_at")
+  deletedAt           DateTime?     @map("deleted_at")
+  createdById         String?       @map("created_by_id") @db.Uuid
+  createdBy           User?         @relation("StudentCreatedBy", fields: [createdById, schoolId], references: [id, schoolId])
+  createdAt           DateTime      @default(now()) @map("created_at")
+  updatedAt           DateTime      @updatedAt @map("updated_at")
 
   guardians   StudentGuardian[]
   enrollments StudentEnrollment[]
@@ -620,6 +641,7 @@ model Student {
   // or struck-off student is NOT deleted and keeps theirs.
   @@unique([userId, schoolId]) // composite target for one-to-one relation from User
   @@index([schoolId, status])
+  @@index([createdById, schoolId])
   @@map("students")
 }
 
@@ -745,6 +767,7 @@ model Inquiry {
   status         InquiryStatus @default(INQUIRY)
   statusReason   String?       @map("status_reason") // required for REJECTED/WITHDRAWN
   createdById    String?       @map("created_by_id") @db.Uuid
+  createdBy      User?         @relation(fields: [createdById, schoolId], references: [id, schoolId])
   createdAt      DateTime      @default(now()) @map("created_at")
   updatedAt      DateTime      @updatedAt @map("updated_at")
 
@@ -755,6 +778,7 @@ model Inquiry {
   @@index([schoolId, campusId, status])
   @@index([schoolId, guardianPhone])
   @@index([desiredClassId, schoolId])
+  @@index([createdById, schoolId])
   @@map("inquiries")
 }
 
@@ -782,9 +806,11 @@ model Admission {
   student      Student  @relation(fields: [studentId, schoolId], references: [id, schoolId])
   admittedAt   DateTime @default(now()) @map("admitted_at")
   admittedById String   @map("admitted_by_id") @db.Uuid
+  admittedBy   User     @relation(fields: [admittedById, schoolId], references: [id, schoolId])
 
   @@unique([inquiryId, schoolId]) // composite targets for one-to-one relations
   @@unique([studentId, schoolId])
+  @@index([admittedById, schoolId])
   @@map("admissions")
 }
 
@@ -829,21 +855,23 @@ model FeeStructure {
 }
 
 model FeeInvoiceBatch {
-  id             String   @id @default(uuid()) @db.Uuid
-  schoolId       String   @map("school_id") @db.Uuid
-  school         School   @relation(fields: [schoolId], references: [id])
-  classId        String   @map("class_id") @db.Uuid
-  class          Class    @relation(fields: [classId, schoolId], references: [id, schoolId])
-  academicYearId String   @map("academic_year_id") @db.Uuid
+  id             String       @id @default(uuid()) @db.Uuid
+  schoolId       String       @map("school_id") @db.Uuid
+  school         School       @relation(fields: [schoolId], references: [id])
+  classId        String       @map("class_id") @db.Uuid
+  class          Class        @relation(fields: [classId, schoolId], references: [id, schoolId])
+  academicYearId String       @map("academic_year_id") @db.Uuid
   academicYear   AcademicYear @relation(fields: [academicYearId, schoolId], references: [id, schoolId])
   month          Int
   year           Int
-  status         String   @default("QUEUED") // QUEUED | RUNNING | DONE | FAILED
-  createdById    String   @map("created_by_id") @db.Uuid
-  createdAt      DateTime @default(now()) @map("created_at")
+  status         String       @default("QUEUED") // QUEUED | RUNNING | DONE | FAILED
+  createdById    String       @map("created_by_id") @db.Uuid
+  createdBy      User         @relation(fields: [createdById, schoolId], references: [id, schoolId])
+  createdAt      DateTime     @default(now()) @map("created_at")
 
   @@unique([schoolId, classId, month, year]) // idempotent generation (audit C-5)
   @@index([academicYearId, schoolId])
+  @@index([createdById, schoolId])
   @@map("fee_invoice_batches")
 }
 
@@ -924,10 +952,12 @@ model PaymentReversal {
   receiptNo    Int        @map("receipt_no") // shares the school sequence, printed "RV-{n}"
   reason       String
   approvedById String     @map("approved_by_id") @db.Uuid
+  approvedBy   User       @relation(fields: [approvedById, schoolId], references: [id, schoolId])
   createdAt    DateTime   @default(now()) @map("created_at")
 
   @@unique([schoolId, receiptNo])
   @@unique([paymentId, schoolId]) // composite target for one-to-one relation from FeePayment
+  @@index([approvedById, schoolId])
   @@map("payment_reversals")
 }
 
@@ -975,9 +1005,11 @@ model GuardianCredit {
   refType     String   @map("ref_type") // DEPOSIT | APPLIED_TO_INVOICE | REFUND
   refId       String?  @map("ref_id") @db.Uuid
   createdById String   @map("created_by_id") @db.Uuid
+  createdBy   User     @relation(fields: [createdById, schoolId], references: [id, schoolId])
   createdAt   DateTime @default(now()) @map("created_at")
 
   @@index([schoolId, parentId])
+  @@index([createdById, schoolId])
   @@map("guardian_credits")
 }
 
@@ -1035,7 +1067,9 @@ model StudentLeave {
   status          LeaveStatus @default(PENDING)
   rejectionReason String?     @map("rejection_reason")
   requestedById   String      @map("requested_by_id") @db.Uuid
+  requestedBy     User        @relation("StudentLeaveRequestedBy", fields: [requestedById, schoolId], references: [id, schoolId])
   decidedById     String?     @map("decided_by_id") @db.Uuid
+  decidedBy       User?       @relation("StudentLeaveDecidedBy", fields: [decidedById, schoolId], references: [id, schoolId])
   decidedAt       DateTime?   @map("decided_at")
   createdAt       DateTime    @default(now()) @map("created_at")
   updatedAt       DateTime    @updatedAt @map("updated_at")
@@ -1043,6 +1077,8 @@ model StudentLeave {
   @@index([schoolId, status])
   @@index([studentId, fromDate, toDate])
   @@index([studentId, schoolId])
+  @@index([requestedById, schoolId])
+  @@index([decidedById, schoolId])
   @@map("student_leaves")
 }
 
@@ -1060,12 +1096,14 @@ model StaffLeave {
   isUnpaid        Boolean        @default(false) @map("is_unpaid")
   rejectionReason String?        @map("rejection_reason")
   decidedById     String?        @map("decided_by_id") @db.Uuid
+  decidedBy       User?          @relation(fields: [decidedById, schoolId], references: [id, schoolId])
   decidedAt       DateTime?      @map("decided_at")
   createdAt       DateTime       @default(now()) @map("created_at")
   updatedAt       DateTime       @updatedAt @map("updated_at")
 
   @@index([schoolId, status])
   @@index([staffId, schoolId])
+  @@index([decidedById, schoolId])
   @@map("staff_leaves")
 }
 
@@ -1117,6 +1155,7 @@ model ExamDefinition {
   status           ExamStatus @default(DRAFT)
   publishedAt      DateTime?  @map("published_at")
   publishedById    String?    @map("published_by_id") @db.Uuid
+  publishedBy      User?      @relation(fields: [publishedById, schoolId], references: [id, schoolId])
   createdAt        DateTime   @default(now()) @map("created_at")
   updatedAt        DateTime   @updatedAt @map("updated_at")
 
@@ -1125,6 +1164,7 @@ model ExamDefinition {
   @@unique([id, schoolId])
   @@index([schoolId, classId, termId])
   @@index([termId, schoolId])
+  @@index([publishedById, schoolId])
   @@map("exam_definitions")
 }
 
@@ -1142,6 +1182,7 @@ model ExamResult {
   totalMarks    Decimal           @map("total_marks") @db.Decimal(6, 2)
   isAbsent      Boolean           @default(false) @map("is_absent")
   enteredById   String            @map("entered_by_id") @db.Uuid
+  enteredBy     User              @relation(fields: [enteredById, schoolId], references: [id, schoolId])
   createdAt     DateTime          @default(now()) @map("created_at")
   updatedAt     DateTime          @updatedAt @map("updated_at")
 
@@ -1149,6 +1190,7 @@ model ExamResult {
   @@index([schoolId, enrollmentId])
   @@index([examId, schoolId])
   @@index([subjectId, schoolId])
+  @@index([enteredById, schoolId])
   @@map("exam_results")
 }
 
@@ -1207,13 +1249,17 @@ model PayrollRun {
   year         Int
   status       PayrollRunStatus @default(DRAFT)
   approvedById String?          @map("approved_by_id") @db.Uuid
+  approvedBy   User?            @relation("PayrollRunApprovedBy", fields: [approvedById, schoolId], references: [id, schoolId])
   createdById  String           @map("created_by_id") @db.Uuid
+  createdBy    User             @relation("PayrollRunCreatedBy", fields: [createdById, schoolId], references: [id, schoolId])
   createdAt    DateTime         @default(now()) @map("created_at")
 
   payslips Payslip[]
 
   @@unique([id, schoolId]) // composite target for Payslip tenant-chain FK
   @@unique([schoolId, campusId, month, year])
+  @@index([approvedById, schoolId])
+  @@index([createdById, schoolId])
   @@map("payroll_runs")
 }
 
@@ -1267,30 +1313,30 @@ model Vacancy {
 // Teacher application / onboarding form (HR module). Queryable fields are real columns;
 // the full form (personal, contact, education, experience, skills) persists in `details`.
 model TeacherApplication {
-  id                  String                   @id @default(uuid()) @db.Uuid
-  schoolId            String                   @map("school_id") @db.Uuid
-  school              School                   @relation(fields: [schoolId], references: [id])
-  campusId            String                   @map("campus_id") @db.Uuid
-  campus              Campus                   @relation(fields: [campusId, schoolId], references: [id, schoolId])
-  fullName            String                   @map("full_name")
-  email               String
-  mobile              String
-  positionAppliedFor  String                   @map("position_applied_for")
-  department          String
-  employmentType      EmploymentType           @map("employment_type")
-  expectedSalary      Decimal?                 @map("expected_salary") @db.Decimal(12, 2)
-  availableJoiningDate DateTime?               @map("available_joining_date") @db.Date
-  status              TeacherApplicationStatus @default(SUBMITTED)
-  details             Json // personal, contact, education, experience, skills (full form)
+  id                   String                   @id @default(uuid()) @db.Uuid
+  schoolId             String                   @map("school_id") @db.Uuid
+  school               School                   @relation(fields: [schoolId], references: [id])
+  campusId             String                   @map("campus_id") @db.Uuid
+  campus               Campus                   @relation(fields: [campusId, schoolId], references: [id, schoolId])
+  fullName             String                   @map("full_name")
+  email                String
+  mobile               String
+  positionAppliedFor   String                   @map("position_applied_for")
+  department           String
+  employmentType       EmploymentType           @map("employment_type")
+  expectedSalary       Decimal?                 @map("expected_salary") @db.Decimal(12, 2)
+  availableJoiningDate DateTime?                @map("available_joining_date") @db.Date
+  status               TeacherApplicationStatus @default(SUBMITTED)
+  details              Json // personal, contact, education, experience, skills (full form)
   /// AES-256-GCM (§32), mirroring ParentProfile.cnicEnc. The CNIC is a national ID and was
   /// previously stored in plaintext inside `details` — the same data class the parent record
   /// already encrypted. Extracted from the JSON on write; write-only, like every other
   /// encrypted field here (nothing decrypts it), so reads expose `hasCnic` instead.
-  cnicEnc             String?                  @map("cnic_enc")
-  createdById         String                   @map("created_by_id") @db.Uuid
-  createdBy           User                     @relation(fields: [createdById, schoolId], references: [id, schoolId])
-  createdAt           DateTime                 @default(now()) @map("created_at")
-  updatedAt           DateTime                 @updatedAt @map("updated_at")
+  cnicEnc              String?                  @map("cnic_enc")
+  createdById          String                   @map("created_by_id") @db.Uuid
+  createdBy            User                     @relation(fields: [createdById, schoolId], references: [id, schoolId])
+  createdAt            DateTime                 @default(now()) @map("created_at")
+  updatedAt            DateTime                 @updatedAt @map("updated_at")
 
   @@index([schoolId, status])
   @@index([createdById, schoolId])
@@ -1327,9 +1373,11 @@ model SmsTemplate {
   triggerKey  String   @map("trigger_key") // FEE_REMINDER | FEE_RECEIPT | ABSENCE | RESULT_READY | LEAVE_STATUS | ACCOUNT_INVITE | MANUAL
   body        String // with {placeholders}
   updatedById String?  @map("updated_by_id") @db.Uuid
+  updatedBy   User?    @relation(fields: [updatedById, schoolId], references: [id, schoolId])
   updatedAt   DateTime @updatedAt @map("updated_at")
 
   @@unique([schoolId, triggerKey])
+  @@index([updatedById, schoolId])
   @@map("sms_templates")
 }
 
@@ -1384,9 +1432,11 @@ model Document {
   type       DocumentType
   fileKey    String       @map("file_key") // S3/R2 key
   issuedById String       @map("issued_by_id") @db.Uuid
+  issuedBy   User         @relation(fields: [issuedById, schoolId], references: [id, schoolId])
   issuedAt   DateTime     @default(now()) @map("issued_at")
 
   @@index([schoolId, studentId])
+  @@index([issuedById, schoolId])
   @@map("documents")
 }
 
@@ -1396,6 +1446,7 @@ model AuditLog {
   schoolId   String   @map("school_id") @db.Uuid
   school     School   @relation(fields: [schoolId], references: [id])
   userId     String   @map("user_id") @db.Uuid
+  user       User     @relation(fields: [userId, schoolId], references: [id, schoolId])
   action     String // enum-like constant catalog in code: audit-actions.ts
   entityType String   @map("entity_type")
   entityId   String   @map("entity_id") @db.Uuid

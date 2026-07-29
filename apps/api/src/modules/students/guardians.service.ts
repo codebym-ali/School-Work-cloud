@@ -72,10 +72,12 @@ export class GuardiansService {
     // Email is required+unique; synthesize a placeholder when none is given
     // (parents are invited by SMS; login-by-phone is a later refinement).
     const email = (res.email ?? `p-${randomUUID().slice(0, 12)}@invite.local`).toLowerCase();
-    // Email is unique per school (users_school_id_email_key). A supplied email that already
-    // belongs to another account (e.g. the owner's own email) would blow up as a raw P2002 →
-    // 500; pre-check and return a clean 409 the form can show instead.
-    const emailTaken = await this.db.user.findFirst({ where: { email }, select: { id: true } });
+    // Email is unique per school among LIVE accounts only — `users_one_live_email_per_school`
+    // (partial, WHERE deleted_at IS NULL). A supplied email belonging to another live account
+    // (e.g. the owner's own) would blow up as a raw P2002 → 500; pre-check for a clean 409.
+    // Scoped to `deletedAt: null` to match that index: unscoped, a removed account kept its
+    // address for ever and the admin could not admit the student, with no visible row to clear.
+    const emailTaken = await this.db.user.findFirst({ where: { email, deletedAt: null }, select: { id: true } });
     if (emailTaken) {
       throw new AppError(
         ErrorCodes.CONFLICT,

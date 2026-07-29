@@ -100,7 +100,11 @@ table { width: 100%; border-collapse: collapse; background: #fff; border: 1px so
 th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); font-size: 14px; }
 th { background: #f9fafb; color: var(--muted); font-weight: 600; }
 tr:last-child td { border-bottom: 0; }
-.chip { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 999px; font-size: 13px; border: 1px solid var(--border); background: #fff; cursor: pointer; }
+/* `color` is load-bearing: the global `button` rule sets `color: #fff` for solid brand buttons,
+   so a chip that overrides only `background` renders white-on-white and its label vanishes. The
+   count badge kept showing (`.badge` carries its own colour) and the active chip kept showing
+   (it restores the brand background), which is why the labels looked simply absent. */
+.chip { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 999px; font-size: 13px; border: 1px solid var(--border); background: #fff; color: var(--ink); cursor: pointer; }
 .chip:hover { background: #f9fafb; }
 .chip.active { background: var(--brand); color: #fff; border-color: var(--brand); }
 .chip.active .badge { background: rgba(255,255,255,.25); color: #fff; }

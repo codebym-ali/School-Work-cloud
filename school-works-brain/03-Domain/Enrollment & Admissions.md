@@ -28,7 +28,10 @@ Illegal transition → **409 INVALID_STATE_TRANSITION**.
 **Admit is one transaction:** guardian resolution → Student (GR number) → StudentGuardian link(s) (exactly one primary) → ACTIVE StudentEnrollment (current year) → Admission row → inquiry ADMITTED → admission invoice *(when an ADMISSION fee structure exists — wires up in [[Fees & Payments|M4]])*. Age-band eligibility checked if the class configures it.
 
 ## Guardian resolution (never auto-merge)
-Server searches existing parents by **normalized phone**; the client makes an **explicit LINK-or-CREATE** choice. New parent → User(`[PARENT]`, INVITED) + ParentProfile + SMS set-password link. → [[Key Decisions]].
+Server searches existing parents by **normalized phone**; the client makes an **explicit LINK-or-CREATE** choice. New guardian → **a `ParentProfile` and nothing else** (name, phone, optional email + CNIC). → [[Key Decisions]].
+
+> [!warning] What this line used to say, and why it was wrong twice
+> It read *"New parent → User(`[PARENT]`, INVITED) + ParentProfile + **SMS set-password link**"*. Both halves are now false, and the second was **never true**: no set-password SMS was ever implemented — the account was created `INVITED` with no password and no way to obtain one, so it could not be signed into from the day it was written. The `User` row itself was retired 2026-07-29 (scope B); guardians are contact records, not accounts.
 
 ## GR number
 Auto-sequenced per school (`nextGrNumber` + prefix) or MANUAL; uniqueness `[schoolId, grNumber]` either way. Dup → `GR_NUMBER_TAKEN`.

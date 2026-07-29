@@ -114,6 +114,18 @@ with a deletion would make a failure ambiguous. Retiring the role is a **separat
 Noted while fresh: if parents never log in, creating a `User` + placeholder email per guardian is
 pure waste — it is why an earlier cleanup had to remove 557 parent accounts.
 
+> [!done] **Scope B done (2026-07-29): a guardian is a `ParentProfile` and nothing else.**
+> Admitting a student no longer mints a `User`. `parent_profiles.user_id` is **nullable** (legacy
+> rows keep their link; nothing in the codebase ever read it), and the guardian's `email` moved
+> **onto the profile** — the admission form and CSV import both collect it, so dropping the column
+> would have silently discarded operator input. It is contact data: no uniqueness, no auth path.
+> **A whole failure mode disappeared with the row:** guardian emails no longer share a namespace
+> with staff/admin logins, so a real address already held by a live account can no longer 409 the
+> front desk out of admitting a student.
+> **`PARENT` stays in the `Role` enum** — it is a LOCKED catalog ([[consistency-register]] §31) and
+> removing a value is a type rebuild for zero behavioural gain. It is **reserved and unused for new
+> rows**; the permission matrix still asserts a PARENT-bearing session reaches nothing.
+
 **Adjacent gates go too:** `PARENT` in `leaves.controller` (@Roles) and the GuardianOfStudent read
 path in `report-cards.service` have **no client** once the portal is gone, so they are removed in
 Phase 2. Recorded because it is a product call, not a mechanical cleanup.

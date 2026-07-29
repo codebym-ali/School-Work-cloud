@@ -16,7 +16,7 @@ lint → unit → integration → tenant-isolation (MERGE-BLOCKING) → matrix-c
 - **Integration** (Supertest + ephemeral pg/redis): per-PR.
 - **Tenant-isolation suite** — seeds two schools, asserts every cross-tenant access fails. **Blocks merge.** → [[Multi-Tenancy & Isolation]].
 - **Matrix-conformance** — every permission-matrix cell maps to a real route.
-- **E2E** (Playwright): admit, collect fee, mark attendance, publish marks, parent views report card, promotion.
+- **E2E** (Playwright): admit, collect fee, mark attendance, publish marks, report card issued, promotion. *(The "parent views report card" journey was retired with the parent portal, 2026-07-28.)*
 - **Load** (k6): fee-season peak (500 payment VUs + 10k SMS) before major releases.
 
 ## Definition of Done (per story)

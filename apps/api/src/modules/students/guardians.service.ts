@@ -1,5 +1,4 @@
 import { HttpStatus, Inject, Injectable } from '@nestjs/common';
-import { randomUUID } from 'node:crypto';
 import type { GuardianRelation } from '@prisma/client';
 import {
   AppError,
@@ -68,32 +67,17 @@ export class GuardiansService {
       );
     }
 
-    // New parent: User(roles=[PARENT], INVITED, no password) + ParentProfile.
-    // Email is required+unique; synthesize a placeholder when none is given
-    // (parents are invited by SMS; login-by-phone is a later refinement).
-    const email = (res.email ?? `p-${randomUUID().slice(0, 12)}@invite.local`).toLowerCase();
-    // Email is unique per school among LIVE accounts only — `users_one_live_email_per_school`
-    // (partial, WHERE deleted_at IS NULL). A supplied email belonging to another live account
-    // (e.g. the owner's own) would blow up as a raw P2002 → 500; pre-check for a clean 409.
-    // Scoped to `deletedAt: null` to match that index: unscoped, a removed account kept its
-    // address for ever and the admin could not admit the student, with no visible row to clear.
-    const emailTaken = await this.db.user.findFirst({ where: { email, deletedAt: null }, select: { id: true } });
-    if (emailTaken) {
-      throw new AppError(
-        ErrorCodes.CONFLICT,
-        HttpStatus.CONFLICT,
-        'A user with this email already exists — leave the guardian email blank or use a different one',
-        [{ field: 'email', issue: 'duplicate' }],
-      );
-    }
-    const user = await this.db.user.create({
-      data: { schoolId: this.sid, email, roles: ['PARENT'], status: 'INVITED' },
-    });
+    // A guardian is a ParentProfile and nothing else — no User row (scope B, 2026-07-29).
+    // Parents do not get logins (locked decision in Key Decisions), so minting one per guardian
+    // created a login-less INVITED account with a synthetic `p-<uuid>@invite.local` address that
+    // nothing could ever use. It also made the guardian's email collide with the staff/admin
+    // namespace, so a real address already held by a live account returned a 409 the front desk
+    // could not clear. Both the placeholder and that entire failure mode are gone with the row.
     const parent = await this.db.parentProfile.create({
       data: {
         schoolId: this.sid,
-        userId: user.id,
         fullName: res.fullName!,
+        email: res.email?.toLowerCase() ?? null,
         phone,
         cnicEnc: res.cnic ? this.crypto.encrypt(res.cnic) : null,
       },

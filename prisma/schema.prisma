@@ -577,9 +577,15 @@ model ParentProfile {
   id              String    @id @default(uuid()) @db.Uuid
   schoolId        String    @map("school_id") @db.Uuid
   school          School    @relation(fields: [schoolId], references: [id])
-  userId          String    @map("user_id") @db.Uuid
-  user            User      @relation(fields: [userId, schoolId], references: [id, schoolId])
+  /// Nullable since 2026-07-29 (scope B): guardians do not get logins, so a guardian no longer
+  /// mints a login-less User + placeholder email. Legacy rows keep their link; new rows are null.
+  userId          String?   @map("user_id") @db.Uuid
+  user            User?     @relation(fields: [userId, schoolId], references: [id, schoolId])
   fullName        String    @map("full_name")
+  /// Guardian's own contact email. Previously stored on the guardian's User row; kept here
+  /// because the admission form and CSV import both collect it and discarding it silently
+  /// would be worse than storing it. Not a login — no uniqueness, no auth path reads it.
+  email           String?
   phone           String // normalized E.164
   phoneVerifiedAt DateTime? @map("phone_verified_at")
   otpCodeHash     String?   @map("otp_code_hash") // HMAC of the current OTP (§14)

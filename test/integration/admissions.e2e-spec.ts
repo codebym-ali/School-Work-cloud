@@ -145,6 +145,42 @@ describe('Admit journey (e2e, §8)', () => {
     expect(active).toHaveLength(1);
   });
 
+  // Scope B (2026-07-29): parents do not get logins, so admitting a student must NOT mint a
+  // login-less User + `p-<uuid>@invite.local` placeholder for the guardian. The guardian is a
+  // ParentProfile and nothing else. Guards against the waste that once left 557 dead accounts.
+  it('creating a guardian mints no User account', async () => {
+    const parents = await platform.parentProfile.findMany({ where: { schoolId } });
+    expect(parents.length).toBeGreaterThanOrEqual(1);
+    expect(parents.every((p) => p.userId === null)).toBe(true);
+
+    expect(await platform.user.count({ where: { schoolId, roles: { has: 'PARENT' } } })).toBe(0);
+    expect(await platform.user.count({ where: { schoolId, email: { endsWith: '@invite.local' } } })).toBe(0);
+  });
+
+  // The guardian's email used to live on that User row. It is contact data the admission form
+  // collects, so retiring the row moved it onto the profile rather than dropping it.
+  it('keeps the guardian email on the profile, and it is not a login', async () => {
+    const email = `guardian-${Date.now()}@demo.pk`;
+    const inq = await post('/api/v1/inquiries', {
+      campusId, guardianName: 'Email Guardian', guardianPhone: '03004440000',
+      studentName: 'Email Child', desiredClassId: classId,
+    });
+    expect(inq.status).toBe(201);
+    await post(`/api/v1/inquiries/${inq.body.id}/entry-test`, { scheduledAt: '2026-03-15T09:00:00.000Z' });
+    await patch(`/api/v1/inquiries/${inq.body.id}/entry-test`, { passed: true, score: 75 });
+    const admitted = await acPost('/api/v1/admissions', {
+      inquiryId: inq.body.id, gender: 'MALE', dateOfBirth: '2019-03-02', classId, sectionId,
+      guardian: { mode: 'CREATE', fullName: 'Email Guardian', phone: '03004440000', relation: 'FATHER', email },
+    });
+    expect(admitted.status).toBe(201);
+
+    const parent = await platform.parentProfile.findFirst({ where: { schoolId, phone: '+923004440000' } });
+    expect(parent?.email).toBe(email);
+    expect(parent?.userId).toBeNull();
+    // Stored as contact data only — it buys no account and no way in.
+    expect(await platform.user.count({ where: { schoolId, email } })).toBe(0);
+  });
+
   it('re-admitting the same inquiry is a 409 INVALID_STATE_TRANSITION', async () => {
     const res = await acPost('/api/v1/admissions', {
       inquiryId,

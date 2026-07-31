@@ -9,8 +9,10 @@ import {
   ErrorCodes,
   FIELD_ENCRYPTION,
   FieldEncryption,
+  parseSchoolSettings,
   type Env,
   type RequestUser,
+  type SchoolSettings,
 } from '@common';
 import { TenantPrismaService } from '@database';
 import { PasswordService } from './password.service';
@@ -399,10 +401,14 @@ export class AuthService {
     });
   }
 
-  async me(principal: RequestUser): Promise<{ id: string; email: string; roles: Role[]; campusId: string | null; modules: string[]; mfaEnabled: boolean }> {
+  async me(principal: RequestUser): Promise<{ id: string; email: string; roles: Role[]; campusId: string | null; modules: string[]; mfaEnabled: boolean; admissionsMode: SchoolSettings['admissionsMode'] }> {
     const user = await this.db.user.findFirst({ where: { id: principal.userId } });
     if (!user) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'User not found');
     const modules = await this.access.enabledModulesForSelf();
-    return { id: user.id, email: user.email, roles: user.roles, campusId: user.campusId, modules, mfaEnabled: user.mfaEnabled };
+    // Shipped on /auth/me (not a separate fetch) because the UI needs it to decide which
+    // admissions surface to render at all — a later fetch would flash the wrong page first.
+    const school = await this.db.school.findFirst({ where: { id: principal.schoolId } });
+    const { admissionsMode } = parseSchoolSettings(school?.settings);
+    return { id: user.id, email: user.email, roles: user.roles, campusId: user.campusId, modules, mfaEnabled: user.mfaEnabled, admissionsMode };
   }
 }

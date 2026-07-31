@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { api, ApiError } from '@/lib/api';
 import { landingPath } from '@/lib/roles';
 
@@ -38,8 +39,11 @@ export default function AdmissionPortalLogin() {
   return (
     <main className="center">
       <form className="card stack" style={{ width: 380 }} onSubmit={onSubmit}>
+        {/* 🎓 + "Admission Portal" read as "where a student applies" — it is actually the staff
+            console for the campus's admission officer, which is why people arrive here expecting
+            student credentials. The icon and the subtitle now say whose sign-in this is. */}
         <div>
-          <h1>🎓 Admission Portal</h1>
+          <h1>🏫 Admissions — Staff sign-in</h1>
           <p className="sub">{campusName || 'Admissions'}</p>
         </div>
         <div>
@@ -52,6 +56,9 @@ export default function AdmissionPortalLogin() {
         </div>
         {error && <p className="error">{error}</p>}
         <button type="submit" disabled={busy}>{busy ? 'Signing in…' : 'Sign in to Admissions'}</button>
+        <p className="muted" style={{ margin: 0, fontSize: 13, textAlign: 'center' }}>
+          Student? <Link href="/student-login">Sign in with your registration number →</Link>
+        </p>
       </form>
     </main>
   );

@@ -38,7 +38,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   // Show only the screens this role can use, grouped into sidebar categories;
   // gate the routed page centrally.
-  const nav = groupedNav(me.roles);
+  const nav = groupedNav(me.roles, me.admissionsMode);
   const current = navItemFor(pathname);
   const authorized = !current || hasAnyRole(me.roles, current.roles);
   const needsMfa = !me.mfaEnabled && me.roles.some((r) => (MFA_REQUIRED_ROLES as readonly string[]).includes(r));

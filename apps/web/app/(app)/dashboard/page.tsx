@@ -53,9 +53,12 @@ export default function DashboardPage() {
 
   useEffect(() => {
     api.dashboard().then(setData).catch(() => setErr(true));
-    api.admissions.summary().then(setAdm).catch(() => {});
+    // Every figure in this summary counts Inquiry rows, so in a DIRECT school (no enquiry
+    // pipeline) the card would advertise "0 open inquiries · 0% conversion" for ever — a
+    // metric that can never move is worse than no metric. Skip the fetch entirely.
+    if (me?.admissionsMode === 'PIPELINE') api.admissions.summary().then(setAdm).catch(() => {});
     api.vacancies.summary().then(setRec).catch(() => {});
-  }, []);
+  }, [me?.admissionsMode]);
 
   if (err) return <p className="error">Couldn&apos;t load the dashboard.</p>;
   if (!data) return <p className="muted">Loading…</p>;
@@ -63,7 +66,7 @@ export default function DashboardPage() {
   // Show a tile only when the metric is role-visible AND the role can open its destination —
   // otherwise it dead-ends on the "Not authorized" screen (e.g. Collections → /fees for a
   // campus admin, who sees the financial metric but has no Fees access).
-  const visible = (t: Tile) => data.visible.includes(t.key) && canReach(me?.roles, t.href);
+  const visible = (t: Tile) => data.visible.includes(t.key) && canReach(me?.roles, t.href, me?.admissionsMode);
   const val = (t: Tile) => data[t.key] as number | null;
   const display = (t: Tile) => {
     const v = val(t);
@@ -82,7 +85,7 @@ export default function DashboardPage() {
   if (adm && adm.testsToday > 0) attention.push({ text: `${adm.testsToday} entry test${adm.testsToday === 1 ? '' : 's'} today`, href: '/admissions' });
   if (rec && (rec.applicationsByStatus.SUBMITTED ?? 0) > 0) attention.push({ text: `${rec.applicationsByStatus.SUBMITTED} new teacher application${rec.applicationsByStatus.SUBMITTED === 1 ? '' : 's'}`, href: '/recruitment' });
 
-  const reachableAttention = attention.filter((a) => canReach(me?.roles, a.href));
+  const reachableAttention = attention.filter((a) => canReach(me?.roles, a.href, me?.admissionsMode));
 
   const empty = (data.enrollmentCount ?? 0) === 0;
 

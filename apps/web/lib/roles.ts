@@ -54,7 +54,9 @@ export const NAV: NavItem[] = [
   { href: '/dashboard', label: 'Dashboard', icon: '📊', group: 'Overview', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT'] },
 
   { href: '/admissions', label: 'Admissions', icon: '📝', group: 'Enrollment', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ADMISSION_CONTROLLER'] },
-  { href: '/admissions-team', label: 'Admission Portal', icon: '🎓', group: 'Enrollment', roles: ['CAMPUS_ADMIN'] },
+  // Owner included: assigning a campus's admission officer is owner-only, so hiding the screen
+  // from them left the one person who can do it unable to find it.
+  { href: '/admissions-team', label: 'Admission Portal', icon: '🎓', group: 'Enrollment', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
   { href: '/students', label: 'Students', icon: '👥', group: 'Enrollment', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
 
   { href: '/classes', label: 'Classes', icon: '📚', group: 'Academics', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
@@ -138,14 +140,36 @@ export function navItemFor(pathname: string): NavItem | undefined {
 }
 
 /**
+ * Role gating is static, but whether a screen has anything ON it can depend on how the school
+ * is configured — so a few entries need the school's mode as well.
+ *
+ * `/admissions` is the case today: in a DIRECT school there is no enquiry pipeline, and only
+ * the admission officer can admit, so for everyone else the page's entire content is a card
+ * explaining they cannot act. That is not a menu item, it is a dead end — hide it. A PIPELINE
+ * school still has inquiries to manage, so admins keep it.
+ *
+ * The route itself stays reachable by URL (the explanatory card is still the right answer for
+ * someone who lands there); this only governs what is advertised.
+ */
+export type AdmissionsMode = 'DIRECT' | 'PIPELINE';
+
+function isUsable(item: NavItem, userRoles: string[] | undefined, admissionsMode?: AdmissionsMode): boolean {
+  if (!hasAnyRole(userRoles, item.roles)) return false;
+  if (item.href === '/admissions' && admissionsMode === 'DIRECT') {
+    return (userRoles ?? []).includes('ADMISSION_CONTROLLER');
+  }
+  return true;
+}
+
+/**
  * True if the role may actually open `href` (same rule the app layout gates pages with).
  * Use it to hide links/tiles that would otherwise dead-end on the "Not authorized" screen —
  * e.g. a dashboard metric whose destination this role can't reach. An unknown href is
  * treated as reachable (nothing gates it).
  */
-export function canReach(userRoles: string[] | undefined, href: string): boolean {
+export function canReach(userRoles: string[] | undefined, href: string, admissionsMode?: AdmissionsMode): boolean {
   const item = navItemFor(href);
-  return !item || hasAnyRole(userRoles, item.roles);
+  return !item || isUsable(item, userRoles, admissionsMode);
 }
 
 /**
@@ -154,8 +178,9 @@ export function canReach(userRoles: string[] | undefined, href: string): boolean
  */
 export function groupedNav(
   userRoles: string[] | undefined,
+  admissionsMode?: AdmissionsMode,
 ): { group: NavGroup; items: NavItem[] }[] {
-  const visible = NAV.filter((n) => !n.hidden && hasAnyRole(userRoles, n.roles));
+  const visible = NAV.filter((n) => !n.hidden && isUsable(n, userRoles, admissionsMode));
   return NAV_GROUPS.map((group) => ({
     group,
     items: visible.filter((n) => n.group === group),

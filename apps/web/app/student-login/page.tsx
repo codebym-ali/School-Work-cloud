@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { api, ApiError } from '@/lib/api';
 import { landingPath } from '@/lib/roles';
 
@@ -54,6 +55,11 @@ export default function StudentLoginPage() {
         <button type="submit" disabled={busy || !registrationNo.trim() || !cnic.trim()}>
           {busy ? 'Signing in…' : 'Sign in'}
         </button>
+        {/* Every sign-in page now names the others. Four of them existed with zero cross-links,
+            so landing on the wrong one left you failing against a field you could never satisfy. */}
+        <p className="muted" style={{ margin: 0, fontSize: 13, textAlign: 'center' }}>
+          Staff or teacher? <Link href="/login">Sign in with your email →</Link>
+        </p>
       </form>
     </main>
   );

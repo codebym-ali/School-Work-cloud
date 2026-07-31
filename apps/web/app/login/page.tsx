@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { api, ApiError, isMfaRequired } from '@/lib/api';
 import { landingPath } from '@/lib/roles';
 
@@ -108,6 +109,11 @@ export default function LoginPage() {
         </div>
         {error && <p className="error">{error}</p>}
         <button type="submit" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}</button>
+        {/* The student portal was fully built and reachable only by typing its URL from memory —
+            nothing in the app linked to it. This is the page everyone lands on, so it points there. */}
+        <p className="muted" style={{ margin: 0, fontSize: 13, textAlign: 'center' }}>
+          Student? <Link href="/student-login">Sign in with your registration number →</Link>
+        </p>
       </form>
     </main>
   );

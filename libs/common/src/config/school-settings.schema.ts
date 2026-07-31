@@ -27,6 +27,13 @@ export const schoolSettingsSchema = z
     midMonthProration: z.enum(['FULL', 'HALF', 'DAILY']).default('FULL'),
     siblingDiscountPercent: z.number().min(0).max(100).default(0),
     sectionCapacityMode: z.enum(['HARD', 'ADVISORY']).default('ADVISORY'),
+    // How the school takes admissions (§8). DIRECT = the front desk fills one form and the
+    // student is admitted on the spot; the inquiry pipeline (lead → entry test → admit) is
+    // hidden. PIPELINE = the school tracks enquiries and runs entry tests before admitting.
+    // Default DIRECT: most schools admit anyone who can pay, and an enquiry register that
+    // nobody fills in makes the conversion metrics fiction. Note every metric in
+    // `/inquiries/summary` counts Inquiry rows, so they read 0 for a DIRECT school by design.
+    admissionsMode: z.enum(['DIRECT', 'PIPELINE']).default('DIRECT'),
     promotionRequiresFeeClearance: z.boolean().default(true),
     smsOverdraftSegments: z.number().int().min(0).default(100),
     staffLeaveQuotas: z

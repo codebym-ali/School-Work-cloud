@@ -1,10 +1,12 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { api, apiGet, apiPatch, apiPost, ApiError, type AdmissionsSummary, type Campus, type Klass, type Section } from '@/lib/api';
 import type { Inquiry } from '@/lib/api';
 import { hasModule, useMe } from '@/lib/me-context';
 import { classLabeller } from '@/lib/labels';
+import { canReach } from '@/lib/roles';
 import { DirectAdmission } from './direct-admission';
 
 const STATUSES = ['INQUIRY', 'ENTRY_TEST_SCHEDULED', 'ENTRY_TEST_PASSED', 'ENTRY_TEST_FAILED', 'ADMITTED', 'REJECTED', 'WITHDRAWN'];
@@ -16,8 +18,16 @@ const funnelBadge = (s: string) =>
 export default function AdmissionsPage() {
   const me = useMe();
   const isOwner = (me?.roles ?? []).includes('OWNER_ADMIN');
-  const canManage = hasModule(me, 'admissions.inquiries');
-  const canAdmit = hasModule(me, 'admissions.admit');
+  const isAdmissionController = (me?.roles ?? []).includes('ADMISSION_CONTROLLER');
+  // DIRECT (the default) means this school takes admissions on one form and never tracks
+  // enquiries — so the pipeline, its funnel and every Inquiry-derived metric are hidden
+  // rather than shown reading 0 for ever. See SchoolSettings.admissionsMode.
+  const pipeline = me?.admissionsMode === 'PIPELINE';
+  const canManage = pipeline && hasModule(me, 'admissions.inquiries');
+  // Role AND module: `POST /students` is ADMISSION_CONTROLLER-only, but OWNER_ADMIN is handed
+  // every module key, so gating on the module alone showed the owner a button that 403s.
+  // The module half is kept so the owner can still switch admitting off for a controller.
+  const canAdmit = isAdmissionController && hasModule(me, 'admissions.admit');
   const [inquiries, setInquiries] = useState<Inquiry[]>([]);
   const [summary, setSummary] = useState<AdmissionsSummary | null>(null);
   const [campuses, setCampuses] = useState<Campus[]>([]);
@@ -28,10 +38,12 @@ export default function AdmissionsPage() {
   const [admitting, setAdmitting] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
-  // A school-wide AC (null campus) can admit into any campus; a campus-bound one is confined.
+  // An admission officer is a per-campus seat, so they always have exactly one campus and it
+  // is never a choice. (Owners keep the full list — they don't admit, but they do read here.)
   const admitCampuses = me?.campusId ? campuses.filter((c) => c.id === me.campusId) : campuses;
 
   async function load() {
+    if (!pipeline) return; // nothing on this page reads inquiries in DIRECT mode
     const q = status ? `?status=${status}` : '';
     const [res, sum] = await Promise.all([
       apiGet<{ data: Inquiry[] }>(`/inquiries${q}`),
@@ -46,7 +58,7 @@ export default function AdmissionsPage() {
     apiGet<Section[]>('/sections').then(setSections).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  useEffect(() => { load().catch(() => {}); }, [status]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { load().catch(() => {}); }, [status, pipeline]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const classLabel = classLabeller(classes, campuses);
   const className = (id: string) => {
@@ -64,6 +76,40 @@ export default function AdmissionsPage() {
       setMsg({ ok: false, text: e instanceof ApiError ? e.message : 'Failed' });
       return false;
     }
+  }
+
+  // DIRECT mode: the form IS the page. No toggle, no funnel, no Inquiry-derived tiles —
+  // just the one thing the front desk came here to do.
+  if (!pipeline) {
+    return (
+      <div className="stack">
+        <div className="row">
+          <h1>Admissions</h1>
+          {/* Only when this role can actually open it — the Students page is admin-gated, so
+              for an admission officer this link would dead-end on "Not authorized". */}
+          {canReach(me?.roles, '/students', me?.admissionsMode) && (
+            <Link className="ghost small" href="/students" style={{ textDecoration: 'none' }}>View all students →</Link>
+          )}
+        </div>
+        {msg && <div className={`toast ${msg.ok ? 'ok' : 'err'}`}>{msg.text}</div>}
+
+        {canAdmit ? (
+          <DirectAdmission campuses={admitCampuses} classes={classes} sections={sections}
+            onAdmitted={(r, name) => setMsg({ ok: true, text: `Admitted ${name} — Reg No ${r.registrationNo ?? '—'}` })} />
+        ) : (
+          <div className="card stack">
+            <h2 style={{ margin: 0, fontSize: 17 }}>Admissions are handled by the Admission Controller</h2>
+            <p className="muted" style={{ margin: 0 }}>
+              Admitting a student is restricted to that role, so this account cannot fill the admission
+              form. You can still see everyone on the register from the Students screen.
+            </p>
+            {canReach(me?.roles, '/students', me?.admissionsMode) && (
+              <div><Link className="ghost small" href="/students" style={{ textDecoration: 'none' }}>Go to Students →</Link></div>
+            )}
+          </div>
+        )}
+      </div>
+    );
   }
 
   return (

@@ -1,5 +1,5 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
-import { AttendanceStatus, type Prisma } from '@prisma/client';
+import { AttendanceStatus, type AttendanceSession, type Prisma } from '@prisma/client';
 import {
   AppError,
   assertCampusAccess,
@@ -27,8 +27,10 @@ export interface BulkResult {
   failed: number;
   errors: Array<{ index: number; code: string; message: string }>;
   absenceQueued: number;
-  /** Absences recorded on a past date, deliberately not announced to guardians. */
-  absenceNotifiedSuppressed: number;
+  /** Absences recorded on a past date, deliberately not announced to guardians. Optional
+   *  because staff attendance shares this shape and notifies nobody — the field would be
+   *  meaningless there, not merely zero. */
+  absenceNotifiedSuppressed?: number;
 }
 
 /**
@@ -185,6 +187,64 @@ export class AttendanceService {
       /** Lets the UI say plainly that a backfilled absence was recorded but not announced. */
       absenceNotifiedSuppressed: isToday ? 0 : newlyAbsent.length,
     };
+  }
+
+  /**
+   * Which of the last N days this section has attendance for — the data behind the "you missed
+   * Wednesday" strip.
+   *
+   * Backfill is only usable if the teacher can SEE which days are missing; expecting them to
+   * remember, then navigate date by date, is why catch-up doesn't happen. Non-working days are
+   * returned as such rather than as gaps, or the strip cries wolf every Sunday and gets ignored.
+   *
+   * `marked` vs `expected` distinguishes a day that was half-done (interrupted mid-register)
+   * from one never started — different problems needing different effort.
+   */
+  async coverage(sectionId: string, session: AttendanceSession, days: number) {
+    const section = await this.db.section.findFirst({
+      where: { id: sectionId },
+      include: { class: { select: { campusId: true } } },
+    });
+    if (!section) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'Section not found');
+    assertCampusAccess(this.ctx.user, section.class.campusId);
+
+    const school = await this.db.school.findFirst({ where: { id: this.ctx.requireSchoolId() } });
+    const settings = parseSchoolSettings(school?.settings ?? {});
+    const academicYearId = await this.setup.requireCurrentYearId();
+
+    // `startOfDay` returns a UTC timestamp, not a Date — build the day list from that so the
+    // whole method compares like with like.
+    const todayMs = startOfDay(new Date());
+    const dates: Date[] = [];
+    for (let i = days - 1; i >= 0; i--) dates.push(new Date(todayMs - i * 86400000));
+
+    const [counts, enrolments] = await Promise.all([
+      this.db.attendanceRecord.groupBy({
+        by: ['date'],
+        where: { date: { gte: dates[0] }, session, enrollment: { sectionId, academicYearId } },
+        _count: { _all: true },
+      }),
+      this.db.studentEnrollment.findMany({
+        where: { sectionId, academicYearId, status: 'ACTIVE', student: { deletedAt: null } },
+        select: { startedAt: true },
+      }),
+    ]);
+    const markedBy = new Map(counts.map((c) => [startOfDay(c.date), c._count._all]));
+
+    return Promise.all(
+      dates.map(async (d) => {
+        const working = !(await this.isNonWorkingDay(d, section.class.campusId, settings.weeklyOffDays));
+        // Expected head-count is per-day: a student who joined on Thursday was never owed a
+        // Monday mark, so counting them would leave the day permanently "incomplete".
+        const expected = working ? enrolments.filter((e) => startOfDay(e.startedAt) <= startOfDay(d)).length : 0;
+        return {
+          date: d.toISOString().slice(0, 10),
+          working,
+          marked: markedBy.get(startOfDay(d)) ?? 0,
+          expected,
+        };
+      }),
+    );
   }
 
   async query(q: AttendanceQuery) {

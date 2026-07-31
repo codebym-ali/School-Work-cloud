@@ -5,10 +5,13 @@ import {
   IsBoolean,
   IsDateString,
   IsEnum,
+  IsInt,
   IsOptional,
   IsString,
   IsUUID,
+  Max,
   MaxLength,
+  Min,
   MinLength,
   ValidateNested,
 } from 'class-validator';
@@ -41,6 +44,15 @@ export class MarkAttendanceDto {
   /** Admin-only: mark on a holiday/weekly-off day (audited). */
   @IsOptional() @IsBoolean()
   allowHolidayOverride?: boolean;
+}
+
+/** Query behind the backfill completeness strip: the last `days` days for one section. */
+export class AttendanceCoverageQuery {
+  @IsUUID() sectionId!: string;
+  @IsEnum(AttendanceSession) session!: AttendanceSession;
+  /** Kept small on purpose — the strip exists to show the backfill window, not history. */
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(31)
+  days?: number;
 }
 
 export class AttendanceQuery {

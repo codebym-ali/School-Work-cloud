@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react';
 import { apiGet, apiPost, ApiError, type Campus, type Enrollment, type Klass, type Section } from '@/lib/api';
 import { sectionLabeller } from '@/lib/labels';
 
+interface DayCoverage { date: string; working: boolean; marked: number; expected: number }
+
 const STATUSES = ['PRESENT', 'ABSENT', 'LATE', 'HALF_DAY'];
 const today = () => new Date().toISOString().slice(0, 10);
 /** Mirrors the server's `attendanceBackfillDays` (default 7). Bounding the picker means the
@@ -14,6 +16,66 @@ const earliest = () => {
   d.setDate(d.getDate() - BACKFILL_DAYS);
   return d.toISOString().slice(0, 10);
 };
+
+/**
+ * The last 7 days at a glance, so a teacher can SEE which days are unmarked instead of
+ * remembering them. Backfill without this is technically possible and practically unused —
+ * nobody navigates date by date on the chance a day is missing.
+ *
+ * Non-working days are shown as "off", never as gaps: a strip that flags every Sunday is a
+ * strip that gets ignored. A partly-marked day is called out separately from an untouched one
+ * because they are different problems — one was interrupted, the other never started.
+ */
+function CoverageStrip({ days, selected, onPick }: {
+  days: DayCoverage[]; selected: string; onPick: (date: string) => void;
+}) {
+  if (!days.length) return null;
+  const gaps = days.filter((d) => d.working && d.marked < d.expected).length;
+
+  return (
+    <div className="card stack" style={{ gap: 8 }}>
+      <div className="row">
+        <strong style={{ fontSize: 14 }}>Last {days.length} days</strong>
+        {gaps === 0
+          ? <span className="badge ok">All marked</span>
+          : <span className="badge warn">{gaps} day{gaps === 1 ? '' : 's'} need attention</span>}
+      </div>
+      <div className="chips">
+        {days.map((d) => {
+          const dt = new Date(`${d.date}T00:00:00`);
+          const label = dt.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric' });
+          const isSel = d.date === selected;
+          const complete = d.marked >= d.expected && d.expected > 0;
+          const partial = d.marked > 0 && d.marked < d.expected;
+          const state = !d.working ? 'off' : complete ? 'done' : partial ? 'partial' : 'missing';
+          const tip = !d.working ? 'Holiday or weekly off'
+            : complete ? `All ${d.expected} marked`
+            : partial ? `Only ${d.marked} of ${d.expected} marked`
+            : `Not marked (${d.expected} students)`;
+          return (
+            <button
+              key={d.date}
+              type="button"
+              className={`chip ${isSel ? 'active' : ''}`}
+              disabled={!d.working}
+              title={tip}
+              onClick={() => onPick(d.date)}
+              style={!isSel && d.working && state !== 'done' ? { borderColor: '#d97706' } : undefined}
+            >
+              {state === 'done' ? '✓' : state === 'off' ? '—' : '⚠'} {label}
+              {state === 'partial' && <span className="muted" style={{ fontSize: 11 }}> {d.marked}/{d.expected}</span>}
+            </button>
+          );
+        })}
+      </div>
+      {gaps > 0 && (
+        <p className="muted" style={{ margin: 0, fontSize: 12 }}>
+          Click a day to fill it in. Absences on past days are recorded but parents aren&apos;t texted.
+        </p>
+      )}
+    </div>
+  );
+}
 
 export default function AttendancePage() {
   const [classes, setClasses] = useState<Klass[]>([]);
@@ -26,6 +88,7 @@ export default function AttendancePage() {
   const [marks, setMarks] = useState<Record<string, string>>({});
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
+  const [coverage, setCoverage] = useState<DayCoverage[]>([]);
   const [autoLoaded, setAutoLoaded] = useState(false);
 
   useEffect(() => {
@@ -45,6 +108,16 @@ export default function AttendancePage() {
       loadRoster().catch(() => {});
     }
   }); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function loadCoverage(sid = sectionId) {
+    if (!sid) return setCoverage([]);
+    try {
+      setCoverage(await apiGet<DayCoverage[]>(`/attendance/coverage?sectionId=${sid}&session=${session}&days=${BACKFILL_DAYS}`));
+    } catch {
+      setCoverage([]); // the strip is an aid, never a blocker
+    }
+  }
+  useEffect(() => { loadCoverage().catch(() => {}); }, [sectionId, session]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function loadRoster() {
     if (!sectionId) return;
@@ -72,6 +145,7 @@ export default function AttendancePage() {
         ? `${res.absenceNotifiedSuppressed} absence(s) recorded — parents not texted for a past date`
         : `absence SMS queued ${res.absenceQueued}`;
       setMsg({ ok: res.failed === 0, text: `Saved ${res.succeeded}, failed ${res.failed}, ${sms}` });
+      await loadCoverage(); // the day just filled should stop showing as a gap
     } catch (e) {
       setMsg({ ok: false, text: e instanceof ApiError ? e.message : 'Failed to save' });
     }
@@ -103,6 +177,8 @@ export default function AttendancePage() {
         </div>
         <button className="ghost" onClick={loadRoster} disabled={!sectionId}>Load roster</button>
       </div>
+
+      <CoverageStrip days={coverage} selected={date} onPick={(d) => { setDate(d); setRows([]); }} />
 
       {rows.length > 0 && (
         <>

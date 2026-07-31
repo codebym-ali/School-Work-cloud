@@ -286,6 +286,35 @@ describe('Attendance + absence SMS (e2e, §9/§14)', () => {
     expect(admin.body.succeeded).toBe(1);
   });
 
+  /** The strip is what makes backfill usable — it must tell the truth about which days are
+   *  gaps, and must never present a weekly off as one. */
+  it('reports 7-day coverage: marked days, gaps, and non-working days', async () => {
+    const res = await get(`/api/v1/attendance/coverage?sectionId=${sectionId}&session=MORNING&days=7`);
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveLength(7);
+
+    const byDate: Record<string, { working: boolean; marked: number; expected: number }> =
+      Object.fromEntries(res.body.map((d: { date: string }) => [d.date, d]));
+
+    // Today was marked earlier in this spec, so it reads as covered.
+    expect(byDate[todayStr].marked).toBeGreaterThanOrEqual(1);
+
+    // Sunday is returned as non-working rather than as a missing day — a strip that flags every
+    // weekend is a strip nobody reads.
+    const sunday = res.body.find((d: { date: string }) => new Date(`${d.date}T00:00:00Z`).getUTCDay() === 0);
+    if (sunday) {
+      expect(sunday.working).toBe(false);
+      expect(sunday.expected).toBe(0);
+    }
+
+    // A working day nobody has touched is a real gap.
+    const untouched = res.body.find(
+      (d: { date: string; working: boolean; marked: number }) =>
+        d.working && d.marked === 0 && d.date !== todayStr && d.date !== absentDate,
+    );
+    if (untouched) expect(untouched.expected).toBeGreaterThan(0);
+  });
+
   it('refuses attendance for a date before the student was enrolled', async () => {
     // The enrolment was created during setup (today), so any earlier date predates it. Without
     // this guard, backfilling invents a record of a child who had not joined the school.

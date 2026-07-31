@@ -2,6 +2,7 @@ import { Body, Controller, Get, HttpCode, HttpStatus, Param, Patch, Post, Query 
 import { Roles } from '@common';
 import { AttendanceService } from './attendance.service';
 import {
+  AttendanceCoverageQuery,
   AttendanceQuery,
   MarkAttendanceDto,
   MarkStaffAttendanceDto,
@@ -19,6 +20,12 @@ export class AttendanceController {
   @HttpCode(HttpStatus.OK)
   markBulk(@Body() dto: MarkAttendanceDto) {
     return this.attendance.markBulk(dto);
+  }
+
+  /** Which of the last N days this section is marked for — powers the backfill strip. */
+  @Get('coverage')
+  coverage(@Query() q: AttendanceCoverageQuery) {
+    return this.attendance.coverage(q.sectionId, q.session, q.days ?? 7);
   }
 
   @Get()

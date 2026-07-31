@@ -62,7 +62,9 @@ export function idemKey(): Record<string, string> {
 }
 
 // ── Types ──────────────────────────────────────────────────────────────────
-export interface Me { id: string; email: string; roles: string[]; campusId: string | null; modules: string[]; mfaEnabled: boolean }
+/** `admissionsMode` is a school-level setting: DIRECT hides the enquiry pipeline entirely
+ *  (the form IS the admission), PIPELINE restores lead → entry test → admit. */
+export interface Me { id: string; email: string; roles: string[]; campusId: string | null; modules: string[]; mfaEnabled: boolean; admissionsMode: 'DIRECT' | 'PIPELINE' }
 /** Login either establishes a session, or (when the account has MFA on) hands back a short-lived
  *  `mfaToken` that must be exchanged for a session via `api.mfa.challenge`. */
 export type LoginResult =
@@ -84,10 +86,19 @@ export interface Klass { id: string; name: string; order: number; campusId: stri
 /** `subjectIds` empty ⇒ the section studies every subject its class offers. */
 export interface Section { id: string; name: string; classId: string; subjectIds?: string[]; capacity: number; enrolled?: number | null }
 export type StudentStatus = 'ACTIVE' | 'SUSPENDED' | 'RESTRICTED' | 'STRUCK_OFF' | 'WITHDRAWN' | 'GRADUATED';
-export interface Student { id: string; fullName: string; grNumber: string; registrationNo: string | null; gender: string; isActive: boolean; status: StudentStatus; statusReason: string | null; statusEndsOn: string | null }
+/** `hasGuardian: false` means nobody is contactable for this child — no absence, fee-receipt
+ *  or result SMS can be sent. Surfaced in the directory so the gap can be chased. */
+export interface Student { id: string; fullName: string; grNumber: string; registrationNo: string | null; gender: string; isActive: boolean; status: StudentStatus; statusReason: string | null; statusEndsOn: string | null; hasGuardian: boolean }
 export interface StudentDetail {
   id: string; fullName: string; grNumber: string; registrationNo: string | null; gender: string; dateOfBirth: string; isActive: boolean;
   status: StudentStatus; statusReason: string | null; statusEffectiveFrom: string | null; statusEndsOn: string | null;
+  /** A CNIC is on record. The value is never in this payload — fetch it via `api.students.revealCnic`. */
+  hasCnic: boolean;
+  /** False for a CNIC captured before the encrypted column existed: it still verifies a login
+   *  but cannot be read back, which is a different thing from "not provided". */
+  cnicRevealable: boolean;
+  /** The student can sign in to the read-only portal with their registration number + CNIC. */
+  portalLoginEnabled: boolean;
   guardians: { id: string; relation: string; isPrimary: boolean; parent: { id: string; fullName: string; phone: string } }[];
   enrollments: { id: string; classId: string; sectionId: string; campusId: string; academicYearId: string; rollNumber: number | null; status: string; startedAt: string }[];
 }
@@ -111,12 +122,13 @@ export interface Discount {
 }
 /** Existing-parent match for the direct-admission "link?" step (§8). */
 export interface ParentMatch { id: string; fullName: string; phone: string }
-/** Direct admission (§8): the AC's single-form student create. Guardian is an EXPLICIT
- *  LINK (an existing parent found by phone) or CREATE — the server never auto-merges. */
+/** Direct admission (§8): the AC's single-form student create. Guardian is OPTIONAL — omit it
+ *  to admit now and record the guardian later — but when present it is an EXPLICIT LINK (an
+ *  existing parent found by phone) or CREATE; the server never auto-merges. */
 export interface DirectAdmissionBody {
   fullName: string; gender: string; dateOfBirth: string;
   campusId: string; classId: string; sectionId: string;
-  guardian: { mode: 'LINK' | 'CREATE'; parentId?: string; fullName?: string; phone?: string; relation: string; cnic?: string; email?: string };
+  guardian?: { mode: 'LINK' | 'CREATE'; parentId?: string; fullName?: string; phone?: string; relation: string; cnic?: string; email?: string };
   cnic?: string; ageOverride?: boolean; grNumber?: string; rollNumber?: number;
 }
 export interface AdmissionResult { studentId: string; grNumber: string; registrationNo: string | null; loginProvisioned: boolean }
@@ -158,6 +170,18 @@ export interface PortalResult { term: string; overallPercent: number; grade: str
 export interface PortalFee { id: string; month: number | null; year: number; total: number; paid: number; remaining: number; status: string; dueDate: string }
 
 export interface ManagedUser { id: string; email: string; roles: string[]; campusId: string | null; campusName: string | null; status: string }
+
+/** A campus and whoever currently holds its admission seat (`officer: null` = vacant). */
+export interface CampusAdmissionOfficer {
+  campusId: string; campusName: string;
+  officer: { id: string; email: string; status: string } | null;
+}
+export interface SetOfficerResult {
+  campusId: string;
+  officer: { id: string; email: string };
+  /** The outgoing holder when this was a handover, else null — lets the UI say who lost it. */
+  previous: { id: string; email: string } | null;
+}
 
 // ── Staff / Teachers (HR, §13) ───────────────────────────────────────────────
 export interface ManagedTeacher {
@@ -268,6 +292,14 @@ export const api = {
     modules: (id: string) => apiGet<UserModule[]>(`/users/${id}/modules`),
     setModule: (id: string, moduleKey: string, allowed: boolean) => apiPatch<{ userId: string; moduleKey: string; allowed: boolean }>(`/users/${id}/modules`, { moduleKey, allowed }),
   },
+
+  /** The per-campus admission seat (§8/§23) — one officer per campus. `set` both assigns and
+   *  hands over, in one request, so the seat is never momentarily held by nobody or by two. */
+  admissionOfficers: {
+    list: () => apiGet<CampusAdmissionOfficer[]>('/admission-officers'),
+    set: (campusId: string, userId: string) => apiPut<SetOfficerResult>(`/admission-officers/${campusId}`, { userId }),
+    remove: (campusId: string) => apiDelete<{ campusId: string; officer: null }>(`/admission-officers/${campusId}`),
+  },
   staff: {
     list: () => apiGet<ManagedTeacher[]>('/staff'),
     // `password` (min 10) makes the login usable immediately; omit it and the account stays
@@ -349,6 +381,8 @@ export const api = {
   students: {
     // Direct admission — ADMISSION_CONTROLLER only. A 422 AGE_OUT_OF_RANGE is retried with ageOverride.
     admit: (body: DirectAdmissionBody) => apiPost<AdmissionResult>('/students', body),
+    /** Audited: every reveal writes a STUDENT_CNIC_REVEALED row. Owner / campus admin only. */
+    revealCnic: (id: string) => apiGet<{ cnic: string }>(`/students/${id}/cnic`),
     // Existing-parent lookup by phone for the guardian match→link step.
     findParents: (phone: string) => apiGet<ParentMatch[]>(`/students/parents/search?phone=${encodeURIComponent(phone)}`),
     // Lifecycle change (suspend / restrict / strike off / restore). Reason is mandatory — it

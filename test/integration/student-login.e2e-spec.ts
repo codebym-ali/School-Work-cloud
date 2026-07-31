@@ -52,7 +52,7 @@ describe('Student login: reg-no + CNIC (e2e, §28)', () => {
     const section = await post('/api/v1/sections', { classId: klass.body.id, name: 'A' }, cookies);
 
     // Admission controller admits a student WITH a CNIC → provisions the portal login.
-    const { admit } = await admissionController(app, platform, schoolId, host);
+    const { admit } = await admissionController(app, platform, schoolId, host, prov.campusId);
     const created = await admit({
       fullName: 'Login Kid', gender: 'MALE', dateOfBirth: '2011-05-01',
       campusId: prov.campusId, classId: klass.body.id, sectionId: section.body.id, cnic,
@@ -85,6 +85,38 @@ describe('Student login: reg-no + CNIC (e2e, §28)', () => {
     expect(badReg.status).toBe(401);
     expect(badCnic.body.error.code).toBe('INVALID_CREDENTIALS');
     expect(badReg.body.error.message).toBe(badCnic.body.error.message);
+  });
+
+  it('an admin can reveal the CNIC, it round-trips, and the reveal is audited', async () => {
+    const login = await request(server()).post('/api/v1/auth/login').set('Host', host).send(owner);
+    const ownerCookies = login.headers['set-cookie'] as unknown as string[];
+
+    // The profile carries presence, never the value — the ciphertext must not ride along.
+    const profile = await request(server()).get(`/api/v1/students/${studentId}`).set('Host', host).set('Cookie', ownerCookies);
+    expect(profile.status).toBe(200);
+    expect(profile.body.hasCnic).toBe(true);
+    expect(profile.body.portalLoginEnabled).toBe(true);
+    expect(JSON.stringify(profile.body)).not.toContain(cnic);
+    expect(profile.body.cnicEnc).toBeUndefined();
+    expect(profile.body.cnicHash).toBeUndefined();
+
+    const before = await platform.auditLog.count({ where: { schoolId, action: 'STUDENT_CNIC_REVEALED' } });
+    const res = await request(server()).get(`/api/v1/students/${studentId}/cnic`).set('Host', host).set('Cookie', ownerCookies);
+    expect(res.status).toBe(200);
+    expect(res.body.cnic).toBe(cnic); // decrypts back to exactly what was typed at admission
+    const after = await platform.auditLog.count({ where: { schoolId, action: 'STUDENT_CNIC_REVEALED' } });
+    expect(after).toBe(before + 1);
+
+    // The audit row records WHO was revealed, never the number itself.
+    const row = await platform.auditLog.findFirst({
+      where: { schoolId, action: 'STUDENT_CNIC_REVEALED' }, orderBy: { createdAt: 'desc' },
+    });
+    expect(JSON.stringify(row?.newValue)).not.toContain(cnic);
+    expect(row?.userId).toBeTruthy();
+
+    // Revealing does not disturb the login factor.
+    const stillWorks = await portalLogin({ registrationNo: regNo, cnic });
+    expect(stillWorks.status).toBe(200);
   });
 
   it('a soft-deleted student cannot sign in', async () => {

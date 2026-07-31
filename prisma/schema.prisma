@@ -614,6 +614,12 @@ model Student {
   grNumber            String        @map("gr_number")
   registrationNo      String?       @map("registration_no") // admission-form reg. no (auto, per-school)
   cnicHash            String?       @map("cnic_hash") // HMAC of the student's CNIC/B-Form — 2nd factor for the CNIC+regNo portal login (§28)
+  /// AES-256-GCM ciphertext of the same CNIC. The hash above can only ever ANSWER "does this
+  /// match?"; a school also has to READ a B-Form number back for board forms and certificates,
+  /// which a one-way digest can never provide. Decrypted only by the audited reveal endpoint
+  /// (OWNER/CAMPUS_ADMIN) — never included in a profile payload. Departs from the teacher-CNIC
+  /// write-only rule deliberately; see Key Decisions.
+  cnicEnc             String?       @map("cnic_enc")
   fullName            String        @map("full_name")
   gender              Gender
   dateOfBirth         DateTime      @map("date_of_birth") @db.Date

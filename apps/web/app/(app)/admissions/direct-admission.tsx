@@ -41,8 +41,13 @@ export function DirectAdmission({
     [sections, f.classId],
   );
 
-  const guardianReady =
+  // The guardian is OPTIONAL, but half a guardian is not: once anything has been typed the
+  // details must be complete, so a partly-filled section can't be silently dropped on submit.
+  const guardianTouched =
+    guardian.mode === 'LINK' ? Boolean(guardian.parentId) : Boolean(guardian.fullName || guardian.phone || guardian.cnic || guardian.email);
+  const guardianComplete =
     guardian.mode === 'LINK' ? Boolean(guardian.parentId) : Boolean(guardian.fullName && guardian.phone);
+  const guardianReady = !guardianTouched || guardianComplete;
   const ready = Boolean(f.campusId && f.classId && f.sectionId && f.fullName && f.dateOfBirth && guardianReady);
 
   async function submit(ageOverride: boolean) {
@@ -56,8 +61,11 @@ export function DirectAdmission({
         cnic: f.cnic || undefined,
         rollNumber: f.rollNumber ? Number(f.rollNumber) : undefined,
         ageOverride: ageOverride || undefined,
-        guardian:
-          guardian.mode === 'LINK'
+        // Omitted entirely when nothing was entered — the student is admitted with no
+        // guardian and shows a "no guardian" flag in the directory until one is added.
+        guardian: !guardianTouched
+          ? undefined
+          : guardian.mode === 'LINK'
             ? { mode: 'LINK' as const, parentId: guardian.parentId, relation: guardian.relation }
             : {
                 mode: 'CREATE' as const,
@@ -89,11 +97,26 @@ export function DirectAdmission({
           <span className="badge ok" style={{ fontSize: 13 }}>Registration No: {done.result.registrationNo ?? '—'}</span>
           <span className="badge" style={{ fontSize: 13 }}>GR: {done.result.grNumber}</span>
         </div>
-        <p className="muted" style={{ margin: 0, fontSize: 13 }}>
-          {done.result.loginProvisioned
-            ? 'Student portal login provisioned — they sign in with their registration number + CNIC.'
-            : 'No CNIC entered, so no portal login was created. Add a CNIC later to enable it.'}
-        </p>
+        {/* This is the moment the officer hands details to the family, so it must carry WHERE to
+            sign in — naming the credentials without the address was the whole reason nobody
+            could find the student portal. */}
+        {done.result.loginProvisioned ? (
+          <div className="stack" style={{ gap: 4 }}>
+            <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+              Student portal login is ready. Give the family these details:
+            </p>
+            <div style={{ fontSize: 13, lineHeight: 1.7 }}>
+              <div>Website: <b>{typeof window === 'undefined' ? '' : window.location.host}/student-login</b></div>
+              <div>Registration number: <b>{done.result.registrationNo ?? '—'}</b></div>
+              <div>Password: <b>the student&apos;s CNIC / B-Form</b> (the one entered above)</div>
+            </div>
+          </div>
+        ) : (
+          <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+            No CNIC entered, so no portal login was created — a CNIC can currently only be recorded
+            at admission.
+          </p>
+        )}
         <div><button onClick={() => { setDone(null); setF({ gender: 'MALE' }); setGuardian({ mode: 'CREATE', relation: 'FATHER' }); }}>Admit another</button></div>
       </div>
     );
@@ -185,7 +208,18 @@ function GuardianSection({ value, onChange }: { value: GuardianChoice; onChange:
 
   return (
     <div className="stack" style={{ gap: 8 }}>
-      <h3 style={{ margin: 0, fontSize: 15 }}>Guardian</h3>
+      <div>
+        <h3 style={{ margin: 0, fontSize: 15 }}>
+          Guardian <span className="muted" style={{ fontWeight: 400, fontSize: 13 }}>— optional</span>
+        </h3>
+        {/* Stated up front, not after the fact: leaving this blank has a real, permanent
+            consequence until someone comes back and fills it in. */}
+        <p className="muted" style={{ margin: '2px 0 0', fontSize: 12 }}>
+          Leave blank to admit now and add the guardian later. Until one is added the school
+          <b> cannot send any SMS</b> about this student — no absence alerts, fee receipts or
+          results — and they&apos;ll be flagged <b>no guardian</b> in Students.
+        </p>
+      </div>
       <div className="inline-form">
         <div style={{ minWidth: 200 }}><label>Phone</label>
           <input value={phone} onChange={(e) => { setPhone(e.target.value); setMatches(null); }} placeholder="03001234567"

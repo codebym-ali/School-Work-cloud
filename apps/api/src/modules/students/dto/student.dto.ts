@@ -1,6 +1,7 @@
 import { Type } from 'class-transformer';
 import {
   IsBoolean,
+  IsBooleanString,
   IsDateString,
   IsEmail,
   IsEnum,
@@ -72,9 +73,20 @@ export class CreateStudentDto {
   @IsUUID()
   sectionId!: string;
 
+  /**
+   * OPTIONAL (§8): a walk-in can be seated now and the guardian recorded later, which is how
+   * a front desk actually works. Omitting it is a real cost, not a free choice — the student
+   * gets NO absence / fee-receipt / result SMS, because every dispatch resolves the primary
+   * guardian and returns quietly when there isn't one. `Student.hasGuardian` surfaces the gap
+   * so it can be chased; `POST /students/:id/guardians` closes it.
+   *
+   * Still fully validated WHEN SUPPLIED — a half-filled guardian is rejected, not silently
+   * dropped, so "no guardian" is always a deliberate choice rather than a typo.
+   */
+  @IsOptional()
   @ValidateNested()
   @Type(() => GuardianResolutionDto)
-  guardian!: GuardianResolutionDto;
+  guardian?: GuardianResolutionDto;
 
   /** Student CNIC / B-Form (digits, dashes allowed). When present, the portal login is
    *  provisioned and this is the second factor for the CNIC + registration-no sign-in. */
@@ -156,6 +168,14 @@ export class StudentSearchQuery extends PaginationQuery {
   /** 'INACTIVE' is kept for existing callers: it means "anything but ACTIVE". */
   @IsOptional() @IsIn([...Object.values(StudentStatus), 'INACTIVE'])
   status?: StudentStatus | 'INACTIVE';
+
+  /**
+   * Only students with NO guardian on record. This is the chase list: admitting without a
+   * guardian is allowed, but those students receive no SMS of any kind, so the gap has to be
+   * findable rather than silently permanent.
+   */
+  @IsOptional() @IsBooleanString()
+  missingGuardian?: string;
 }
 
 export class AddGuardianDto extends GuardianResolutionDto {

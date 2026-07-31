@@ -4,7 +4,7 @@ import { type ChangeEvent, Suspense, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { api, apiGet, apiPost, ApiError, type Campus, type ImportResult, type Klass, type Paged, type Section, type Student, type StudentDetail, type StudentStatus } from '@/lib/api';
 import { classLabeller } from '@/lib/labels';
-import { useMe } from '@/lib/me-context';
+import { hasModule, useMe } from '@/lib/me-context';
 import { STATUS_TRANSITIONS, STUDENT_STATUS, statusStyle } from '@/lib/student-status';
 import { DirectAdmission } from '../admissions/direct-admission';
 
@@ -20,6 +20,7 @@ function StudentsInner() {
   const me = useMe();
   const isOwner = (me?.roles ?? []).includes('OWNER_ADMIN');
   const isAdmissionController = (me?.roles ?? []).includes('ADMISSION_CONTROLLER');
+  const canAdmit = isAdmissionController && hasModule(me, 'admissions.admit');
   const router = useRouter();
   const params = useSearchParams();
   const campusId = params.get('campusId') ?? '';
@@ -38,11 +39,13 @@ function StudentsInner() {
   const [statusFor, setStatusFor] = useState<Student | null>(null);
   const [deleteFor, setDeleteFor] = useState<Student | null>(null);
   const [statusFilter, setStatusFilter] = useState('');
+  const [missingGuardian, setMissingGuardian] = useState(false);
 
   async function load() {
     const qs = new URLSearchParams();
     if (search) qs.set('search', search);
     if (statusFilter) qs.set('status', statusFilter);
+    if (missingGuardian) qs.set('missingGuardian', 'true');
     if (campusId) qs.set('campusId', campusId);
     if (classId) qs.set('classId', classId);
     if (sectionId) qs.set('sectionId', sectionId);
@@ -56,7 +59,7 @@ function StudentsInner() {
     apiGet<Section[]>('/sections').then(setSections).catch(() => {});
     load().catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [campusId, classId, sectionId]);
+  }, [campusId, classId, sectionId, statusFilter, missingGuardian]);
 
   // Push a new filter into the URL so the view is shareable and the effect reloads.
   function setFilter(next: { campusId?: string; classId?: string; sectionId?: string }) {
@@ -87,8 +90,10 @@ function StudentsInner() {
         <h1>Students</h1>
         <div className="row" style={{ gap: 8 }}>
           <button className="ghost" onClick={() => setImporting((v) => !v)}>{importing ? 'Close' : 'Import CSV'}</button>
-          {/* Admitting is admission-controller-only (#31); owner/campus admins read here. */}
-          {isAdmissionController && <button onClick={() => setAdding((v) => !v)}>{adding ? 'Close' : '+ Add student'}</button>}
+          {/* Admitting is admission-controller-only (#31); owner/campus admins read here.
+              Module checked too, so the owner switching `admissions.admit` off hides it in
+              both places this form is offered (here and /admissions). */}
+          {canAdmit && <button onClick={() => setAdding((v) => !v)}>{adding ? 'Close' : '+ Add student'}</button>}
         </div>
       </div>
       {msg && <div className={`toast ${msg.ok ? 'ok' : 'err'}`}>{msg.text}</div>}
@@ -141,6 +146,19 @@ function StudentsInner() {
         <button className="ghost" onClick={() => load()}>Search</button>
       </div>
 
+      {/* The chase list. Admitting without a guardian is allowed, but those students get no
+          SMS at all — so finding them has to be one click, not a report nobody runs. */}
+      <div className="chips">
+        <button
+          className={`chip ${missingGuardian ? 'active' : ''}`}
+          onClick={() => { setMissingGuardian((v) => !v); }}
+          title="Students with nobody on record to contact — they receive no absence, fee or result SMS"
+        >
+          ⚠️ Missing guardian
+        </button>
+        {missingGuardian && <span className="muted" style={{ fontSize: 12, alignSelf: 'center' }}>Showing only students with no guardian on record.</span>}
+      </div>
+
       {statusFor && (
         <ChangeStatusDialog student={statusFor} onClose={() => setStatusFor(null)}
           onDone={async (text) => { setStatusFor(null); setMsg({ ok: true, text }); await load(); }}
@@ -160,7 +178,14 @@ function StudentsInner() {
               <tr key={s.id}>
                 <td>{s.registrationNo ?? '—'}</td>
                 <td>{s.grNumber}</td>
-                <td>{s.fullName}</td>
+                <td>
+                  {s.fullName}
+                  {!s.hasGuardian && (
+                    <span className="badge warn" style={{ marginLeft: 6 }} title="No guardian on record — this student receives no absence, fee or result SMS">
+                      no guardian
+                    </span>
+                  )}
+                </td>
                 <td>{s.gender}</td>
                 <td><StatusPill status={s.status} /></td>
                 <td style={{ textAlign: 'right' }}>
@@ -305,6 +330,54 @@ function DeleteStudentDialog({ student, onClose, onDone, onError }: {
   );
 }
 
+/**
+ * The CNIC is never in the profile payload — revealing it is a separate, audited call, and the
+ * number stays hidden until someone deliberately asks for it. Three distinct states, because
+ * "we never captured it" and "we captured it but can't read it back" are different facts and
+ * collapsing them into one blank would mislead the office.
+ */
+function CnicRow({ student }: { student: StudentDetail }) {
+  const [value, setValue] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function reveal() {
+    setBusy(true);
+    setErr(null);
+    try {
+      setValue((await api.students.revealCnic(student.id)).cnic);
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : 'Could not reveal the CNIC');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+      <span className="muted" style={{ minWidth: 150, fontSize: 13 }}>CNIC / B-Form</span>
+      {!student.hasCnic ? (
+        <span className="muted">Not provided</span>
+      ) : value ? (
+        <>
+          <span>{value}</span>
+          <button className="ghost small" onClick={() => setValue(null)}>Hide</button>
+        </>
+      ) : (
+        <>
+          <span>•••••-•••••••-•</span>
+          {student.cnicRevealable ? (
+            <button className="ghost small" disabled={busy} onClick={reveal}>{busy ? 'Revealing…' : 'Reveal'}</button>
+          ) : (
+            <span className="muted" style={{ fontSize: 12 }}>on file — recorded before it could be shown</span>
+          )}
+        </>
+      )}
+      {err && <span style={{ color: '#b91c1c', fontSize: 12 }}>{err}</span>}
+    </div>
+  );
+}
+
 function StudentProfile({ id, classes, sections, onBack }: { id: string; classes: Klass[]; sections: Section[]; onBack: () => void }) {
   const [s, setS] = useState<StudentDetail | null>(null);
   const [error, setError] = useState<ApiError | null>(null);
@@ -339,6 +412,13 @@ function StudentProfile({ id, classes, sections, onBack }: { id: string; classes
             <div className="stack" style={{ gap: 4 }}>
               <Row k="Gender" v={s.gender} />
               <Row k="Date of birth" v={s.dateOfBirth?.slice(0, 10)} />
+              <CnicRow student={s} />
+              <Row
+                k="Portal login"
+                v={s.portalLoginEnabled
+                  ? `Enabled — signs in with Reg No ${s.registrationNo ?? '—'} + CNIC`
+                  : 'Not set up (no CNIC was recorded at admission)'}
+              />
             </div>
           </div>
 

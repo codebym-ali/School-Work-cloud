@@ -8,6 +8,8 @@ import {
   computeAge,
   effectiveCampusFilter,
   ENV,
+  FIELD_ENCRYPTION,
+  FieldEncryption,
   ErrorCodes,
   normalizePkPhone,
   paginate,
@@ -30,7 +32,8 @@ export interface CreateStudentCoreInput {
   dateOfBirth: string;
   classId: string;
   sectionId: string;
-  guardian: GuardianResolutionDto;
+  /** Optional (§8) — a walk-in may be seated before the guardian's details are collected. */
+  guardian?: GuardianResolutionDto;
   grNumber?: string;
   rollNumber?: number; // manual, optional; unique per (section, year)
 }
@@ -38,7 +41,8 @@ export interface CreateStudentCoreInput {
 export interface CreatedStudent {
   studentId: string;
   enrollmentId: string;
-  parentId: string;
+  /** null when the student was admitted without a guardian — chase it via `hasGuardian`. */
+  parentId: string | null;
   grNumber: string;
   registrationNo: string;
   rollNumber: number | null;
@@ -60,6 +64,7 @@ export class StudentsService {
     private readonly audit: AuditService,
     private readonly access: AccessService,
     @Inject(ENV) private readonly env: Env,
+    @Inject(FIELD_ENCRYPTION) private readonly crypto: FieldEncryption,
   ) {}
 
   private get db() {
@@ -84,7 +89,10 @@ export class StudentsService {
     const academicYearId = await this.setup.requireCurrentYearId();
     await this.assertSectionCapacity(input.sectionId, academicYearId, section.capacity);
 
-    const parentId = await this.guardians.resolveParent(input.guardian);
+    // Resolved only when a guardian was actually supplied — admitting without one is allowed
+    // and leaves zero `student_guardians` rows, which every downstream reader already handles
+    // (SMS dispatch and advance auto-application both bail out on a missing primary guardian).
+    const parentId = input.guardian ? await this.guardians.resolveParent(input.guardian) : null;
     // Both human IDs are assigned atomically in this same transaction: GR (student identity)
     // and the admission registration number (the form's reference), each gap-free per school.
     const grNumber = await this.nextGrNumber(input.grNumber);
@@ -110,7 +118,10 @@ export class StudentsService {
       throw e;
     }
 
-    await this.guardians.link(student.id, parentId, input.guardian.relation, true);
+    // The first guardian is the primary one. Skipped entirely when none was given.
+    if (parentId && input.guardian) {
+      await this.guardians.link(student.id, parentId, input.guardian.relation, true);
+    }
 
     let enrollment;
     try {
@@ -179,7 +190,9 @@ export class StudentsService {
       });
       await this.db.student.update({
         where: { id: created.studentId },
-        data: { userId: user.id, cnicHash: this.hashCnic(dto.cnic) },
+        // Both forms of the same id: the HASH verifies a login attempt, the CIPHERTEXT lets an
+        // admin read the number back (audited). Neither can substitute for the other.
+        data: { userId: user.id, cnicHash: this.hashCnic(dto.cnic), cnicEnc: this.crypto.encrypt(dto.cnic) },
       });
       loginProvisioned = true;
     }
@@ -229,6 +242,9 @@ export class StudentsService {
     if (q.classId) enroll.classId = q.classId;
     if (q.sectionId) enroll.sectionId = q.sectionId;
     if (campusId || q.classId || q.sectionId) where.enrollments = { some: enroll };
+    // The chase list for students admitted without a guardian (§8) — they receive no SMS at
+    // all, so being able to find them is what keeps "record it later" from meaning "never".
+    if (q.missingGuardian === 'true') where.guardians = { none: {} };
 
     if (q.search) {
       const phone = normalizePkPhone(q.search);
@@ -255,11 +271,17 @@ export class StudentsService {
             select: { id: true, classId: true, sectionId: true, campusId: true, rollNumber: true },
             take: 1,
           },
+          // Presence only — a count, not the guardian rows, so the directory payload doesn't
+          // grow just to answer "is anyone contactable for this child?".
+          _count: { select: { guardians: true } },
         },
       }),
       this.db.student.count({ where }),
     ]);
-    return paginate(rows, total, q);
+    // `hasGuardian` is surfaced on every row so the UI can flag a student nobody can be
+    // contacted about — without it, admitting without a guardian is an invisible dead end.
+    const data = rows.map(({ _count, ...s }) => ({ ...s, hasGuardian: _count.guardians > 0 }));
+    return paginate(data, total, q);
   }
 
   async getOne(id: string) {
@@ -278,7 +300,50 @@ export class StudentsService {
     if (restricted !== null && !student.enrollments.some((e) => e.status === 'ACTIVE' && e.campusId === restricted)) {
       throw new AppError(ErrorCodes.FORBIDDEN, HttpStatus.FORBIDDEN, 'Student belongs to another campus');
     }
-    return student;
+    // Neither secret column ever leaves in a profile payload: the hash is a login factor and
+    // the ciphertext is only for the audited reveal. The profile carries presence, not value.
+    const { cnicHash, cnicEnc, ...rest } = student;
+    return {
+      ...rest,
+      hasCnic: Boolean(cnicEnc ?? cnicHash),
+      /** Whether this student can sign in to the read-only portal (reg-no + CNIC). */
+      portalLoginEnabled: Boolean(student.userId),
+      /** A CNIC recorded before the encrypted column existed can be matched at login but not
+       *  read back — so the UI can explain that instead of implying the number was lost. */
+      cnicRevealable: Boolean(cnicEnc),
+    };
+  }
+
+  /**
+   * Decrypt and return a student's CNIC/B-Form (OWNER/CAMPUS_ADMIN — the route gates the role,
+   * `getOne` gates the campus).
+   *
+   * Deliberately NOT a field on the profile: reading a child's national ID is an event, and if
+   * it rode along with every profile load there would be nothing meaningful to audit. So the
+   * reveal is its own call, and every one of them is recorded.
+   */
+  async revealCnic(id: string): Promise<{ cnic: string }> {
+    const student = await this.getOne(id); // 404 + campus scope, before anything is decrypted
+    const row = await this.db.student.findFirst({ where: { id }, select: { cnicEnc: true, cnicHash: true } });
+    if (!row?.cnicEnc) {
+      throw new AppError(
+        ErrorCodes.NOT_FOUND,
+        HttpStatus.NOT_FOUND,
+        row?.cnicHash
+          ? 'This CNIC was recorded before it could be stored readably — it can verify a login but cannot be shown. Re-enter it to make it readable.'
+          : 'No CNIC on record for this student',
+      );
+    }
+
+    await this.audit.record({
+      action: AuditActions.STUDENT_CNIC_REVEALED,
+      entityType: 'Student',
+      entityId: id,
+      // Identity, not the value — an audit trail must never become a second copy of the secret.
+      newValue: { fullName: student.fullName, grNumber: student.grNumber },
+    });
+
+    return { cnic: this.crypto.decrypt(row.cnicEnc) };
   }
 
   async update(id: string, dto: UpdateStudentDto) {

@@ -10,6 +10,9 @@ export const AuditActions = {
   STUDENT_UPDATED: 'STUDENT_UPDATED',
   STUDENT_DELETED: 'STUDENT_DELETED',
   STUDENT_STATUS_CHANGED: 'STUDENT_STATUS_CHANGED',
+  /** A national ID was decrypted and shown to a human — the read itself is the event worth
+   *  recording, which is why reveal is a separate endpoint and not part of the profile load. */
+  STUDENT_CNIC_REVEALED: 'STUDENT_CNIC_REVEALED',
   GUARDIAN_LINKED: 'GUARDIAN_LINKED',
   GUARDIAN_UNLINKED: 'GUARDIAN_UNLINKED',
   PRIMARY_GUARDIAN_CHANGED: 'PRIMARY_GUARDIAN_CHANGED',
@@ -62,6 +65,13 @@ export const AuditActions = {
   ROLE_ACCESS_GRANTED: 'ROLE_ACCESS_GRANTED',
   ROLE_ACCESS_REVOKED: 'ROLE_ACCESS_REVOKED',
   MODULE_ACCESS_CHANGED: 'MODULE_ACCESS_CHANGED',
+
+  // The per-campus admission seat (§8/§23): one officer per campus, so a change of holder is
+  // a single handover event. Recorded as one row naming BOTH parties — a revoke row plus a
+  // grant row would not prove they were the same decision, and the seat is the thing that
+  // moved, not two unrelated permissions.
+  ADMISSION_OFFICER_ASSIGNED: 'ADMISSION_OFFICER_ASSIGNED',
+  ADMISSION_OFFICER_REMOVED: 'ADMISSION_OFFICER_REMOVED',
 } as const;
 
 export type AuditAction = (typeof AuditActions)[keyof typeof AuditActions];

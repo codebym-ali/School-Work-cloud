@@ -70,6 +70,13 @@ export class StudentsController {
     return this.students.getOne(id);
   }
 
+  /** Audited reveal of a student's national ID — see `StudentsService.revealCnic`. */
+  @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
+  @Get(':id/cnic')
+  revealCnic(@Param('id') id: string) {
+    return this.students.revealCnic(id);
+  }
+
   @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
   @Patch(':id')
   update(@Param('id') id: string, @Body() dto: UpdateStudentDto) {
@@ -108,7 +115,13 @@ export class StudentsController {
     return this.phoneVerify.confirm(parentId, dto.code);
   }
 
-  @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
+  /**
+   * ADD is open to the admission officer as well (§8): the guardian is optional at admission,
+   * so whoever admitted the student has to be able to finish the record — otherwise deferring
+   * is a dead end that only an owner can clear. Editing and removing a guardian stay
+   * OWNER/CAMPUS-only, so this widens "complete what you started", not "change the record".
+   */
+  @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN', 'ADMISSION_CONTROLLER')
   @Post(':id/guardians')
   @HttpCode(HttpStatus.NO_CONTENT)
   async addGuardian(@Param('id') id: string, @Body() dto: AddGuardianDto) {

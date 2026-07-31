@@ -24,24 +24,10 @@ export function ClassManager({ classes, sections, subjects, campuses, catalogue,
   onDeleteSubject: (id: string) => Promise<string | null> | void;
 }) {
   const router = useRouter();
-  const [campusId, setCampusId] = useState('');
-  const [name, setName] = useState('');
   const [search, setSearch] = useState('');
   // The class just created — its row opens on the subject form, because a brand-new class
   // has neither sections nor subjects and subjects are the part people can't find.
   const [justCreated, setJustCreated] = useState<string | null>(null);
-  // 9th and 10th usually share most of their subjects — retyping them per class is the
-  // most tedious part of setting up a school, so a new class can inherit an existing list.
-  const [copyFromClass, setCopyFromClass] = useState('');
-
-  const targetCampus = campusId || (campuses.length === 1 ? campuses[0].id : '');
-
-  // "Order" decides the sort position of a class. It's a developer concept, so we assign
-  // it automatically (next number in that campus) instead of asking a school admin for it.
-  const nextOrder = (cid: string) => {
-    const inCampus = classes.filter((k) => k.campusId === cid);
-    return inCampus.length ? Math.max(...inCampus.map((k) => k.order)) + 1 : 1;
-  };
 
   const query = search.trim().toLowerCase();
   const matches = (k: Klass) => {
@@ -70,7 +56,9 @@ export function ClassManager({ classes, sections, subjects, campuses, catalogue,
           Seats show capacity only — set a current school year to count enrolment.
         </p>
       )}
-      {showTools && classes.length > 0 && (
+      {/* Search earns the top of the page at 20 classes, not at 3 — below that it was occupying
+          the slot the primary action should own, to solve a problem nobody had. */}
+      {showTools && classes.length >= 8 && (
         <div className="inline-form">
           <div style={{ minWidth: 240 }}>
             <label>Search classes, sections or subjects</label>
@@ -81,9 +69,17 @@ export function ClassManager({ classes, sections, subjects, campuses, catalogue,
         </div>
       )}
 
+      {/* THE primary action, at the top. It used to sit below every class card, so the one
+          thing a new school needs first was the last thing on the page. NOT gated on
+          `showTools` — Setup renders this component without it and still needs to add classes. */}
+      <AddClassForm
+        campuses={campuses} classes={classes} subjects={subjects}
+        onCreateClass={onCreateClass} onCreateSubjects={onCreateSubjects} onCreated={setJustCreated} />
+
       {classes.length === 0 ? (
         <p className="muted" style={{ margin: 0, fontSize: 13 }}>
-          No classes yet. Add your first class below — for example “Nursery”, “Grade 1” or “9th”.
+          No classes yet — add your first one above. A class is a year group like “Nursery”,
+          “Grade 1” or “9th”.
         </p>
       ) : totalMatched === 0 ? (
         <p className="muted" style={{ margin: 0, fontSize: 13 }}>No class matches “{search}”.</p>
@@ -126,7 +122,65 @@ export function ClassManager({ classes, sections, subjects, campuses, catalogue,
         </div>
       )}
 
-      <div className="inline-form">
+      <datalist id={catalogueListId}>
+        {catalogue.map((c) => <option key={c.name} value={c.name} />)}
+      </datalist>
+    </>
+  );
+}
+
+/**
+ * Add a class — the page's primary action, so it sits at the top.
+ *
+ * Two things made the old version actively misleading:
+ *  - the placeholder was `9th`, which reads as a filled-in value (and 9th usually already
+ *    exists), so people clicked Add class and nothing happened. It is now `e.g. 9th`.
+ *  - the reason the button was disabled sat to the RIGHT of the button, where nobody looks.
+ *    It now sits under the field it refers to.
+ */
+function AddClassForm({ campuses, classes, subjects, onCreateClass, onCreateSubjects, onCreated }: {
+  campuses: Campus[]; classes: Klass[]; subjects: Subject[];
+  onCreateClass: (body: { campusId: string; name: string; order: number }) => Promise<string | null>;
+  onCreateSubjects: (classId: string, names: string[]) => void;
+  onCreated: (id: string | null) => void;
+}) {
+  const [campusId, setCampusId] = useState('');
+  const [name, setName] = useState('');
+  // 9th and 10th usually share most of their subjects — retyping them per class is the
+  // most tedious part of setting up a school, so a new class can inherit an existing list.
+  const [copyFromClass, setCopyFromClass] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const targetCampus = campusId || (campuses.length === 1 ? campuses[0].id : '');
+  const blocker = !targetCampus ? 'Choose a campus first.' : !name.trim() ? 'Enter a class name to continue.' : null;
+
+  // "Order" decides the sort position of a class. It's a developer concept, so we assign it
+  // automatically (next number in that campus) instead of asking a school admin for it.
+  const nextOrder = (cid: string) => {
+    const inCampus = classes.filter((k) => k.campusId === cid);
+    return inCampus.length ? Math.max(...inCampus.map((k) => k.order)) + 1 : 1;
+  };
+
+  async function submit() {
+    if (blocker) return;
+    setBusy(true);
+    try {
+      const id = await onCreateClass({ campusId: targetCampus, name: name.trim(), order: nextOrder(targetCampus) });
+      setName('');
+      if (id && copyFromClass) {
+        const names = subjects.filter((s) => s.classId === copyFromClass).map((s) => s.name);
+        if (names.length) await onCreateSubjects(id, names);
+      }
+      onCreated(id);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: '12px 14px', background: '#f8fafc' }} className="stack">
+      <strong style={{ fontSize: 14 }}>Add a class</strong>
+      <div className="inline-form" style={{ alignItems: 'flex-start' }}>
         {campuses.length > 1 && (
           <div><label>Campus</label>
             <select value={campusId} onChange={(e) => setCampusId(e.target.value)}>
@@ -135,7 +189,12 @@ export function ClassManager({ classes, sections, subjects, campuses, catalogue,
             </select>
           </div>
         )}
-        <div><label>Class name</label><input value={name} onChange={(e) => setName(e.target.value)} placeholder="9th" /></div>
+        <div style={{ minWidth: 180 }}>
+          <label>Class name</label>
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. 9th"
+            onKeyDown={(e) => { if (e.key === 'Enter') submit(); }} />
+          {blocker && <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>{blocker}</div>}
+        </div>
         {classes.length > 0 && (
           <div><label>Copy subjects from</label>
             <select value={copyFromClass} onChange={(e) => setCopyFromClass(e.target.value)}>
@@ -147,31 +206,9 @@ export function ClassManager({ classes, sections, subjects, campuses, catalogue,
             </select>
           </div>
         )}
-        <button
-          disabled={!name.trim() || !targetCampus}
-          onClick={async () => {
-            const id = await onCreateClass({ campusId: targetCampus, name: name.trim(), order: nextOrder(targetCampus) });
-            setName('');
-            if (id && copyFromClass) {
-              const names = subjects.filter((s) => s.classId === copyFromClass).map((s) => s.name);
-              if (names.length) await onCreateSubjects(id, names);
-            }
-            setJustCreated(id);
-          }}
-        >
-          Add class
-        </button>
-        {(!name.trim() || !targetCampus) && (
-          <span className="muted" style={{ fontSize: 12 }}>
-            {!targetCampus ? 'Choose a campus first.' : 'Enter a class name.'}
-          </span>
-        )}
+        <button disabled={Boolean(blocker) || busy} onClick={submit}>{busy ? 'Adding…' : 'Add class'}</button>
       </div>
-
-      <datalist id={catalogueListId}>
-        {catalogue.map((c) => <option key={c.name} value={c.name} />)}
-      </datalist>
-    </>
+    </div>
   );
 }
 
@@ -312,7 +349,9 @@ function ClassRow({ klass, sections, subjects, catalogue, catalogueListId, openS
           <>
             <strong style={{ minWidth: 70 }} title={created ? `Created ${created}` : undefined}>{klass.name}</strong>
             {ready
-              ? <span className="badge ok">Ready</span>
+              /* "Ready" alone never said ready for WHAT — the criteria (a section to sit in and
+                 subjects to study) were invisible, so the word carried no information. */
+              ? <span className="badge ok" title="Has a section and subjects — students can be admitted into this class">Ready to admit</span>
               : <span className="badge warn">
                   {needsSection && needsSubjects ? 'Needs a section and subjects' : needsSection ? 'Needs a section' : 'Needs subjects'}
                 </span>}
@@ -349,17 +388,12 @@ function ClassRow({ klass, sections, subjects, catalogue, catalogueListId, openS
           </div>
         )}
         {renaming === null && (
+          /* Visible weight follows how often a thing is actually used: assigning teachers is a
+             recurring job, adding a section happens a few times a year, and everything else is
+             one-off setup or destructive — so it lives in the menu, spelled out in words. */
           <div className="row" style={{ gap: 8, marginLeft: 'auto', flexWrap: 'wrap' }}>
-            {(onMoveUp || onMoveDown) && (
-              <span className="row" style={{ gap: 2 }}>
-                <button className="ghost small" aria-label={`Move ${klass.name} up`} title="Move up"
-                  disabled={!onMoveUp} onClick={onMoveUp}>↑</button>
-                <button className="ghost small" aria-label={`Move ${klass.name} down`} title="Move down"
-                  disabled={!onMoveDown} onClick={onMoveDown}>↓</button>
-              </span>
-            )}
+            <button className="ghost small" onClick={() => router.push(`/classes/${klass.id}`)}>👩‍🏫 Teachers</button>
             <button className="small" onClick={() => open('section')}>{panel === 'section' ? 'Cancel' : '+ Section'}</button>
-            <button className="ghost small" onClick={() => open('subject')}>{panel === 'subject' ? 'Cancel' : '+ Subject'}</button>
             <span style={{ position: 'relative' }}>
               <button className="ghost small" aria-haspopup="menu" aria-expanded={menuOpen}
                 aria-label={`More actions for ${klass.name}`} onClick={() => setMenuOpen((v) => !v)}>⋯</button>
@@ -371,13 +405,26 @@ function ClassRow({ klass, sections, subjects, catalogue, catalogueListId, openS
                     boxShadow: '0 6px 18px rgba(15,23,42,0.12)', padding: 4, display: 'grid', minWidth: 168,
                   }}>
                   <button className="ghost small" role="menuitem" style={{ textAlign: 'left' }}
+                    onClick={() => { setMenuOpen(false); open('subject'); }}>Add subject</button>
+                  <button className="ghost small" role="menuitem" style={{ textAlign: 'left' }}
                     onClick={() => { setMenuOpen(false); setRenaming({ name: klass.name, minAge: klass.minAgeYears?.toString() ?? '', maxAge: klass.maxAgeYears?.toString() ?? '' }); }}>
                     Edit name &amp; age
                   </button>
                   <button className="ghost small" role="menuitem" style={{ textAlign: 'left' }}
-                    onClick={() => { setMenuOpen(false); router.push(`/classes/${klass.id}`); }}>Teachers</button>
-                  <button className="ghost small" role="menuitem" style={{ textAlign: 'left' }}
                     onClick={() => { setMenuOpen(false); onOpenStudents(); }}>View students</button>
+                  {/* Order is not decoration — it decides which class a student is promoted INTO
+                      at year end, so the menu says so rather than leaving bare ↑↓ arrows. */}
+                  {(onMoveUp || onMoveDown) && (
+                    <>
+                      <span className="muted" style={{ fontSize: 11, padding: '6px 8px 2px' }}>
+                        Order decides the next class at promotion
+                      </span>
+                      <button className="ghost small" role="menuitem" style={{ textAlign: 'left' }}
+                        disabled={!onMoveUp} onClick={() => { setMenuOpen(false); onMoveUp?.(); }}>Move earlier</button>
+                      <button className="ghost small" role="menuitem" style={{ textAlign: 'left' }}
+                        disabled={!onMoveDown} onClick={() => { setMenuOpen(false); onMoveDown?.(); }}>Move later</button>
+                    </>
+                  )}
                   {/* The server refuses while sections/fees/exams depend on it and says which. */}
                   <button className="ghost small" role="menuitem" style={{ textAlign: 'left', color: '#b91c1c' }}
                     onClick={() => {
@@ -429,9 +476,11 @@ function ClassRow({ klass, sections, subjects, catalogue, catalogueListId, openS
             // otherwise an elective split is invisible on this screen.
             const own = s.subjectIds ?? [];
             const inheritsAll = own.length === 0 || own.length === subjects.length;
-            const subjectLabel = subjects.length === 0
+            // Only the EXCEPTION is worth saying. "all 7 subjects" repeated on every chip was
+            // noise that pushed an advanced concept (elective splits) into everyone's face.
+            const subjectLabel = subjects.length === 0 || inheritsAll
               ? null
-              : inheritsAll ? `all ${subjects.length} subjects` : `${own.length} of ${subjects.length} subjects`;
+              : `own subjects (${own.length} of ${subjects.length})`;
             const taken = s.enrolled;
             const counted = taken != null;
             const full = counted && taken >= s.capacity;
@@ -451,15 +500,18 @@ function ClassRow({ klass, sections, subjects, catalogue, catalogueListId, openS
                     fontSize: 11, fontWeight: 600, padding: '1px 6px', borderRadius: 999,
                     background: full ? '#fee2e2' : '#e0e7ff', color: full ? '#991b1b' : '#3730a3',
                   }}>
-                  {counted ? taken : '—'}/{s.capacity}{full ? ' full' : ''}
+                  {/* A bare "6/40" made the reader guess the unit — students? subjects? seats? */}
+                  {counted ? taken : '—'} of {s.capacity} seats{full ? ' · full' : ''}
                 </span>
-                <button type="button" aria-label={`Edit section ${s.name}`} title="Edit name and seats"
-                  style={{ background: 'none', border: 0, padding: '4px 6px', color: 'inherit', opacity: 0.7, cursor: 'pointer', fontSize: 12, minWidth: 24, minHeight: 24 }}
+                <button type="button" className="ghost small" aria-label={`Edit section ${s.name}`} title="Edit name and seats"
+                  style={{ padding: '2px 8px', minHeight: 28 }}
                   onClick={() => setEditingSection(editingSection?.id === s.id ? null : { id: s.id, name: s.name, capacity: String(s.capacity) })}>
-                  ✎
+                  Edit
                 </button>
-                <button type="button" aria-label={`Delete section ${s.name}`} title="Delete"
-                  style={{ background: 'none', border: 0, padding: '4px 6px', color: 'inherit', opacity: 0.7, cursor: 'pointer', fontSize: 12, minWidth: 24, minHeight: 24 }}
+                {/* Worded, and spaced away from Edit — a 12px ✕ sitting flush against a 12px ✎
+                    put a destructive action one stray pixel from a harmless one. */}
+                <button type="button" className="ghost small" aria-label={`Delete section ${s.name}`} title="Delete this section"
+                  style={{ padding: '2px 8px', minHeight: 28, marginLeft: 2, color: '#b91c1c' }}
                   onClick={() => setPendingDelete({
                     title: `Delete Section ${s.name}?`,
                     body: counted && taken > 0
@@ -468,7 +520,7 @@ function ClassRow({ klass, sections, subjects, catalogue, catalogueListId, openS
                     confirmLabel: 'Delete section',
                     run: () => onDeleteSection(s.id),
                   })}>
-                  ✕
+                  Delete
                 </button>
               </span>
             );

@@ -70,11 +70,16 @@ export default function ClassesPage() {
         <div className="grid">
           <div className="metric"><div className="value">{classes.length}</div><div className="label">Classes</div></div>
           <div className="metric"><div className="value">{sections.length}</div><div className="label">Sections</div></div>
-          <div className="metric">
-            <div className="value">{counted.length ? `${filled}/${seats}` : `—/${seats}`}</div>
+          <div className="metric" title="Students enrolled, against the total seats across every section">
+            <div className="value">{counted.length ? `${filled} of ${seats}` : `— of ${seats}`}</div>
             <div className="label">Seats filled</div>
           </div>
-          <div className="metric"><div className="value">{effectiveCatalogue.length}</div><div className="label">Distinct subjects</div></div>
+          {/* "Distinct" is a programmer's word for de-duplicated, and the number contradicted
+              the chips on screen (20 chips, 11 here) with nothing to explain the difference. */}
+          <div className="metric" title="Different subject names across all classes — a subject taught in three classes counts once">
+            <div className="value">{effectiveCatalogue.length}</div>
+            <div className="label">Subjects taught</div>
+          </div>
         </div>
       )}
 

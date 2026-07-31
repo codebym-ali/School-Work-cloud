@@ -60,7 +60,7 @@ describe('Student status + delete guard (e2e)', () => {
     const klass = await post('/api/v1/classes', { campusId: prov.campusId, name: 'Grade 9', order: 9 }, cookies);
     const section = await post('/api/v1/sections', { classId: klass.body.id, name: 'A' }, cookies);
 
-    const { admit } = await admissionController(app, platform, schoolId, host);
+    const { admit } = await admissionController(app, platform, schoolId, host, prov.campusId);
     const created = await admit({
       fullName: 'Status Kid', gender: 'MALE', dateOfBirth: '2011-05-01',
       campusId: prov.campusId, classId: klass.body.id, sectionId: section.body.id, cnic,

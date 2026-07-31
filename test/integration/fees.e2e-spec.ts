@@ -91,7 +91,7 @@ describe('Fees end-to-end (e2e, §12)', () => {
     const klass = await post('/api/v1/classes', { campusId, name: 'Grade 1', order: 1 });
     classId = klass.body.id;
     const section = await post('/api/v1/sections', { classId, name: 'A' });
-    ({ admit } = await admissionController(app, platform, schoolId, host));
+    ({ admit } = await admissionController(app, platform, schoolId, host, campusId));
     const student = await admit({
       fullName: 'Sara Khan', gender: 'FEMALE', dateOfBirth: '2020-05-10', campusId, classId, sectionId: section.body.id,
       guardian: { mode: 'CREATE', fullName: 'Ali Khan', phone: '03007654321', relation: 'FATHER' },

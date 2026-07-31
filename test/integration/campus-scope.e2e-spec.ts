@@ -107,13 +107,17 @@ describe('Campus scoping (e2e, §22.8 / P1.7)', () => {
     await ownerPost('/api/v1/academic-years', { name: '2026-27', startDate: '2026-04-01', endDate: '2027-03-31', isCurrent: true });
     campusB = (await ownerPost('/api/v1/campuses', { name: 'Campus B' })).body.id;
 
-    // A school-wide admission controller creates students in BOTH campuses (§8).
-    const { admit } = await admissionController(app, platform, schoolId, host);
+    // ONE admission officer per campus (§8/§23) — the seat is campus-bound, so this spec
+    // seeds two. That is legal precisely because the campuses differ, and it is also what
+    // makes the cross-campus assertions below meaningful: neither officer can reach the
+    // other's campus, which a single school-wide controller used to be able to do.
+    const { admit: admitA } = await admissionController(app, platform, schoolId, host, campusA);
+    const { admit: admitB } = await admissionController(app, platform, schoolId, host, campusB);
 
     // Campus A: class + section + student (+ enrollment).
     classA = (await ownerPost('/api/v1/classes', { campusId: campusA, name: 'A-Grade', order: 1 })).body.id;
     sectionA = (await ownerPost('/api/v1/sections', { classId: classA, name: 'A' })).body.id;
-    const sA = await admit({
+    const sA = await admitA({
       fullName: 'Alice A', gender: 'FEMALE', dateOfBirth: '2016-01-10', campusId: campusA, classId: classA, sectionId: sectionA,
       guardian: { mode: 'CREATE', fullName: 'Guardian A', phone: '03001110001', relation: 'FATHER' },
     });
@@ -123,7 +127,7 @@ describe('Campus scoping (e2e, §22.8 / P1.7)', () => {
     // Campus B: class + section + student (+ enrollment).
     classB = (await ownerPost('/api/v1/classes', { campusId: campusB, name: 'B-Grade', order: 1 })).body.id;
     sectionB = (await ownerPost('/api/v1/sections', { classId: classB, name: 'B' })).body.id;
-    const sB = await admit({
+    const sB = await admitB({
       fullName: 'Bob B', gender: 'MALE', dateOfBirth: '2016-02-20', campusId: campusB, classId: classB, sectionId: sectionB,
       guardian: { mode: 'CREATE', fullName: 'Guardian B', phone: '03002220002', relation: 'FATHER' },
     });

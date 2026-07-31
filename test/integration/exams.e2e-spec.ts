@@ -85,7 +85,7 @@ describe('Exams & report cards (e2e, §11)', () => {
     const section = await post('/api/v1/sections', { classId, name: 'A' });
     mathId = (await post('/api/v1/subjects', { classId, name: 'Math' })).body.id;
     englishId = (await post('/api/v1/subjects', { classId, name: 'English' })).body.id;
-    const { admit } = await admissionController(app, platform, schoolId, host);
+    const { admit } = await admissionController(app, platform, schoolId, host, prov.campusId);
     const student = await admit({
       fullName: 'Sara Khan', gender: 'FEMALE', dateOfBirth: '2020-05-10', campusId: prov.campusId, classId, sectionId: section.body.id,
       guardian: { mode: 'CREATE', fullName: 'Ali Khan', phone: '03007654321', relation: 'FATHER' },

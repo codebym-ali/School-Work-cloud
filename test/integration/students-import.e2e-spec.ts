@@ -55,7 +55,7 @@ describe('Students CSV import (e2e, §22.6)', () => {
     await post('/api/v1/sections', { classId: klass.body.id, name: 'A' });
 
     // Import is admission-controller-only (§8) → run it as the AC, not the owner.
-    const ac = await admissionController(app, platform, schoolId, host);
+    const ac = await admissionController(app, platform, schoolId, host, prov.campusId);
     importCsv = (b: object) =>
       request(server()).post('/api/v1/students/import').set('Host', host).set('Cookie', ac.cookies).set('X-CSRF-Token', ac.csrf).send(b);
   });

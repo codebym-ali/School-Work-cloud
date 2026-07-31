@@ -62,7 +62,7 @@ describe('Student registration & roll (e2e)', () => {
     sectionId = (await post('/api/v1/sections', { classId, name: 'A' })).body.id;
 
     // Students are created by the admission controller (not owner) under the §8 rule.
-    ({ admit } = await admissionController(app, platform, schoolId, host));
+    ({ admit } = await admissionController(app, platform, schoolId, host, campusId));
   });
 
   afterAll(async () => {

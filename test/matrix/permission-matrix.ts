@@ -33,6 +33,12 @@ export const PERMISSION_MATRIX: MatrixRow[] = [
   { label: 'change student status', method: 'patch', path: '/api/v1/students/00000000-0000-0000-0000-000000000000/status', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
   // Deleting a student record is owner-only — it is for mis-keyed admissions, not departures.
   { label: 'delete student', method: 'delete', path: '/api/v1/students/00000000-0000-0000-0000-000000000000', allow: ['OWNER_ADMIN'] },
+  // Reading a child's national ID is admin-only — notably NOT the admission officer, who
+  // captures the CNIC but has no reason to read it back afterwards.
+  { label: 'reveal student cnic', method: 'get', path: '/api/v1/students/00000000-0000-0000-0000-000000000000/cnic', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
+  // ADD includes the admission officer — the guardian is optional at admission, so they must
+  // be able to complete the record they created. Edit/remove stay admin-only (below).
+  { label: 'add student guardian', method: 'post', path: '/api/v1/students/00000000-0000-0000-0000-000000000000/guardians', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ADMISSION_CONTROLLER'] },
   { label: 'admit student', method: 'post', path: '/api/v1/admissions', body: {}, allow: ['ADMISSION_CONTROLLER'] },
   { label: 'request guardian OTP', method: 'post', path: '/api/v1/students/guardians/00000000-0000-0000-0000-000000000000/verify-phone', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
   { label: 'confirm guardian OTP', method: 'post', path: '/api/v1/students/guardians/00000000-0000-0000-0000-000000000000/verify-phone/confirm', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
@@ -64,6 +70,11 @@ export const PERMISSION_MATRIX: MatrixRow[] = [
   { label: 'list users', method: 'get', path: '/api/v1/users', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
   { label: 'create user', method: 'post', path: '/api/v1/users', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
   { label: 'set user access', method: 'patch', path: '/api/v1/users/00000000-0000-0000-0000-000000000000/access', body: { role: 'HR_MANAGER', grant: true }, allow: ['OWNER_ADMIN'] },
+  // The per-campus admission seat (§8/§23): the overview is readable by both admins, but only
+  // the owner may move it — it decides who speaks for a campus's admissions.
+  { label: 'list admission officers', method: 'get', path: '/api/v1/admission-officers', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
+  { label: 'set admission officer', method: 'put', path: '/api/v1/admission-officers/00000000-0000-0000-0000-000000000000', body: { userId: '00000000-0000-0000-0000-000000000000' }, allow: ['OWNER_ADMIN'], scopeGated: true },
+  { label: 'remove admission officer', method: 'delete', path: '/api/v1/admission-officers/00000000-0000-0000-0000-000000000000', allow: ['OWNER_ADMIN'], scopeGated: true },
   { label: 'list user modules', method: 'get', path: '/api/v1/users/00000000-0000-0000-0000-000000000000/modules', allow: ['OWNER_ADMIN'], scopeGated: true },
   { label: 'set user module', method: 'patch', path: '/api/v1/users/00000000-0000-0000-0000-000000000000/modules', body: { moduleKey: 'recruitment.hire', allowed: false }, allow: ['OWNER_ADMIN'], scopeGated: true },
   { label: 'create staff', method: 'post', path: '/api/v1/staff', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'], scopeGated: true },

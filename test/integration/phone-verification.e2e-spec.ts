@@ -64,7 +64,7 @@ describe('Guardian phone OTP (e2e, §14)', () => {
     await post('/api/v1/academic-years', { name: '2026-27', startDate: '2026-04-01', endDate: '2027-03-31', isCurrent: true });
     const klass = await post('/api/v1/classes', { campusId: prov.campusId, name: 'Grade 1', order: 1 });
     const section = await post('/api/v1/sections', { classId: klass.body.id, name: 'A' });
-    const { admit } = await admissionController(app, platform, schoolId, host);
+    const { admit } = await admissionController(app, platform, schoolId, host, prov.campusId);
     const student = await admit({
       fullName: 'Kid One', gender: 'MALE', dateOfBirth: '2015-05-10', campusId: prov.campusId, classId: klass.body.id, sectionId: section.body.id,
       guardian: { mode: 'CREATE', fullName: 'Papa', phone: '03007654321', relation: 'FATHER' },

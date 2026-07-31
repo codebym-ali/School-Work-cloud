@@ -56,7 +56,7 @@ describe('Storage, PDFs & uploads (e2e, §22.6)', () => {
     const classId = (await post('/api/v1/classes', { campusId: prov.campusId, name: 'Grade 1', order: 1 })).body.id;
     const sectionId = (await post('/api/v1/sections', { classId, name: 'A' })).body.id;
     const mathId = (await post('/api/v1/subjects', { classId, name: 'Math' })).body.id;
-    const { admit } = await admissionController(app, platform, schoolId, host);
+    const { admit } = await admissionController(app, platform, schoolId, host, prov.campusId);
     studentId = (await admit({
       fullName: 'Sara Khan', gender: 'FEMALE', dateOfBirth: '2020-05-10', campusId: prov.campusId, classId, sectionId,
       guardian: { mode: 'CREATE', fullName: 'Ali Khan', phone: '03007654321', relation: 'FATHER' },

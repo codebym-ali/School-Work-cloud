@@ -103,7 +103,7 @@ describe('Attendance + absence SMS (e2e, §9/§14)', () => {
     sectionId = section.body.id;
 
     // Students are created by the admission controller (§8), not the owner.
-    const { admit } = await admissionController(app, platform, schoolId, host);
+    const { admit } = await admissionController(app, platform, schoolId, host, campusId);
     const student = await admit({
       fullName: 'Sara Khan',
       gender: 'FEMALE',

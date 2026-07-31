@@ -62,7 +62,7 @@ describe('M6 — HR, payroll, documents, reports, promotion (e2e)', () => {
     grade1SectionA = (await post('/api/v1/sections', { classId: g1, name: 'A' })).body.id;
     await post('/api/v1/sections', { classId: g2, name: 'A' }); // promotion target section
 
-    const { admit } = await admissionController(app, platform, schoolId, host);
+    const { admit } = await admissionController(app, platform, schoolId, host, campusId);
     const student = await admit({
       fullName: 'Sara Khan', gender: 'FEMALE', dateOfBirth: '2020-05-10', campusId, classId: g1, sectionId: grade1SectionA,
       guardian: { mode: 'CREATE', fullName: 'Ali Khan', phone: '03007654321', relation: 'FATHER' },

@@ -50,6 +50,11 @@ export class SetAccessDto {
   @IsBoolean() grant!: boolean;
 }
 
+export class SetAdmissionOfficerDto {
+  /** The employee (already on this campus) who takes the campus's admission seat. */
+  @IsUUID() userId!: string;
+}
+
 export class SetModuleAccessDto {
   /** A module key from the catalog (e.g. 'recruitment.hire'). */
   @IsString() @MinLength(1) @MaxLength(120) moduleKey!: string;

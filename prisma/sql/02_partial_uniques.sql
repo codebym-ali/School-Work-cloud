@@ -43,3 +43,21 @@ CREATE UNIQUE INDEX IF NOT EXISTS students_one_live_gr_number_per_school
 CREATE UNIQUE INDEX IF NOT EXISTS students_one_live_registration_no_per_school
   ON students (school_id, registration_no)
   WHERE deleted_at IS NULL;
+
+-- One holder per campus "seat" role (§23). A campus has exactly one principal and exactly
+-- one admission officer: both speak for the campus, so a second holder makes "who is
+-- responsible for this campus?" unanswerable, and for admissions it also means two people
+-- minting GR numbers into the same register.
+--
+-- UsersService.assertSoleCampusSeat already checks this on create/update/grant, but a check
+-- is read-then-write: two owners assigning at the same moment can both pass it. These
+-- indexes make the DB itself refuse the second holder, so the rule holds under a race.
+-- Partial on `deleted_at IS NULL` so a REMOVED holder frees the seat immediately (a
+-- departed admission officer must not keep their campus's seat locked for ever).
+CREATE UNIQUE INDEX IF NOT EXISTS users_one_campus_admin_per_campus
+  ON users (campus_id)
+  WHERE 'CAMPUS_ADMIN' = ANY (roles) AND deleted_at IS NULL AND campus_id IS NOT NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS users_one_admission_controller_per_campus
+  ON users (campus_id)
+  WHERE 'ADMISSION_CONTROLLER' = ANY (roles) AND deleted_at IS NULL AND campus_id IS NOT NULL;

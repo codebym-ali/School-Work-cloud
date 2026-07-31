@@ -23,15 +23,18 @@ export const NO_CAMPUS = '00000000-0000-0000-0000-000000000000';
 /**
  * The campus a principal is confined to, or `null` when it is school-wide.
  * - OWNER_ADMIN → `null` (no restriction).
- * - ADMISSION_CONTROLLER with no campus binding → `null` (school-wide): admissions is a central
- *   function that admits into any campus; a campus-bound AC (campusId set) is still confined.
  * - Any other role → its own `campusId`; a null `campusId` (misconfig) → `NO_CAMPUS` (deny).
  * - No principal at all → `NO_CAMPUS` (deny).
+ *
+ * ADMISSION_CONTROLLER used to be special-cased here: no campus binding meant *school-wide*,
+ * so it could admit into every campus. That made a campus-less grant silently hand over the
+ * whole school. An admission officer is now a per-campus seat (exactly one per campus, campus
+ * required — see UsersService), so the special case is gone and a campus-less AC fails closed
+ * like everyone else. Defence in depth: even a legacy row with no campus is denied, not widened.
  */
 export function restrictedCampusId(user: RequestUser | undefined): string | null {
   if (!user) return NO_CAMPUS;
   if (user.roles.includes('OWNER_ADMIN')) return null;
-  if (user.roles.includes('ADMISSION_CONTROLLER')) return user.campusId ?? null;
   return user.campusId ?? NO_CAMPUS;
 }
 

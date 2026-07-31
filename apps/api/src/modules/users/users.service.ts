@@ -17,6 +17,19 @@ import { ACCESS_GRANTABLE_ROLES, MANAGEABLE_ROLES, type CreateUserDto, type Upda
  *  plus ADMISSION_CONTROLLER (the campus's Admission Portal login, provisioned by the campus admin). */
 const CAMPUS_ADMIN_MAY_GRANT: Role[] = [Role.ADMISSION_CONTROLLER, Role.ACCOUNTANT, Role.TEACHER, Role.STAFF];
 
+/**
+ * "Seat" roles — a campus has exactly one of each, and the holder must be bound to that
+ * campus. One principal (CAMPUS_ADMIN) and one admission officer (ADMISSION_CONTROLLER),
+ * because both speak for the campus and a second holder makes "who is responsible?"
+ * unanswerable. Enforced in the service on every write path AND by a partial unique index
+ * per role in 02_partial_uniques.sql.
+ */
+const SOLE_CAMPUS_SEAT_ROLES: Role[] = [Role.CAMPUS_ADMIN, Role.ADMISSION_CONTROLLER];
+const SEAT_LABEL: Record<string, string> = {
+  [Role.CAMPUS_ADMIN]: 'a campus admin',
+  [Role.ADMISSION_CONTROLLER]: 'an admission officer',
+};
+
 /** Audit action pair (granted, revoked) per access role. HR and campus-admin keep their
  *  specific actions; the rest use the generic role-access pair. */
 const ACCESS_AUDIT: Record<string, [AuditAction, AuditAction]> = {
@@ -46,6 +59,120 @@ export class UsersService {
   }
   private get sid(): string {
     return this.ctx.requireSchoolId();
+  }
+
+  // ── The per-campus admission seat (§8/§23) ───────────────────────────────────
+  // A campus has exactly ONE admission officer. The seat is the unit of management, so these
+  // read/assign/vacate it per campus instead of toggling a capability per person — that is
+  // also why a change of holder is one atomic action, not revoke-then-grant from the client
+  // (which can half-fail and would trip the unique index between the two calls).
+
+  /**
+   * Every campus with its current admission officer (or `null`). Campus-scoped: a campus
+   * admin sees only their own. Drives the Admission Portal overview.
+   */
+  async listAdmissionOfficers() {
+    const restricted = restrictedCampusId(this.ctx.user);
+    const campuses = await this.db.campus.findMany({
+      where: restricted !== null ? { id: restricted } : {},
+      orderBy: { name: 'asc' },
+      select: { id: true, name: true },
+    });
+    const holders = await this.db.user.findMany({
+      where: { deletedAt: null, roles: { has: Role.ADMISSION_CONTROLLER }, campusId: { not: null } },
+      select: { id: true, email: true, campusId: true, status: true },
+    });
+    const byCampus = new Map(holders.map((h) => [h.campusId, h]));
+    return campuses.map((c) => {
+      const holder = byCampus.get(c.id);
+      return {
+        campusId: c.id,
+        campusName: c.name,
+        officer: holder ? { id: holder.id, email: holder.email, status: holder.status } : null,
+      };
+    });
+  }
+
+  /**
+   * Give a campus's admission seat to an existing employee of that campus — assigning it
+   * when vacant, or handing it over when held. OWNER_ADMIN only.
+   *
+   * The old holder's role is removed BEFORE the new one is added: uniqueness is checked per
+   * statement, so adding first would collide with the outgoing holder on the partial unique
+   * index even though the end state is legal.
+   */
+  async setAdmissionOfficer(campusId: string, userId: string) {
+    const campus = await this.db.campus.findFirst({ where: { id: campusId }, select: { id: true, name: true } });
+    if (!campus) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'Campus not found');
+
+    const next = await this.db.user.findFirst({ where: { id: userId, deletedAt: null } });
+    if (!next) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'User not found');
+    // The officer must already belong to this campus — the seat is a campus responsibility,
+    // and silently re-homing someone would move their other roles' scope too.
+    if (next.campusId !== campusId) {
+      throw new AppError(
+        ErrorCodes.VALIDATION_FAILED,
+        HttpStatus.UNPROCESSABLE_ENTITY,
+        `${next.email} does not belong to ${campus.name} — pick someone from this campus, or move them to it first`,
+      );
+    }
+
+    const current = await this.db.user.findFirst({
+      where: { campusId, deletedAt: null, roles: { has: Role.ADMISSION_CONTROLLER } },
+      select: { id: true, email: true, roles: true },
+    });
+    if (current?.id === userId) {
+      return { campusId, officer: { id: next.id, email: next.email }, previous: null }; // already holds it
+    }
+
+    if (current) {
+      await this.db.user.update({
+        where: { id: current.id },
+        data: { roles: current.roles.filter((r) => r !== Role.ADMISSION_CONTROLLER) },
+      });
+    }
+    const updated = await this.db.user.update({
+      where: { id: userId },
+      data: { roles: Array.from(new Set([...next.roles, Role.ADMISSION_CONTROLLER])) },
+    });
+
+    await this.audit.record({
+      action: AuditActions.ADMISSION_OFFICER_ASSIGNED,
+      entityType: 'User',
+      entityId: userId,
+      // Identity, not just ids: the seat's history must stay readable after an account goes.
+      oldValue: current ? { campusId, campusName: campus.name, previousOfficer: current.email } : { campusId, campusName: campus.name, previousOfficer: null },
+      newValue: { campusId, campusName: campus.name, officer: updated.email },
+    });
+    return {
+      campusId,
+      officer: { id: updated.id, email: updated.email },
+      previous: current ? { id: current.id, email: current.email } : null,
+    };
+  }
+
+  /** Vacate a campus's admission seat — the holder keeps their other roles and their login. */
+  async removeAdmissionOfficer(campusId: string) {
+    const campus = await this.db.campus.findFirst({ where: { id: campusId }, select: { id: true, name: true } });
+    if (!campus) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'Campus not found');
+    const current = await this.db.user.findFirst({
+      where: { campusId, deletedAt: null, roles: { has: Role.ADMISSION_CONTROLLER } },
+      select: { id: true, email: true, roles: true },
+    });
+    if (!current) return { campusId, officer: null }; // idempotent — already vacant
+
+    await this.db.user.update({
+      where: { id: current.id },
+      data: { roles: current.roles.filter((r) => r !== Role.ADMISSION_CONTROLLER) },
+    });
+    await this.audit.record({
+      action: AuditActions.ADMISSION_OFFICER_REMOVED,
+      entityType: 'User',
+      entityId: current.id,
+      oldValue: { campusId, campusName: campus.name, officer: current.email },
+      newValue: { officer: null },
+    });
+    return { campusId, officer: null, removed: { id: current.id, email: current.email } };
   }
 
   /** Staff/admin users, scoped: a campus admin sees only their own campus's users. */
@@ -91,8 +218,10 @@ export class UsersService {
       assertCampusAccess(creator, campusId);
     }
 
-    if (dto.roles.includes(Role.CAMPUS_ADMIN) && campusId) {
-      await this.assertNoOtherCampusAdmin(campusId);
+    if (campusId) {
+      for (const seat of SOLE_CAMPUS_SEAT_ROLES.filter((r) => dto.roles.includes(r))) {
+        await this.assertSoleCampusSeat(seat, campusId);
+      }
     }
 
     const email = dto.email.toLowerCase();
@@ -120,8 +249,12 @@ export class UsersService {
 
     const resultingRoles = dto.roles ?? user.roles;
     const effectiveCampus = dto.campusId !== undefined ? dto.campusId : user.campusId;
-    if (resultingRoles.includes(Role.CAMPUS_ADMIN) && effectiveCampus) {
-      await this.assertNoOtherCampusAdmin(effectiveCampus, id);
+    // A seat role must keep its campus — dropping it would silently widen the holder's reach.
+    for (const seat of SOLE_CAMPUS_SEAT_ROLES.filter((r) => resultingRoles.includes(r))) {
+      if (!effectiveCampus) {
+        throw new AppError(ErrorCodes.VALIDATION_FAILED, HttpStatus.UNPROCESSABLE_ENTITY, `${SEAT_LABEL[seat]} must belong to a campus`);
+      }
+      await this.assertSoleCampusSeat(seat, effectiveCampus, id);
     }
 
     const data: Prisma.UserUpdateInput = {};
@@ -238,11 +371,15 @@ export class UsersService {
   private async grantRole(id: string, role: Role, grant: boolean, grantedAction: AuditAction, revokedAction: AuditAction) {
     const user = await this.db.user.findFirst({ where: { id, deletedAt: null } });
     if (!user) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'User not found');
-    if (grant && role === Role.CAMPUS_ADMIN && !user.campusId) {
-      throw new AppError(ErrorCodes.VALIDATION_FAILED, HttpStatus.UNPROCESSABLE_ENTITY, 'This employee is not bound to a campus — a campus admin must belong to one');
-    }
-    if (grant && role === Role.CAMPUS_ADMIN && user.campusId) {
-      await this.assertNoOtherCampusAdmin(user.campusId, id);
+    // Seat roles (principal, admission officer) are per-campus by definition: they must be
+    // bound to one, and only one person may hold each per campus. A campus-LESS holder used
+    // to mean school-wide for ADMISSION_CONTROLLER — that is exactly the silent hole this
+    // closes, so it is now rejected rather than quietly granting every campus.
+    if (grant && SOLE_CAMPUS_SEAT_ROLES.includes(role)) {
+      if (!user.campusId) {
+        throw new AppError(ErrorCodes.VALIDATION_FAILED, HttpStatus.UNPROCESSABLE_ENTITY, `This employee is not bound to a campus — ${SEAT_LABEL[role]} must belong to one`);
+      }
+      await this.assertSoleCampusSeat(role, user.campusId, id);
     }
 
     const has = user.roles.includes(role);
@@ -261,27 +398,32 @@ export class UsersService {
   }
 
   /**
-   * A campus may have at most one CAMPUS_ADMIN (the principal). Throws 409 if another
-   * active campus admin already holds this campus. `exceptUserId` skips the user being
-   * updated so re-saving the existing principal isn't a false conflict.
+   * A campus holds at most ONE of each seat role: one CAMPUS_ADMIN (the principal) and one
+   * ADMISSION_CONTROLLER (the admission officer). Throws 409 if another live holder already
+   * has this campus. `exceptUserId` skips the user being updated so re-saving the existing
+   * holder isn't a false conflict.
+   *
+   * Must be called from EVERY path that can put a seat role on a campus — `create`,
+   * `update` and `grantRole` — because any one of them left unguarded reopens the hole.
+   * The DB backs this up with a partial unique index per seat role (02_partial_uniques.sql),
+   * so a race between two owners cannot land two holders either.
    */
-  private async assertNoOtherCampusAdmin(campusId: string, exceptUserId?: string) {
+  private async assertSoleCampusSeat(role: Role, campusId: string, exceptUserId?: string) {
     const existing = await this.db.user.findFirst({
       where: {
         campusId,
         deletedAt: null,
-        roles: { has: Role.CAMPUS_ADMIN },
+        roles: { has: role },
         ...(exceptUserId ? { id: { not: exceptUserId } } : {}),
       },
       select: { email: true },
     });
-    if (existing) {
-      throw new AppError(
-        ErrorCodes.CONFLICT,
-        HttpStatus.CONFLICT,
-        `This campus already has a campus admin (${existing.email}). Remove or reassign them before adding another.`,
-      );
-    }
+    if (!existing) return;
+    const message =
+      role === Role.ADMISSION_CONTROLLER
+        ? `This campus already has an admission officer (${existing.email}). Hand the campus's admission access over to someone else instead of adding a second one.`
+        : `This campus already has a campus admin (${existing.email}). Remove or reassign them before adding another.`;
+    throw new AppError(ErrorCodes.CONFLICT, HttpStatus.CONFLICT, message);
   }
 
   private async getOneScoped(id: string) {

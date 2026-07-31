@@ -66,7 +66,7 @@ describe('Teaching self-service (e2e)', () => {
     const subjectId = (await ownerPost('/api/v1/subjects', { classId, name: 'Mathematics' })).body.id;
 
     // Two students enrolled in section A (the teacher's roster) — created by the admission controller (§8).
-    const { admit } = await admissionController(app, platform, schoolId, host);
+    const { admit } = await admissionController(app, platform, schoolId, host, campusId);
     const mkStudent = async (name: string, phone: string) =>
       admit({
         fullName: name, gender: 'MALE', dateOfBirth: '2015-01-10', campusId, classId, sectionId,

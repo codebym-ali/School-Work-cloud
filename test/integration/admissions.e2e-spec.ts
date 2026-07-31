@@ -67,7 +67,7 @@ describe('Admit journey (e2e, §8)', () => {
     csrf = csrfOf(cookies);
 
     // Student creation (admit) is admission-controller-only; the inquiry pipeline stays owner.
-    const ac = await admissionController(app, platform, schoolId, host);
+    const ac = await admissionController(app, platform, schoolId, host, campusId);
     acPost = (path: string, body: object) =>
       request(server()).post(path).set('Host', host).set('Cookie', ac.cookies).set('X-CSRF-Token', ac.csrf).send(body);
   });

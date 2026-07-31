@@ -209,11 +209,17 @@ export default function StaffPage() {
   );
 }
 
+/**
+ * Capabilities toggled per person. ADMISSION_CONTROLLER is deliberately NOT here: a campus
+ * has exactly one admission officer, which is a fact about the CAMPUS, not a permission on a
+ * person — a per-person toggle can neither show you a campus with nobody nor express a
+ * handover. It lives on the Admission Portal screen, and having it in both places would mean
+ * two ways to enforce one rule.
+ */
 const CAPABILITIES = [
   { role: 'HR_MANAGER', label: 'HR Manager', hint: 'Recruitment' },
   { role: 'CAMPUS_ADMIN', label: 'Campus Admin', hint: 'Principal' },
   { role: 'ACCOUNTANT', label: 'Accountant', hint: 'Fees' },
-  { role: 'ADMISSION_CONTROLLER', label: 'Admission Controller', hint: 'Admissions' },
 ];
 
 function AccessPanel({ userId, roles, campusId, onMsg, onRolesChanged }: {
@@ -263,6 +269,7 @@ function AccessPanel({ userId, roles, campusId, onMsg, onRolesChanged }: {
         <strong style={{ fontSize: 14 }}>Access &amp; modules</strong>
         <p className="muted" style={{ margin: '2px 0 0', fontSize: 12 }}>
           Toggle a capability on this person&apos;s existing login — no new credentials. Then switch individual modules off if needed.
+          {' '}Admissions is set per campus on the <b>Admission Portal</b> screen.
         </p>
       </div>
 

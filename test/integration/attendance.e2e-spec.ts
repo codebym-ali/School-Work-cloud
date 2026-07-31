@@ -13,6 +13,7 @@ import { admissionController } from './support/admission';
 import { SmsService } from '../../apps/api/src/modules/comms/sms/sms.service';
 import { SMS_QUEUE } from '../../apps/api/src/modules/comms/sms/sms.types';
 import { destroyTenant } from './support/tenant';
+import * as argon2 from 'argon2';
 
 /**
  * M3 gate (roadmap M3): mark attendance green + absence SMS verified.
@@ -29,6 +30,7 @@ describe('Attendance + absence SMS (e2e, §9/§14)', () => {
   let cookies: string[];
   let csrf: string;
   let sectionId: string;
+  let campusId: string;
   let enrollmentId: string;
   let studentId: string;
 
@@ -48,11 +50,21 @@ describe('Attendance + absence SMS (e2e, §9/§14)', () => {
     for (let n = 4; n < 14; n++) if (new Date(daysAgo(n)).getUTCDay() !== 0) return daysAgo(n);
     return daysAgo(4);
   };
+  /** The most recent working day at least `min` days back — skips the weekly off so the test
+   *  exercises the backfill window rather than tripping the holiday rule. */
+  const recentWorkingDay = (min: number) => {
+    for (let n = min; n < 7; n++) if (new Date(daysAgo(n)).getUTCDay() !== 0) return daysAgo(n);
+    return daysAgo(min);
+  };
   const pastSunday = () => {
     for (let n = 1; n < 14; n++) if (new Date(daysAgo(n)).getUTCDay() === 0) return daysAgo(n);
     return daysAgo(7);
   };
   const absentDate = pastNonSunday();
+  /** The absence SMS is only sent for TODAY (a week-late alert is accurate but useless), so the
+   *  dispatch tests below mark today. `allowHolidayOverride` keeps them green if today is the
+   *  weekly off — an admin may override, and the flag is ignored on a working day. */
+  const todayStr = new Date().toISOString().slice(0, 10);
 
   /** The `sms` queue is shared across the whole Redis instance, so it can hold jobs from other
    *  tenants (a parallel spec, or a leftover from an interrupted run). Each job must therefore be
@@ -91,7 +103,7 @@ describe('Attendance + absence SMS (e2e, §9/§14)', () => {
     const provisioning = app.get(ProvisioningService, { strict: false });
     const prov = await provisioning.provisionSchool({ name: 'Att School', subdomain: sub, ownerEmail, ownerPassword });
     schoolId = prov.schoolId;
-    const campusId = prov.campusId;
+    campusId = prov.campusId;
 
     const login = await request(server()).post('/api/v1/auth/login').set('Host', host).send({ email: ownerEmail, password: ownerPassword });
     cookies = login.headers['set-cookie'] as unknown as string[];
@@ -117,7 +129,34 @@ describe('Attendance + absence SMS (e2e, §9/§14)', () => {
     studentId = student.body.studentId;
     // Verify the guardian's phone so ABSENCE (which carries PII) may be sent (§14).
     await platform.parentProfile.updateMany({ where: { schoolId }, data: { phoneVerifiedAt: new Date() } });
+    // Backdate the enrolment. `startedAt` defaults to now(), and attendance may not be recorded
+    // for a date before the student joined — without this, every backfill test would fail that
+    // guard rather than the rule it means to exercise. A real student is enrolled long before
+    // the days being marked.
+    await platform.studentEnrollment.updateMany({
+      where: { id: enrollmentId },
+      data: { startedAt: new Date(Date.now() - 30 * 86400000) },
+    });
   });
+
+  /** The backfill bound only applies to non-admins, so proving it needs a real teacher who is
+   *  assigned to the section — an owner would bypass the very rule under test. */
+  async function teacherSession(): Promise<string[]> {
+    const email = `t-${randomUUID().slice(0, 8)}@att.pk`;
+    const password = 'Teach!Secret12';
+    const staff = (await post('/api/v1/staff', {
+      email, staffType: 'TEACHER', employeeCode: `EMP-${randomUUID().slice(0, 6)}`,
+      designation: 'Teacher', joinedAt: '2026-04-01', campusId,
+    })).body;
+    await platform.user.update({
+      where: { id: staff.userId },
+      data: { status: 'ACTIVE', passwordHash: await argon2.hash(password, { type: argon2.argon2id }) },
+    });
+    const year = await platform.academicYear.findFirst({ where: { schoolId, isCurrent: true } });
+    await post('/api/v1/teacher-assignments', { staffId: staff.staffId, academicYearId: year!.id, sectionId });
+    const res = await request(server()).post('/api/v1/auth/login').set('Host', host).send({ email, password });
+    return res.headers['set-cookie'] as unknown as string[];
+  }
 
   afterAll(async () => {
     const queue = app.get<Queue>(SMS_QUEUE, { strict: false });
@@ -144,10 +183,11 @@ describe('Attendance + absence SMS (e2e, §9/§14)', () => {
 
   it('marks a student ABSENT (partial-failure contract) and queues an absence SMS', async () => {
     const res = await post('/api/v1/attendance/bulk', {
-      sectionId, date: absentDate, session: 'MORNING', records: [{ enrollmentId, status: 'ABSENT' }],
+      sectionId, date: todayStr, session: 'MORNING', allowHolidayOverride: true,
+      records: [{ enrollmentId, status: 'ABSENT' }],
     });
     expect(res.status).toBe(200);
-    expect(res.body).toMatchObject({ succeeded: 1, failed: 0, absenceQueued: 1 });
+    expect(res.body).toMatchObject({ succeeded: 1, failed: 0, absenceQueued: 1, absenceNotifiedSuppressed: 0 });
   });
 
   it('dispatches the absence SMS: SENT log to the verified guardian + credit debit', async () => {
@@ -172,7 +212,7 @@ describe('Attendance + absence SMS (e2e, §9/§14)', () => {
     await cls.run(async () => {
       cls.set(CLS_KEYS.schoolId, schoolId);
       await tenantPrisma.withTenant(() =>
-        sms.dispatch({ type: 'ABSENCE', schoolId, enrollmentId, studentId, date: absentDate }),
+        sms.dispatch({ type: 'ABSENCE', schoolId, enrollmentId, studentId, date: todayStr }),
       );
     });
 
@@ -184,16 +224,79 @@ describe('Attendance + absence SMS (e2e, §9/§14)', () => {
 
   it('is idempotent: resubmitting the same ABSENT value queues no new absence', async () => {
     const res = await post('/api/v1/attendance/bulk', {
-      sectionId, date: absentDate, session: 'MORNING', records: [{ enrollmentId, status: 'ABSENT' }],
+      sectionId, date: todayStr, session: 'MORNING', allowHolidayOverride: true,
+      records: [{ enrollmentId, status: 'ABSENT' }],
     });
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({ succeeded: 1, absenceQueued: 0 });
   });
 
   it('lists attendance for the section and date', async () => {
-    const res = await get(`/api/v1/attendance?sectionId=${sectionId}&date=${absentDate}`);
+    const res = await get(`/api/v1/attendance?sectionId=${sectionId}&date=${todayStr}`);
     expect(res.status).toBe(200);
     expect(res.body.length).toBe(1);
     expect(res.body[0].status).toBe('ABSENT');
+  });
+
+  /** Backfill (2026-07-30). Marking a day that was missed is legitimate; ANNOUNCING it a week
+   *  later is not — the alert exists so a parent can act the same day, and a week's backfill for
+   *  one section would burst 30+ texts about days everyone already knows about. */
+  it('records a backdated absence but does NOT text the guardian', async () => {
+    const logsBefore = await platform.smsLog.count({ where: { schoolId, templateKey: 'ABSENCE' } });
+
+    const res = await post('/api/v1/attendance/bulk', {
+      sectionId, date: absentDate, session: 'MORNING', records: [{ enrollmentId, status: 'ABSENT' }],
+    });
+    expect(res.status).toBe(200);
+    // The record IS written — only the notification is withheld.
+    expect(res.body).toMatchObject({ succeeded: 1, failed: 0, absenceQueued: 0, absenceNotifiedSuppressed: 1 });
+
+    const stored = await get(`/api/v1/attendance?sectionId=${sectionId}&date=${absentDate}`);
+    expect(stored.body[0].status).toBe('ABSENT');
+
+    // Nothing was queued, so draining cannot produce a new log.
+    await drainSms();
+    expect(await platform.smsLog.count({ where: { schoolId, templateKey: 'ABSENCE' } })).toBe(logsBefore);
+  });
+
+  it('lets a teacher fill in a missed day, but not rewrite history beyond the window', async () => {
+    const tc = await teacherSession();
+    const asTeacher = (date: string) =>
+      request(server()).post('/api/v1/attendance/bulk')
+        .set('Host', host).set('Cookie', tc).set('X-CSRF-Token', csrfOf(tc))
+        .send({ sectionId, date, session: 'MORNING', allowHolidayOverride: false, records: [{ enrollmentId, status: 'PRESENT' }] });
+
+    // Inside the 7-day window: allowed (this is the feature).
+    const within = await asTeacher(recentWorkingDay(2));
+    expect(within.status).toBe(200);
+    expect(within.body.succeeded).toBe(1);
+
+    // Beyond it: refused, and the message says who can do it instead.
+    const beyond = await asTeacher(daysAgo(20));
+    expect(beyond.status).toBe(422);
+    expect(beyond.body.error.message).toContain('days back');
+
+    // The same far-past date is accepted for an ADMIN — the bound is a teacher rule, not a
+    // school-wide freeze, so corrections remain possible with oversight.
+    const admin = await post('/api/v1/attendance/bulk', {
+      sectionId, date: daysAgo(20), session: 'MORNING', allowHolidayOverride: true,
+      records: [{ enrollmentId, status: 'PRESENT' }],
+    });
+    expect(admin.status).toBe(200);
+    expect(admin.body.succeeded).toBe(1);
+  });
+
+  it('refuses attendance for a date before the student was enrolled', async () => {
+    // The enrolment was created during setup (today), so any earlier date predates it. Without
+    // this guard, backfilling invents a record of a child who had not joined the school.
+    const beforeJoining = daysAgo(40); // enrolment starts 30 days ago (see beforeAll)
+    const res = await post('/api/v1/attendance/bulk', {
+      sectionId, date: beforeJoining, session: 'MORNING', allowHolidayOverride: true,
+      records: [{ enrollmentId, status: 'PRESENT' }],
+    });
+    expect(res.status).toBe(200); // partial-failure contract: the row fails, the request doesn't
+    expect(res.body.succeeded).toBe(0);
+    expect(res.body.failed).toBe(1);
+    expect(res.body.errors[0].message).toContain('not enrolled');
   });
 });

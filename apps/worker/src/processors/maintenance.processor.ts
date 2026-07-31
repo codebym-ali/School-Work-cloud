@@ -40,6 +40,10 @@ export class MaintenanceProcessor implements OnModuleInit, OnModuleDestroy {
       { connection, concurrency: 1 },
     );
     this.worker.on('failed', (job, err) => this.logger.error(`maintenance "${job?.name}" failed: ${err.message}`));
+    // BullMQ emits 'error' for internal issues (e.g. an expired lock after the process was
+    // suspended) that aren't tied to a specific job. Without a listener, Node treats an
+    // unhandled 'error' event as fatal and kills the process — so this must stay wired up.
+    this.worker.on('error', (err) => this.logger.error(`maintenance worker error: ${err.message}`));
     this.logger.log('Maintenance processor listening on queue "maintenance" (nightly schedules registered)');
   }
 

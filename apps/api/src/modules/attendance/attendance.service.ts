@@ -27,6 +27,8 @@ export interface BulkResult {
   failed: number;
   errors: Array<{ index: number; code: string; message: string }>;
   absenceQueued: number;
+  /** Absences recorded on a past date, deliberately not announced to guardians. */
+  absenceNotifiedSuppressed: number;
 }
 
 /**
@@ -62,6 +64,19 @@ export class AttendanceService {
       throw new AppError(ErrorCodes.VALIDATION_FAILED, HttpStatus.UNPROCESSABLE_ENTITY, 'Session not configured for this school');
     }
 
+    // Backfill floor: a teacher may fill in a day they missed, but not rewrite history. Only
+    // the FUTURE was blocked before, so attendance could be created for any past date at all —
+    // and attendance feeds payroll deductions and defaulter reporting. Admins stay unlimited
+    // (their post-window edits are already audited).
+    const age = daysSince(date);
+    if (!isAdmin(user) && age > settings.attendanceBackfillDays) {
+      throw new AppError(
+        ErrorCodes.VALIDATION_FAILED,
+        HttpStatus.UNPROCESSABLE_ENTITY,
+        `Attendance can only be marked up to ${settings.attendanceBackfillDays} days back. Ask an admin to record ${dto.date}.`,
+      );
+    }
+
     const section = await this.db.section.findFirst({
       where: { id: dto.sectionId },
       include: { class: { select: { campusId: true } } },
@@ -94,6 +109,17 @@ export class AttendanceService {
       const enr = await this.db.studentEnrollment.findFirst({ where: { id: rec.enrollmentId, student: { deletedAt: null } } });
       if (!enr || enr.status !== 'ACTIVE' || enr.sectionId !== dto.sectionId || enr.academicYearId !== currentYearId) {
         errors.push({ index: i, code: ErrorCodes.VALIDATION_FAILED, message: 'Enrollment not ACTIVE in this section/year' });
+        continue;
+      }
+      // The enrolment must have been active ON THAT DATE, not merely active now. Without this,
+      // backfilling a week marks a student admitted yesterday as present for days before they
+      // joined — inventing a record of a child who wasn't there.
+      if (startOfDay(enr.startedAt) > startOfDay(date) || (enr.endedAt && startOfDay(enr.endedAt) < startOfDay(date))) {
+        errors.push({
+          index: i,
+          code: ErrorCodes.VALIDATION_FAILED,
+          message: `Student was not enrolled in this section on ${dto.date}`,
+        });
         continue;
       }
       const existing = await this.db.attendanceRecord.findFirst({
@@ -139,12 +165,26 @@ export class AttendanceService {
       }
     }
 
-    // Enqueue absence SMS once per newly-ABSENT enrollment (dedup by BullMQ jobId).
-    for (const a of newlyAbsent) {
-      await this.sms.enqueueAbsence({ type: 'ABSENCE', schoolId, enrollmentId: a.enrollmentId, studentId: a.studentId, date: dto.date });
+    // Enqueue absence SMS once per newly-ABSENT enrollment (dedup by BullMQ jobId) — but ONLY
+    // for today. An absence alert exists so a parent can act the same day ("where is my
+    // child?"); sent a week later it is accurate and useless. Worse, backfilling one week for
+    // one section would burst 30+ texts about days everyone already knows about, spending real
+    // credits. The record is still written — only the notification is withheld.
+    const isToday = age === 0;
+    if (isToday) {
+      for (const a of newlyAbsent) {
+        await this.sms.enqueueAbsence({ type: 'ABSENCE', schoolId, enrollmentId: a.enrollmentId, studentId: a.studentId, date: dto.date });
+      }
     }
 
-    return { succeeded, failed: errors.length, errors, absenceQueued: newlyAbsent.length };
+    return {
+      succeeded,
+      failed: errors.length,
+      errors,
+      absenceQueued: isToday ? newlyAbsent.length : 0,
+      /** Lets the UI say plainly that a backfilled absence was recorded but not announced. */
+      absenceNotifiedSuppressed: isToday ? 0 : newlyAbsent.length,
+    };
   }
 
   async query(q: AttendanceQuery) {

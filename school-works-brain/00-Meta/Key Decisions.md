@@ -220,4 +220,11 @@ Blueprint's AWS reference (RDS/ECS/S3/KMS…) is replaced by **Contabo + Coolify
 - **Role-shape one screen; never build a second list of the same records.** `/staff` serves owner, campus admin and HR manager with different scope and extras. A separate "recruiter portal" would have re-created the duplication (two ways to add a teacher, two ways to grant admission access) removed twice the same day.
 - **Name the surface after the role the code already has.** `HR_MANAGER` → "HR". Inventing a third label ("Recruitment", "Staff onboarding") is how the Admission Portal page came to mislead its own author.
 
+## Attendance backfill & notification timing (added 2026-07-30)
+- **Recording an event and announcing it are separate decisions.** A backdated absence is still written to the register; only the SMS is withheld. An alert exists so a parent can act *that day* — sent a week later it is accurate and useless, and bulk backfill would burst dozens of texts and spend real credits.
+- **Creating the past and changing the past need different limits.** `attendanceBackfillDays` (create) and `attendanceEditWindowDays` (edit) are deliberately distinct settings; conflating them would either freeze legitimate catch-up or leave history rewritable.
+- **A time-bounded rule must be bounded on BOTH sides.** `markBulk` blocked only the future for a year, so any past date was writable — and attendance feeds payroll deductions and defaulter reporting. When adding a "not after X" check, ask immediately what enforces "not before Y".
+- **Validate a record against the date it claims, not just against now.** The enrolment was checked as ACTIVE *currently*, which let backfill invent attendance for days before a student joined. Any backdated write must re-ask "was this true then?".
+- **When a new guard makes your own fixtures illegal, the fixture was usually unrealistic.** Both breakages here (enrolment starting today, a campus-less teacher) were test data that could not exist in a real school.
+
 **Source:** [[consistency-register]] · [[school-management-master-blueprint]] §2–§34

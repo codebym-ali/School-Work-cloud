@@ -6,6 +6,14 @@ import { sectionLabeller } from '@/lib/labels';
 
 const STATUSES = ['PRESENT', 'ABSENT', 'LATE', 'HALF_DAY'];
 const today = () => new Date().toISOString().slice(0, 10);
+/** Mirrors the server's `attendanceBackfillDays` (default 7). Bounding the picker means the
+ *  rule is visible as a disabled date rather than discovered as a rejected save. */
+const BACKFILL_DAYS = 7;
+const earliest = () => {
+  const d = new Date();
+  d.setDate(d.getDate() - BACKFILL_DAYS);
+  return d.toISOString().slice(0, 10);
+};
 
 export default function AttendancePage() {
   const [classes, setClasses] = useState<Klass[]>([]);
@@ -57,8 +65,13 @@ export default function AttendancePage() {
   async function save() {
     try {
       const records = rows.map((r) => ({ enrollmentId: r.id, status: marks[r.id] ?? 'PRESENT' }));
-      const res = await apiPost<{ succeeded: number; failed: number; absenceQueued: number }>('/attendance/bulk', { sectionId, date, session, records });
-      setMsg({ ok: res.failed === 0, text: `Saved ${res.succeeded}, failed ${res.failed}, absence SMS queued ${res.absenceQueued}` });
+      const res = await apiPost<{ succeeded: number; failed: number; absenceQueued: number; absenceNotifiedSuppressed: number }>('/attendance/bulk', { sectionId, date, session, records });
+      // Say plainly what happened to the notifications — a silently withheld SMS looks like a
+      // bug to a teacher who expects parents to hear about an absence.
+      const sms = res.absenceNotifiedSuppressed > 0
+        ? `${res.absenceNotifiedSuppressed} absence(s) recorded — parents not texted for a past date`
+        : `absence SMS queued ${res.absenceQueued}`;
+      setMsg({ ok: res.failed === 0, text: `Saved ${res.succeeded}, failed ${res.failed}, ${sms}` });
     } catch (e) {
       setMsg({ ok: false, text: e instanceof ApiError ? e.message : 'Failed to save' });
     }
@@ -70,6 +83,12 @@ export default function AttendancePage() {
     <div className="stack">
       <h1>Attendance</h1>
       {msg && <div className={`toast ${msg.ok ? 'ok' : 'err'}`}>{msg.text}</div>}
+      {date !== today() && (
+        <div className="toast warn">
+          You&apos;re marking <b>{new Date(date).toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })}</b>,
+          not today. Absences will be recorded but <b>parents won&apos;t be texted</b> for a past date.
+        </div>
+      )}
 
       <div className="inline-form">
         <div><label>Section</label>
@@ -78,7 +97,10 @@ export default function AttendancePage() {
             {sections.map((s) => <option key={s.id} value={s.id}>{sectionLabel(s)}</option>)}
           </select>
         </div>
-        <div><label>Date</label><input type="date" value={date} onChange={(e) => setDate(e.target.value)} /></div>
+        <div><label>Date</label>
+          <input type="date" value={date} min={earliest()} max={today()}
+            onChange={(e) => setDate(e.target.value)} />
+        </div>
         <button className="ghost" onClick={loadRoster} disabled={!sectionId}>Load roster</button>
       </div>
 

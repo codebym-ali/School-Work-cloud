@@ -48,6 +48,10 @@ export class SmsProcessor implements OnModuleInit, OnModuleDestroy {
         });
       }
     });
+    // BullMQ emits 'error' for internal issues (e.g. an expired lock after the process was
+    // suspended) that aren't tied to a specific job. Without a listener, Node treats an
+    // unhandled 'error' event as fatal and kills the process — so this must stay wired up.
+    this.worker.on('error', (err) => this.logger.error(`SMS worker error: ${err.message}`));
     this.logger.log('SMS processor listening on queue "sms"');
   }
 

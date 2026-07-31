@@ -22,6 +22,16 @@ export const schoolSettingsSchema = z
       .default(['MORNING']),
     weeklyOffDays: z.array(WeekDay).default(['SUNDAY']),
     attendanceEditWindowDays: z.number().int().min(0).default(3),
+    /**
+     * How many days back a TEACHER may create attendance for (0 = today only). Distinct from
+     * `attendanceEditWindowDays`, which governs CHANGING a record that already exists — this
+     * governs filling in a day that was never marked, e.g. after a teacher was off sick.
+     *
+     * Previously unbounded: `markBulk` rejected only future dates, so attendance could be
+     * created for any date in history. Attendance drives payroll deductions and defaulter
+     * reporting, so it needs a floor. Admins remain unlimited (audited).
+     */
+    attendanceBackfillDays: z.number().int().min(0).max(90).default(7),
     allowHolidayOverride: z.boolean().default(false),
     feeDueDay: z.number().int().min(1).max(28).default(10),
     midMonthProration: z.enum(['FULL', 'HALF', 'DAILY']).default('FULL'),

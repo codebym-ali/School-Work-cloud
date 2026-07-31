@@ -4,6 +4,7 @@ export * from './audit/audit-actions';
 export * from './dto/pagination.dto';
 export * from './util/phone';
 export * from './util/attendance';
+export * from './util/performance';
 export * from './util/age';
 export * from './util/redis';
 export * from './storage/storage.service';

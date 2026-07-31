@@ -22,6 +22,18 @@ export class StudentPortalController {
     return this.portal.attendance();
   }
 
+  /** Counts, not raw rows — "how many days was I absent?" answered directly. */
+  @Get('attendance/summary')
+  attendanceSummary() {
+    return this.portal.attendanceSummary();
+  }
+
+  /** Per-subject class-test performance with a monthly trend. No rank, by design. */
+  @Get('performance')
+  performance() {
+    return this.portal.testPerformance();
+  }
+
   @Get('results')
   results() {
     return this.portal.results();

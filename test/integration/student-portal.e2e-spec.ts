@@ -20,6 +20,9 @@ describe('Student portal (e2e, §28)', () => {
   let schoolId: string;
   let ownerCookies: string[];
   let studentCookies: string[];
+  let enrollmentId: string;
+  let sectionId: string;
+  let subjectId: string;
   let grNumber: string;
 
   const sub = `sp-${randomUUID().slice(0, 8)}`;
@@ -60,6 +63,9 @@ describe('Student portal (e2e, §28)', () => {
       guardian: { mode: 'CREATE', fullName: 'Papa', phone: '03007654321', relation: 'FATHER' },
     });
     grNumber = student.body.grNumber;
+    enrollmentId = student.body.enrollmentId;
+    sectionId = section.body.id;
+    subjectId = (await ownerPost('/api/v1/subjects', { classId: klass.body.id, name: 'Maths' })).body.id;
 
     // Link a STUDENT login to that Student record (Student.userId).
     const user = await platform.user.create({
@@ -88,6 +94,47 @@ describe('Student portal (e2e, §28)', () => {
       expect(res.status).toBe(200);
       expect(Array.isArray(res.body)).toBe(true);
     }
+  });
+
+  /** The student sees their OWN trend — never a rank or a class average. That is a product
+   *  decision (comparison belongs on the staff side), so it is asserted, not left to drift. */
+  it('reports class-test performance per subject, excluding absences from the average', async () => {
+    // Two tests of different sizes plus one absence, so the response proves both rules at once.
+    // Dates must be in the PAST — a test cannot be set for a day that hasn't happened.
+    const daysAgo = (n: number) => new Date(Date.now() - n * 86400000).toISOString().slice(0, 10);
+    const thisMonth = daysAgo(1);
+    const big = await ownerPost('/api/v1/class-tests', { sectionId, subjectId, name: 'Big test', totalMarks: 50, testDate: thisMonth });
+    const small = await ownerPost('/api/v1/class-tests', { sectionId, subjectId, name: 'Quiz', totalMarks: 10, testDate: thisMonth });
+    const missed = await ownerPost('/api/v1/class-tests', { sectionId, subjectId, name: 'Missed', totalMarks: 20, testDate: thisMonth });
+    await ownerPost(`/api/v1/class-tests/${big.body.id}/scores`, { rows: [{ enrollmentId, marksObtained: 45 }] });
+    await ownerPost(`/api/v1/class-tests/${small.body.id}/scores`, { rows: [{ enrollmentId, marksObtained: 2 }] });
+    await ownerPost(`/api/v1/class-tests/${missed.body.id}/scores`, { rows: [{ enrollmentId, isAbsent: true }] });
+
+    const res = await get('/api/v1/portal/performance', studentCookies);
+    expect(res.status).toBe(200);
+
+    // 47/60 = 78%. Averaging percentages would say 55%, and counting the absence as 0 would
+    // say 47/80 = 59% — both wrong, and both would be visible to a child as a worse result.
+    expect(res.body.overall.percent).toBe(78);
+    expect(res.body.overall.testsTaken).toBe(2);
+    expect(res.body.overall.testsMissed).toBe(1);
+
+    const maths = res.body.subjects.find((x: { subjectName: string }) => x.subjectName === 'Maths');
+    expect(maths.tests).toHaveLength(3);
+    expect(maths.monthly[0].month).toBe(thisMonth.slice(0, 7));
+
+    // No rank, no class average anywhere in the payload — a child must not be handed a position.
+    const raw = JSON.stringify(res.body);
+    expect(raw).not.toContain('rank');
+    expect(raw).not.toContain('classAverage');
+  });
+
+  it('summarises attendance into counts rather than raw rows', async () => {
+    const res = await get('/api/v1/portal/attendance/summary', studentCookies);
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty('counts.ABSENT');
+    expect(res.body).toHaveProperty('percent');
+    expect(Array.isArray(res.body.records)).toBe(true);
   });
 
   it('denies a non-student (owner) the portal (403)', async () => {

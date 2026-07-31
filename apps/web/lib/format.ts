@@ -10,6 +10,13 @@ export function monthYear(month: number | null | undefined, year: number): strin
   return `${month ? MONTHS[month] : ''} ${year}`.trim();
 }
 
+/** A `YYYY-MM` performance bucket → "Sep 2026". Sibling of `monthYear`, which takes the
+ *  numeric month/year an invoice carries; performance groups by a calendar-month key. */
+export function monthKeyLabel(key: string): string {
+  const [y, m] = key.split('-');
+  return `${MONTHS[Number(m)] ?? ''} ${y}`.trim();
+}
+
 /** Enum-ish status → human text: "HALF_DAY" → "HALF DAY". */
 export function humanizeStatus(s: string): string {
   return s.replace(/_/g, ' ');

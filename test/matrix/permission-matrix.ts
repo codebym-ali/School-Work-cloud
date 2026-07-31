@@ -81,6 +81,9 @@ export const PERMISSION_MATRIX: MatrixRow[] = [
   { label: 'assign teacher to class', method: 'post', path: '/api/v1/teacher-assignments', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'HR_MANAGER'], scopeGated: true },
   // Class tests are teacher-owned formative assessment; admins may view and step in. The
   // (section, subject) ownership check lives in the service, so these rows assert the role gate.
+  // Academic performance, deliberately NOT open to the accountant — this is not money.
+  { label: 'class performance report', method: 'get', path: '/api/v1/reports/performance/classes', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
+  { label: 'student performance report', method: 'get', path: '/api/v1/reports/performance/students/00000000-0000-0000-0000-000000000000', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'], scopeGated: true },
   { label: 'create class test', method: 'post', path: '/api/v1/class-tests', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'TEACHER'], scopeGated: true },
   { label: 'list class tests', method: 'get', path: '/api/v1/class-tests', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'TEACHER'] },
   { label: 'enter class test marks', method: 'post', path: '/api/v1/class-tests/00000000-0000-0000-0000-000000000000/scores', body: { rows: [] }, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'TEACHER'], scopeGated: true },

@@ -64,6 +64,8 @@ export const NAV: NavItem[] = [
   { href: '/my-classes', label: 'My Classes', icon: '📚', group: 'Academics', roles: ['TEACHER'] },
   { href: '/exams', label: 'Exams & Results', icon: '📄', group: 'Academics', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'TEACHER'] },
   { href: '/reports', label: 'Reports', icon: '📈', group: 'Academics', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT'] },
+  // Academic performance, not money — the accountant is deliberately excluded.
+  { href: '/performance', label: 'Performance', icon: '🎯', group: 'Academics', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
 
   { href: '/fees', label: 'Fees', icon: '💳', group: 'Finance', roles: ['OWNER_ADMIN', 'ACCOUNTANT'] },
 

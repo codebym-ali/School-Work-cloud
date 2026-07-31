@@ -79,6 +79,38 @@ export interface Dashboard {
   /** Metric keys this role should see — the UI renders only these cards (role-shaping). */
   visible: string[];
 }
+/** Shared vocabulary with the API and the student portal, so the ranges never diverge. */
+export const PERFORMANCE_RANGES = ['1w', '1m', '2m', '3m', '6m'] as const;
+export type PerformanceRange = (typeof PERFORMANCE_RANGES)[number];
+export const RANGE_LABEL: Record<PerformanceRange, string> = {
+  '1w': 'Last week', '1m': '1 month', '2m': '2 months', '3m': '3 months', '6m': '6 months',
+};
+/** `percent` is null when nothing was sat — distinct from 0%, which means marks of zero. */
+export interface PerfSummary {
+  percent: number | null; testsTaken: number; testsMissed: number;
+  marksObtained: number; marksTotal: number;
+}
+export interface ClassPerformance extends PerfSummary {
+  classId: string; className: string; order: number; students: number; trend: number | null;
+}
+export interface ClassStudents {
+  classId: string; className: string;
+  students: (PerfSummary & {
+    studentId: string; fullName: string; grNumber: string; trend: number | null;
+    weakestSubject: { name: string; percent: number | null } | null;
+  })[];
+}
+export interface StudentPerformance {
+  studentId: string; fullName: string; grNumber: string;
+  className: string | null; sectionName: string | null;
+  overall: PerfSummary;
+  monthly: (PerfSummary & { month: string })[];
+  subjects: (PerfSummary & {
+    subjectId: string; subjectName: string;
+    tests: { id: string; name: string; testDate: string; totalMarks: number; marksObtained: number | null; isAbsent: boolean }[];
+  })[];
+}
+
 export interface Paged<T> { data: T[]; total: number; page: number; pageSize: number }
 export interface Campus { id: string; name: string; address?: string | null }
 export interface AcademicYear { id: string; name: string; isCurrent: boolean }
@@ -247,6 +279,22 @@ export interface ClassTestScore {
 }
 export interface ClassTestDetail extends ClassTest { scores: ClassTestScore[] }
 
+/** Portal performance. Note there is deliberately NO class average or rank here — a student
+ *  sees their own trend, not their position. Comparison lives on the staff side. */
+export interface PerfSummary { percent: number | null; testsTaken: number; testsMissed: number; marksObtained: number; marksTotal: number }
+export interface PerfMonth extends PerfSummary { month: string }
+export interface PortalSubjectPerf {
+  subjectId: string; subjectName: string;
+  summary: PerfSummary; monthly: PerfMonth[];
+  tests: { id: string; name: string; testDate: string; totalMarks: number; marksObtained: number | null; isAbsent: boolean }[];
+}
+export interface PortalPerformance { overall: PerfSummary; monthly: PerfMonth[]; subjects: PortalSubjectPerf[] }
+export interface PortalAttendanceSummary {
+  days: number; percent: number | null;
+  counts: Record<string, number>;
+  records: { date: string; session: string; status: string }[];
+}
+
 export interface RosterRow {
   studentId: string; fullName: string; grNumber: string; registrationNo: string | null;
   rollNumber: number | null; enrollmentId: string;
@@ -290,6 +338,15 @@ export const api = {
     list: () => apiGet<CampusAdmissionOfficer[]>('/admission-officers'),
     set: (campusId: string, userId: string) => apiPut<SetOfficerResult>(`/admission-officers/${campusId}`, { userId }),
     remove: (campusId: string) => apiDelete<{ campusId: string; officer: null }>(`/admission-officers/${campusId}`),
+  },
+  /** Class-test performance drill-down: campus → class → student (owner / campus admin). */
+  performance: {
+    byClass: (range: PerformanceRange, campusId?: string) =>
+      apiGet<ClassPerformance[]>(`/reports/performance/classes?range=${range}${campusId ? `&campusId=${campusId}` : ''}`),
+    byStudent: (classId: string, range: PerformanceRange) =>
+      apiGet<ClassStudents>(`/reports/performance/classes/${classId}?range=${range}`),
+    forStudent: (studentId: string, range: PerformanceRange) =>
+      apiGet<StudentPerformance>(`/reports/performance/students/${studentId}?range=${range}`),
   },
   hr: {
     /** Campus-scoped for an HR manager; school-wide for owner/campus admin. */
@@ -410,6 +467,8 @@ export const api = {
     overview: () => apiGet<PortalOverview>('/portal/overview'),
     attendance: () => apiGet<PortalAttendance[]>('/portal/attendance'),
     results: () => apiGet<PortalResult[]>('/portal/results'),
+    performance: () => apiGet<PortalPerformance>('/portal/performance'),
+    attendanceSummary: () => apiGet<PortalAttendanceSummary>('/portal/attendance/summary'),
     fees: () => apiGet<PortalFee[]>('/portal/fees'),
   },
 };

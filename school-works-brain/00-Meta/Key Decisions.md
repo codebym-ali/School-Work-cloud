@@ -227,4 +227,12 @@ Blueprint's AWS reference (RDS/ECS/S3/KMS…) is replaced by **Contabo + Coolify
 - **Validate a record against the date it claims, not just against now.** The enrolment was checked as ACTIVE *currently*, which let backfill invent attendance for days before a student joined. Any backdated write must re-ask "was this true then?".
 - **When a new guard makes your own fixtures illegal, the fixture was usually unrealistic.** Both breakages here (enrolment starting today, a campus-less teacher) were test data that could not exist in a real school.
 
+## Test performance: one calculator, two rules (added 2026-07-31)
+- **Every percentage from class tests comes from `libs/common/util/performance.ts`.** Student portal, teacher view and all three report levels share it, and an e2e asserts the owner's report and the student's own portal agree for the same child. This is not tidiness: attendance % previously diverged across three surfaces for one student, and a parent, a teacher and a director being shown three different figures destroys trust in all of them.
+- **Σ obtained ÷ Σ total, not the mean of percentages.** A 50-mark test must outweigh a 10-mark quiz, and it matches what a teacher computes by hand — the app should agree with the staffroom.
+- **An absence is excluded, never scored 0.** Counting it turns 8/10 into 8/20 and renders illness as failure. "Were they there?" is attendance's question; performance answers a different one. Missed tests are surfaced as their own count so absence never hides inside a low average.
+- **`null`, not 0, when nothing was sat.** "No tests yet" and "scored nothing" must not render alike.
+- **No rank or class average on a student's own view.** A child seeing "24th of 30" gets pressure, not feedback; their own month-on-month trend is actionable. Comparison belongs to staff. Asserted in a test, because it is the kind of rule a later contributor would "helpfully" undo.
+- **Reports sort worst-first and never hide an empty class.** At 6,000 students a report's job is to surface the exception; a class nobody has tested is precisely what an owner needs to see.
+
 **Source:** [[consistency-register]] · [[school-management-master-blueprint]] §2–§34

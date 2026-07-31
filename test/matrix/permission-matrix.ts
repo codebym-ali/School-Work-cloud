@@ -79,6 +79,11 @@ export const PERMISSION_MATRIX: MatrixRow[] = [
   { label: 'add staff member', method: 'post', path: '/api/v1/staff', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'HR_MANAGER'], scopeGated: true },
   { label: 'hr summary', method: 'get', path: '/api/v1/staff/summary', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'HR_MANAGER'] },
   { label: 'assign teacher to class', method: 'post', path: '/api/v1/teacher-assignments', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'HR_MANAGER'], scopeGated: true },
+  // Class tests are teacher-owned formative assessment; admins may view and step in. The
+  // (section, subject) ownership check lives in the service, so these rows assert the role gate.
+  { label: 'create class test', method: 'post', path: '/api/v1/class-tests', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'TEACHER'], scopeGated: true },
+  { label: 'list class tests', method: 'get', path: '/api/v1/class-tests', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'TEACHER'] },
+  { label: 'enter class test marks', method: 'post', path: '/api/v1/class-tests/00000000-0000-0000-0000-000000000000/scores', body: { rows: [] }, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'TEACHER'], scopeGated: true },
   { label: 'set user module', method: 'patch', path: '/api/v1/users/00000000-0000-0000-0000-000000000000/modules', body: { moduleKey: 'hr.assign', allowed: false }, allow: ['OWNER_ADMIN'], scopeGated: true },
   { label: 'create staff', method: 'post', path: '/api/v1/staff', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'], scopeGated: true },
   { label: 'run payroll', method: 'post', path: '/api/v1/payroll-runs', body: {}, allow: ['OWNER_ADMIN'] },

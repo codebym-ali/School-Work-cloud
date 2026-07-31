@@ -233,6 +233,20 @@ export interface TeacherClass {
   academicYearId: string; yearName: string; subjectId: string | null; subjectName: string | null;
   isClassTeacher: boolean; studentCount: number;
 }
+/** Formative assessment — never a report-card input. `totalMarks` differs per test, so any
+ *  rollup normalises to a percentage. */
+export interface ClassTest {
+  id: string; sectionId: string; subjectId: string; name: string;
+  totalMarks: string; testDate: string; createdById: string | null;
+  subject?: { name: string };
+  section?: { name: string; class?: { id: string; name: string } };
+  scoreCount?: number;
+}
+export interface ClassTestScore {
+  id: string; enrollmentId: string; marksObtained: string | null; isAbsent: boolean;
+}
+export interface ClassTestDetail extends ClassTest { scores: ClassTestScore[] }
+
 export interface RosterRow {
   studentId: string; fullName: string; grNumber: string; registrationNo: string | null;
   rollNumber: number | null; enrollmentId: string;
@@ -372,6 +386,16 @@ export const api = {
   teaching: {
     myClasses: () => apiGet<TeacherClass[]>('/teaching/my-classes'),
     roster: (sectionId: string) => apiGet<RosterRow[]>(`/teaching/sections/${sectionId}/roster`),
+  },
+  classTests: {
+    list: (sectionId?: string) => apiGet<ClassTest[]>(`/class-tests${sectionId ? `?sectionId=${sectionId}` : ''}`),
+    get: (id: string) => apiGet<ClassTestDetail>(`/class-tests/${id}`),
+    create: (body: { sectionId: string; subjectId: string; name: string; totalMarks: number; testDate: string }) =>
+      apiPost<ClassTest>('/class-tests', body),
+    /** Partial-failure, like attendance and exam marks: one bad row never rejects the register. */
+    setScores: (id: string, rows: Array<{ enrollmentId: string; marksObtained?: number; isAbsent?: boolean }>) =>
+      apiPost<{ saved: number; failed: number; errors: Array<{ index: number; message: string }> }>(`/class-tests/${id}/scores`, { rows }),
+    remove: (id: string) => apiDelete<{ deleted: boolean }>(`/class-tests/${id}`),
   },
   studentLeaves: {
     // NO CALLER since the parent portal was removed (2026-07-28). Kept on purpose: the server

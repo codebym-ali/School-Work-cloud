@@ -278,6 +278,8 @@ model School {
   smsLogs             SmsLog[]
   documents           Document[]
   auditLogs           AuditLog[]
+  classTests          ClassTest[]
+  classTestScores     ClassTestScore[]
 
   @@map("schools")
 }
@@ -402,6 +404,7 @@ model Section {
   enrollments        StudentEnrollment[]
   subjects           SectionSubject[]
   teacherAssignments TeacherAssignment[]
+  classTests         ClassTest[]
 
   @@unique([id, schoolId])
   @@unique([classId, name])
@@ -423,6 +426,7 @@ model Subject {
   examResults        ExamResult[]
   sections           SectionSubject[]
   teacherAssignments TeacherAssignment[]
+  classTests    ClassTest[]
 
   @@unique([id, schoolId])
   @@unique([classId, name])
@@ -515,6 +519,7 @@ model User {
   updatedSmsTemplates    SmsTemplate[]
   issuedDocuments        Document[]
   auditLogs              AuditLog[]
+  createdClassTests          ClassTest[]
 
   @@unique([id, schoolId])
   // Partial unique in 02_partial_uniques.sql: (school_id, email) WHERE deleted_at IS NULL.
@@ -681,6 +686,7 @@ model StudentEnrollment {
   attendanceRecords AttendanceRecord[]
   invoices          FeeInvoice[]
   examResults       ExamResult[]
+  classTestScores  ClassTestScore[]
 
   @@unique([id, schoolId])
   // Partial unique in SQL migration: one status=ACTIVE per (student, academic_year)
@@ -1417,4 +1423,58 @@ model IdempotencyKey {
   @@unique([schoolId, key])
   @@index([createdAt]) // 48h purge job
   @@map("idempotency_keys")
+}
+
+// ── Class tests (formative assessment, §11 extension) ────────────────────────
+/// A quiz or class test set by the subject teacher. DELIBERATELY NOT an ExamDefinition:
+/// an exam carries `weightagePercent` that must sum to 100 per class and feeds report-card
+/// generation, so every ad-hoc quiz created as an exam would break the report card. These are
+/// formative — teacher feedback, monthly performance tracking — and never enter a report card.
+model ClassTest {
+  id          String   @id @default(uuid()) @db.Uuid
+  schoolId    String   @map("school_id") @db.Uuid
+  school      School   @relation(fields: [schoolId], references: [id])
+  sectionId   String   @map("section_id") @db.Uuid
+  section     Section  @relation(fields: [sectionId, schoolId], references: [id, schoolId])
+  subjectId   String   @map("subject_id") @db.Uuid
+  subject     Subject  @relation(fields: [subjectId, schoolId], references: [id, schoolId])
+  name        String
+  /// Marks the test is out of. Tests differ (10, 50), so every rollup normalises to a percentage.
+  totalMarks  Decimal  @map("total_marks") @db.Decimal(6, 2)
+  testDate    DateTime @map("test_date") @db.Date
+  createdById String?  @map("created_by_id") @db.Uuid
+  createdBy   User?    @relation(fields: [createdById, schoolId], references: [id, schoolId])
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  scores ClassTestScore[]
+
+  @@unique([id, schoolId])
+  @@index([schoolId, sectionId, testDate])
+  @@index([schoolId, subjectId, testDate])
+  @@index([subjectId, schoolId])
+  @@index([createdById, schoolId])
+  @@map("class_tests")
+}
+
+model ClassTestScore {
+  id            String            @id @default(uuid()) @db.Uuid
+  schoolId      String            @map("school_id") @db.Uuid
+  school        School            @relation(fields: [schoolId], references: [id])
+  classTestId   String            @map("class_test_id") @db.Uuid
+  classTest     ClassTest         @relation(fields: [classTestId, schoolId], references: [id, schoolId], onDelete: Cascade)
+  enrollmentId  String            @map("enrollment_id") @db.Uuid
+  enrollment    StudentEnrollment @relation(fields: [enrollmentId, schoolId], references: [id, schoolId])
+  /// Null when absent. Absences are EXCLUDED from averages rather than scored 0 — a sick child
+  /// is not a failing child, and attendance already answers "were they there?".
+  marksObtained Decimal?          @map("marks_obtained") @db.Decimal(6, 2)
+  isAbsent      Boolean           @default(false) @map("is_absent")
+  createdAt     DateTime          @default(now()) @map("created_at")
+  updatedAt     DateTime          @updatedAt @map("updated_at")
+
+  @@unique([classTestId, enrollmentId])
+  @@unique([id, schoolId])
+  @@index([schoolId, classTestId])
+  @@index([enrollmentId, schoolId])
+  @@map("class_test_scores")
 }

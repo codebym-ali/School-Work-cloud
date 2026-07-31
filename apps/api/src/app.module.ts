@@ -41,6 +41,7 @@ import { DocumentsModule } from './modules/documents/documents.module';
 import { ReportsModule } from './modules/reports/reports.module';
 import { StudentPortalModule } from './modules/portal/student-portal.module';
 import { TeachingModule } from './modules/teaching/teaching.module';
+import { ClassTestsModule } from './modules/class-tests/class-tests.module';
 import { UsersModule } from './modules/users/users.module';
 import { UploadsModule } from './modules/uploads/uploads.module';
 
@@ -88,6 +89,7 @@ import { UploadsModule } from './modules/uploads/uploads.module';
     UploadsModule,
     StudentPortalModule,
     TeachingModule,
+    ClassTestsModule,
     UsersModule,
   ],
   controllers: [HealthController, MetricsController],

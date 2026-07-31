@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { api, type AdmissionsSummary, type Dashboard, type RecruitmentSummary } from '@/lib/api';
+import { api, type AdmissionsSummary, type Dashboard } from '@/lib/api';
 import { useMe } from '@/lib/me-context';
 import { canReach } from '@/lib/roles';
 
@@ -48,7 +48,6 @@ export default function DashboardPage() {
   const me = useMe();
   const [data, setData] = useState<Dashboard | null>(null);
   const [adm, setAdm] = useState<AdmissionsSummary | null>(null);
-  const [rec, setRec] = useState<RecruitmentSummary | null>(null);
   const [err, setErr] = useState(false);
 
   useEffect(() => {
@@ -57,7 +56,6 @@ export default function DashboardPage() {
     // pipeline) the card would advertise "0 open inquiries · 0% conversion" for ever — a
     // metric that can never move is worse than no metric. Skip the fetch entirely.
     if (me?.admissionsMode === 'PIPELINE') api.admissions.summary().then(setAdm).catch(() => {});
-    api.vacancies.summary().then(setRec).catch(() => {});
   }, [me?.admissionsMode]);
 
   if (err) return <p className="error">Couldn&apos;t load the dashboard.</p>;
@@ -83,7 +81,6 @@ export default function DashboardPage() {
   if ((data.failedSmsCount ?? 0) > 0 && data.visible.includes('failedSmsCount')) attention.push({ text: `${data.failedSmsCount} failed SMS`, href: '/reports' });
   if (adm && adm.totals.readyToAdmit > 0) attention.push({ text: `${adm.totals.readyToAdmit} student${adm.totals.readyToAdmit === 1 ? '' : 's'} ready to admit`, href: '/admissions' });
   if (adm && adm.testsToday > 0) attention.push({ text: `${adm.testsToday} entry test${adm.testsToday === 1 ? '' : 's'} today`, href: '/admissions' });
-  if (rec && (rec.applicationsByStatus.SUBMITTED ?? 0) > 0) attention.push({ text: `${rec.applicationsByStatus.SUBMITTED} new teacher application${rec.applicationsByStatus.SUBMITTED === 1 ? '' : 's'}`, href: '/recruitment' });
 
   const reachableAttention = attention.filter((a) => canReach(me?.roles, a.href, me?.admissionsMode));
 
@@ -136,7 +133,7 @@ export default function DashboardPage() {
         );
       })}
 
-      {(adm || rec) && (
+      {adm && (
         <div>
           <div className="section-title">Pipelines</div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px,1fr))', gap: 14 }}>
@@ -150,19 +147,6 @@ export default function DashboardPage() {
                 <div className="label">open inquiries</div>
                 <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>
                   {adm.conversionRate}% conversion · {adm.admittedThisMonth} admitted this month
-                </div>
-              </Link>
-            )}
-            {rec && (
-              <Link href="/recruitment" className="card metric-link pipeline-card">
-                <div className="row">
-                  <strong style={{ fontSize: 14 }}>📋 Recruitment</strong>
-                  <span className="metric-go">View pipeline →</span>
-                </div>
-                <div className="value" style={{ marginTop: 6 }}>{rec.openVacancies}</div>
-                <div className="label">open vacancies</div>
-                <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>
-                  {rec.openPositions} position{rec.openPositions === 1 ? '' : 's'} · {rec.hiredThisMonth} hired this month
                 </div>
               </Link>
             )}

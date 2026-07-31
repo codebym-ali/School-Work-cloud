@@ -184,11 +184,6 @@ enum EmploymentStatus {
 }
 
 // ── Recruitment (HR module) ──────────────────────────────────────────────────
-enum VacancyStatus {
-  OPEN
-  ON_HOLD
-  CLOSED
-}
 
 enum EmploymentType {
   FULL_TIME
@@ -197,12 +192,6 @@ enum EmploymentType {
   VISITING
 }
 
-enum TeacherApplicationStatus {
-  SUBMITTED
-  SHORTLISTED
-  REJECTED
-  HIRED
-}
 
 enum DocumentType {
   LEAVING_CERT
@@ -257,8 +246,6 @@ model School {
 
   // back-relations (every tenant model)
   campuses            Campus[]
-  vacancies           Vacancy[]
-  teacherApplications TeacherApplication[]
   moduleAccess        ModuleAccess[]
   academicYears       AcademicYear[]
   classes             Class[]
@@ -340,11 +327,9 @@ model Campus {
   users               User[]
   classes             Class[]
   inquiries           Inquiry[]
-  vacancies           Vacancy[]
   enrollments         StudentEnrollment[]
   holidays            Holiday[]
   feeStructures       FeeStructure[]
-  teacherApplications TeacherApplication[]
 
   @@unique([id, schoolId]) // composite target for child tenant-chain FKs
   @@unique([schoolId, name])
@@ -509,8 +494,6 @@ model User {
   collectedPayments          FeePayment[]
   approvedDiscounts          Discount[]
   markedAttendance           AttendanceRecord[]
-  createdVacancies           Vacancy[]
-  createdTeacherApplications TeacherApplication[]
   moduleAccess               ModuleAccess[]
 
   // Actor back-relations. Every *_by_id column references a real user so the audit trail
@@ -1298,63 +1281,9 @@ model Payslip {
 }
 
 // Recruitment: a job opening at a campus. Entry point of the hiring workflow (HR module).
-model Vacancy {
-  id             String         @id @default(uuid()) @db.Uuid
-  schoolId       String         @map("school_id") @db.Uuid
-  school         School         @relation(fields: [schoolId], references: [id])
-  campusId       String         @map("campus_id") @db.Uuid
-  campus         Campus         @relation(fields: [campusId, schoolId], references: [id, schoolId])
-  title          String
-  department     String
-  description    String
-  employmentType EmploymentType @map("employment_type")
-  positions      Int            @default(1)
-  status         VacancyStatus  @default(OPEN)
-  createdById    String         @map("created_by_id") @db.Uuid
-  createdBy      User           @relation(fields: [createdById, schoolId], references: [id, schoolId])
-  closedAt       DateTime?      @map("closed_at")
-  createdAt      DateTime       @default(now()) @map("created_at")
-  updatedAt      DateTime       @updatedAt @map("updated_at")
-
-  @@index([schoolId, status])
-  @@index([createdById, schoolId])
-  @@index([campusId, schoolId])
-  @@map("vacancies")
-}
 
 // Teacher application / onboarding form (HR module). Queryable fields are real columns;
 // the full form (personal, contact, education, experience, skills) persists in `details`.
-model TeacherApplication {
-  id                   String                   @id @default(uuid()) @db.Uuid
-  schoolId             String                   @map("school_id") @db.Uuid
-  school               School                   @relation(fields: [schoolId], references: [id])
-  campusId             String                   @map("campus_id") @db.Uuid
-  campus               Campus                   @relation(fields: [campusId, schoolId], references: [id, schoolId])
-  fullName             String                   @map("full_name")
-  email                String
-  mobile               String
-  positionAppliedFor   String                   @map("position_applied_for")
-  department           String
-  employmentType       EmploymentType           @map("employment_type")
-  expectedSalary       Decimal?                 @map("expected_salary") @db.Decimal(12, 2)
-  availableJoiningDate DateTime?                @map("available_joining_date") @db.Date
-  status               TeacherApplicationStatus @default(SUBMITTED)
-  details              Json // personal, contact, education, experience, skills (full form)
-  /// AES-256-GCM (§32), mirroring ParentProfile.cnicEnc. The CNIC is a national ID and was
-  /// previously stored in plaintext inside `details` — the same data class the parent record
-  /// already encrypted. Extracted from the JSON on write; write-only, like every other
-  /// encrypted field here (nothing decrypts it), so reads expose `hasCnic` instead.
-  cnicEnc              String?                  @map("cnic_enc")
-  createdById          String                   @map("created_by_id") @db.Uuid
-  createdBy            User                     @relation(fields: [createdById, schoolId], references: [id, schoolId])
-  createdAt            DateTime                 @default(now()) @map("created_at")
-  updatedAt            DateTime                 @updatedAt @map("updated_at")
-
-  @@index([schoolId, status])
-  @@index([createdById, schoolId])
-  @@index([campusId, schoolId])
-  @@map("teacher_applications")
-}
 
 /// Per-user module (functionality) access override. A granted role (e.g. HR_MANAGER) unlocks
 /// its modules by default; the owner can switch a specific module off for one user by writing

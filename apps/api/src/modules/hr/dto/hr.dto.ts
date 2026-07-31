@@ -13,7 +13,7 @@ import {
   Min,
   MinLength,
 } from 'class-validator';
-import { EmploymentType, Role, StaffType, VacancyStatus } from '@prisma/client';
+import { Role, StaffType } from '@prisma/client';
 
 export class CreateStaffDto {
   @IsEmail() email!: string;
@@ -69,18 +69,4 @@ export class MarkPaidDto {
   reference?: string;
 }
 
-// ── Recruitment (HR module) ──────────────────────────────────────────────────
-export class CreateVacancyDto {
-  @IsUUID() campusId!: string;
-  @IsString() @MinLength(2) @MaxLength(120) title!: string;
-  @IsString() @MinLength(2) @MaxLength(80) department!: string;
-  @IsString() @MinLength(1) @MaxLength(4000) description!: string;
-  @IsEnum(EmploymentType) employmentType!: EmploymentType;
-  @IsInt() @Min(1) @Max(100) positions!: number;
-}
-
-export class ListVacancyQuery {
-  @IsOptional() @IsUUID() campusId?: string;
-  @IsOptional() @IsEnum(VacancyStatus) status?: VacancyStatus;
-  @IsOptional() @IsString() @MaxLength(80) department?: string;
-}
+// Vacancy DTOs removed with the vacancy board (2026-07-30) — see HrModule.

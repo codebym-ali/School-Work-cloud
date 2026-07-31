@@ -113,19 +113,15 @@ export class SetupService {
     // the FK, surfacing a generic "other records" message that listed the wrong tables.
     // Only LIVE users block: counting soft-deleted ones made the campus undeletable forever
     // while the UI showed "No users yet" (that list filters deletedAt).
-    const [classes, users, inquiries, vacancies, applications] = await Promise.all([
+    const [classes, users, inquiries] = await Promise.all([
       this.db.class.count({ where: { campusId: id } }),
       this.db.user.count({ where: { campusId: id, deletedAt: null } }),
       this.db.inquiry.count({ where: { campusId: id } }),
-      this.db.vacancy.count({ where: { campusId: id } }),
-      this.db.teacherApplication.count({ where: { campusId: id } }),
     ]);
     const blockers: string[] = [];
     if (classes) blockers.push(`${classes} class(es)`);
     if (users) blockers.push(`${users} user(s)`);
     if (inquiries) blockers.push(`${inquiries} admission inquiry(ies)`);
-    if (vacancies) blockers.push(`${vacancies} job vacancy(ies)`);
-    if (applications) blockers.push(`${applications} teacher application(s)`);
     if (blockers.length) {
       throw new AppError(ErrorCodes.CONFLICT, HttpStatus.CONFLICT, `Campus is in use — ${blockers.join(', ')} still belong to it. Remove or reassign them first.`);
     }

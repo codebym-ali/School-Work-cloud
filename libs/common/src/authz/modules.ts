@@ -14,9 +14,11 @@ export interface ModuleDef {
 }
 
 export const MODULES: ModuleDef[] = [
-  { key: 'recruitment.vacancies', label: 'Vacancies', role: Role.HR_MANAGER, description: 'Post and close job openings' },
-  { key: 'recruitment.applications', label: 'Applications', role: Role.HR_MANAGER, description: 'Review, shortlist and reject applicants' },
-  { key: 'recruitment.hire', label: 'Hiring', role: Role.HR_MANAGER, description: 'Hire an applicant (creates their staff login)' },
+  // Recruitment (vacancies / applications / hire) was removed 2026-07-30 — hiring happens
+  // offline and the system records the result. What the HR manager actually does is own the
+  // campus's staff record, so the modules describe that instead.
+  { key: 'hr.staff', label: 'Staff records', role: Role.HR_MANAGER, description: 'Add teachers and staff, and keep their records up to date' },
+  { key: 'hr.assign', label: 'Class assignment', role: Role.HR_MANAGER, description: 'Assign teachers to classes, sections and subjects' },
 
   { key: 'admissions.inquiries', label: 'Inquiries', role: Role.ADMISSION_CONTROLLER, description: 'Create inquiries, schedule and record entry tests' },
   { key: 'admissions.admit', label: 'Admit students', role: Role.ADMISSION_CONTROLLER, description: 'Finalise an admission and enrol the student' },

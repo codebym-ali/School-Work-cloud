@@ -10,7 +10,7 @@ import { destroyTenant } from './support/tenant';
 
 /**
  * HR access (RBAC): only OWNER_ADMIN may grant the HR_MANAGER role on an EXISTING employee,
- * which unlocks recruitment. Proves the access flips 403 → 200 on grant and back on revoke,
+ * which unlocks the HR staff record. Proves the access flips 403 → 200 on grant and back on revoke,
  * that the account is reused (roles preserved, no new login), and that a campus admin cannot
  * grant it.
  */
@@ -65,26 +65,26 @@ describe('HR access grant (e2e, RBAC)', () => {
     await app.close();
   });
 
-  it('a teacher has no recruitment access until the owner grants it — then loses it on revoke', async () => {
-    // Before: the teacher cannot reach recruitment.
+  it('a teacher has no HR access until the owner grants it — then loses it on revoke', async () => {
+    // Before: the teacher cannot reach the HR rollup.
     const before = (await login(teacher.email, teacher.password)).cookies;
-    expect((await get('/api/v1/vacancies', before)).status).toBe(403);
+    expect((await get('/api/v1/staff/summary', before)).status).toBe(403);
 
     // Owner grants HR access — the account is reused, roles preserved + HR_MANAGER added.
     const grant = await send('patch', `/api/v1/users/${teacherUserId}/access`, { role: 'HR_MANAGER', grant: true }, ownerCookies);
     expect(grant.status).toBe(200);
     expect(grant.body.roles).toEqual(expect.arrayContaining(['TEACHER', 'HR_MANAGER']));
 
-    // After: a fresh session for the same teacher can now reach recruitment.
+    // After: a fresh session for the same teacher can now reach it.
     const after = (await login(teacher.email, teacher.password)).cookies;
-    expect((await get('/api/v1/vacancies', after)).status).toBe(200);
+    expect((await get('/api/v1/staff/summary', after)).status).toBe(200);
 
     // Revoke removes it again.
     const revoke = await send('patch', `/api/v1/users/${teacherUserId}/access`, { role: 'HR_MANAGER', grant: false }, ownerCookies);
     expect(revoke.status).toBe(200);
     expect(revoke.body.roles).toEqual(['TEACHER']);
     const revoked = (await login(teacher.email, teacher.password)).cookies;
-    expect((await get('/api/v1/vacancies', revoked)).status).toBe(403);
+    expect((await get('/api/v1/staff/summary', revoked)).status).toBe(403);
   });
 
   it('owner makes an existing employee a campus admin (principal), then revokes it', async () => {

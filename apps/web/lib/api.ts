@@ -208,30 +208,16 @@ export interface TeacherDetails {
   skills?: string[];
   languages?: string; computerSkills?: string; lmsExperience?: string; msOfficeSkills?: string; classroomManagement?: string;
 }
-export interface TeacherApplicationSummary {
-  id: string; campusId: string; campusName: string | null;
-  fullName: string; email: string; mobile: string;
-  positionAppliedFor: string; department: string; employmentType: string;
-  expectedSalary: string | null; availableJoiningDate: string | null; status: string; createdAt: string;
+/** HR rollup for the campus staff record — replaces the deleted recruitment summary.
+ *  `coverageGaps` derives where the school is short of teachers from the real class
+ *  structure, so it cannot go stale the way a hand-posted vacancy board did. */
+export interface HrSummary {
+  headcount: number;
+  joinersThisMonth: number;
+  joinersThisYear: number;
+  needsSetup: { staffId: string; fullName: string | null; email: string; reason: string }[];
+  coverageGaps: { classId: string; className: string; sectionId: string; sectionName: string; subjectId: string; subjectName: string }[];
 }
-/** `hasCnic` replaces the value: the CNIC is encrypted at rest and never returned. */
-export interface TeacherApplicationDetail extends TeacherApplicationSummary { details: TeacherDetails; hasCnic?: boolean }
-export interface CreateTeacherApplicationBody {
-  campusId: string; fullName: string; email: string; mobile: string; positionAppliedFor: string; department: string;
-  employmentType: string; expectedSalary?: number; availableJoiningDate?: string; details: TeacherDetails;
-}
-
-// ── Recruitment (HR module) ──────────────────────────────────────────────────
-export interface Vacancy {
-  id: string; campusId: string; campusName: string | null;
-  title: string; department: string; description: string;
-  employmentType: string; positions: number; status: string;
-  closedAt: string | null; createdAt: string;
-}
-
-export type ApplicationStatus = 'SUBMITTED' | 'SHORTLISTED' | 'REJECTED' | 'HIRED';
-export interface HireApplicantBody { employeeCode: string; designation?: string; joinedAt?: string; staffType?: string }
-export interface HiredResult extends TeacherApplicationSummary { staff: { userId: string; staffId: string; employeeCode: string } }
 
 export interface AdmissionsSummary {
   byStatus: Record<string, number>;
@@ -239,15 +225,6 @@ export interface AdmissionsSummary {
   testsToday: number;
   admittedThisMonth: number;
   conversionRate: number;
-}
-
-export interface RecruitmentSummary {
-  vacanciesByStatus: Record<string, number>;
-  openVacancies: number;
-  openPositions: number;
-  applicationsByStatus: Record<string, number>;
-  newApplicationsThisWeek: number;
-  hiredThisMonth: number;
 }
 
 
@@ -299,6 +276,10 @@ export const api = {
     list: () => apiGet<CampusAdmissionOfficer[]>('/admission-officers'),
     set: (campusId: string, userId: string) => apiPut<SetOfficerResult>(`/admission-officers/${campusId}`, { userId }),
     remove: (campusId: string) => apiDelete<{ campusId: string; officer: null }>(`/admission-officers/${campusId}`),
+  },
+  hr: {
+    /** Campus-scoped for an HR manager; school-wide for owner/campus admin. */
+    summary: () => apiGet<HrSummary>('/staff/summary'),
   },
   staff: {
     list: () => apiGet<ManagedTeacher[]>('/staff'),
@@ -353,27 +334,6 @@ export const api = {
   },
   terms: {
     remove: (id: string) => apiDelete<{ ok: boolean }>(`/terms/${id}`),
-  },
-  teacherApplications: {
-    list: (params?: { campusId?: string; status?: string; search?: string }) => {
-      const qs = new URLSearchParams(Object.entries(params ?? {}).filter(([, v]) => v) as [string, string][]).toString();
-      return apiGet<TeacherApplicationSummary[]>(`/teacher-applications${qs ? `?${qs}` : ''}`);
-    },
-    get: (id: string) => apiGet<TeacherApplicationDetail>(`/teacher-applications/${id}`),
-    create: (body: CreateTeacherApplicationBody) => apiPost<TeacherApplicationSummary>('/teacher-applications', body),
-    updateStatus: (id: string, status: 'SHORTLISTED' | 'REJECTED', reason?: string) =>
-      apiPatch<TeacherApplicationSummary>(`/teacher-applications/${id}/status`, { status, reason }),
-    hire: (id: string, body: HireApplicantBody) => apiPost<HiredResult>(`/teacher-applications/${id}/hire`, body, idemKey()),
-  },
-  vacancies: {
-    list: (params?: { campusId?: string; status?: string; department?: string }) => {
-      const qs = new URLSearchParams(Object.entries(params ?? {}).filter(([, v]) => v) as [string, string][]).toString();
-      return apiGet<Vacancy[]>(`/vacancies${qs ? `?${qs}` : ''}`);
-    },
-    create: (body: { campusId: string; title: string; department: string; description: string; employmentType: string; positions: number }) =>
-      apiPost<Vacancy>('/vacancies', body),
-    close: (id: string) => apiPost<Vacancy>(`/vacancies/${id}/close`),
-    summary: () => apiGet<RecruitmentSummary>('/vacancies/summary'),
   },
   admissions: {
     summary: () => apiGet<AdmissionsSummary>('/inquiries/summary'),

@@ -212,4 +212,12 @@ Blueprint's AWS reference (RDS/ECS/S3/KMS…) is replaced by **Contabo + Coolify
 - **Search is not free.** Below ~8 rows it occupies the slot the primary action should own.
 - **Before gating a shared component's feature behind a prop, check every consumer.** `AddClassForm` behind `showTools` would have silently removed the add-class form from Setup, which renders `ClassManager` *only when a school has no classes yet*.
 
+## HR = owning the staff record, not recruiting (added 2026-07-30)
+- **Recruitment is out of scope for this product.** Hiring happens offline; the system records the *result* — a staff member. A vacancy board and an applicant pipeline had nothing downstream depending on them (an application wasn't even linked to a vacancy), so they were process theatre and are deleted.
+- **Derive the need, don't ask someone to type it.** "Where are we short of teachers?" is computed from sections and subjects with no assignment, so it can never go stale. **Prefer a derived worklist over a hand-maintained register** wherever the underlying data already implies the answer.
+- **"Done" for a person is not "the form was saved."** It is *can sign in* **and** *has something to teach*. The HR overview lists who falls short — that worklist is what makes the role a job rather than data entry, and it is the reason the role exists at all.
+- **Whoever creates an employee must never set their pay.** Salary structures and payroll stay owner-only: combining the two lets one person invent a ghost employee on a salary with nobody else in the loop. This is the single most common payroll fraud in schools and the boundary is deliberate, not incidental.
+- **Role-shape one screen; never build a second list of the same records.** `/staff` serves owner, campus admin and HR manager with different scope and extras. A separate "recruiter portal" would have re-created the duplication (two ways to add a teacher, two ways to grant admission access) removed twice the same day.
+- **Name the surface after the role the code already has.** `HR_MANAGER` → "HR". Inventing a third label ("Recruitment", "Staff onboarding") is how the Admission Portal page came to mislead its own author.
+
 **Source:** [[consistency-register]] · [[school-management-master-blueprint]] §2–§34

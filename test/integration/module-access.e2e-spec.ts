@@ -12,7 +12,7 @@ import { destroyTenant } from './support/tenant';
  * Module (functionality) access (§23 extension). A granted role unlocks all of its modules by
  * default; the owner can switch a single module off for one user, taking effect immediately
  * (live in-service check, no re-login). Owners are never restricted. Proves: default-on,
- * owner switches recruitment.vacancies off → that user is 403 on the gated action but reads
+ * owner switches hr.staff off → that user is 403 on the gated action but reads
  * still work, re-enable restores it, a non-owner can't manage modules, and a module outside
  * the user's roles can't be toggled.
  */
@@ -37,7 +37,8 @@ describe('Module access (e2e, §23)', () => {
     request(server())[method](p).set('Host', host).set('Cookie', cookies).set('X-CSRF-Token', csrfOf(cookies)).set('Idempotency-Key', randomUUID()).send(b);
   const get = (p: string, cookies: string[]) => request(server()).get(p).set('Host', host).set('Cookie', cookies);
 
-  const vacancyBody = () => ({ campusId: campusAId, title: 'Maths Teacher', department: 'Science', description: 'Teach maths', employmentType: 'FULL_TIME', positions: 1 });
+  let n = 0;
+  const staffBody = () => ({ email: `hire${++n}-${sub}@mod.pk`, staffType: 'TEACHER', employeeCode: `EC-${n}-${sub}`, designation: 'Teacher', joinedAt: '2026-04-01', campusId: campusAId });
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
@@ -68,31 +69,31 @@ describe('Module access (e2e, §23)', () => {
     const res = await get(`/api/v1/users/${teacherUserId}/modules`, ownerCookies);
     expect(res.status).toBe(200);
     const keys = (res.body as Array<{ key: string; allowed: boolean }>);
-    expect(keys.map((m) => m.key)).toEqual(expect.arrayContaining(['recruitment.vacancies', 'recruitment.applications', 'recruitment.hire']));
+    expect(keys.map((m) => m.key)).toEqual(expect.arrayContaining(['hr.staff', 'hr.assign']));
     expect(keys.every((m) => m.allowed)).toBe(true);
   });
 
-  it('owner switches recruitment.vacancies off → the HR user is 403 on the gated action (immediately), reads still work', async () => {
+  it('owner switches hr.staff off → the HR user is 403 on the gated action (immediately), reads still work', async () => {
     const hr = await login(teacher.email, teacher.password);
-    expect((await send('post', '/api/v1/vacancies', vacancyBody(), hr)).status).toBe(201);
+    expect((await send('post', '/api/v1/staff', staffBody(), hr)).status).toBe(201);
 
-    const off = await send('patch', `/api/v1/users/${teacherUserId}/modules`, { moduleKey: 'recruitment.vacancies', allowed: false }, ownerCookies);
+    const off = await send('patch', `/api/v1/users/${teacherUserId}/modules`, { moduleKey: 'hr.staff', allowed: false }, ownerCookies);
     expect(off.status).toBe(200);
 
     // Same session, no re-login — the check is live.
-    expect((await send('post', '/api/v1/vacancies', vacancyBody(), hr)).status).toBe(403);
+    expect((await send('post', '/api/v1/staff', staffBody(), hr)).status).toBe(403);
     // Reads aren't gated by the module.
-    expect((await get('/api/v1/vacancies', hr)).status).toBe(200);
+    expect((await get('/api/v1/staff', hr)).status).toBe(200);
 
     // Re-enable restores it.
-    await send('patch', `/api/v1/users/${teacherUserId}/modules`, { moduleKey: 'recruitment.vacancies', allowed: true }, ownerCookies);
-    expect((await send('post', '/api/v1/vacancies', vacancyBody(), hr)).status).toBe(201);
+    await send('patch', `/api/v1/users/${teacherUserId}/modules`, { moduleKey: 'hr.staff', allowed: true }, ownerCookies);
+    expect((await send('post', '/api/v1/staff', staffBody(), hr)).status).toBe(201);
   });
 
   it('the owner is never restricted by module toggles', async () => {
-    await send('patch', `/api/v1/users/${teacherUserId}/modules`, { moduleKey: 'recruitment.vacancies', allowed: false }, ownerCookies);
-    expect((await send('post', '/api/v1/vacancies', vacancyBody(), ownerCookies)).status).toBe(201);
-    await send('patch', `/api/v1/users/${teacherUserId}/modules`, { moduleKey: 'recruitment.vacancies', allowed: true }, ownerCookies);
+    await send('patch', `/api/v1/users/${teacherUserId}/modules`, { moduleKey: 'hr.staff', allowed: false }, ownerCookies);
+    expect((await send('post', '/api/v1/staff', staffBody(), ownerCookies)).status).toBe(201);
+    await send('patch', `/api/v1/users/${teacherUserId}/modules`, { moduleKey: 'hr.staff', allowed: true }, ownerCookies);
   });
 
   it('rejects toggling a module the user’s roles don’t include (422)', async () => {

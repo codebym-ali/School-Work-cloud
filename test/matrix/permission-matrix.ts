@@ -76,13 +76,11 @@ export const PERMISSION_MATRIX: MatrixRow[] = [
   { label: 'set admission officer', method: 'put', path: '/api/v1/admission-officers/00000000-0000-0000-0000-000000000000', body: { userId: '00000000-0000-0000-0000-000000000000' }, allow: ['OWNER_ADMIN'], scopeGated: true },
   { label: 'remove admission officer', method: 'delete', path: '/api/v1/admission-officers/00000000-0000-0000-0000-000000000000', allow: ['OWNER_ADMIN'], scopeGated: true },
   { label: 'list user modules', method: 'get', path: '/api/v1/users/00000000-0000-0000-0000-000000000000/modules', allow: ['OWNER_ADMIN'], scopeGated: true },
-  { label: 'set user module', method: 'patch', path: '/api/v1/users/00000000-0000-0000-0000-000000000000/modules', body: { moduleKey: 'recruitment.hire', allowed: false }, allow: ['OWNER_ADMIN'], scopeGated: true },
+  { label: 'add staff member', method: 'post', path: '/api/v1/staff', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'HR_MANAGER'], scopeGated: true },
+  { label: 'hr summary', method: 'get', path: '/api/v1/staff/summary', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'HR_MANAGER'] },
+  { label: 'assign teacher to class', method: 'post', path: '/api/v1/teacher-assignments', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'HR_MANAGER'], scopeGated: true },
+  { label: 'set user module', method: 'patch', path: '/api/v1/users/00000000-0000-0000-0000-000000000000/modules', body: { moduleKey: 'hr.assign', allowed: false }, allow: ['OWNER_ADMIN'], scopeGated: true },
   { label: 'create staff', method: 'post', path: '/api/v1/staff', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'], scopeGated: true },
-  { label: 'post vacancy', method: 'post', path: '/api/v1/vacancies', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'], scopeGated: true },
-  { label: 'add teacher application', method: 'post', path: '/api/v1/teacher-applications', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'], scopeGated: true },
-  { label: 'update application status', method: 'patch', path: '/api/v1/teacher-applications/00000000-0000-0000-0000-000000000000/status', body: { status: 'SHORTLISTED' }, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'], scopeGated: true },
-  { label: 'hire applicant', method: 'post', path: '/api/v1/teacher-applications/00000000-0000-0000-0000-000000000000/hire', body: { employeeCode: 'X' }, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'], scopeGated: true },
-  { label: 'recruitment summary', method: 'get', path: '/api/v1/vacancies/summary', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
   { label: 'run payroll', method: 'post', path: '/api/v1/payroll-runs', body: {}, allow: ['OWNER_ADMIN'] },
 
   // Teacher self-service — TEACHER-only; positive path needs a linked StaffProfile so it's

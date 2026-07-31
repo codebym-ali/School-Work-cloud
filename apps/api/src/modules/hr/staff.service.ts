@@ -3,6 +3,7 @@ import { Prisma, Role, StaffType } from '@prisma/client';
 import { AppError, assertCampusAccess, AuditActions, ErrorCodes, restrictedCampusId, TenantContext } from '@common';
 import { AuditService, TenantPrismaService } from '@database';
 import { PasswordService } from '../auth/password.service';
+import { AccessService } from '../access/access.service';
 import type { CreateSalaryStructureDto, CreateStaffDto, CreateTeacherAssignmentDto } from './dto/hr.dto';
 
 /** Staff HR (blueprint §13): profiles for all staff types, salary structures, teacher assignments. */
@@ -13,6 +14,7 @@ export class StaffService {
     private readonly ctx: TenantContext,
     private readonly passwords: PasswordService,
     private readonly audit: AuditService,
+    private readonly access: AccessService,
   ) {}
 
   private get db() {
@@ -25,6 +27,7 @@ export class StaffService {
   /** Create a User + StaffProfile in one operation. Supplying `password` makes the login
    *  usable straight away; omitting it leaves the account INVITED until a password is set. */
   async createStaff(dto: CreateStaffDto) {
+    await this.access.assert('hr.staff');
     // A campus-bound admin can only create staff in their own campus (§22.8).
     assertCampusAccess(this.ctx.user, dto.campusId ?? null);
     const roles = dto.roles ?? defaultRoles(dto.staffType);
@@ -117,6 +120,99 @@ export class StaffService {
     });
   }
 
+  /**
+   * HR rollup for whoever owns the staff record — campus-scoped exactly like `listStaff`.
+   *
+   * Replaces the deleted recruitment summary, and answers the questions that make the HR role
+   * more than data entry:
+   *  • how many people work here, and how many joined recently
+   *  • who is only half set up (a record exists, but they cannot sign in or teach anything)
+   *  • where the school is SHORT of teachers
+   *
+   * That last one is the important substitution. A vacancy board had to be maintained by hand
+   * and went stale the moment someone forgot. Coverage is instead DERIVED from the real class
+   * structure: every (section, subject) the school teaches that has nobody assigned this year.
+   */
+  async hrSummary() {
+    const restricted = restrictedCampusId(this.ctx.user);
+    const staffWhere: Prisma.StaffProfileWhereInput = {
+      user: { deletedAt: null, ...(restricted ? { campusId: restricted } : {}) },
+    };
+
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const yearStart = new Date(now.getFullYear(), 0, 1);
+
+    const [headcount, joinersThisMonth, joinersThisYear, staff, year] = await Promise.all([
+      this.db.staffProfile.count({ where: staffWhere }),
+      this.db.staffProfile.count({ where: { ...staffWhere, joinedAt: { gte: monthStart } } }),
+      this.db.staffProfile.count({ where: { ...staffWhere, joinedAt: { gte: yearStart } } }),
+      this.db.staffProfile.findMany({
+        where: staffWhere,
+        include: { user: { select: { email: true, status: true } }, assignments: { select: { id: true }, take: 1 } },
+        orderBy: { joinedAt: 'desc' },
+      }),
+      this.db.academicYear.findFirst({ where: { isCurrent: true }, select: { id: true } }),
+    ]);
+
+    // "Onboarded" is not "the form was saved" — it is "they can sign in and they teach
+    // something". Anything short of that is unfinished work with a name attached.
+    const needsSetup = staff
+      .map((s) => {
+        const noLogin = s.user.status === 'INVITED';
+        const noClass = s.staffType === StaffType.TEACHER && s.assignments.length === 0;
+        const reason = noLogin && noClass ? 'No login yet, and no class assigned'
+          : noLogin ? 'Cannot sign in — no password set'
+          : noClass ? 'No class or subject assigned'
+          : null;
+        return reason ? { staffId: s.id, fullName: s.fullName, email: s.user.email, reason } : null;
+      })
+      .filter((x): x is NonNullable<typeof x> => x !== null);
+
+    return { headcount, joinersThisMonth, joinersThisYear, needsSetup, coverageGaps: year ? await this.coverageGaps(year.id, restricted) : [] };
+  }
+
+  /**
+   * Every (section, subject) pair with no teacher assigned for the year — the honest answer to
+   * "where do we need to hire?". A section that opts into its own subject list (electives) is
+   * measured against that list; otherwise it inherits its class's catalogue.
+   */
+  private async coverageGaps(academicYearId: string, restricted: string | null) {
+    const sections = await this.db.section.findMany({
+      where: { class: restricted ? { campusId: restricted } : {} },
+      include: {
+        class: { select: { id: true, name: true, campusId: true } },
+        subjects: { select: { subjectId: true } },
+      },
+    });
+    if (!sections.length) return [];
+
+    const [subjects, assignments] = await Promise.all([
+      this.db.subject.findMany({ select: { id: true, name: true, classId: true } }),
+      this.db.teacherAssignment.findMany({
+        where: { academicYearId },
+        select: { sectionId: true, subjectId: true },
+      }),
+    ]);
+    const covered = new Set(assignments.filter((a) => a.subjectId).map((a) => `${a.sectionId}:${a.subjectId}`));
+    const byId = new Map(subjects.map((s) => [s.id, s]));
+
+    const gaps: { classId: string; className: string; sectionId: string; sectionName: string; subjectId: string; subjectName: string }[] = [];
+    for (const sec of sections) {
+      const own = sec.subjects.map((l) => l.subjectId);
+      const taught = own.length ? own : subjects.filter((s) => s.classId === sec.class.id).map((s) => s.id);
+      for (const subjectId of taught) {
+        if (covered.has(`${sec.id}:${subjectId}`)) continue;
+        gaps.push({
+          classId: sec.class.id, className: sec.class.name,
+          sectionId: sec.id, sectionName: sec.name,
+          subjectId, subjectName: byId.get(subjectId)?.name ?? '—',
+        });
+      }
+    }
+    return gaps;
+  }
+
   async getStaff(id: string) {
     const staff = await this.db.staffProfile.findFirst({
       where: { id },
@@ -153,6 +249,7 @@ export class StaffService {
 
   // ── Teacher assignments ──────────────────────────────────────────────────────
   async createAssignment(dto: CreateTeacherAssignmentDto) {
+    await this.access.assert('hr.assign');
     await this.getStaff(dto.staffId); // asserts the staff is in the caller's campus
     try {
       return await this.db.teacherAssignment.create({

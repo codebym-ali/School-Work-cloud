@@ -67,9 +67,10 @@ export const NAV: NavItem[] = [
 
   { href: '/fees', label: 'Fees', icon: '💳', group: 'Finance', roles: ['OWNER_ADMIN', 'ACCOUNTANT'] },
 
-  { href: '/teachers', label: 'Teacher onboarding', icon: '🧑‍🏫', group: 'People', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'HR_MANAGER'], hidden: true },
-  { href: '/staff', label: 'Staff', icon: '🧑‍💼', group: 'People', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
-  { href: '/recruitment', label: 'Recruitment', icon: '📋', group: 'People', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'HR_MANAGER'] },
+  // The HR manager's single home. Recruitment was removed 2026-07-30 and this role's real job
+  // is owning the campus staff record, so there is one staff screen, role-shaped, rather than a
+  // second list of the same people.
+  { href: '/staff', label: 'Staff', icon: '🧑‍💼', group: 'People', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'HR_MANAGER'] },
 
   { href: '/setup', label: 'School configuration', icon: '⚙️', group: 'Administration', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
   { href: '/campuses', label: 'Campus Hub', icon: '🏢', group: 'Administration', roles: ['OWNER_ADMIN'] },
@@ -95,7 +96,7 @@ export const MFA_REQUIRED_ROLES = ['OWNER_ADMIN', 'ACCOUNTANT'] as const;
 /**
  * Single source of truth for a multi-role user's "primary" identity — ordered most- to
  * least-privileged. Both the panel/brand label AND the post-login landing derive from this
- * one list, so they can never disagree (e.g. a TEACHER+HR_MANAGER lands on Recruitment and
+ * one list, so they can never disagree (e.g. a TEACHER+HR_MANAGER lands on Staff and
  * is branded "HR Manager", not one of each). Keyed on the first role the user holds.
  */
 const ROLE_INFO: { role: Role; label: string; landing: string }[] = [
@@ -104,7 +105,7 @@ const ROLE_INFO: { role: Role; label: string; landing: string }[] = [
   { role: 'CAMPUS_ADMIN', label: 'Campus Admin', landing: '/dashboard' },
   { role: 'ACCOUNTANT', label: 'Accountant', landing: '/dashboard' },
   { role: 'ADMISSION_CONTROLLER', label: 'Admission Portal', landing: '/admissions' },
-  { role: 'HR_MANAGER', label: 'HR Manager', landing: '/recruitment' },
+  { role: 'HR_MANAGER', label: 'HR Manager', landing: '/staff' },
   { role: 'TEACHER', label: 'Teacher', landing: '/attendance' },
   { role: 'STAFF', label: 'Staff', landing: '/my-attendance' },
   // Parent portal removed 2026-07-28 (see Key Decisions). Parents have no logins and no

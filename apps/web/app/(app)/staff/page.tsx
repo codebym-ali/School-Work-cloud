@@ -5,7 +5,7 @@ import Link from 'next/link';
 import {
   api, apiGet, ApiError,
   type AcademicYear, type Campus, type Klass, type ManagedTeacher, type Section, type Subject,
-  type TeacherApplicationSummary, type TeacherAssignment, type UserModule,
+  type HrSummary, type TeacherAssignment, type UserModule,
 } from '@/lib/api';
 import { useMe } from '@/lib/me-context';
 
@@ -13,6 +13,78 @@ type Msg = { ok: boolean; text: string } | null;
 const today = () => new Date().toISOString().slice(0, 10);
 
 const STAFF_TYPES = ['TEACHER', 'ADMIN', 'ACCOUNTANT', 'CLERK', 'SUPPORT'] as const;
+
+/**
+ * What makes owning the staff record a job rather than data entry.
+ *
+ * Filling a form is not work anyone needs a dedicated role for — the work is everything still
+ * wrong afterwards: people who cannot sign in, teachers assigned to nothing, and subjects with
+ * nobody teaching them. Each block below is a worklist with a finish line, not a vanity metric.
+ */
+function HrOverview({ summary }: { summary: HrSummary | null }) {
+  if (!summary) return null;
+  const { headcount, joinersThisMonth, joinersThisYear, needsSetup, coverageGaps } = summary;
+
+  return (
+    <div className="stack">
+      <div className="grid">
+        <div className="metric"><div className="value">{headcount}</div><div className="label">Staff on record</div></div>
+        <div className="metric"><div className="value">{joinersThisMonth}</div><div className="label">Joined this month</div></div>
+        <div className="metric"><div className="value">{joinersThisYear}</div><div className="label">Joined this year</div></div>
+        <div className={`metric ${needsSetup.length ? 'metric-alert' : ''}`}>
+          <div className="value">{needsSetup.length}</div><div className="label">Setup unfinished</div>
+        </div>
+      </div>
+
+      {needsSetup.length > 0 && (
+        <div className="card stack" style={{ gap: 8 }}>
+          <div className="row">
+            <strong style={{ fontSize: 14 }}>⚠ Finish setting these people up</strong>
+            <span className="badge warn">{needsSetup.length}</span>
+          </div>
+          <p className="muted" style={{ margin: 0, fontSize: 12 }}>
+            A record on its own isn&apos;t enough — until these are done the person cannot sign in
+            or has nothing to teach.
+          </p>
+          <div className="chips">
+            {needsSetup.map((p) => (
+              <span key={p.staffId} className="badge warn" title={p.email}>
+                {p.fullName ?? p.email} — {p.reason}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {coverageGaps.length > 0 && (
+        <div className="card stack" style={{ gap: 8 }}>
+          <div className="row">
+            <strong style={{ fontSize: 14 }}>📌 Subjects with no teacher</strong>
+            <span className="badge warn">{coverageGaps.length}</span>
+          </div>
+          {/* This replaces the old vacancy board. It is derived from the real class structure,
+              so it cannot go stale — nobody has to remember to post or close anything. */}
+          <p className="muted" style={{ margin: 0, fontSize: 12 }}>
+            Worked out from your classes and sections, so it&apos;s always current. Assign a teacher
+            on the class page, or hire someone for the gap.
+          </p>
+          <div className="chips">
+            {coverageGaps.slice(0, 40).map((g) => (
+              <Link key={`${g.sectionId}:${g.subjectId}`} className="chip" href={`/classes/${g.classId}`}>
+                {g.className} {g.sectionName} · {g.subjectName}
+              </Link>
+            ))}
+            {coverageGaps.length > 40 && (
+              <span className="muted" style={{ fontSize: 12, alignSelf: 'center' }}>
+                +{coverageGaps.length - 40} more
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 /** Readable temporary password: no look-alike characters (0/O, 1/l/I) because this gets
  *  written on paper and read aloud. 14 chars clears the API's 10-character minimum. */
@@ -49,7 +121,7 @@ export default function StaffPage() {
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [years, setYears] = useState<AcademicYear[]>([]);
   const [assignments, setAssignments] = useState<TeacherAssignment[]>([]);
-  const [profiles, setProfiles] = useState<TeacherApplicationSummary[]>([]);
+  const [summary, setSummary] = useState<HrSummary | null>(null);
   const [msg, setMsg] = useState<Msg>(null);
 
   // Filters — the "categorize by" controls.
@@ -64,16 +136,16 @@ export default function StaffPage() {
   const currentYear = years.find((y) => y.isCurrent) ?? null;
 
   async function load() {
-    const [s, c, k, sec, y, a, p] = await Promise.all([
+    const [s, c, k, sec, y, a] = await Promise.all([
       api.staff.list(),
       apiGet<Campus[]>('/campuses'),
       apiGet<Klass[]>('/classes'),
       apiGet<Section[]>('/sections'),
       apiGet<AcademicYear[]>('/academic-years'),
       api.teacherAssignments.list(),
-      api.teacherApplications.list().catch(() => [] as TeacherApplicationSummary[]),
     ]);
-    setStaff(s); setCampuses(c); setClasses(k); setSections(sec); setYears(y); setAssignments(a); setProfiles(p);
+    api.hr.summary().then(setSummary).catch(() => setSummary(null));
+    setStaff(s); setCampuses(c); setClasses(k); setSections(sec); setYears(y); setAssignments(a);
     const subjArrays = await Promise.all(k.map((cls) => api.subjects.list(cls.id).catch(() => [] as Subject[])));
     setSubjects(subjArrays.flat());
   }
@@ -86,9 +158,6 @@ export default function StaffPage() {
 
   const myCampuses = isOwner ? campuses : campuses.filter((c) => c.id === me?.campusId);
   const assignmentsOf = (staffId: string) => assignments.filter((a) => a.staffId === staffId);
-  // A teacher onboarded through the full-profile form has a matching application (same email),
-  // which is what the per-row "Profile" link opens.
-  const profileByEmail = useMemo(() => new Map(profiles.map((p) => [p.email.toLowerCase(), p])), [profiles]);
 
   // Apply the filters (campus / type / subject / free text), then group what remains by campus.
   const filtered = useMemo(() => {
@@ -116,7 +185,6 @@ export default function StaffPage() {
         <h1>Staff</h1>
         <div className="row" style={{ gap: 8 }}>
           <button onClick={() => setAddingStaff((v) => !v)}>{addingStaff ? 'Close' : '+ Add teacher'}</button>
-          <Link className="chip" href="/teachers">🧑‍🏫 Add teacher (full profile)</Link>
         </div>
       </div>
       <p className="muted" style={{ margin: 0 }}>
@@ -125,6 +193,9 @@ export default function StaffPage() {
         type, or subject below.{isOwner && <> Logins and passwords are managed in <b>Campus Hub</b>.</>}
       </p>
       {msg && <div className={`toast ${msg.ok ? 'ok' : 'err'}`}>{msg.text}</div>}
+
+      <HrOverview summary={summary} />
+
 
       {/* Shown once, right after creation — the password is never retrievable again. */}
       {newLogin && (
@@ -193,7 +264,6 @@ export default function StaffPage() {
             <p className="muted" style={{ margin: 0, fontSize: 13 }}>No staff match here.</p>
           ) : g.items.map((t) => (
             <StaffRow key={t.id} member={t} isOwner={isOwner}
-              profileId={profileByEmail.get(t.user.email.toLowerCase())?.id ?? null}
               assignments={assignmentsOf(t.id)}
               classes={classes.filter((k) => k.campusId === g.id)} sections={sections} subjects={subjects}
               currentYear={currentYear}
@@ -396,8 +466,8 @@ function AddStaff({ campuses, lockedCampus, onCreate }: {
   );
 }
 
-function StaffRow({ member, isOwner, profileId, assignments, classes, sections, subjects, currentYear, onMsg, reload, onAssign, onRemove }: {
-  member: ManagedTeacher; isOwner: boolean; profileId: string | null; assignments: TeacherAssignment[]; classes: Klass[]; sections: Section[]; subjects: Subject[];
+function StaffRow({ member, isOwner, assignments, classes, sections, subjects, currentYear, onMsg, reload, onAssign, onRemove }: {
+  member: ManagedTeacher; isOwner: boolean; assignments: TeacherAssignment[]; classes: Klass[]; sections: Section[]; subjects: Subject[];
   currentYear: AcademicYear | null;
   onMsg: (ok: boolean, text: string) => void;
   reload: () => Promise<void>;
@@ -437,9 +507,6 @@ function StaffRow({ member, isOwner, profileId, assignments, classes, sections, 
         <span className="badge">{member.staffType.charAt(0) + member.staffType.slice(1).toLowerCase()}</span>
         <span className={`badge ${member.user.status === 'ACTIVE' ? 'ok' : member.user.status === 'INVITED' ? 'warn' : 'bad'}`}>{member.user.status}</span>
         <div className="row" style={{ gap: 8, marginLeft: 'auto' }}>
-          {profileId && (
-            <Link className="ghost small" href={`/teachers?id=${profileId}`} style={{ textDecoration: 'none' }}>Profile</Link>
-          )}
           {isOwner && (
             <button className="ghost small" onClick={() => setAccessOpen((v) => !v)}>
               {accessOpen ? 'Close access' : '⚙ Manage access'}

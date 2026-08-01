@@ -310,12 +310,17 @@ export const api = {
   me: () => apiGet<Me>('/auth/me'),
   mfa: {
     /** Step 2 of login for an MFA-enabled account — exchanges the pending token for a session. */
-    challenge: (mfaToken: string, code: string) => apiPost<{ user: Me }>('/auth/mfa/challenge', { mfaToken, code }),
+    challenge: (mfaToken: string, code: string) =>
+      apiPost<{ user: Me; usedRecoveryCode?: boolean; recoveryCodesRemaining?: number }>('/auth/mfa/challenge', { mfaToken, code }),
     /** Starts enrolment: rotates a fresh secret and returns its otpauth:// URI. */
     setup: () => apiPost<{ otpauthUrl: string }>('/auth/mfa/setup'),
-    /** Confirms the first code and switches MFA on. */
-    verify: (code: string) => apiPost<null>('/auth/mfa/verify', { code }),
+    /** Confirms the first code, switches MFA on, and returns the recovery codes ONCE. */
+    verify: (code: string) => apiPost<{ recoveryCodes: string[] }>('/auth/mfa/verify', { code }),
     disable: (password: string, code: string) => apiDelete<null>('/auth/mfa', { password, code }),
+    /** How many unused codes remain — the only readable fact about them. */
+    recoveryStatus: () => apiGet<{ remaining: number }>('/auth/mfa/recovery-codes'),
+    /** Issues a fresh set of ten and invalidates the old one. Shown once. */
+    regenerateRecovery: () => apiPost<{ recoveryCodes: string[] }>('/auth/mfa/recovery-codes'),
   },
   dashboard: () => apiGet<Dashboard>('/dashboard'),
   users: {

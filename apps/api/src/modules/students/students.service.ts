@@ -346,6 +346,82 @@ export class StudentsService {
     return { cnic: this.crypto.decrypt(row.cnicEnc) };
   }
 
+  /**
+   * Record or replace a student's CNIC/B-Form after admission, provisioning the portal login if
+   * they don't have one yet.
+   *
+   * This closes a gap the admission screen had been advertising: it told the officer to "add a
+   * CNIC later" while no route existed to do it, so a student admitted without one could never
+   * get a portal login. It also unblocks students recorded before `cnic_enc` existed — their
+   * hash can verify a sign-in but can never be read back, and re-entering the number is the
+   * only way to make it revealable.
+   *
+   * Replacing an existing CNIC **changes a live credential**: the student signs in with
+   * registration-no + CNIC, so the old number stops working immediately. Hence the audit entry
+   * records whether this was a first capture or a replacement — never the value itself.
+   */
+  async setCnic(id: string, cnic: string) {
+    const student = await this.getOne(id); // 404 + campus scope
+    const row = await this.db.student.findFirst({
+      where: { id },
+      select: { userId: true, cnicHash: true, registrationNo: true },
+    });
+    if (!row) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'Student not found');
+
+    const hash = this.hashCnic(cnic);
+    // Another student signing in with this number would be ambiguous — the portal resolves a
+    // login by (registrationNo, cnicHash), so a duplicate is a data-entry error worth naming.
+    const clash = await this.db.student.findFirst({
+      where: { cnicHash: hash, deletedAt: null, NOT: { id } },
+      select: { fullName: true, grNumber: true },
+    });
+    if (clash) {
+      throw new AppError(
+        ErrorCodes.CONFLICT,
+        HttpStatus.CONFLICT,
+        `This CNIC is already recorded for ${clash.fullName} (GR ${clash.grNumber}). Check the number before saving.`,
+      );
+    }
+
+    const replaced = Boolean(row.cnicHash);
+    let loginProvisioned = false;
+
+    await this.db.student.update({
+      where: { id },
+      data: { cnicHash: hash, cnicEnc: this.crypto.encrypt(cnic) },
+    });
+
+    // Mirrors the admission path exactly, so a login created later is indistinguishable from
+    // one created at admission.
+    if (!row.userId) {
+      const user = await this.db.user.create({
+        data: {
+          schoolId: this.ctx.requireSchoolId(),
+          email: `s-${row.registrationNo}@student.local`.toLowerCase(),
+          roles: ['STUDENT'],
+          status: 'ACTIVE',
+        },
+      });
+      await this.db.student.update({ where: { id }, data: { userId: user.id } });
+      loginProvisioned = true;
+    }
+
+    await this.audit.record({
+      action: AuditActions.STUDENT_CNIC_SET,
+      entityType: 'Student',
+      entityId: id,
+      // Identity and the nature of the change — never the number.
+      newValue: {
+        fullName: student.fullName,
+        grNumber: student.grNumber,
+        replacedExisting: replaced,
+        loginProvisioned,
+      },
+    });
+
+    return { loginProvisioned, replacedExisting: replaced, registrationNo: row.registrationNo };
+  }
+
   async update(id: string, dto: UpdateStudentDto) {
     const before = await this.getOne(id);
     const updated = await this.db.student.update({

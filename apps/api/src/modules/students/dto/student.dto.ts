@@ -151,6 +151,12 @@ export class ChangeStudentStatusDto {
   endsOn?: string;
 }
 
+/** Record or replace a student's CNIC/B-Form after admission (§8/§28). */
+export class SetStudentCnicDto {
+  @IsString() @Matches(/^\d{5}-?\d{7}-?\d$/, { message: 'CNIC/B-Form must be 13 digits' })
+  cnic!: string;
+}
+
 export class StudentSearchQuery extends PaginationQuery {
   /** name (trigram), exact GR, or guardian phone. */
   @IsOptional() @IsString()

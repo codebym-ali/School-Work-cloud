@@ -35,6 +35,9 @@ export const PERMISSION_MATRIX: MatrixRow[] = [
   { label: 'delete student', method: 'delete', path: '/api/v1/students/00000000-0000-0000-0000-000000000000', allow: ['OWNER_ADMIN'] },
   // Reading a child's national ID is admin-only — notably NOT the admission officer, who
   // captures the CNIC but has no reason to read it back afterwards.
+  // Recording a CNIC changes a live sign-in credential, so it is admin-only like the reveal —
+  // notably NOT the admission officer, who captures it at admission but may not rewrite it.
+  { label: 'set student cnic', method: 'patch', path: '/api/v1/students/00000000-0000-0000-0000-000000000000/cnic', body: { cnic: '42101-1234567-1' }, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
   { label: 'reveal student cnic', method: 'get', path: '/api/v1/students/00000000-0000-0000-0000-000000000000/cnic', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
   // ADD includes the admission officer — the guardian is optional at admission, so they must
   // be able to complete the record they created. Edit/remove stay admin-only (below).

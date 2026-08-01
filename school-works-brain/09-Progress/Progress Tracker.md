@@ -606,6 +606,18 @@ Operator asked whether a teacher can mark attendance for the previous week. **Th
   - **A fixture caught by a real guard:** the portal spec first used September dates, which the class-test **future-date** rule correctly rejected. Test data must obey the domain rules, not sit outside them.
 
 
+## ➕ Add or change a student's CNIC after admission (2026-08-01)
+Closes the gap flagged since the CNIC-encryption work: the admission screen told officers to *"add a CNIC later"* while **no route existed to do it**, and students recorded before `cnic_enc` had a CNIC that could verify a sign-in but never be read back.
+
+- **`PATCH /students/:id/cnic`** (OWNER/CAMPUS_ADMIN) writes both forms — HMAC for login, ciphertext for the audited reveal — and **provisions the portal login when the student has none**, mirroring the admission path exactly so a login created later is indistinguishable from one created at admission.
+- **Replacing a CNIC changes a LIVE credential.** The student signs in with registration-no + CNIC, so the old number stops working the moment it is saved. Hence admin-only (notably *not* the admission officer, who captures it but may not rewrite it), audited as `STUDENT_CNIC_SET` recording **`replacedExisting` / `loginProvisioned` and identity — never the number**, and the UI states the consequence *before* the click rather than after.
+- **Duplicate CNICs are refused (409, naming the other student).** The portal resolves a login by `(registrationNo, cnicHash)`, so two students sharing a number is an ambiguity waiting to happen — better caught at entry than discovered at a sign-in.
+- **Two false messages corrected:** the admission success card now points at the student profile instead of claiming a capability that did not exist, and the reveal endpoint's *"re-enter it to make it readable"* hint finally refers to a real action.
+- **Live-proved on the demo tenant with a real legacy student** (Arooj Anjum, GR 575): `cnicRevealable:false` and the honest 404 → `PATCH` → `replacedExisting:true, loginProvisioned:false` → `cnicRevealable:true` and the reveal returns the number. Audit row carries name + GR only; **0 audit rows anywhere contain the value**.
+- **⚠️ Operator note:** that verification **overwrote Arooj Anjum's CNIC** with a test value (`42101-9998887-6`). Her original was hash-only and is unrecoverable by design, so her portal sign-in now needs the new number — re-enter the real one from her profile.
+- **Tests:** 2 new cases in `student-login.e2e` (first capture provisions a working login and becomes revealable; replacement retires the old credential and a duplicate 409s) + a matrix row. **510/510 across 37 suites**, both lints, api+worker build.
+  - *Spec gotcha:* `admissionController()` mints a deterministic email per campus, so calling it twice for one campus violates `(school_id, email)` — hoist the helper's `admit` to spec scope instead.
+
 ## 🧾 Cross-cutting backlog (not milestone-blocking)
 - [ ] **Blueprint spec PR — parent portal.** §5 (users/roles), §23 (permission matrix `PARENT` row) and §33's "Parent:" UI paragraph still describe a portal that no longer exists. Needs a change-controlled PR + Appendix E changelog entry, per the blueprint's own header. Tracked here because the brain cannot fix it unilaterally.
 - [ ] **`section_subjects.id` drift.** The DB carries a column default Prisma does not model, so **every** `prisma migrate diff` emits `ALTER COLUMN "id" DROP DEFAULT`. Harmless but it is a second permanent false positive next to the trigram index, and false positives are how a real DROP eventually gets waved through. Either drop the DB default or teach the curation step about it.

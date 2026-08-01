@@ -412,6 +412,10 @@ export const api = {
   students: {
     // Direct admission — ADMISSION_CONTROLLER only. A 422 AGE_OUT_OF_RANGE is retried with ageOverride.
     admit: (body: DirectAdmissionBody) => apiPost<AdmissionResult>('/students', body),
+    /** Record or replace the CNIC after admission; provisions the portal login if absent.
+     *  Replacing one RETIRES the old number as a sign-in credential. */
+    setCnic: (id: string, cnic: string) =>
+      apiPatch<{ loginProvisioned: boolean; replacedExisting: boolean; registrationNo: string | null }>(`/students/${id}/cnic`, { cnic }),
     /** Audited: every reveal writes a STUDENT_CNIC_REVEALED row. Owner / campus admin only. */
     revealCnic: (id: string) => apiGet<{ cnic: string }>(`/students/${id}/cnic`),
     // Existing-parent lookup by phone for the guardian match→link step.

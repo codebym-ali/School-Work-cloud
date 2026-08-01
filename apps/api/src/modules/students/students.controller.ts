@@ -17,6 +17,7 @@ import { StudentsImportService } from './students-import.service';
 import { PhoneVerificationService } from './phone-verification.service';
 import {
   AddGuardianDto,
+  SetStudentCnicDto,
   ChangeStudentStatusDto,
   ConfirmOtpDto,
   CreateStudentDto,
@@ -68,6 +69,17 @@ export class StudentsController {
   @Get(':id')
   getOne(@Param('id') id: string) {
     return this.students.getOne(id);
+  }
+
+  /**
+   * Record or replace the CNIC after admission — the route the admission screen was already
+   * telling officers existed. Also provisions the portal login when the student has none.
+   * Admin-only: it changes a live sign-in credential.
+   */
+  @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
+  @Patch(':id/cnic')
+  setCnic(@Param('id') id: string, @Body() dto: SetStudentCnicDto) {
+    return this.students.setCnic(id, dto.cnic);
   }
 
   /** Audited reveal of a student's national ID — see `StudentsService.revealCnic`. */

@@ -113,8 +113,8 @@ export function DirectAdmission({
           </div>
         ) : (
           <p className="muted" style={{ margin: 0, fontSize: 13 }}>
-            No CNIC entered, so no portal login was created — a CNIC can currently only be recorded
-            at admission.
+            No CNIC entered, so no portal login was created yet. Add one any time from the
+            student&apos;s profile in <b>Students</b> — that creates the login too.
           </p>
         )}
         <div><button onClick={() => { setDone(null); setF({ gender: 'MALE' }); setGuardian({ mode: 'CREATE', relation: 'FATHER' }); }}>Admit another</button></div>

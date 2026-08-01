@@ -20,6 +20,12 @@ describe('Student login: reg-no + CNIC (e2e, §28)', () => {
   let schoolId: string;
   let regNo: string;
   let studentId: string;
+  let campusId: string;
+  let classId: string;
+  let sectionId: string;
+  /** One admission-controller session for the whole spec — the helper mints a deterministic
+   *  email per campus, so calling it twice for the same campus collides on (school, email). */
+  let admit: (dto: object) => request.Test;
   const cnic = '42101-1234567-9';
 
   const sub = `slog-${randomUUID().slice(0, 8)}`;
@@ -44,18 +50,21 @@ describe('Student login: reg-no + CNIC (e2e, §28)', () => {
     const provisioning = app.get(ProvisioningService, { strict: false });
     const prov = await provisioning.provisionSchool({ name: 'SLog School', subdomain: sub, ownerEmail: owner.email, ownerPassword: owner.password });
     schoolId = prov.schoolId;
+    campusId = prov.campusId;
 
     const login = await request(server()).post('/api/v1/auth/login').set('Host', host).send(owner);
     const cookies = login.headers['set-cookie'] as unknown as string[];
     await post('/api/v1/academic-years', { name: '2026-27', startDate: '2026-04-01', endDate: '2027-03-31', isCurrent: true }, cookies);
-    const klass = await post('/api/v1/classes', { campusId: prov.campusId, name: 'Grade 9', order: 9 }, cookies);
-    const section = await post('/api/v1/sections', { classId: klass.body.id, name: 'A' }, cookies);
+    const klass = await post('/api/v1/classes', { campusId, name: 'Grade 9', order: 9 }, cookies);
+    classId = klass.body.id;
+    const section = await post('/api/v1/sections', { classId, name: 'A' }, cookies);
+    sectionId = section.body.id;
 
     // Admission controller admits a student WITH a CNIC → provisions the portal login.
-    const { admit } = await admissionController(app, platform, schoolId, host, prov.campusId);
+    ({ admit } = await admissionController(app, platform, schoolId, host, campusId));
     const created = await admit({
       fullName: 'Login Kid', gender: 'MALE', dateOfBirth: '2011-05-01',
-      campusId: prov.campusId, classId: klass.body.id, sectionId: section.body.id, cnic,
+      campusId, classId, sectionId, cnic,
       guardian: { mode: 'CREATE', fullName: 'Papa', phone: '03007654321', relation: 'FATHER' },
     });
     regNo = created.body.registrationNo;
@@ -117,6 +126,79 @@ describe('Student login: reg-no + CNIC (e2e, §28)', () => {
     // Revealing does not disturb the login factor.
     const stillWorks = await portalLogin({ registrationNo: regNo, cnic });
     expect(stillWorks.status).toBe(200);
+  });
+
+  /** The route the admission screen had been promising all along: a student admitted without a
+   *  CNIC could never get a portal login, and a CNIC captured before `cnic_enc` existed could
+   *  verify a sign-in but never be read back. One endpoint closes both. */
+  it('records a CNIC after admission, provisioning the login, and the student can then sign in', async () => {
+    const login = await request(server()).post('/api/v1/auth/login').set('Host', host).send(owner);
+    const ownerCookies = login.headers['set-cookie'] as unknown as string[];
+    const csrf = csrfOf(ownerCookies);
+
+    // A second student admitted with NO cnic — so no portal login at all.
+    const late = await admit({
+      fullName: 'Late Cnic', gender: 'MALE', dateOfBirth: '2013-06-06',
+      campusId, classId, sectionId,
+      guardian: { mode: 'CREATE', fullName: 'L Parent', phone: '03119990001', relation: 'FATHER' },
+    });
+    const lateId = late.body.studentId as string;
+    const lateReg = late.body.registrationNo as string;
+
+    const before = await platform.student.findFirst({ where: { id: lateId }, select: { userId: true } });
+    expect(before?.userId).toBeNull(); // no login — the state this endpoint exists to fix
+
+    const lateCnic = '42101-5556667-8';
+    const res = await request(server()).patch(`/api/v1/students/${lateId}/cnic`)
+      .set('Host', host).set('Cookie', ownerCookies).set('X-CSRF-Token', csrf)
+      .send({ cnic: lateCnic });
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ loginProvisioned: true, replacedExisting: false });
+
+    // The login now exists AND works — indistinguishable from one created at admission.
+    const signIn = await portalLogin({ registrationNo: lateReg, cnic: lateCnic });
+    expect(signIn.status).toBe(200);
+
+    // And it is revealable, which a hash-only record never was.
+    const reveal = await request(server()).get(`/api/v1/students/${lateId}/cnic`).set('Host', host).set('Cookie', ownerCookies);
+    expect(reveal.body.cnic).toBe(lateCnic);
+
+    // Audited as a first capture, with identity but never the number.
+    const row = await platform.auditLog.findFirst({
+      where: { schoolId, action: 'STUDENT_CNIC_SET' }, orderBy: { createdAt: 'desc' },
+    });
+    expect(row?.newValue).toMatchObject({ replacedExisting: false, loginProvisioned: true });
+    expect(JSON.stringify(row?.newValue)).not.toContain(lateCnic);
+  });
+
+  it('replacing a CNIC retires the old one as a credential, and refuses a duplicate', async () => {
+    const login = await request(server()).post('/api/v1/auth/login').set('Host', host).send(owner);
+    const ownerCookies = login.headers['set-cookie'] as unknown as string[];
+    const csrf = csrfOf(ownerCookies);
+    const patch = (id: string, c: string) =>
+      request(server()).patch(`/api/v1/students/${id}/cnic`)
+        .set('Host', host).set('Cookie', ownerCookies).set('X-CSRF-Token', csrf).send({ cnic: c });
+
+    const replacement = '42101-1111222-3';
+    const res = await patch(studentId, replacement);
+    expect(res.body.replacedExisting).toBe(true);
+
+    // The OLD number stops working immediately — this is a live credential change, which is
+    // exactly why the endpoint is admin-only and audited.
+    expect((await portalLogin({ registrationNo: regNo, cnic })).status).toBe(401);
+    expect((await portalLogin({ registrationNo: regNo, cnic: replacement })).status).toBe(200);
+
+    // Two students cannot share a CNIC — the portal resolves a login by (regNo, cnicHash), so a
+    // duplicate is a data-entry error worth naming rather than an ambiguity to discover later.
+    const other = await platform.student.findFirst({ where: { schoolId, NOT: { id: studentId } }, select: { id: true } });
+    if (other) {
+      const clash = await patch(other.id, replacement);
+      expect(clash.status).toBe(409);
+      expect(clash.body.error.message).toContain('already recorded for');
+    }
+
+    // Restore so later cases in this spec still see the original credential.
+    await patch(studentId, cnic);
   });
 
   it('a soft-deleted student cannot sign in', async () => {

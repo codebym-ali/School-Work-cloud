@@ -13,6 +13,9 @@ export const AuditActions = {
   /** A national ID was decrypted and shown to a human — the read itself is the event worth
    *  recording, which is why reveal is a separate endpoint and not part of the profile load. */
   STUDENT_CNIC_REVEALED: 'STUDENT_CNIC_REVEALED',
+  /** A CNIC was recorded or replaced after admission. Replacing one changes a live portal
+   *  credential, so the event matters even though the value is never written to the log. */
+  STUDENT_CNIC_SET: 'STUDENT_CNIC_SET',
   GUARDIAN_LINKED: 'GUARDIAN_LINKED',
   GUARDIAN_UNLINKED: 'GUARDIAN_UNLINKED',
   PRIMARY_GUARDIAN_CHANGED: 'PRIMARY_GUARDIAN_CHANGED',

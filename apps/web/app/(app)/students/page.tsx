@@ -1,6 +1,6 @@
 'use client';
 
-import { type ChangeEvent, Suspense, useEffect, useState } from 'react';
+import { type ChangeEvent, Suspense, useCallback, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { api, apiGet, apiPost, ApiError, type Campus, type ImportResult, type Klass, type Paged, type Section, type Student, type StudentDetail, type StudentStatus } from '@/lib/api';
 import { classLabeller } from '@/lib/labels';
@@ -336,44 +336,85 @@ function DeleteStudentDialog({ student, onClose, onDone, onError }: {
  * "we never captured it" and "we captured it but can't read it back" are different facts and
  * collapsing them into one blank would mislead the office.
  */
-function CnicRow({ student }: { student: StudentDetail }) {
+function CnicRow({ student, onSaved }: { student: StudentDetail; onSaved: () => void }) {
   const [value, setValue] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
 
   async function reveal() {
-    setBusy(true);
-    setErr(null);
+    setBusy(true); setErr(null);
+    try { setValue((await api.students.revealCnic(student.id)).cnic); }
+    catch (e) { setErr(e instanceof ApiError ? e.message : 'Could not reveal the CNIC'); }
+    finally { setBusy(false); }
+  }
+
+  async function save() {
+    setBusy(true); setErr(null); setNote(null);
     try {
-      setValue((await api.students.revealCnic(student.id)).cnic);
+      const res = await api.students.setCnic(student.id, input.trim());
+      setEditing(false); setInput(''); setValue(null);
+      setNote(res.loginProvisioned
+        ? `Saved — portal login created. They sign in with registration number ${res.registrationNo ?? '—'} and this CNIC.`
+        : res.replacedExisting
+          ? 'Saved — the previous CNIC no longer works for signing in.'
+          : 'Saved.');
+      onSaved();
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : 'Could not reveal the CNIC');
-    } finally {
-      setBusy(false);
-    }
+      setErr(e instanceof ApiError ? e.message : 'Could not save the CNIC');
+    } finally { setBusy(false); }
   }
 
   return (
-    <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-      <span className="muted" style={{ minWidth: 150, fontSize: 13 }}>CNIC / B-Form</span>
-      {!student.hasCnic ? (
-        <span className="muted">Not provided</span>
-      ) : value ? (
-        <>
-          <span>{value}</span>
-          <button className="ghost small" onClick={() => setValue(null)}>Hide</button>
-        </>
-      ) : (
-        <>
-          <span>•••••-•••••••-•</span>
-          {student.cnicRevealable ? (
-            <button className="ghost small" disabled={busy} onClick={reveal}>{busy ? 'Revealing…' : 'Reveal'}</button>
+    <div className="stack" style={{ gap: 4 }}>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        <span className="muted" style={{ minWidth: 150, fontSize: 13 }}>CNIC / B-Form</span>
+
+        {!student.hasCnic ? <span className="muted">Not provided</span>
+          : value ? (
+            <>
+              <span>{value}</span>
+              <button className="ghost small" onClick={() => setValue(null)}>Hide</button>
+            </>
           ) : (
-            <span className="muted" style={{ fontSize: 12 }}>on file — recorded before it could be shown</span>
+            <>
+              <span>•••••-•••••••-•</span>
+              {student.cnicRevealable
+                ? <button className="ghost small" disabled={busy} onClick={reveal}>{busy ? 'Revealing…' : 'Reveal'}</button>
+                : <span className="muted" style={{ fontSize: 12 }}>on file — recorded before it could be shown</span>}
+            </>
           )}
-        </>
+
+        {!editing && (
+          <button className="ghost small" onClick={() => { setEditing(true); setNote(null); }}>
+            {student.hasCnic ? 'Change' : 'Add CNIC'}
+          </button>
+        )}
+      </div>
+
+      {editing && (
+        <div className="stack" style={{ gap: 4, paddingLeft: 158 }}>
+          <div className="row" style={{ gap: 8, justifyContent: 'flex-start' }}>
+            <input value={input} onChange={(e) => setInput(e.target.value)} placeholder="12345-1234567-1"
+              inputMode="numeric" style={{ maxWidth: 200 }}
+              onKeyDown={(e) => { if (e.key === 'Enter' && input.trim()) save(); }} />
+            <button disabled={busy || !input.trim()} onClick={save}>{busy ? 'Saving…' : 'Save'}</button>
+            <button className="ghost" onClick={() => { setEditing(false); setInput(''); setErr(null); }}>Cancel</button>
+          </div>
+          {/* Say the consequence BEFORE the click. Replacing a CNIC changes a live credential —
+              the student's old number stops working the moment this is saved. */}
+          <span className="muted" style={{ fontSize: 12 }}>
+            {student.hasCnic
+              ? 'This replaces the current CNIC. The old number will stop working for the student portal.'
+              : "Recording a CNIC also creates the student's portal login."}
+          </span>
+        </div>
       )}
-      {err && <span style={{ color: '#b91c1c', fontSize: 12 }}>{err}</span>}
+
+      {note && <span style={{ color: '#15803d', fontSize: 12, paddingLeft: 158 }}>{note}</span>}
+      {err && <span style={{ color: '#b91c1c', fontSize: 12, paddingLeft: 158 }}>{err}</span>}
     </div>
   );
 }
@@ -381,9 +422,12 @@ function CnicRow({ student }: { student: StudentDetail }) {
 function StudentProfile({ id, classes, sections, onBack }: { id: string; classes: Klass[]; sections: Section[]; onBack: () => void }) {
   const [s, setS] = useState<StudentDetail | null>(null);
   const [error, setError] = useState<ApiError | null>(null);
-  useEffect(() => {
+  /** Named so the CNIC row can refresh the profile after saving — hasCnic, cnicRevealable and
+   *  portalLoginEnabled all change together, and a stale card would contradict what just happened. */
+  const load = useCallback(() => {
     apiGet<StudentDetail>(`/students/${id}`).then(setS).catch((e) => setError(e instanceof ApiError ? e : new ApiError(0, 'INTERNAL', 'Failed')));
   }, [id]);
+  useEffect(() => { load(); }, [load]);
 
   const className = (cid: string) => classes.find((c) => c.id === cid)?.name ?? '?';
   const sectionName = (sid: string) => sections.find((x) => x.id === sid)?.name ?? '?';
@@ -412,7 +456,7 @@ function StudentProfile({ id, classes, sections, onBack }: { id: string; classes
             <div className="stack" style={{ gap: 4 }}>
               <Row k="Gender" v={s.gender} />
               <Row k="Date of birth" v={s.dateOfBirth?.slice(0, 10)} />
-              <CnicRow student={s} />
+              <CnicRow student={s} onSaved={load} />
               <Row
                 k="Portal login"
                 v={s.portalLoginEnabled

@@ -42,6 +42,10 @@ const MANDATORY_MFA_ROLES: Role[] = ['OWNER_ADMIN', 'ACCOUNTANT'];
 export interface SessionResult {
   user: { id: string; email: string; roles: Role[]; campusId: string | null };
   mfaEnrollmentRequired?: boolean;
+  /** Set when the user got in with a recovery code rather than their authenticator, so the UI
+   *  can warn them that one is now spent and how many are left. */
+  usedRecoveryCode?: boolean;
+  recoveryCodesRemaining?: number;
 }
 export type LoginResult = SessionResult | { mfaRequired: true; mfaToken: string };
 
@@ -192,12 +196,23 @@ export class AuthService {
     if (!user || !user.mfaEnabled || !user.mfaSecretEnc) {
       throw new AppError(ErrorCodes.MFA_INVALID, HttpStatus.UNAUTHORIZED, 'MFA not available');
     }
-    const secret = this.crypto.decrypt(user.mfaSecretEnc);
-    if (!authenticator.verify({ token: dto.code, secret })) {
-      throw new AppError(ErrorCodes.MFA_INVALID, HttpStatus.UNAUTHORIZED, 'Invalid MFA code');
+    // A recovery code is accepted in place of the authenticator — this is the whole point of
+    // the feature, and it is tried first so a code is consumed rather than rejected as a bad TOTP.
+    const usedRecovery = await this.consumeRecoveryCode(user.id, dto.code);
+    if (!usedRecovery) {
+      const secret = this.crypto.decrypt(user.mfaSecretEnc);
+      if (!authenticator.verify({ token: dto.code, secret })) {
+        throw new AppError(ErrorCodes.MFA_INVALID, HttpStatus.UNAUTHORIZED, 'Invalid MFA code');
+      }
     }
     await this.db.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
-    return this.issueSession(user, res);
+    const session = await this.issueSession(user, res);
+    if (usedRecovery) {
+      // Tell them plainly: a code is now spent, and running out means a lockout again.
+      const { remaining } = await this.recoveryCodeStatus(user.id);
+      return { ...session, usedRecoveryCode: true, recoveryCodesRemaining: remaining };
+    }
+    return session;
   }
 
   // ── Session issuance ────────────────────────────────────────────────────────
@@ -373,7 +388,7 @@ export class AuthService {
     return { otpauthUrl };
   }
 
-  async mfaVerify(principal: RequestUser, dto: MfaVerifyDto): Promise<void> {
+  async mfaVerify(principal: RequestUser, dto: MfaVerifyDto): Promise<{ recoveryCodes: string[] }> {
     const user = await this.db.user.findFirst({ where: { id: principal.userId } });
     if (!user?.mfaSecretEnc) {
       throw new AppError(ErrorCodes.MFA_INVALID, HttpStatus.UNPROCESSABLE_ENTITY, 'Start MFA setup first');
@@ -383,7 +398,77 @@ export class AuthService {
       throw new AppError(ErrorCodes.MFA_INVALID, HttpStatus.UNPROCESSABLE_ENTITY, 'Invalid MFA code');
     }
     await this.db.user.update({ where: { id: user.id }, data: { mfaEnabled: true } });
-    // TODO(§22.5): issue 10 single-use recovery codes (needs a recovery_codes table).
+    // Recovery codes are issued WITH enrolment, never as a later opt-in: the moment MFA is on,
+    // a lost authenticator is a lockout, and a user who has to remember to generate codes is a
+    // user who will not have them when they need them.
+    return { recoveryCodes: await this.regenerateRecoveryCodes(user.id) };
+  }
+
+  /**
+   * Replace this user's recovery codes with a fresh set of ten, returning the PLAINTEXT once.
+   *
+   * Stored as argon2 hashes exactly like passwords — nothing can read them back afterwards, so
+   * the caller must show them immediately or the user has none. Regenerating deletes the old
+   * set outright: a half-old, half-new pile is impossible to reason about, and someone
+   * regenerating usually does so because they believe the old list is compromised or lost.
+   */
+  async regenerateRecoveryCodes(userId: string): Promise<string[]> {
+    const codes = Array.from({ length: 10 }, () => this.newRecoveryCode());
+    // Take the tenant from the user row itself rather than request context: these two can never
+    // legitimately differ, and reading it here keeps the method callable from any entry point.
+    const owner = await this.db.user.findFirst({ where: { id: userId }, select: { schoolId: true } });
+    if (!owner) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'User not found');
+    const schoolId = owner.schoolId;
+    await this.db.mfaRecoveryCode.deleteMany({ where: { userId } });
+    for (const code of codes) {
+      await this.db.mfaRecoveryCode.create({
+        data: { schoolId, userId, codeHash: await this.passwords.hash(this.normalizeRecoveryCode(code)) },
+      });
+    }
+    return codes;
+  }
+
+  /** How many codes this user has left — the only thing about them that can ever be READ. */
+  async recoveryCodeStatus(userId: string): Promise<{ remaining: number }> {
+    return { remaining: await this.db.mfaRecoveryCode.count({ where: { userId, usedAt: null } }) };
+  }
+
+  /**
+   * Readable, unambiguous codes: no look-alike glyphs (0/O, 1/I/l), grouped for transcription,
+   * because these get written on paper and typed back under stress.
+   */
+  private newRecoveryCode(): string {
+    const alphabet = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+    const pick = () => alphabet[randomBytes(1)[0] % alphabet.length];
+    const block = () => Array.from({ length: 5 }, pick).join('');
+    return `${block()}-${block()}`;
+  }
+
+  /** Compared case- and dash-insensitively — the user is copying from paper, not a password field. */
+  private normalizeRecoveryCode(code: string): string {
+    return code.replace(/[^a-z0-9]/gi, '').toUpperCase();
+  }
+
+  /**
+   * Consume a recovery code, if the supplied value is one. Returns false when it isn't, so the
+   * caller can fall through to normal TOTP verification.
+   *
+   * Every unused code must be checked with argon2 (the hash is deliberately slow and salted, so
+   * there is no lookup by value) — 10 verifies is acceptable for a path taken once in a crisis.
+   */
+  private async consumeRecoveryCode(userId: string, supplied: string): Promise<boolean> {
+    const normalized = this.normalizeRecoveryCode(supplied);
+    if (normalized.length < 8) return false; // a 6-digit TOTP can never be a recovery code
+    const candidates = await this.db.mfaRecoveryCode.findMany({ where: { userId, usedAt: null } });
+    for (const c of candidates) {
+      if (await this.passwords.verify(c.codeHash, normalized)) {
+        // Marked used BEFORE the session is issued, so two concurrent attempts with the same
+        // code cannot both succeed.
+        await this.db.mfaRecoveryCode.update({ where: { id: c.id }, data: { usedAt: new Date() } });
+        return true;
+      }
+    }
+    return false;
   }
 
   async disableMfa(principal: RequestUser, dto: DisableMfaDto): Promise<void> {
@@ -399,6 +484,9 @@ export class AuthService {
       where: { id: user.id },
       data: { mfaEnabled: false, mfaSecretEnc: null },
     });
+    // The codes exist only to recover THIS second factor; leaving them behind would keep a
+    // credential alive for an authenticator that no longer exists.
+    await this.db.mfaRecoveryCode.deleteMany({ where: { userId: user.id } });
   }
 
   async me(principal: RequestUser): Promise<{ id: string; email: string; roles: Role[]; campusId: string | null; modules: string[]; mfaEnabled: boolean; admissionsMode: SchoolSettings['admissionsMode'] }> {

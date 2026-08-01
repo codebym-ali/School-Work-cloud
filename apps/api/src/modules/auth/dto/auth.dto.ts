@@ -24,9 +24,15 @@ export class MfaChallengeDto {
   @IsString()
   mfaToken!: string;
 
+  /**
+   * A 6-digit TOTP **or** a recovery code (§22.5) — the shape must admit both, or a locked-out
+   * user's recovery code is rejected by validation before the service can even try it, which is
+   * precisely the lockout recovery codes exist to end. Dashes/spaces/case are tolerated because
+   * the code is copied off paper; the service normalises before comparing.
+   */
   @IsString()
-  @Length(6, 6)
-  @Matches(/^\d{6}$/, { message: 'code must be 6 digits' })
+  @Length(6, 24)
+  @Matches(/^[a-z0-9\s-]+$/i, { message: 'code must be a 6-digit code or a recovery code' })
   code!: string;
 }
 

@@ -278,6 +278,7 @@ model School {
   smsLogs             SmsLog[]
   documents           Document[]
   auditLogs           AuditLog[]
+  mfaRecoveryCodes    MfaRecoveryCode[]
   classTests          ClassTest[]
   classTestScores     ClassTestScore[]
 
@@ -520,6 +521,7 @@ model User {
   issuedDocuments        Document[]
   auditLogs              AuditLog[]
   createdClassTests          ClassTest[]
+  mfaRecoveryCodes           MfaRecoveryCode[]
 
   @@unique([id, schoolId])
   // Partial unique in 02_partial_uniques.sql: (school_id, email) WHERE deleted_at IS NULL.
@@ -1477,4 +1479,25 @@ model ClassTestScore {
   @@index([schoolId, classTestId])
   @@index([enrollmentId, schoolId])
   @@map("class_test_scores")
+}
+
+/// Single-use MFA recovery codes (§22.5). MFA is MANDATORY for OWNER_ADMIN and ACCOUNTANT, so
+/// without these a lost authenticator locks a school out of its own system and the only remedy
+/// is an operator editing `mfa_enabled` in the database by hand.
+///
+/// Stored as argon2 hashes exactly like passwords: the plaintext is shown ONCE at generation and
+/// is unrecoverable afterwards. A code is consumed on use (`used_at`), never reusable.
+model MfaRecoveryCode {
+  id       String    @id @default(uuid()) @db.Uuid
+  schoolId String    @map("school_id") @db.Uuid
+  school   School    @relation(fields: [schoolId], references: [id])
+  userId   String    @map("user_id") @db.Uuid
+  user     User      @relation(fields: [userId, schoolId], references: [id, schoolId])
+  codeHash String    @map("code_hash")
+  usedAt   DateTime? @map("used_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([userId, schoolId])
+  @@index([schoolId, userId, usedAt])
+  @@map("mfa_recovery_codes")
 }

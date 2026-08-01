@@ -618,6 +618,19 @@ Closes the gap flagged since the CNIC-encryption work: the admission screen told
 - **Tests:** 2 new cases in `student-login.e2e` (first capture provisions a working login and becomes revealable; replacement retires the old credential and a duplicate 409s) + a matrix row. **510/510 across 37 suites**, both lints, api+worker build.
   - *Spec gotcha:* `admissionController()` mints a deterministic email per campus, so calling it twice for one campus violates `(school_id, email)` — hoist the helper's `admit` to spec scope instead.
 
+## ➕ MFA recovery codes — the lockout path closed (2026-08-01)
+`mfaVerify` carried a `TODO(§22.5)` for a year. MFA is **MANDATORY** for OWNER_ADMIN and ACCOUNTANT, so a lost or wiped authenticator locked a school out of its own system with **no remedy but an operator editing `mfa_enabled` in the database**.
+
+- **Ten single-use codes issued WITH enrolment**, not as a later opt-in — a user who must remember to generate them is a user who won't have them in a crisis. `mfa_recovery_codes` (migration `20260801120000`), argon2-hashed exactly like passwords, plaintext shown **once**.
+- **Accepted in place of a TOTP at the challenge**, tried first so a code is consumed rather than rejected as a bad TOTP, and marked `usedAt` **before** the session is issued so two concurrent attempts with one code cannot both succeed. The response carries `usedRecoveryCode` + `recoveryCodesRemaining` so the UI can say a code is now spent.
+- **Regenerating replaces the whole set** (a half-old, half-new pile can't be reasoned about, and someone regenerating usually believes the old list is lost), and **disabling MFA deletes the codes** — they must not outlive the factor they recover.
+- **Codes are transcribable by design:** no look-alike glyphs (0/O, 1/I/l), two 5-char blocks, compared case- and dash-insensitively, because they get written on paper and typed back under stress.
+- **⚠️ Two self-inflicted bugs the tests caught — both would have shipped the feature broken:**
+  - `POST /auth/mfa/verify` was **204 No Content**, so the freshly-issued codes were computed and thrown away. A user would finish enrolment with a mandatory second factor and *no* way back in — the exact lockout being fixed. Now 200 with a body.
+  - `MfaChallengeDto` validated `code` as **exactly 6 digits**, so a recovery code was rejected by the ValidationPipe before the service ever saw it. Widened to admit both shapes. **A new credential format must be admitted by validation as well as by logic.**
+- **First automated MFA coverage of any kind** — `mfa-recovery.e2e` (8): issue shape + hashes-at-rest, recovery sign-in, a used code is dead, messy-case tolerance, TOTP still works *and doesn't burn a code*, a wrong code burns nothing, regeneration retires the old set, and disabling deletes them.
+- **Gates:** api+worker build ✅ · root lint ✅ · migration-safety guard ✅ · **518 tests, 517 passing** (the one failure was `exams` under shared-queue contention — passes 6/6 alone).
+
 ## 🧾 Cross-cutting backlog (not milestone-blocking)
 - [ ] **Blueprint spec PR — parent portal.** §5 (users/roles), §23 (permission matrix `PARENT` row) and §33's "Parent:" UI paragraph still describe a portal that no longer exists. Needs a change-controlled PR + Appendix E changelog entry, per the blueprint's own header. Tracked here because the brain cannot fix it unilaterally.
 - [ ] **`section_subjects.id` drift.** The DB carries a column default Prisma does not model, so **every** `prisma migrate diff` emits `ALTER COLUMN "id" DROP DEFAULT`. Harmless but it is a second permanent false positive next to the trigram index, and false positives are how a real DROP eventually gets waved through. Either drop the DB default or teach the curation step about it.

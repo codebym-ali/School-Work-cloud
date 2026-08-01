@@ -85,16 +85,41 @@ export class AuthController {
     return this.auth.mfaSetup(user);
   }
 
+  /**
+   * Completes enrolment AND returns the ten recovery codes — the only time they are ever
+   * visible. This deliberately returns 200 with a body rather than the 204 it used to: issuing
+   * codes the caller then discards would leave a user with a mandatory second factor and no way
+   * back in, which is the exact lockout this feature exists to prevent.
+   */
   @Post('mfa/verify')
-  @HttpCode(HttpStatus.NO_CONTENT)
-  async mfaVerify(@CurrentUser() user: RequestUser, @Body() dto: MfaVerifyDto) {
-    await this.auth.mfaVerify(user, dto);
+  @HttpCode(HttpStatus.OK)
+  mfaVerify(@CurrentUser() user: RequestUser, @Body() dto: MfaVerifyDto) {
+    return this.auth.mfaVerify(user, dto);
   }
 
   @Delete('mfa')
   @HttpCode(HttpStatus.NO_CONTENT)
   async disableMfa(@CurrentUser() user: RequestUser, @Body() dto: DisableMfaDto) {
     await this.auth.disableMfa(user, dto);
+  }
+
+  /**
+   * How many recovery codes remain. The only readable fact about them — the codes themselves
+   * are argon2 hashes and can never be shown again after generation.
+   */
+  @Get('mfa/recovery-codes')
+  recoveryCodeStatus(@CurrentUser() user: RequestUser) {
+    return this.auth.recoveryCodeStatus(user.userId);
+  }
+
+  /**
+   * Issue a fresh set of ten, invalidating the old set. Returns the plaintext ONCE — if the
+   * caller doesn't show them immediately, the user has none.
+   */
+  @Post('mfa/recovery-codes')
+  @HttpCode(HttpStatus.OK)
+  async regenerateRecoveryCodes(@CurrentUser() user: RequestUser) {
+    return { recoveryCodes: await this.auth.regenerateRecoveryCodes(user.userId) };
   }
 
   @Get('me')

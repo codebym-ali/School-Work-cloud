@@ -301,6 +301,9 @@ export interface RosterRow {
 }
 export interface StaffAttendanceRow { date: string; session: string; status: string; checkIn: string | null; checkOut: string | null }
 export interface Payslip { id: string; runId: string; gross: string; attendanceDeduction: string; otherDeductions: string; netPay: string; status: string; paidAt: string | null }
+/** Admin queue rows carry the person's name so the screen never has to resolve ids itself. */
+export interface StaffLeaveRow extends StaffLeave { staffId: string; staff?: { fullName: string | null; employeeCode: string } }
+export interface StudentLeaveRow extends StudentLeave { student?: { fullName: string; grNumber: string } }
 export interface StaffLeave { id: string; leaveType: string; fromDate: string; toDate: string; reason: string; status: string; isUnpaid: boolean; rejectionReason: string | null; createdAt: string }
 export interface StudentLeave { id: string; studentId: string; fromDate: string; toDate: string; reason: string; status: string; rejectionReason: string | null; createdAt: string }
 
@@ -364,6 +367,15 @@ export const api = {
     create: (body: { email: string; staffType: string; fullName?: string; employeeCode: string; designation: string; joinedAt: string; campusId?: string; roles?: string[]; password?: string }) =>
       apiPost<{ userId: string; staffId: string; employeeCode: string; email: string; loginActive: boolean }>('/staff', body),
     myAttendance: () => apiGet<StaffAttendanceRow[]>('/staff-attendance/mine'),
+  },
+  /** Admin approval queue — both kinds of leave, the same two verbs. */
+  leaveQueue: {
+    students: (status = 'PENDING') => apiGet<{ data: StudentLeaveRow[]; total: number }>(`/student-leaves?status=${status}`),
+    staff: (status = 'PENDING') => apiGet<{ data: StaffLeaveRow[]; total: number }>(`/staff-leaves?status=${status}`),
+    approveStudent: (id: string) => apiPost<StudentLeave>(`/student-leaves/${id}/approve`, {}),
+    rejectStudent: (id: string, reason: string) => apiPost<StudentLeave>(`/student-leaves/${id}/reject`, { reason }),
+    approveStaff: (id: string) => apiPost<StaffLeave>(`/staff-leaves/${id}/approve`, {}),
+    rejectStaff: (id: string, reason: string) => apiPost<StaffLeave>(`/staff-leaves/${id}/reject`, { reason }),
   },
   staffLeaves: {
     // Self-scoped on the server for non-admins → the caller's own leaves only.

@@ -1492,7 +1492,10 @@ model MfaRecoveryCode {
   schoolId String    @map("school_id") @db.Uuid
   school   School    @relation(fields: [schoolId], references: [id])
   userId   String    @map("user_id") @db.Uuid
-  user     User      @relation(fields: [userId, schoolId], references: [id, schoolId])
+  // Cascade: a recovery code exists only to recover THIS user's second factor, so it must
+  // not outlive the account. Declared here as well as in the migration, or every `migrate diff`
+  // reports the mismatch as drift.
+  user     User      @relation(fields: [userId, schoolId], references: [id, schoolId], onDelete: Cascade)
   codeHash String    @map("code_hash")
   usedAt   DateTime? @map("used_at")
   createdAt DateTime @default(now()) @map("created_at")

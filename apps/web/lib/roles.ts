@@ -61,6 +61,7 @@ export const NAV: NavItem[] = [
 
   { href: '/classes', label: 'Classes', icon: '📚', group: 'Academics', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
   { href: '/attendance', label: 'Attendance', icon: '✅', group: 'Academics', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'TEACHER'] },
+  { href: '/leaves', label: 'Leave requests', icon: '🗓️', group: 'Academics', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
   { href: '/my-classes', label: 'My Classes', icon: '📚', group: 'Academics', roles: ['TEACHER'] },
   { href: '/exams', label: 'Exams & Results', icon: '📄', group: 'Academics', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'TEACHER'] },
   { href: '/reports', label: 'Reports', icon: '📈', group: 'Academics', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT'] },

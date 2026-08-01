@@ -121,7 +121,11 @@ export class LeavesService {
     };
     const { skip, take } = toSkipTake(q);
     const [rows, total] = await Promise.all([
-      this.db.studentLeave.findMany({ where, skip, take, orderBy: { createdAt: 'desc' } }),
+      // The approving admin needs to know WHOSE leave this is — a queue of UUIDs is unusable.
+      this.db.studentLeave.findMany({
+        where, skip, take, orderBy: { createdAt: 'desc' },
+        include: { student: { select: { fullName: true, grNumber: true } } },
+      }),
       this.db.studentLeave.count({ where }),
     ]);
     return paginate(rows, total, q);
@@ -200,7 +204,10 @@ export class LeavesService {
     };
     const { skip, take } = toSkipTake(q);
     const [rows, total] = await Promise.all([
-      this.db.staffLeave.findMany({ where, skip, take, orderBy: { createdAt: 'desc' } }),
+      this.db.staffLeave.findMany({
+        where, skip, take, orderBy: { createdAt: 'desc' },
+        include: { staff: { select: { fullName: true, employeeCode: true } } },
+      }),
       this.db.staffLeave.count({ where }),
     ]);
     return paginate(rows, total, q);

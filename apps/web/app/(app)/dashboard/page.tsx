@@ -21,7 +21,7 @@ const SECTIONS: Array<{ title: string; tiles: Tile[] }> = [
     tiles: [
       { key: 'enrollmentCount', label: 'Active students', href: '/students', icon: '👥' },
       { key: 'todayAttendancePercent', label: "Today's attendance", href: '/attendance', icon: '✅', fmt: (v) => `${v}%`, alert: (v) => v < 75 },
-      { key: 'pendingLeaves', label: 'Pending leaves', href: '/attendance', icon: '📄', alert: (v) => v > 0 },
+      { key: 'pendingLeaves', label: 'Pending leaves', href: '/leaves', icon: '🗓️', alert: (v) => v > 0 },
     ],
   },
   {
@@ -77,7 +77,7 @@ export default function DashboardPage() {
 
   const attention: Array<{ text: string; href: string }> = [];
   if ((data.defaulterCount ?? 0) > 0 && data.visible.includes('defaulterCount')) attention.push({ text: `${data.defaulterCount} fee defaulter${data.defaulterCount === 1 ? '' : 's'}`, href: '/reports' });
-  if ((data.pendingLeaves ?? 0) > 0 && data.visible.includes('pendingLeaves')) attention.push({ text: `${data.pendingLeaves} leave request${data.pendingLeaves === 1 ? '' : 's'} pending`, href: '/attendance' });
+  if ((data.pendingLeaves ?? 0) > 0 && data.visible.includes('pendingLeaves')) attention.push({ text: `${data.pendingLeaves} leave request${data.pendingLeaves === 1 ? '' : 's'} pending`, href: '/leaves' });
   if ((data.failedSmsCount ?? 0) > 0 && data.visible.includes('failedSmsCount')) attention.push({ text: `${data.failedSmsCount} failed SMS`, href: '/reports' });
   if (adm && adm.totals.readyToAdmit > 0) attention.push({ text: `${adm.totals.readyToAdmit} student${adm.totals.readyToAdmit === 1 ? '' : 's'} ready to admit`, href: '/admissions' });
   if (adm && adm.testsToday > 0) attention.push({ text: `${adm.testsToday} entry test${adm.testsToday === 1 ? '' : 's'} today`, href: '/admissions' });

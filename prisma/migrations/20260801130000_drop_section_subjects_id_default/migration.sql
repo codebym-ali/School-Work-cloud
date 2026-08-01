@@ -1,0 +1,13 @@
+-- Remove the one DB-side id default in the schema.
+--
+-- `section_subjects.id` carried `gen_random_uuid()` while its Prisma model declares
+-- `@default(uuid())` — which generates the value in the CLIENT, not the database. Prisma
+-- therefore saw an unmodelled default and emitted `ALTER COLUMN "id" DROP DEFAULT` on EVERY
+-- `migrate diff`, a permanent false positive sitting next to the trigram-index one.
+--
+-- False positives are how a real DROP eventually gets waved through: a reviewer who learns to
+-- skip two expected lines will skip a third. This removes one of the two for good.
+--
+-- Safe: every insert goes through Prisma, which always supplies the id, and this table is the
+-- ONLY one in the schema with such a default (verified) — so nothing else depended on it.
+ALTER TABLE "section_subjects" ALTER COLUMN "id" DROP DEFAULT;

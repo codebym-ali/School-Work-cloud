@@ -12,7 +12,8 @@
  */
 const { execSync } = require('node:child_process');
 
-module.exports = async function assertNoWorker() {
+/** PIDs of any live `dist/apps/worker/main`, or [] when none / the listing is unavailable. */
+function findWorkerPids() {
   let out = '';
   try {
     out =
@@ -23,10 +24,26 @@ module.exports = async function assertNoWorker() {
           )
         : execSync("pgrep -f 'apps/worker/main' || true", { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
   } catch {
-    return; // process listing unavailable — don't block the run over it
+    return []; // process listing unavailable — don't block the run over it
   }
+  return out.split(/\s+/).map((s) => s.trim()).filter(Boolean);
+}
 
-  const pids = out.split(/\s+/).map((s) => s.trim()).filter(Boolean);
+/**
+ * Throw if a worker is alive.
+ *
+ * Called from BOTH `globalSetup` (before the run) and `beforeAll` of every spec file, because a
+ * startup-only check cannot see a worker that respawns MID-RUN — which is exactly what
+ * `nest start worker --watch` does. That gap produced several confusing failures ("Job … locked
+ * by another worker") inside whichever spec happened to be running at the time, in fees,
+ * attendance and exams on different days, each of which looked like a product bug and had to be
+ * disproved by re-running the spec alone.
+ *
+ * Per-file granularity is the practical limit: it cannot stop a worker appearing mid-file, but
+ * it names the real cause at the next boundary instead of leaving a stray assertion failure.
+ */
+function assertNoWorker() {
+  const pids = findWorkerPids();
   if (pids.length === 0) return;
 
   throw new Error(
@@ -41,4 +58,8 @@ module.exports = async function assertNoWorker() {
       '',
     ].join('\n'),
   );
-};
+}
+
+module.exports = assertNoWorker;
+module.exports.assertNoWorker = assertNoWorker;
+module.exports.findWorkerPids = findWorkerPids;

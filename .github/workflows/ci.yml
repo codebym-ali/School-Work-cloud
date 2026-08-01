@@ -98,6 +98,11 @@ jobs:
       - name: Prisma generate
         run: pnpm prisma:generate
 
+      # Runs BEFORE migrate: a migration that drops a SQL-companion object (prisma migrate diff
+      # cannot see prisma/sql/*.sql, so it emits DROPs for them) must fail review, not be applied.
+      - name: Migration safety gate (no companion-owned DROPs)
+        run: pnpm db:check-migrations
+
       - name: Migrate + SQL companions + RLS coverage gate
         run: |
           pnpm prisma:deploy

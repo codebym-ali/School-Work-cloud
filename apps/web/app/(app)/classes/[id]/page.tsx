@@ -85,7 +85,7 @@ export default function ClassDetailPage() {
     return (
       <div className="stack">
         <h1>Class not found</h1>
-        <Link className="ghost small" href="/setup">← Back to Setup</Link>
+        <Link className="ghost small" href="/classes">← Back to Classes</Link>
       </div>
     );
   }
@@ -105,7 +105,7 @@ export default function ClassDetailPage() {
           </p>
         </div>
         <div className="row" style={{ gap: 8 }}>
-          <Link className="ghost small" href="/setup">← Setup</Link>
+          <Link className="ghost small" href="/classes">← Classes</Link>
           <button className="ghost small" onClick={() => router.push(`/students?campusId=${klass.campusId}&classId=${klass.id}`)}>
             View students
           </button>
@@ -113,7 +113,12 @@ export default function ClassDetailPage() {
       </div>
 
       {msg && <div className={`toast ${msg.ok ? 'ok' : 'err'}`}>{msg.text}</div>}
-      {!currentYear && <div className="toast err">No current school year — set one in Setup before assigning teachers.</div>}
+      {!currentYear && (
+        <div className="toast err">
+          No current school year — teaching is recorded against one, so{' '}
+          <Link href="/setup" style={{ fontWeight: 600 }}>set the year in School configuration</Link> before assigning teachers.
+        </div>
+      )}
       {teachers.length === 0 && (
         <div className="toast err">
           No teachers yet. Add them under <Link href="/staff" style={{ fontWeight: 600 }}>Staff</Link> first.
@@ -123,7 +128,7 @@ export default function ClassDetailPage() {
       {sections.length === 0 ? (
         <div className="card">
           <p className="muted" style={{ margin: 0 }}>
-            This class has no sections yet. Add one in <Link href="/setup">Setup</Link>.
+            This class has no sections yet. Add one on the <Link href="/classes">Classes</Link> screen.
           </p>
         </div>
       ) : (
@@ -156,7 +161,7 @@ export default function ClassDetailPage() {
 
               {secSubjects.length === 0 ? (
                 <p className="muted" style={{ margin: 0, fontSize: 13 }}>
-                  No subjects for this section yet — add them in <Link href="/setup">Setup</Link>.
+                  No subjects for this section yet — add them on the <Link href="/classes">Classes</Link> screen.
                 </p>
               ) : (
                 <div style={{ overflowX: 'auto' }}>

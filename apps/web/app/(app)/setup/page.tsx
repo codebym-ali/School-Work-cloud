@@ -2,9 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { api, apiGet, apiPost, ApiError, type AcademicYear, type Campus, type Klass, type Section, type Subject, type SubjectCatalogueEntry } from '@/lib/api';
+import { api, apiGet, apiPost, ApiError, type AcademicYear, type Campus, type Klass, type Section, type Subject } from '@/lib/api';
 import { useMe } from '@/lib/me-context';
-import { ClassManager } from '../classes/class-manager';
 import { ConfirmDialog } from '../classes/confirm-dialog';
 import { subjectCatalogueFrom } from '@/lib/subject-match';
 
@@ -20,20 +19,20 @@ export default function SetupPage() {
   const [classes, setClasses] = useState<Klass[]>([]);
   const [sections, setSections] = useState<Section[]>([]);
   const [subjects, setSubjects] = useState<Subject[]>([]);
-  const [catalogue, setCatalogue] = useState<SubjectCatalogueEntry[]>([]);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [loaded, setLoaded] = useState(false);
 
+  // Subjects are read (not managed) here — step 3 reports whether every class can take a
+  // student, which is false until each has both a section AND a subject.
   async function reload() {
-    const [y, c, k, s, sub, cat] = await Promise.all([
+    const [y, c, k, s, sub] = await Promise.all([
       apiGet<AcademicYear[]>('/academic-years'),
       apiGet<Campus[]>('/campuses'),
       apiGet<Klass[]>('/classes'),
       apiGet<Section[]>('/sections'),
       api.subjects.listAll().catch(() => [] as Subject[]),
-      api.subjects.catalogue().catch(() => [] as SubjectCatalogueEntry[]),
     ]);
-    setYears(y); setCampuses(c); setClasses(k); setSections(s); setSubjects(sub); setCatalogue(cat);
+    setYears(y); setCampuses(c); setClasses(k); setSections(s); setSubjects(sub);
   }
   useEffect(() => { reload().catch(() => {}).finally(() => setLoaded(true)); }, []);
 
@@ -71,8 +70,8 @@ export default function SetupPage() {
   // The first unfinished step is the one we open and point the reader at.
   const nextStep = !hasCampus ? 1 : !hasYear ? 2 : !classesReady ? 3 : 0;
   const setupComplete = nextStep === 0;
-  const derivedCatalogue = subjectCatalogueFrom(subjects);
-  const distinctSubjects = derivedCatalogue.length;
+  // Distinct NAMES, not rows: a subject taught in three classes is one subject to a reader.
+  const distinctSubjects = subjectCatalogueFrom(subjects).length;
 
   return (
     <div className="stack">
@@ -128,62 +127,28 @@ export default function SetupPage() {
         lockedReason={!hasCampus ? 'Add a campus first — a class has to belong to one.' : undefined}
         count={hasClass ? `${classes.length} class${classes.length === 1 ? '' : 'es'} · ${sections.length} section${sections.length === 1 ? '' : 's'} · ${distinctSubjects} subject${distinctSubjects === 1 ? '' : 's'}` : undefined}
       >
-        {setupComplete ? (
-          <div className="stack" style={{ gap: 8 }}>
-            <p className="muted" style={{ margin: 0, fontSize: 13 }}>
-              {classes.length} class{classes.length === 1 ? '' : 'es'} and {sections.length} section{sections.length === 1 ? '' : 's'} are set up.
-              Classes, sections and subjects are managed on the Classes screen.
-            </p>
-            <div><Link className="chip" href="/classes">📚 Manage classes &amp; sections →</Link></div>
+        {/* Setup states WHETHER the class structure is ready and sends you to the one screen
+            that manages it. It used to embed the whole class manager here as well, so classes
+            had two homes with two sets of handlers — and `/classes/[id]` then linked back to
+            Setup, which by this point only linked forward again. */}
+        <div className="stack" style={{ gap: 10 }}>
+          {blockers.length > 0 && (
+            <div className="toast warn">
+              {blockers.length} class{blockers.length === 1 ? '' : 'es'} cannot take students yet:{' '}
+              {blockers.map((b) => `${b.name} (${b.needsSection && b.needsSubjects ? 'no section or subjects' : b.needsSection ? 'no section' : 'no subjects'})`).join(', ')}.
+            </div>
+          )}
+          <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+            {hasClass
+              ? `${classes.length} class${classes.length === 1 ? '' : 'es'} and ${sections.length} section${sections.length === 1 ? '' : 's'} are set up. Classes, sections, subjects and teachers are all managed on the Classes screen.`
+              : 'No classes yet. Add them on the Classes screen — each one needs at least one section and one subject before a student can be admitted into it.'}
+          </p>
+          <div>
+            <Link className="chip" href="/classes">
+              📚 {hasClass ? 'Manage classes & sections →' : 'Add your first class →'}
+            </Link>
           </div>
-        ) : (
-        <>
-        {blockers.length > 0 && (
-          <div className="toast warn">
-            {blockers.length} class{blockers.length === 1 ? '' : 'es'} cannot take students yet:{' '}
-            {blockers.map((b) => `${b.name} (${b.needsSection && b.needsSubjects ? 'no section or subjects' : b.needsSection ? 'no section' : 'no subjects'})`).join(', ')}.
-          </div>
-        )}
-        <ClassManager classes={classes} sections={sections} subjects={subjects} campuses={myCampuses}
-          catalogue={catalogue.length ? catalogue : derivedCatalogue}
-          onCreateClass={async (b) => {
-            // Return the new class so the row can open its subject form straight away —
-            // a class with no subjects is the next thing to fix, so we point at it.
-            try {
-              const created = await apiPost<Klass>('/classes', b);
-              await reload();
-              setMsg({ ok: true, text: 'Class added — now add its subjects' });
-              return created.id;
-            } catch (e) {
-              setMsg({ ok: false, text: e instanceof ApiError ? e.message : 'Could not add the class' });
-              return null;
-            }
-          }}
-          onCreateSections={(classId, names, subjectChoice, capacity) =>
-            run(
-              () => Promise.all(names.map((name) => api.sections.create({ classId, name, capacity, ...subjectChoice }))),
-              names.length === 1 ? 'Section added' : `${names.length} sections added`,
-            )}
-          onCreateSubjects={(classId, names) =>
-            run(() => Promise.all(names.map((name) => api.subjects.create(classId, name))),
-              names.length === 1 ? 'Subject added' : `${names.length} subjects added`)}
-          onUpdateClass={(id, body) => run(() => api.classes.update(id, body), 'Class updated')}
-          onDeleteClass={(id) => run(() => api.classes.remove(id), 'Class deleted')}
-          onUpdateSection={(id, body) => run(() => api.sections.update(id, body), 'Section updated')}
-          onDeleteSection={(id) => run(() => api.sections.remove(id), 'Section deleted')}
-          onDeleteSubject={(id) => run(() => api.subjects.remove(id), 'Subject deleted')}
-          onCreateSubjectInline={async (classId, name) => {
-            try {
-              const created = await api.subjects.create(classId, name);
-              await reload();
-              return created;
-            } catch (e) {
-              setMsg({ ok: false, text: e instanceof ApiError ? e.message : 'Could not add that subject' });
-              return null;
-            }
-          }} />
-        </>
-        )}
+        </div>
       </Step>
       </>
       )}

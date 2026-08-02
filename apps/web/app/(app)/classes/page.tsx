@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import {
   api, apiGet, apiPost, ApiError,
-  type Campus, type Klass, type Section, type Subject, type SubjectCatalogueEntry,
+  type AcademicYear, type Campus, type Klass, type Section, type Subject, type SubjectCatalogueEntry,
 } from '@/lib/api';
 import { useMe } from '@/lib/me-context';
 import { subjectCatalogueFrom } from '@/lib/subject-match';
@@ -18,18 +18,21 @@ export default function ClassesPage() {
   const [sections, setSections] = useState<Section[]>([]);
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [catalogue, setCatalogue] = useState<SubjectCatalogueEntry[]>([]);
+  const [hasCurrentYear, setHasCurrentYear] = useState(true);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [loaded, setLoaded] = useState(false);
 
   async function reload() {
-    const [c, k, s, sub, cat] = await Promise.all([
+    const [c, k, s, sub, cat, y] = await Promise.all([
       apiGet<Campus[]>('/campuses'),
       apiGet<Klass[]>('/classes'),
       apiGet<Section[]>('/sections'),
       api.subjects.listAll().catch(() => [] as Subject[]),
       api.subjects.catalogue().catch(() => [] as SubjectCatalogueEntry[]),
+      apiGet<AcademicYear[]>('/academic-years').catch(() => [] as AcademicYear[]),
     ]);
     setCampuses(c); setClasses(k); setSections(s); setSubjects(sub); setCatalogue(cat);
+    setHasCurrentYear(y.some((x) => x.isCurrent));
   }
   useEffect(() => { reload().catch(() => {}).finally(() => setLoaded(true)); }, []);
 
@@ -65,6 +68,23 @@ export default function ClassesPage() {
       </p>
 
       {msg && <div className={`toast ${msg.ok ? 'ok' : 'err'}`}>{msg.text}</div>}
+
+      {/* First run. Setup no longer embeds class management, so this screen is the ONLY way a
+          new school creates its first class — and a class cannot be created without a campus.
+          Say which prerequisite is missing rather than showing a form that will fail. */}
+      {loaded && myCampuses.length === 0 && (
+        <div className="toast warn">
+          No campus yet — a class has to belong to one.{' '}
+          <Link href="/setup" style={{ fontWeight: 600 }}>Add a campus in School configuration →</Link>
+        </div>
+      )}
+      {loaded && myCampuses.length > 0 && !hasCurrentYear && (
+        <div className="toast warn">
+          No current school year is set, so seats show capacity only and teachers cannot be
+          assigned.{' '}
+          <Link href="/setup" style={{ fontWeight: 600 }}>Set the year in School configuration →</Link>
+        </div>
+      )}
 
       {loaded && classes.length > 0 && (
         <div className="grid">

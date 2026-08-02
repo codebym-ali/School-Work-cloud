@@ -134,6 +134,17 @@ describe('Campus scoping (e2e, §22.8 / P1.7)', () => {
     studentB = sB.body.studentId;
     enrollmentB = sB.body.enrollmentId;
 
+    // Backdate both enrolments. `startedAt` defaults to now(), and since 2026-07-30 attendance
+    // may not be recorded for a date before the student joined. `safeDate()` below steps back
+    // off Sunday — so on a Sunday it marks YESTERDAY against an enrolment created today, and the
+    // row is refused per the partial-failure contract. The suite therefore failed every Sunday,
+    // on the enrolment guard rather than on the campus rule it means to test. Same fix as
+    // `attendance.e2e-spec.ts`: a real student is enrolled long before the day being marked.
+    await platform.studentEnrollment.updateMany({
+      where: { id: { in: [enrollmentA, enrollmentB] } },
+      data: { startedAt: new Date(Date.now() - 30 * 86400000) },
+    });
+
     // Fee structures + invoice batches in BOTH campuses → invoiceA, invoiceB.
     const headA = await ownerPost('/api/v1/fee-heads', { name: 'Tuition A' });
     await ownerPost('/api/v1/fee-structures', { campusId: campusA, classId: classA, feeHeadId: headA.body.id, academicYearId: (await currentYear()).id, amount: 1000, frequency: 'MONTHLY' });

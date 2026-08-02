@@ -248,9 +248,36 @@ export class StaffService {
   }
 
   // ── Teacher assignments ──────────────────────────────────────────────────────
+  /**
+   * An assignment has TWO campus dimensions — the teacher's, and the section's — and they are
+   * not the same question. Scoping reads by the teacher's campus (as this did) hides an
+   * assignment on the caller's OWN section whenever the teacher's user row carries a different
+   * campus, so a campus admin sees their class as unstaffed when it is not.
+   *
+   * The section is what a campus admin owns (the same rule `assertClassCampus` applies to
+   * classes), so reads and deletes scope by the section's campus. Creates additionally assert
+   * the teacher (via `getStaff`) — inventing a cross-campus link is the dangerous direction.
+   */
+  private sectionCampusScope(restricted: string | null) {
+    return restricted ? { section: { class: { campusId: restricted } } } : {};
+  }
+
+  /** The section a caller is about to write against must be inside their campus. */
+  private async assertSectionCampus(sectionId: string) {
+    const section = await this.db.section.findFirst({
+      where: { id: sectionId },
+      select: { class: { select: { campusId: true } } },
+    });
+    if (!section) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'Section not found');
+    assertCampusAccess(this.ctx.user, section.class.campusId);
+  }
+
   async createAssignment(dto: CreateTeacherAssignmentDto) {
     await this.access.assert('hr.assign');
     await this.getStaff(dto.staffId); // asserts the staff is in the caller's campus
+    // ...and the section, which was unchecked: a campus-A admin could put their own teacher
+    // in front of a campus-B class.
+    await this.assertSectionCampus(dto.sectionId);
     try {
       return await this.db.teacherAssignment.create({
         data: { schoolId: this.sid, staffId: dto.staffId, academicYearId: dto.academicYearId, sectionId: dto.sectionId, subjectId: dto.subjectId },
@@ -263,28 +290,51 @@ export class StaffService {
     }
   }
 
-  listAssignments(sectionId?: string, staffId?: string) {
+  /**
+   * Assignments for a year — **the current one unless another is named**.
+   *
+   * This used to return every year at once, and the class screen matched a row on
+   * `(sectionId, subjectId)` alone: it therefore showed last year's teacher as this year's, and
+   * "replace the teacher" deleted the historical row. A teaching record is per year, so the
+   * default belongs here rather than in each caller.
+   *
+   * Carries the teacher's name so a caller rendering "Maths · A. Khan" doesn't have to pull the
+   * whole staff directory (emails, roles, campus) to resolve one label.
+   */
+  async listAssignments(sectionId?: string, staffId?: string, academicYearId?: string) {
     const restricted = restrictedCampusId(this.ctx.user);
-    return this.db.teacherAssignment.findMany({
+    const yearId = academicYearId
+      ?? (await this.db.academicYear.findFirst({ where: { isCurrent: true }, select: { id: true } }))?.id;
+    // No current year set and none named ⇒ no year to report on. Returning every year instead
+    // would resurrect the exact staleness this parameter exists to prevent.
+    if (!yearId) return [];
+    const rows = await this.db.teacherAssignment.findMany({
       where: {
+        academicYearId: yearId,
         ...(sectionId ? { sectionId } : {}),
         ...(staffId ? { staffId } : {}),
-        ...(restricted ? { staff: { user: { campusId: restricted } } } : {}),
+        ...this.sectionCampusScope(restricted),
       },
+      include: { staff: { select: { id: true, fullName: true, user: { select: { email: true } } } } },
     });
+    return rows.map(({ staff, ...a }) => ({
+      ...a,
+      teacherName: staff.fullName ?? staff.user.email,
+    }));
   }
 
   async deleteAssignment(id: string) {
-    // Scope the delete so a campus-bound user can't remove another campus's assignment.
+    // Scope the delete so a campus-bound user can't remove another campus's assignment — by the
+    // SECTION's campus, matching `listAssignments`. Scoping the two differently would show a row
+    // that cannot then be deleted.
     const restricted = restrictedCampusId(this.ctx.user);
+    const scope = this.sectionCampusScope(restricted);
     // Read first: after deleteMany the row is gone and the audit could only record an id.
     const before = await this.db.teacherAssignment.findFirst({
-      where: { id, ...(restricted ? { staff: { user: { campusId: restricted } } } : {}) },
+      where: { id, ...scope },
       select: { staffId: true, sectionId: true, subjectId: true, academicYearId: true },
     });
-    const { count } = await this.db.teacherAssignment.deleteMany({
-      where: { id, ...(restricted ? { staff: { user: { campusId: restricted } } } : {}) },
-    });
+    const { count } = await this.db.teacherAssignment.deleteMany({ where: { id, ...scope } });
     // deleteMany is a no-op when the scope filter excludes the row — don't audit a non-event.
     if (count > 0 && before) {
       await this.audit.record({

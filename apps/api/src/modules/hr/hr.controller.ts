@@ -41,7 +41,14 @@ export class TeacherAssignmentsController {
   // HR_MANAGER may assign teaching duty, gated by the `hr.assign` module so the owner can
   // withhold it — in a larger school this is the principal's call, in a small one it is HR's.
   @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN', 'HR_MANAGER') @Post() create(@Body() dto: CreateTeacherAssignmentDto) { return this.staff.createAssignment(dto); }
-  @Get() list(@Query('sectionId') sectionId?: string, @Query('staffId') staffId?: string) { return this.staff.listAssignments(sectionId, staffId); }
+  // `academicYearId` is optional and defaults to the current year — a teaching record is per
+  // year, and returning all of them let the class screen mistake last year's teacher for this
+  // year's and delete the historical row when reassigning.
+  @Get() list(
+    @Query('sectionId') sectionId?: string,
+    @Query('staffId') staffId?: string,
+    @Query('academicYearId') academicYearId?: string,
+  ) { return this.staff.listAssignments(sectionId, staffId, academicYearId); }
   @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN', 'HR_MANAGER') @Delete(':id') remove(@Param('id') id: string) { return this.staff.deleteAssignment(id); }
 }
 

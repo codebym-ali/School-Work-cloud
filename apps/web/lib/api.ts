@@ -221,7 +221,13 @@ export interface ManagedTeacher {
   employmentStatus: string; joinedAt: string;
   user: { id: string; email: string; roles: string[]; status: string; campusId: string | null; campus: { name: string } | null };
 }
-export interface TeacherAssignment { id: string; staffId: string; academicYearId: string; sectionId: string; subjectId: string | null }
+/** `subjectId: null` is the homeroom (class-teacher) assignment, not a subject.
+ *  The list is scoped to one academic year — the current one unless another is asked for. */
+export interface TeacherAssignment {
+  id: string; staffId: string; academicYearId: string; sectionId: string; subjectId: string | null;
+  /** Resolved server-side so a caller rendering "Maths · A. Khan" needn't load the staff directory. */
+  teacherName: string;
+}
 
 // ── Teacher applications (HR module) ─────────────────────────────────────────
 export interface TeacherExperience { schoolName: string; position?: string; subjectsTaught?: string; gradesTaught?: string; duration?: string; reasonForLeaving?: string }
@@ -388,7 +394,11 @@ export const api = {
     pdf: (id: string) => apiGet<{ fileKey: string; url: string; expiresInSeconds: number }>(`/payslips/${id}/pdf`),
   },
   teacherAssignments: {
-    list: () => apiGet<TeacherAssignment[]>('/teacher-assignments'),
+    /** Defaults to the current academic year server-side. */
+    list: (q: { sectionId?: string; staffId?: string; academicYearId?: string } = {}) => {
+      const qs = new URLSearchParams(Object.entries(q).filter(([, v]) => v) as [string, string][]).toString();
+      return apiGet<TeacherAssignment[]>(`/teacher-assignments${qs ? `?${qs}` : ''}`);
+    },
     create: (body: { staffId: string; academicYearId: string; sectionId: string; subjectId?: string }) =>
       apiPost<TeacherAssignment>('/teacher-assignments', body),
     remove: (id: string) => apiDelete(`/teacher-assignments/${id}`),

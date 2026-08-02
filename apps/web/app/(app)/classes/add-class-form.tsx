@@ -83,7 +83,7 @@ export function AddClassForm({ campuses, classes, subjects, onCreate }: {
                 const n = subjects.filter((s) => s.classId === c.id).length;
                 return (
                   <option key={c.id} value={c.id} disabled={n === 0}>
-                    {c.name}{n ? ` (${n} subjects)` : ' — no subjects'}
+                    {c.name}{n ? ` (${n} subject${n === 1 ? '' : 's'})` : ' — no subjects'}
                   </option>
                 );
               })}

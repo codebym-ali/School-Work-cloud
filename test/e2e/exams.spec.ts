@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { gotoApp, fieldInput, fieldSelect, cardByHeading } from './helpers';
+import { gotoApp, fieldInput, fieldSelect, cardByHeading, seedClassSectionStudent } from './helpers';
 
 /**
  * Exercises a realistic slice of the exam lifecycle end-to-end: term + subject setup,
@@ -13,55 +13,23 @@ test.describe('exams', () => {
   test('term + exam -> open marks entry -> enter marks -> results -> publish -> report card', async ({ page }) => {
     await gotoApp(page);
     const ts = Date.now();
-    const className = `ExamCls${ts}`;
-    const sectionName = 'A';
-    const subjectName = 'Mathematics';
     const termName = `ExamTerm${ts}`;
     const examName = `Test Exam ${ts}`;
-    const studentName = `Exam Student ${ts}`;
-    // Unique per run — guardian phone is unique per school (link-by-phone), so a
-    // fixed literal would collide with a guardian created by a prior run of this spec.
-    const guardianPhone = `03${String(ts).slice(-9)}`;
 
-    // 1) Setup: dedicated class + section for this run
-    await page.getByRole('link', { name: 'School configuration', exact: true }).click();
-    await page.waitForURL('**/setup');
+    // 1) Fixture: a dedicated class + section + subject + admitted student, seeded through
+    //    the API. This used to be 30 lines driving a "Classes" card and a separate "Sections"
+    //    card on Setup, plus an "Add subject" form on this page — none of which exist now
+    //    (structure moved to Classes, and the Exams subjects card is deliberately read-only
+    //    so subjects have one home). A spec should not be a hostage of whichever screen owns
+    //    its fixture data this month.
+    const { className, sectionName, subjectName, studentName } = await seedClassSectionStudent(page);
 
-    const classCard = cardByHeading(page, 'Classes');
-    await fieldSelect(classCard, 'Campus').selectOption({ index: 1 });
-    await fieldInput(classCard, 'Name').fill(className);
-    await classCard.getByRole('button', { name: 'Add class' }).click();
-    await expect(page.locator('.toast.ok')).toContainText('Class created');
-
-    const sectionCard = cardByHeading(page, 'Sections');
-    await fieldSelect(sectionCard, 'Class').selectOption({ label: className });
-    await fieldInput(sectionCard, 'Name').fill(sectionName);
-    await sectionCard.getByRole('button', { name: 'Add section' }).click();
-    await expect(page.locator('.toast.ok')).toContainText('Section created');
-
-    // 2) Students: admit one student directly into the new class/section
-    await page.getByRole('link', { name: 'Students', exact: true }).click();
-    await page.waitForURL('**/students');
-    await page.getByRole('button', { name: '+ Add student' }).click();
-    const addStudentCard = cardByHeading(page, 'New student');
-    await fieldInput(addStudentCard, 'Full name').fill(studentName);
-    await fieldInput(addStudentCard, 'Date of birth').fill('2015-01-15');
-    await fieldSelect(addStudentCard, 'Class').selectOption({ label: className });
-    await fieldSelect(addStudentCard, 'Section').selectOption({ label: sectionName });
-    await fieldInput(addStudentCard, 'Guardian name').fill('Exam Guardian');
-    await fieldInput(addStudentCard, 'Guardian phone').fill(guardianPhone);
-    await addStudentCard.getByRole('button', { name: 'Admit student' }).click();
-    await expect(page.locator('.toast.ok')).toContainText('Admitted');
-
-    // 3) Exams page: subject, term, exam
+    // 2) Exams page: term, exam
     await page.getByRole('link', { name: 'Exams', exact: true }).click();
     await page.waitForURL('**/exams');
 
-    const subjectsCard = cardByHeading(page, 'Subjects');
-    await fieldSelect(subjectsCard, 'Class').selectOption({ label: className });
-    await fieldInput(subjectsCard, 'Name').fill(subjectName);
-    await subjectsCard.getByRole('button', { name: 'Add subject' }).click();
-    await expect(page.locator('.toast.ok')).toContainText('Subject created');
+    // The subject seeded above must be visible on the read-only card.
+    await expect(cardByHeading(page, 'Subjects')).toContainText(subjectName);
 
     const termsCard = cardByHeading(page, 'Terms');
     await fieldSelect(termsCard, 'Academic year').selectOption({ index: 1 });

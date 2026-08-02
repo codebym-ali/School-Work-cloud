@@ -1,4 +1,4 @@
-import { expect, type Locator, type Page } from '@playwright/test';
+import { expect, request, type Locator, type Page } from '@playwright/test';
 
 /** Where the setup projects save the shared authenticated sessions (gitignored). */
 export const STORAGE_STATE = 'test/e2e/.auth/owner.json';
@@ -102,49 +102,101 @@ export function safeAttendanceDate(): string {
 export interface SeededClass {
   className: string;
   sectionName: string;
+  classId: string;
+  sectionId: string;
+  subjectId: string;
+  subjectName: string;
+  campusId: string;
+}
+
+export interface SeededClassWithStudent extends SeededClass {
   studentName: string;
 }
 
 /**
- * Drives Setup + Students through the UI to create a fresh, timestamp-unique
- * class → section → admitted student, so a spec that needs an enrolled student is
- * self-contained and independent of seed/prior-spec data. Returns the created names.
- * Assumes `login()` already ran; leaves the page on /students.
+ * A fresh, timestamp-unique class → section → subject, seeded through the **API**.
+ *
+ * It used to drive the Setup screen, filling a "Classes" card and a separate "Sections" card
+ * and asserting a "Class created" toast — none of which exist any more, which is why
+ * `pnpm test:e2e` could not pass. Seeding fixtures through the UI makes every spec in the
+ * suite a hostage of whichever screen happens to own that data this month; it is also slow.
+ * The UI is what the specs are here to TEST, not what they should be built out of.
+ *
+ * Assumes an owner session (storageState or `login()`), and leaves the page where it was.
  */
-export async function seedClassSectionStudent(page: Page): Promise<SeededClass> {
+export async function seedClassSection(page: Page): Promise<SeededClass> {
   const ts = Date.now();
   const className = `Cls${ts}`;
   const sectionName = 'A';
+  const subjectName = `Subj${ts}`;
+
+  const campuses = await apiSetupGet<{ id: string }[]>(page, '/campuses');
+  if (!campuses.length) throw new Error('Seed failed: the tenant has no campus — a class must belong to one.');
+  const campusId = campuses[0].id;
+
+  const existing = await apiSetupGet<{ order: number; campusId: string }[]>(page, '/classes');
+  const order = Math.max(0, ...existing.filter((k) => k.campusId === campusId).map((k) => k.order)) + 1;
+
+  const klass = await apiSetupPost<{ id: string }>(page, '/classes', { campusId, name: className, order });
+  const subject = await apiSetupPost<{ id: string }>(page, '/subjects', { classId: klass.id, name: subjectName });
+  const section = await apiSetupPost<{ id: string }>(page, '/sections', { classId: klass.id, name: sectionName, capacity: 40 });
+
+  return {
+    className, sectionName, subjectName, campusId,
+    classId: klass.id, sectionId: section.id, subjectId: subject.id,
+  };
+}
+
+/**
+ * As above, plus an admitted student — for specs that need an enrolled child (attendance,
+ * fees, reports, CSV import).
+ *
+ * ⚠️ Admitting is **`ADMISSION_CONTROLLER`-only** by an explicit product decision (segregation
+ * of duties): the owner session every other spec uses is 403 on `POST /students`. There is
+ * also at most ONE officer per campus, so this helper must NOT mint or reassign the seat —
+ * on a real tenant that would take the seat away from the person holding it, on every run.
+ *
+ * So it signs in as an officer you nominate. Set both variables to a campus officer whose
+ * campus the seeded class lands in:
+ *
+ *     E2E_ADMISSION_OFFICER_EMAIL=... E2E_ADMISSION_OFFICER_PASSWORD=... pnpm test:e2e
+ *
+ * Without them the specs that need a student fail with this explanation rather than with a
+ * timeout against a form that no longer exists.
+ */
+export async function seedClassSectionStudent(page: Page): Promise<SeededClassWithStudent> {
+  const seeded = await seedClassSection(page);
+  const email = process.env.E2E_ADMISSION_OFFICER_EMAIL;
+  const password = process.env.E2E_ADMISSION_OFFICER_PASSWORD;
+  if (!email || !password) {
+    throw new Error(
+      'Cannot seed a student: admitting is ADMISSION_CONTROLLER-only and the shared session is the owner. '
+      + 'Set E2E_ADMISSION_OFFICER_EMAIL and E2E_ADMISSION_OFFICER_PASSWORD to an officer holding the seat '
+      + 'for the campus under test. The helper deliberately does not assign the seat itself — there is one '
+      + 'officer per campus, and taking it would displace the real holder on every run.',
+    );
+  }
+
+  const ts = Date.now();
   const studentName = `Student ${ts}`;
-  const guardianPhone = `03${String(ts).slice(-9)}`;
+  // A separate request context so the owner's storageState session is left untouched.
+  const officer = await request.newContext({ baseURL: 'http://localhost:3001' });
+  try {
+    const auth = await officer.post('/api/v1/auth/login', { data: { email, password } });
+    if (!auth.ok()) throw new Error(`Admission officer login failed: ${auth.status()} ${await auth.text()}`);
+    const csrf = (await officer.storageState()).cookies.find((c: { name: string; value: string }) => c.name === 'csrf')?.value ?? '';
+    const res = await officer.post('/api/v1/students', {
+      headers: { 'X-CSRF-Token': csrf },
+      data: {
+        fullName: studentName, gender: 'MALE', dateOfBirth: '2015-01-15',
+        campusId: seeded.campusId, classId: seeded.classId, sectionId: seeded.sectionId,
+        guardian: { mode: 'CREATE', fullName: 'Guardian', phone: `03${String(ts).slice(-9)}`, relation: 'FATHER' },
+      },
+    });
+    if (!res.ok()) throw new Error(`Admit failed: ${res.status()} ${await res.text()}`);
+  } finally {
+    await officer.dispose();
+  }
 
-  await page.getByRole('link', { name: 'Setup', exact: true }).click();
-  await page.waitForURL('**/setup');
-
-  const classCard = cardByHeading(page, 'Classes');
-  await fieldSelect(classCard, 'Campus').selectOption({ index: 1 });
-  await fieldInput(classCard, 'Name').fill(className);
-  await classCard.getByRole('button', { name: 'Add class' }).click();
-  await expect(page.locator('.toast.ok')).toContainText('Class created');
-
-  const sectionCard = cardByHeading(page, 'Sections');
-  await fieldSelect(sectionCard, 'Class').selectOption({ label: className });
-  await fieldInput(sectionCard, 'Name').fill(sectionName);
-  await sectionCard.getByRole('button', { name: 'Add section' }).click();
-  await expect(page.locator('.toast.ok')).toContainText('Section created');
-
-  await page.getByRole('link', { name: 'Students', exact: true }).click();
-  await page.waitForURL('**/students');
-  await page.getByRole('button', { name: '+ Add student' }).click();
-  const addStudentCard = cardByHeading(page, 'New student');
-  await fieldInput(addStudentCard, 'Full name').fill(studentName);
-  await fieldInput(addStudentCard, 'Date of birth').fill('2015-01-15');
-  await fieldSelect(addStudentCard, 'Class').selectOption({ label: className });
-  await fieldSelect(addStudentCard, 'Section').selectOption({ label: sectionName });
-  await fieldInput(addStudentCard, 'Guardian name').fill('Guardian');
-  await fieldInput(addStudentCard, 'Guardian phone').fill(guardianPhone);
-  await addStudentCard.getByRole('button', { name: 'Admit student' }).click();
-  await expect(page.locator('.toast.ok')).toContainText('Admitted');
-
-  return { className, sectionName, studentName };
+  return { ...seeded, studentName };
 }

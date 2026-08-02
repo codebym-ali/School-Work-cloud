@@ -140,11 +140,13 @@ function SubjectsCard({ subjects, classes }: { subjects: Subject[]; classes: Kla
     <div className="card stack">
       <div className="row">
         <h2 style={{ margin: 0, fontSize: 17 }}>Subjects</h2>
-        <Link className="ghost small" href="/setup" style={{ textDecoration: 'none' }}>Manage in Setup →</Link>
+        {/* Subjects belong to a class, so they are managed on Classes. This card is read-only
+            precisely so there is one home for them; the link must point at that home. */}
+        <Link className="ghost small" href="/classes" style={{ textDecoration: 'none' }}>Manage in Classes →</Link>
       </div>
       {byClass.length === 0 ? (
         <p className="muted" style={{ margin: 0, fontSize: 13 }}>
-          No subjects yet — add them to a class in <Link href="/setup">Setup</Link>.
+          No subjects yet — add them to a class on the <Link href="/classes">Classes</Link> screen.
         </p>
       ) : (
         byClass.map(({ c, items }) => (

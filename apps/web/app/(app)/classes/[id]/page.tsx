@@ -6,70 +6,108 @@ import { useParams, useRouter } from 'next/navigation';
 import {
   api, apiGet, ApiError,
   type AcademicYear, type Campus, type Klass, type ManagedTeacher,
-  type Section, type Subject, type TeacherAssignment,
+  type Section, type Subject, type SubjectCatalogueEntry, type TeacherAssignment,
 } from '@/lib/api';
+import { useMe } from '@/lib/me-context';
+import { subjectCatalogueFrom } from '@/lib/subject-match';
+import { SubjectCatalogue } from './subject-catalogue';
+import { SectionList } from './section-list';
+import { SectionPane } from './section-pane';
 
 /**
- * One class, end to end: its sections, the subjects each section studies, and who teaches
- * each one — with assignment inline. Previously this was spread across Setup (structure)
- * and Staff (assignment, organised per PERSON), so "who teaches 9-A Maths?" could only be
- * answered by opening every teacher in the directory. This is the class-centric view.
+ * The class workbench — everything about ONE class, and the only place any of it is edited.
+ *
+ * The Classes list used to be a report and six inline forms at once: opening a panel pushed
+ * every class below it down the page, nothing was addressable by URL, and the class-centric
+ * question ("who teaches 9-A Maths?") had no home at all. That work moved here, and the list
+ * went back to being a list.
+ *
+ * The selected section lives in the URL (`?section=`), so the back button and a shared link
+ * both work. It is read from `window.location.search` rather than `useSearchParams` — the same
+ * precedent the attendance and teacher-marks screens follow, which avoids forcing a Suspense
+ * boundary around the page.
  */
 export default function ClassDetailPage() {
   const params = useParams();
   const router = useRouter();
+  const me = useMe();
   const classId = String(params?.id ?? '');
+  const canEdit = (me?.roles ?? []).some((r) => r === 'OWNER_ADMIN' || r === 'CAMPUS_ADMIN');
 
   const [klass, setKlass] = useState<Klass | null>(null);
   const [campuses, setCampuses] = useState<Campus[]>([]);
   const [sections, setSections] = useState<Section[]>([]);
   const [subjects, setSubjects] = useState<Subject[]>([]);
+  const [catalogue, setCatalogue] = useState<SubjectCatalogueEntry[]>([]);
   const [staff, setStaff] = useState<ManagedTeacher[]>([]);
   const [years, setYears] = useState<AcademicYear[]>([]);
   const [assignments, setAssignments] = useState<TeacherAssignment[]>([]);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
-  const [busy, setBusy] = useState('');
+  const [busyKey, setBusyKey] = useState('');
   const [loaded, setLoaded] = useState(false);
+  const [selected, setSelected] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const [k, c, sec, sub, st, y, a] = await Promise.all([
+    const [k, c, sec, sub, cat, st, y, a] = await Promise.all([
       apiGet<Klass[]>('/classes'),
       apiGet<Campus[]>('/campuses'),
       apiGet<Section[]>(`/sections?classId=${classId}`),
       api.subjects.list(classId),
-      api.staff.list(),
+      api.subjects.catalogue().catch(() => [] as SubjectCatalogueEntry[]),
+      api.staff.list().catch(() => [] as ManagedTeacher[]),
       apiGet<AcademicYear[]>('/academic-years'),
       api.teacherAssignments.list(),
     ]);
     setKlass(k.find((x) => x.id === classId) ?? null);
-    setCampuses(c); setSections(sec); setSubjects(sub); setStaff(st); setYears(y); setAssignments(a);
+    setCampuses(c); setSections(sec); setSubjects(sub); setCatalogue(cat);
+    setStaff(st); setYears(y); setAssignments(a);
   }, [classId]);
 
   useEffect(() => { load().catch(() => {}).finally(() => setLoaded(true)); }, [load]);
 
+  // Adopt the section named in the URL, including on back/forward navigation.
+  useEffect(() => {
+    const sync = () => setSelected(new URLSearchParams(window.location.search).get('section'));
+    sync();
+    window.addEventListener('popstate', sync);
+    return () => window.removeEventListener('popstate', sync);
+  }, []);
+
   const currentYear = years.find((y) => y.isCurrent) ?? null;
   const teachers = useMemo(() => staff.filter((s) => s.staffType === 'TEACHER'), [staff]);
-  const teacherName = (staffId: string) => {
-    const t = staff.find((x) => x.id === staffId);
-    return t?.fullName ?? t?.user.email ?? 'Unknown';
-  };
+  // Assignments come back for the whole school; this page only speaks about its own sections.
+  const mine = useMemo(
+    () => assignments.filter((a) => sections.some((s) => s.id === a.sectionId)),
+    [assignments, sections],
+  );
+  const selectedSection = sections.find((s) => s.id === selected) ?? null;
 
-  /** The assignment for one (section, subject) pair — subjectId null means class teacher. */
-  const assignmentFor = (sectionId: string, subjectId: string | null) =>
-    assignments.find((a) => a.sectionId === sectionId && (a.subjectId ?? null) === subjectId) ?? null;
-
-  async function run(key: string, fn: () => Promise<unknown>, ok: string) {
-    setBusy(key);
-    try { await fn(); await load(); setMsg({ ok: true, text: ok }); }
-    catch (e) { setMsg({ ok: false, text: e instanceof ApiError ? e.message : 'That did not work' }); }
-    finally { setBusy(''); }
+  function selectSection(id: string) {
+    const next = id === selected ? null : id;
+    setSelected(next);
+    router.replace(next ? `/classes/${classId}?section=${next}` : `/classes/${classId}`, { scroll: false });
   }
 
+  async function run(key: string, fn: () => Promise<unknown>, ok: string): Promise<string | null> {
+    setBusyKey(key);
+    try {
+      await fn();
+      await load();
+      setMsg({ ok: true, text: ok });
+      return null;
+    } catch (e) {
+      const text = e instanceof ApiError ? e.message : 'Something went wrong. Please try again.';
+      setMsg({ ok: false, text });
+      return text;
+    } finally {
+      setBusyKey('');
+    }
+  }
+
+  /** One teacher per (section, subject): replace rather than stack duplicates. */
   const assign = (sectionId: string, subjectId: string | null, staffId: string) => {
-    const existing = assignmentFor(sectionId, subjectId);
-    const key = `${sectionId}:${subjectId ?? 'homeroom'}`;
-    return run(key, async () => {
-      // One teacher per (section, subject): replace rather than stack duplicates.
+    const existing = mine.find((a) => a.sectionId === sectionId && (a.subjectId ?? null) === subjectId) ?? null;
+    return run(`${sectionId}:${subjectId ?? 'homeroom'}`, async () => {
       if (existing) await api.teacherAssignments.remove(existing.id);
       if (staffId) {
         await api.teacherAssignments.create({
@@ -85,15 +123,24 @@ export default function ClassDetailPage() {
     return (
       <div className="stack">
         <h1>Class not found</h1>
-        <Link className="ghost small" href="/classes">← Back to Classes</Link>
+        <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+          It may have been deleted, or belong to a campus you cannot see.
+        </p>
+        <div><Link className="chip" href="/classes">← Back to Classes</Link></div>
       </div>
     );
   }
 
   const campusName = campuses.find((c) => c.id === klass.campusId)?.name ?? '';
-  // A section with no explicit subject list studies everything the class offers.
-  const subjectsOf = (s: Section) =>
-    s.subjectIds?.length ? subjects.filter((x) => s.subjectIds!.includes(x.id)) : subjects;
+  const strength = sections.reduce((n, s) => n + (s.enrolled ?? 0), 0);
+  const counted = sections.some((s) => s.enrolled != null);
+  // Every (section, subject) pair that still needs a teacher — the same question the vacancy
+  // board used to be typed by hand to answer, derived so it cannot go stale.
+  const pairs = sections.flatMap((s) => {
+    const studied = s.subjectIds?.length ? subjects.filter((x) => s.subjectIds!.includes(x.id)) : subjects;
+    return studied.map((x) => ({ sectionId: s.id, subjectId: x.id }));
+  });
+  const gaps = pairs.filter((p) => !mine.some((a) => a.sectionId === p.sectionId && a.subjectId === p.subjectId)).length;
 
   return (
     <div className="stack">
@@ -101,105 +148,101 @@ export default function ClassDetailPage() {
         <div className="stack" style={{ gap: 2 }}>
           <h1 style={{ marginBottom: 0 }}>{klass.name}</h1>
           <p className="muted" style={{ margin: 0, fontSize: 13 }}>
-            {campusName}{currentYear ? ` · ${currentYear.name}` : ''} · {sections.length} section{sections.length === 1 ? '' : 's'} · {subjects.length} subject{subjects.length === 1 ? '' : 's'}
+            {campusName}{currentYear ? ` · ${currentYear.name}` : ''} · {sections.length} section{sections.length === 1 ? '' : 's'}
+            {' · '}{subjects.length} subject{subjects.length === 1 ? '' : 's'}
+            {counted && ` · ${strength} student${strength === 1 ? '' : 's'}`}
           </p>
         </div>
-        <div className="row" style={{ gap: 8 }}>
-          <Link className="ghost small" href="/classes">← Classes</Link>
-          <button className="ghost small" onClick={() => router.push(`/students?campusId=${klass.campusId}&classId=${klass.id}`)}>
+        <div className="chips">
+          <Link className="chip" href="/classes">← Classes</Link>
+          <button className="ghost small" type="button"
+            onClick={() => router.push(`/students?campusId=${klass.campusId}&classId=${klass.id}`)}>
             View students
           </button>
         </div>
       </div>
 
       {msg && <div className={`toast ${msg.ok ? 'ok' : 'err'}`}>{msg.text}</div>}
+
       {!currentYear && (
         <div className="toast err">
           No current school year — teaching is recorded against one, so{' '}
           <Link href="/setup" style={{ fontWeight: 600 }}>set the year in School configuration</Link> before assigning teachers.
         </div>
       )}
-      {teachers.length === 0 && (
-        <div className="toast err">
-          No teachers yet. Add them under <Link href="/staff" style={{ fontWeight: 600 }}>Staff</Link> first.
+      {currentYear && teachers.length === 0 && (
+        <div className="toast warn">
+          No teachers on record yet. Add them under <Link href="/staff" style={{ fontWeight: 600 }}>Staff</Link>,
+          then assign them to a section here.
+        </div>
+      )}
+      {currentYear && teachers.length > 0 && gaps > 0 && (
+        <div className="toast warn">
+          {gaps} subject{gaps === 1 ? '' : 's'} across {sections.length} section{sections.length === 1 ? '' : 's'}{' '}
+          {gaps === 1 ? 'has' : 'have'} no teacher. Open a section below to assign one.
         </div>
       )}
 
-      {sections.length === 0 ? (
-        <div className="card">
-          <p className="muted" style={{ margin: 0 }}>
-            This class has no sections yet. Add one on the <Link href="/classes">Classes</Link> screen.
-          </p>
-        </div>
-      ) : (
-        sections.map((sec) => {
-          const secSubjects = subjectsOf(sec);
-          const homeroom = assignmentFor(sec.id, null);
-          return (
-            <div className="card stack" key={sec.id}>
-              <div className="row">
-                <h2 style={{ margin: 0, fontSize: 17 }}>Section {sec.name}</h2>
-                <span className="muted" style={{ fontSize: 12 }}>
-                  {secSubjects.length} subject{secSubjects.length === 1 ? '' : 's'}
-                  {sec.subjectIds?.length ? ' · custom list' : ' · all class subjects'}
-                </span>
-              </div>
+      <SubjectCatalogue
+        className={klass.name}
+        subjects={subjects}
+        sections={sections}
+        assignments={mine}
+        catalogue={catalogue.length ? catalogue : subjectCatalogueFrom(subjects)}
+        canEdit={canEdit}
+        onAdd={(names) =>
+          run('subjects', () => Promise.all(names.map((n) => api.subjects.create(classId, n))),
+            names.length === 1 ? 'Subject added' : `${names.length} subjects added`)}
+        onRename={(id, name) => run(`subject:${id}`, () => api.subjects.rename(id, name), 'Subject renamed')}
+        onRemove={(id) => run(`subject:${id}`, () => api.subjects.remove(id), 'Subject removed')}
+      />
 
-              {/* Class teacher = the homeroom assignment (subjectId null), not a subject. */}
-              <div className="row" style={{ gap: 10, flexWrap: 'wrap' }}>
-                <span className="muted" style={{ fontSize: 13, minWidth: 90 }}>Class teacher</span>
-                <select
-                  style={{ maxWidth: 280 }}
-                  disabled={!currentYear || busy === `${sec.id}:homeroom`}
-                  value={homeroom?.staffId ?? ''}
-                  onChange={(e) => assign(sec.id, null, e.target.value)}
-                >
-                  <option value="">— none —</option>
-                  {teachers.map((t) => <option key={t.id} value={t.id}>{t.fullName ?? t.user.email}</option>)}
-                </select>
-              </div>
+      <SectionList
+        sections={sections}
+        subjects={subjects}
+        assignments={mine}
+        selectedId={selected}
+        canEdit={canEdit}
+        onSelect={selectSection}
+        onAdd={(names, capacity, copyFromSectionId) =>
+          run('sections', () => Promise.all(names.map((name) => api.sections.create({
+            classId, name, capacity,
+            ...(copyFromSectionId ? { copySubjectsFromSectionId: copyFromSectionId } : {}),
+          }))), names.length === 1 ? 'Section added' : `${names.length} sections added`)}
+      />
 
-              {secSubjects.length === 0 ? (
-                <p className="muted" style={{ margin: 0, fontSize: 13 }}>
-                  No subjects for this section yet — add them on the <Link href="/classes">Classes</Link> screen.
-                </p>
-              ) : (
-                <div style={{ overflowX: 'auto' }}>
-                  <table>
-                    <thead><tr><th>Subject</th><th>Teacher</th><th></th></tr></thead>
-                    <tbody>
-                      {secSubjects.map((sub) => {
-                        const a = assignmentFor(sec.id, sub.id);
-                        const key = `${sec.id}:${sub.id}`;
-                        return (
-                          <tr key={sub.id}>
-                            <td>{sub.name}</td>
-                            <td>
-                              <select
-                                style={{ maxWidth: 280 }}
-                                disabled={!currentYear || busy === key}
-                                value={a?.staffId ?? ''}
-                                onChange={(e) => assign(sec.id, sub.id, e.target.value)}
-                              >
-                                <option value="">— unassigned —</option>
-                                {teachers.map((t) => <option key={t.id} value={t.id}>{t.fullName ?? t.user.email}</option>)}
-                              </select>
-                            </td>
-                            <td style={{ textAlign: 'right' }}>
-                              {a
-                                ? <span className="badge ok">{teacherName(a.staffId)}</span>
-                                : <span className="badge warn">Unassigned</span>}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          );
-        })
+      {selectedSection && (
+        <SectionPane
+          section={selectedSection}
+          klassName={klass.name}
+          classSubjects={subjects}
+          teachers={teachers}
+          assignments={mine}
+          hasCurrentYear={Boolean(currentYear)}
+          canEdit={canEdit}
+          busyKey={busyKey}
+          onUpdate={(body) => run(`section:${selectedSection.id}`, () => api.sections.update(selectedSection.id, body), 'Section updated')}
+          onDelete={async () => {
+            const failure = await run(`section:${selectedSection.id}`, () => api.sections.remove(selectedSection.id), 'Section deleted');
+            // Keeping a deleted section in the URL would reopen an empty pane on the next load.
+            if (!failure) { setSelected(null); router.replace(`/classes/${classId}`, { scroll: false }); }
+            return failure;
+          }}
+          onSetSubjects={(subjectIds) =>
+            run(`section:${selectedSection.id}`, () => api.sections.setSubjects(selectedSection.id, subjectIds),
+              'Subjects updated for this section')}
+          onAssign={(subjectId, staffId) => assign(selectedSection.id, subjectId, staffId)}
+          onCreateSubject={async (name) => {
+            try {
+              const created = await api.subjects.create(classId, name);
+              await load();
+              return created;
+            } catch (e) {
+              setMsg({ ok: false, text: e instanceof ApiError ? e.message : 'Could not add that subject' });
+              return null;
+            }
+          }}
+        />
       )}
     </div>
   );

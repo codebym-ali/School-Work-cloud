@@ -190,6 +190,65 @@ payslips, and a receipt is what the family actually asks for.
 
 ---
 
+## 6a. The owner chooses which of this the school uses ⭐
+
+**Operator requirement:** none of the above should be forced on a school. A one-branch school
+that takes cash over the counter must not be shown wallet references, challan numbers and an
+upload queue it will never use.
+
+So this follows the pattern the codebase already uses for `admissionsMode` and
+`staffAttendance.*` — a **school-level setting group, opt-in, defaults conservative** — and it is
+edited on the **School settings** screen the owner already has.
+
+```ts
+feeSubmission: {
+  /** Which ways this school accepts money. Drives the collect-payment form AND the API. */
+  methods: z.array(z.enum(['CASH','BANK_TRANSFER','EASYPAISA','JAZZCASH','CHEQUE','CARD']))
+            .min(1).default(['CASH']),
+  /** Attach a screenshot / challan counterfoil to a non-cash payment. */
+  proofPolicy: z.enum(['OFF','OPTIONAL','REQUIRED']).default('OPTIONAL'),
+  /** Guardians upload proof from a link in the fee SMS — no account, no portal. */
+  guardianUploadLink: z.boolean().default(false),
+  /** Days a cheque is held before it counts as money (D3). */
+  chequeClearingDays: z.number().int().min(0).max(30).default(3),
+  /** Aggregator (Kuickpay / 1Bill). Off until a merchant account exists. */
+  online: z.object({
+    enabled: z.boolean().default(false),
+    provider: z.enum(['KUICKPAY','ONEBILL']).default('KUICKPAY'),
+    companyCode: z.string().max(20).optional(),
+  }).default({}),
+}
+```
+
+### What this changes on screen
+
+- **Collect payment** offers only the methods the school accepts — a cash-only school sees one
+  button, not a six-item dropdown of things it does not do.
+- **Proof** is absent / optional / mandatory on non-cash according to `proofPolicy`, and the
+  form says which.
+- The **guardian link** section of the fee SMS, the public upload page and the verification queue
+  **do not exist at all** unless `guardianUploadLink` is on — the same way the enquiry pipeline
+  vanishes in DIRECT admissions mode rather than sitting there reading zero.
+- The **online** block only appears once a company code is saved.
+
+### ⚠️ Two rules about this configurability
+
+**1. The API must enforce it, not just the UI.** A disabled method has to be *refused* by
+`pay()`, not merely hidden from the dropdown. Hiding alone is a display gate over an open
+endpoint — the exact mistake already recorded as **F8** in [[Fees Gaps Register]], where fee
+prices are hidden in the UI but readable by anyone signed in.
+
+**2. Turning a method off never rewrites history.** Payments already taken by cheque stay
+readable, reversible and on the receipt after cheques are switched off. Disabling governs **new**
+payments only — the same rule as `isActive` on a fee structure.
+
+**3. What is deliberately NOT configurable:** whether a claim can auto-verify. That is a
+correctness rule, not a preference, and offering it as a switch invites a school to turn off the
+one control that stops a forged screenshot becoming a receipt. A settings screen should not offer
+a toggle whose "off" position is a defect.
+
+---
+
 ## 7. Decisions needed
 
 - **D1 — Which channels for v1?** Recommend **office-entered proof + the guardian SMS link**. The
@@ -207,6 +266,10 @@ payslips, and a receipt is what the family actually asks for.
   acceptable — the alternative (a claim spanning invoices) is a bigger change to `pay()`.
 - **D5 — Online aggregator:** confirm Kuickpay/1Bill is the intended direction so the PSID field
   is shaped for it, even though nothing is built.
+- **D6 — Defaults for a brand-new school.** Recommend `methods: [CASH]`, `proofPolicy: OPTIONAL`,
+  `guardianUploadLink: false`, `online.enabled: false` — a new school starts at the simplest
+  thing that works and switches on what it grows into. **Demo would be set up with bank transfer
+  and the wallets on** so the operator can see the full flow.
 
 ---
 
@@ -215,11 +278,12 @@ payslips, and a receipt is what the family actually asks for.
 | # | Deliverable | Why this order |
 |---|---|---|
 | **B0** | **File serving** — presigned GET behind ownership checks | Blocks this, student photos and staff documents. One endpoint, three features |
-| **B1** | Proof on an office-recorded payment + proof visible on the student profile | Immediate value, no new surface, no security question |
-| **B2** | `FeePaymentClaim` + verify/reject + the office queue + dashboard chip | The workflow that makes proof mean something |
-| **B3** | Guardian SMS link (tokenised, no login) + rate limits + the claim it creates | The labour actually disappears here |
-| **B4** | Receipt PDF + payments and receipts on `/me/fees` | What the family asks for |
-| **B5** | Aggregator seam: PSID on the invoice, `ONLINE` method, HMAC webhook — **stub, not integrated** | Ready for the day a merchant account exists |
+| **B1** | **`feeSubmission` settings + enforcement** — accepted methods, proof policy, cheque clearing; the School settings section; `pay()` refuses a disabled method | Decides what every screen below even offers, so it comes before them. Ships alone and is useful alone: a cash-only school immediately stops seeing five methods it does not use |
+| **B2** | Proof on an office-recorded payment + proof visible on the student profile | Immediate value, no new surface, no security question |
+| **B3** | `FeePaymentClaim` + verify/reject + the office queue + dashboard chip | The workflow that makes proof mean something |
+| **B4** | Guardian SMS link (tokenised, no login) + rate limits + the claim it creates — **behind `guardianUploadLink`** | The labour actually disappears here |
+| **B5** | Receipt PDF + payments and receipts on `/me/fees` | What the family asks for |
+| **B6** | Aggregator seam: PSID on the invoice, `ONLINE` method, HMAC webhook — **stub, not integrated** | Ready for the day a merchant account exists |
 
 ---
 

@@ -283,7 +283,12 @@ export interface ClassTest {
 export interface ClassTestScore {
   id: string; enrollmentId: string; marksObtained: string | null; isAbsent: boolean;
 }
-export interface ClassTestDetail extends ClassTest { scores: ClassTestScore[] }
+export interface ClassTestDetail extends ClassTest {
+  scores: ClassTestScore[];
+  /** What the register said on the test date, keyed by enrollmentId. A student with no record
+   *  that day is ABSENT FROM THIS MAP — "not marked" is not "was away". */
+  attendance: Record<string, string>;
+}
 
 /** Portal performance. Note there is deliberately NO class average or rank here — a student
  *  sees their own trend, not their position. Comparison lives on the staff side. */

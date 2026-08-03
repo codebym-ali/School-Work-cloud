@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { api, ApiError, type ClassTest, type ClassTestDetail, type RosterRow } from '@/lib/api';
+import { attendanceBadge, humanizeStatus } from '@/lib/format';
+import { missedSchool } from '@/lib/attendance';
 
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -42,12 +44,22 @@ export function ClassTestsPanel({ sectionId, subjectId, subjectName, roster, onM
     setOpenId(id);
     const d = await api.classTests.get(id);
     setDetail(d);
-    // Seed the inputs from stored marks so an edit starts from what's already recorded rather
-    // than from blank — retyping a whole register to fix one number is how mistakes happen.
+    // Seed each row from the strongest thing we know, in this order:
+    //   1. a stored score — a recorded mark is a fact and always wins;
+    //   2. else the attendance register for the test date — the teacher already said who was
+    //      away that morning, and asking them to remember it again while typing marks is how a
+    //      present student silently gets a zero;
+    //   3. else blank.
+    // Never from "no attendance record": that means nobody marked the register, which is not
+    // the same as the child being away.
     const seeded: Record<string, { marks: string; absent: boolean }> = {};
     for (const r of roster) {
       const s = d.scores.find((x) => x.enrollmentId === r.enrollmentId);
-      seeded[r.enrollmentId] = { marks: s?.marksObtained != null ? String(Number(s.marksObtained)) : '', absent: s?.isAbsent ?? false };
+      if (s) {
+        seeded[r.enrollmentId] = { marks: s.marksObtained != null ? String(Number(s.marksObtained)) : '', absent: s.isAbsent };
+      } else {
+        seeded[r.enrollmentId] = { marks: '', absent: missedSchool(d.attendance[r.enrollmentId]) };
+      }
     }
     setEntry(seeded);
   }
@@ -172,29 +184,45 @@ export function ClassTestsPanel({ sectionId, subjectId, subjectName, roster, onM
 
           <div style={{ overflowX: 'auto' }}>
             <table>
-              <thead><tr><th>Roll</th><th>Student</th><th>Marks</th><th>Absent</th></tr></thead>
+              <thead><tr><th>Roll</th><th>Student</th><th>That day</th><th>Marks</th><th>Absent</th></tr></thead>
               <tbody>
                 {roster.map((r) => {
                   const v = entry[r.enrollmentId] ?? { marks: '', absent: false };
                   const over = !v.absent && v.marks !== '' && Number(v.marks) > total;
+                  const att = detail.attendance[r.enrollmentId];
+                  const wasAway = missedSchool(att);
+                  // The teacher has disagreed with the register. Shown, not blocked: attendance
+                  // is per session and can be wrong, but a silent contradiction helps nobody.
+                  const overridden = wasAway && !v.absent;
                   return (
                     <tr key={r.enrollmentId}>
                       <td>{r.rollNumber ?? '—'}</td>
                       <td>{r.fullName}</td>
                       <td>
+                        {att
+                          ? <span className={`badge ${attendanceBadge(att)}`}>{humanizeStatus(att)}</span>
+                          : <span className="muted" style={{ fontSize: 12 }}>not marked</span>}
+                      </td>
+                      <td>
                         <input type="number" min={0} max={total} value={v.marks} disabled={v.absent}
                           style={{ width: 90, ...(over ? { borderColor: '#b91c1c' } : {}) }}
                           onChange={(e) => setEntry({ ...entry, [r.enrollmentId]: { ...v, marks: e.target.value } })} />
                         {over && <span style={{ color: '#b91c1c', fontSize: 11, marginLeft: 6 }}>over {total}</span>}
+                        {overridden && (
+                          <span className="muted" style={{ fontSize: 11, marginLeft: 6 }}>
+                            register says {humanizeStatus(att).toLowerCase()}
+                          </span>
+                        )}
                       </td>
                       <td>
                         <input type="checkbox" checked={v.absent}
+                          aria-label={`${r.fullName} did not sit this test`}
                           onChange={(e) => setEntry({ ...entry, [r.enrollmentId]: { marks: e.target.checked ? '' : v.marks, absent: e.target.checked } })} />
                       </td>
                     </tr>
                   );
                 })}
-                {roster.length === 0 && <tr><td colSpan={4} className="muted">No students enrolled.</td></tr>}
+                {roster.length === 0 && <tr><td colSpan={5} className="muted">No students enrolled.</td></tr>}
               </tbody>
             </table>
           </div>

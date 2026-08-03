@@ -110,7 +110,37 @@ export class ClassTestsService {
     if (mine && !mine.includes(test.sectionId)) {
       throw new AppError(ErrorCodes.FORBIDDEN, HttpStatus.FORBIDDEN, 'You do not teach this section');
     }
-    return test;
+    return { ...test, attendance: await this.attendanceOnTestDate(test.sectionId, test.testDate) };
+  }
+
+  /**
+   * Who the register says was in school on the day of the test.
+   *
+   * The teacher already marked attendance that morning; asking them to remember it again while
+   * typing marks is how a present student silently gets a zero. So the marks screen seeds the
+   * "absent" box from the register instead.
+   *
+   * Returned as **information, never as a rule**: the caller pre-fills with it and lets the
+   * teacher disagree. Attendance is recorded per session, so a student marked absent in the
+   * morning may well have sat an afternoon test, and a register can be wrong or backfilled
+   * later — a hint that cannot be overridden would make one module's mistake unfixable from
+   * the other.
+   *
+   * A student with **no record for that day is absent from this map entirely**. "Nobody marked
+   * the register" and "the child was away" are different facts, and defaulting the first to the
+   * second would hand out zeros for a day the teacher simply never filled in.
+   */
+  private async attendanceOnTestDate(sectionId: string, testDate: Date) {
+    const rows = await this.db.attendanceRecord.findMany({
+      where: { date: testDate, enrollment: { sectionId } },
+      select: { enrollmentId: true, status: true, session: true },
+      orderBy: { session: 'asc' },
+    });
+    // One entry per enrolment. A school running two sessions gets the first here, matching the
+    // single-register model the rest of the product assumes (see D5 on staff attendance).
+    const byEnrollment: Record<string, string> = {};
+    for (const r of rows) if (!(r.enrollmentId in byEnrollment)) byEnrollment[r.enrollmentId] = r.status;
+    return byEnrollment;
   }
 
   async update(id: string, dto: UpdateClassTestDto) {

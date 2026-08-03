@@ -52,6 +52,22 @@ export function workingDaysBetween(
   return days;
 }
 
+/**
+ * Did this attendance status mean the student was not in school that day?
+ *
+ * Used to seed the "absent" box when a teacher enters class-test marks. `ABSENT` and `ON_LEAVE`
+ * both mean not present — approved leave is still a day the child was not there to sit a test.
+ * `HALF_DAY` counts as **present**: they were in for part of the day, and the teacher can tick
+ * absent themselves if the test fell in the half they missed. Guessing the other way would
+ * hand out a missed-test mark to a student who actually sat it.
+ *
+ * Note this is deliberately NOT the same question as the attendance percentage, where
+ * `ON_LEAVE` is excluded rather than counted against the student.
+ */
+export function missedSchoolThatDay(status: string | undefined | null): boolean {
+  return status === 'ABSENT' || status === 'ON_LEAVE';
+}
+
 export function attendancePercentFromStatuses(statuses: readonly string[]): number | null {
   const countable = statuses.filter((s) => s !== 'ON_LEAVE');
   if (!countable.length) return null;

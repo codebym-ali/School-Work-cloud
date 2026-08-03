@@ -177,6 +177,108 @@ describe('Class tests (e2e, §11 extension)', () => {
     expect(score?.marksObtained).toBeNull();
   });
 
+  /**
+   * The register the teacher already filled in that morning is carried onto the marks screen,
+   * so a student who was away is not silently given a zero — and, just as important, a day
+   * nobody marked is never mistaken for a day the child was absent.
+   */
+  describe('attendance on the test date', () => {
+    let attTestId: string;
+
+    const makeTest = async (name: string) => {
+      const res = await send('post', '/api/v1/class-tests', {
+        sectionId, subjectId: mathsId, name, totalMarks: 20, testDate: today(),
+      }, teacherCookies);
+      expect(res.status).toBe(201);
+      return res.body.id as string;
+    };
+    const setAttendance = (status: string) =>
+      send('post', '/api/v1/attendance/bulk', {
+        sectionId, date: today(), session: 'MORNING', allowHolidayOverride: true,
+        records: [{ enrollmentId, status }],
+      }, ownerCookies);
+
+    beforeAll(async () => {
+      attTestId = await makeTest('Attendance-aware quiz');
+      // Backdate the enrolment: `startedAt` defaults to now, and attendance may not be recorded
+      // for a date before the student joined. Without this the backdated case below fails on
+      // the enrolment guard rather than on the rule under test — a real student is enrolled
+      // long before the day being marked.
+      await platform.studentEnrollment.updateMany({
+        where: { id: enrollmentId },
+        data: { startedAt: new Date(Date.now() - 30 * 86400000) },
+      });
+    });
+    afterEach(async () => { await platform.attendanceRecord.deleteMany({ where: { schoolId } }); });
+
+    it('reports nothing for a day the register was never filled in', async () => {
+      const res = await get(`/api/v1/class-tests/${attTestId}`, teacherCookies);
+      expect(res.status).toBe(200);
+      // Absent from the map entirely — "not marked" must never arrive as "was away", or the
+      // screen would tick absent for a whole class on a day the teacher simply forgot.
+      expect(res.body.attendance[enrollmentId]).toBeUndefined();
+    });
+
+    it('reports ABSENT and ON_LEAVE — the statuses that mean the child was not there to sit it', async () => {
+      for (const status of ['ABSENT', 'ON_LEAVE']) {
+        await setAttendance(status);
+        const res = await get(`/api/v1/class-tests/${attTestId}`, teacherCookies);
+        expect(res.body.attendance[enrollmentId]).toBe(status);
+        await platform.attendanceRecord.deleteMany({ where: { schoolId } });
+      }
+    });
+
+    it('reports PRESENT and HALF_DAY unchanged — half a day still means they were in', async () => {
+      // HALF_DAY is deliberately NOT treated as missing the test: the teacher ticks absent
+      // themselves if it fell in the half the student missed. Guessing the other way records a
+      // missed test for a child who actually sat it.
+      for (const status of ['PRESENT', 'HALF_DAY']) {
+        await setAttendance(status);
+        const res = await get(`/api/v1/class-tests/${attTestId}`, teacherCookies);
+        expect(res.body.attendance[enrollmentId]).toBe(status);
+        await platform.attendanceRecord.deleteMany({ where: { schoolId } });
+      }
+    });
+
+    it('is information, not a rule — a mark can still be recorded for an absent student', async () => {
+      // Attendance is per session and registers get corrected, so the teacher must be able to
+      // disagree. A hint that could not be overridden would make one module's mistake
+      // unfixable from the other.
+      await setAttendance('ABSENT');
+      const scored = await send('post', `/api/v1/class-tests/${attTestId}/scores`, {
+        rows: [{ enrollmentId, marksObtained: 15 }],
+      }, teacherCookies);
+      expect(scored.body).toMatchObject({ saved: 1, failed: 0 });
+
+      const res = await get(`/api/v1/class-tests/${attTestId}`, teacherCookies);
+      // Both facts survive, and disagree in the open: the score stands, the register still says
+      // absent, and the screen shows the contradiction rather than hiding it.
+      expect(Number(res.body.scores.find((s: { enrollmentId: string }) => s.enrollmentId === enrollmentId).marksObtained)).toBe(15);
+      expect(res.body.attendance[enrollmentId]).toBe('ABSENT');
+
+      await platform.classTestScore.deleteMany({ where: { classTestId: attTestId } });
+    });
+
+    it('reads the register of the TEST date, not of today', async () => {
+      // A test entered a week later must reflect the day it was sat.
+      const past = new Date(Date.now() - 3 * 86400000);
+      while (past.getUTCDay() === 0) past.setUTCDate(past.getUTCDate() - 1);
+      const pastIso = past.toISOString().slice(0, 10);
+      const backdated = (await send('post', '/api/v1/class-tests', {
+        sectionId, subjectId: mathsId, name: 'Last week quiz', totalMarks: 20, testDate: pastIso,
+      }, teacherCookies)).body.id;
+
+      await setAttendance('ABSENT'); // today
+      await send('post', '/api/v1/attendance/bulk', {
+        sectionId, date: pastIso, session: 'MORNING', allowHolidayOverride: true,
+        records: [{ enrollmentId, status: 'PRESENT' }],
+      }, ownerCookies);
+
+      const res = await get(`/api/v1/class-tests/${backdated}`, teacherCookies);
+      expect(res.body.attendance[enrollmentId]).toBe('PRESENT'); // the test day, not today
+    });
+  });
+
   it('a teacher sees only their own sections; the owner sees everything', async () => {
     expect((await get('/api/v1/class-tests', teacherCookies)).body.length).toBeGreaterThanOrEqual(1);
     // The science teacher shares the section but the list is section-scoped, so they see it too —

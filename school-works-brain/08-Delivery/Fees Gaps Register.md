@@ -1,7 +1,7 @@
 ---
 title: Fees — known gaps & flaws
 type: register
-status: open — running list, added to as flaws surface
+status: F1–F7 CLOSED 2026-08-03 · F8 open
 created: 2026-08-03
 scope: fee heads, fee structures, invoice generation
 ---
@@ -25,7 +25,7 @@ applicable structure.
 
 ---
 
-## F1 — A fee amount can never be corrected 🔴 **High**
+## F1 — A fee amount can never be corrected ✅ **FIXED 2026-08-03** *(was High)*
 
 `/fee-structures` exposes only `POST` and `GET`. There is **no `PATCH` and no `DELETE`**, the
 unique key blocks inserting a corrected duplicate, and `isActive` exists on the model but
@@ -41,7 +41,7 @@ require a new effective-dated row (see F4), or version it.
 
 ---
 
-## F2 — Setup is O(classes × heads) by hand, with no rollover 🟠 **Med-High**
+## F2 — Setup is O(classes × heads) by hand, with no rollover ✅ **FIXED 2026-08-03**
 
 Ten classes and four heads is forty separate form submissions, one at a time. There is no bulk
 apply ("Tuition 3,000 for 1st–5th"), and — more importantly — **no way to copy last year's plan
@@ -52,7 +52,7 @@ The Classes screen already proved the shape with copy-subjects-from-another-clas
 
 ---
 
-## F3 — `ONE_TIME` and `ADMISSION` frequencies do nothing 🟠 **Med**
+## F3 — `ONE_TIME` and `ADMISSION` frequencies do nothing ✅ **CLOSED 2026-08-03 (refused, not implemented)**
 
 `FeeFrequency` has four values; `createBatch` computes
 `applies = MONTHLY || (ANNUAL && month === annualMonth)`. **`ONE_TIME` and `ADMISSION` are never
@@ -66,7 +66,7 @@ from the enum.
 
 ---
 
-## F4 — No effective dating on a fee 🟠 **Med**
+## F4 — No effective dating on a fee ✅ **FIXED 2026-08-03**
 
 `SalaryStructure` carries `effectiveFrom`; `FeeStructure` does not. Mid-year fee revisions are
 normal, and with no dating there is no way to answer *"what did 9th cost in April?"* once a
@@ -77,7 +77,7 @@ F1 its safe correction path.
 
 ---
 
-## F5 — `campusId` on a structure is unvalidated 🟡 **Low-Med**
+## F5 — `campusId` on a structure is unvalidated ✅ **FIXED 2026-08-03**
 
 `createStructure` stores the client-supplied `campusId` without checking it against the class's
 own campus, so a structure can point at a campus its class does not belong to. The class already
@@ -87,7 +87,7 @@ implies the campus, making the column a denormalisation that can drift.
 
 ---
 
-## F6 — A duplicate structure returns 500, not 409 🟡 **Low-Med**
+## F6 — A duplicate structure returns 500, not 409 ✅ **FIXED 2026-08-03**
 
 The unique index is the only thing stopping a second identical structure, and **`P2002` is not
 mapped anywhere** (`all-exceptions.filter` has no Prisma-error handling). The operator sees
@@ -98,7 +98,7 @@ pre-check. **Worth considering a general P2002 → 409 mapping** rather than a t
 
 ---
 
-## F7 — Nothing shows what a class costs 🟡 **Low-Med**
+## F7 — Nothing shows what a class costs ✅ **FIXED 2026-08-03**
 
 The fee total per class exists nowhere — not on Fees (a flat list of structure rows across the
 school), not on the Classes screen. An operator adds the rows up by eye.
@@ -122,3 +122,40 @@ Add, in order of value:
 4. **Per-class plan view with a monthly total** (F7).
 5. **Make the dead frequencies work, or delete them** (F3).
 6. Small correctness: F5, F6.
+
+---
+
+## What shipped (2026-08-03)
+
+`FeeStructure.effectiveFrom` + a unique key that includes it, so one class/head/frequency holds
+a price **history**. Invoicing picks the row in force for the month it bills, through a pure
+`inForceStructures` helper the fee-plan screen mirrors — the two cannot disagree about what a
+class costs.
+
+- **Editing** is allowed while nothing has been billed from the row (fix a typo), refused with
+  the alternative named once it has. **Deactivating is always allowed** (future runs only);
+  deleting a billed price is refused, because the invoices it produced must stay explicable.
+- **Copy** moves a plan across classes or into the next year with a percentage rise. Only the
+  price in force is copied, it **skips rather than overwrites**, and rises round to whole rupees.
+- **F3 was closed by refusing, not implementing.** `ONE_TIME`/`ADMISSION` now 422 at creation
+  with the reason, and the UI offers only the two frequencies invoicing charges. The enum is
+  untouched. Implementing them properly (admission fee on first invoice after enrolment, one-time
+  charged once per student) remains open if the operator wants it.
+- Per-class plan cards with a monthly total on `/fees`, and the same figure read-only on the
+  class workbench.
+
+**Tests:** 8 new cases in `fees.e2e-spec` (revision billing, history untouched, edit refused when
+billed, delete refused/deactivate allowed, unbilled typo corrected, duplicate 409, frequency
+refused, copy with rise + skip-on-rerun), 3 matrix rows, 1 Playwright display test.
+
+---
+
+## F8 — Fee prices are readable by any signed-in user 🟡 **Low-Med · OPEN**
+
+`GET /fee-structures` and `GET /fee-heads` carry **no `@Roles`**, so any authenticated
+account — a teacher, a staff member, a student — can read what every class is charged. Not
+student PII, and writes are correctly owner-only, but it is not information those roles need.
+
+Noticed while gating the class workbench's fee line to the owner in the UI, which is a display
+fix over an open endpoint rather than a real boundary. **Fix:** `@Roles('OWNER_ADMIN',
+'CAMPUS_ADMIN', 'ACCOUNTANT')` on both reads, and a matrix row asserting the deny side.

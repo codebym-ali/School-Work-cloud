@@ -143,9 +143,12 @@ export interface ImportResult {
 export interface Enrollment { id: string; studentId: string; sectionId: string; classId: string; academicYearId: string; status: string; student?: { fullName: string; grNumber: string } }
 export interface Invoice { id: string; studentId: string; totalAmount: string; paidAmount: string; status: string; month: number | null; year: number; dueDate: string }
 export interface FeeHead { id: string; name: string }
+/** One price for one head, for one class, from `effectiveFrom`. Several rows may exist for the
+ *  same head — they are a price HISTORY, and invoicing uses whichever is in force for the month
+ *  it bills. `isActive: false` rows are returned too: the plan must show what was switched off. */
 export interface FeeStructure {
   id: string; campusId: string; classId: string; feeHeadId: string; academicYearId: string;
-  amount: string; frequency: string; isActive: boolean;
+  amount: string; frequency: string; isActive: boolean; effectiveFrom: string;
 }
 export interface LateFeePolicy { id: string; graceDays: number; mode: string; amount: string; maxAmount: string | null }
 export interface Discount {
@@ -550,8 +553,15 @@ export const api = {
     heads: () => apiGet<FeeHead[]>('/fee-heads'),
     createHead: (name: string) => apiPost<FeeHead>('/fee-heads', { name }),
     structures: (classId?: string) => apiGet<FeeStructure[]>(`/fee-structures${classId ? `?classId=${classId}` : ''}`),
-    createStructure: (body: { campusId: string; classId: string; feeHeadId: string; academicYearId: string; amount: number; frequency: string }) =>
+    createStructure: (body: { classId: string; feeHeadId: string; academicYearId: string; amount: number; frequency: string; effectiveFrom?: string }) =>
       apiPost<FeeStructure>('/fee-structures', body),
+    /** Amount is editable only while nothing has been billed from the row; the server 409s
+     *  otherwise and names the alternative. `isActive` can always be toggled. */
+    updateStructure: (id: string, body: { amount?: number; isActive?: boolean }) =>
+      apiPatch<FeeStructure>(`/fee-structures/${id}`, body),
+    deleteStructure: (id: string) => apiDelete<null>(`/fee-structures/${id}`),
+    copyPlan: (body: { fromClassId: string; fromAcademicYearId: string; toClassIds: string[]; toAcademicYearId?: string; raisePercent?: number; effectiveFrom?: string }) =>
+      apiPost<{ created: number; skipped: number; details: string[] }>('/fee-structures/copy', body),
     lateFeePolicy: () => apiGet<LateFeePolicy | null>('/late-fee-policy'),
     upsertLateFeePolicy: (body: { graceDays: number; mode: string; amount: number; maxAmount?: number }) =>
       apiPut<LateFeePolicy>('/late-fee-policy', body),

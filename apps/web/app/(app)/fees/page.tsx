@@ -7,9 +7,9 @@ import {
 } from '@/lib/api';
 import { hasModule, useMe } from '@/lib/me-context';
 import { classLabeller } from '@/lib/labels';
+import { FeePlanPanel } from './fee-plan-panel';
 
 const now = new Date();
-const FREQUENCIES = ['MONTHLY', 'ANNUAL', 'ONE_TIME', 'ADMISSION'];
 
 export default function FeesPage() {
   const me = useMe();
@@ -164,13 +164,6 @@ function FeeSetupPanel({ heads, structures, classes, years, classLabel, onMsg, r
   const [headName, setHeadName] = useState('');
   const [busy, setBusy] = useState(false);
   const currentYear = years.find((y) => y.isCurrent) ?? years[0] ?? null;
-  const [s, setS] = useState({ classId: '', feeHeadId: '', amount: '', frequency: 'MONTHLY' });
-
-  const nameOfHead = (id: string) => heads.find((h) => h.id === id)?.name ?? '—';
-  const nameOfClass = (id: string) => {
-    const c = classes.find((x) => x.id === id);
-    return c ? classLabel(c) : '—';
-  };
 
   async function run(fn: () => Promise<unknown>, ok: string) {
     setBusy(true);
@@ -183,16 +176,6 @@ function FeeSetupPanel({ heads, structures, classes, years, classLabel, onMsg, r
     const name = headName.trim();
     await run(() => api.feeSetup.createHead(name), `Added fee head "${name}"`);
     setHeadName('');
-  }
-
-  async function addStructure() {
-    const cls = classes.find((c) => c.id === s.classId);
-    if (!cls || !currentYear) return;
-    await run(() => api.feeSetup.createStructure({
-      campusId: cls.campusId, classId: s.classId, feeHeadId: s.feeHeadId,
-      academicYearId: currentYear.id, amount: Number(s.amount), frequency: s.frequency,
-    }), 'Fee structure added');
-    setS({ classId: '', feeHeadId: '', amount: '', frequency: 'MONTHLY' });
   }
 
   return (
@@ -210,56 +193,10 @@ function FeeSetupPanel({ heads, structures, classes, years, classLabel, onMsg, r
         </div>
       </div>
 
-      <div className="card stack">
-        <h2 style={{ margin: 0, fontSize: 17 }}>Fee structures</h2>
-        <p className="muted" style={{ margin: 0, fontSize: 13 }}>
-          What each class is charged. {currentYear ? <>Applied to <b>{currentYear.name}</b>.</> : <span className="error">Set a current academic year in Setup first.</span>}
-        </p>
-        {structures.length === 0 ? (
-          <p className="muted" style={{ margin: 0 }}>No fee structures yet — invoices cannot be generated until you add one.</p>
-        ) : (
-          <div style={{ overflowX: 'auto' }}>
-            <table>
-              <thead><tr><th>Class</th><th>Fee head</th><th>Amount</th><th>Frequency</th></tr></thead>
-              <tbody>
-                {structures.map((row) => (
-                  <tr key={row.id}>
-                    <td>{nameOfClass(row.classId)}</td>
-                    <td>{nameOfHead(row.feeHeadId)}</td>
-                    <td>Rs {Number(row.amount).toLocaleString()}</td>
-                    <td><span className="badge">{row.frequency.replace('_', ' ')}</span></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-        <div className="inline-form">
-          <div><label>Class</label>
-            <select value={s.classId} onChange={(e) => setS({ ...s, classId: e.target.value })}>
-              <option value="">Select…</option>
-              {classes.map((c) => <option key={c.id} value={c.id}>{classLabel(c)}</option>)}
-            </select>
-          </div>
-          <div><label>Fee head</label>
-            <select value={s.feeHeadId} onChange={(e) => setS({ ...s, feeHeadId: e.target.value })}>
-              <option value="">Select…</option>
-              {heads.map((h) => <option key={h.id} value={h.id}>{h.name}</option>)}
-            </select>
-          </div>
-          <div style={{ maxWidth: 130 }}><label>Amount (Rs)</label>
-            <input type="number" min={1} value={s.amount} onChange={(e) => setS({ ...s, amount: e.target.value })} />
-          </div>
-          <div><label>Frequency</label>
-            <select value={s.frequency} onChange={(e) => setS({ ...s, frequency: e.target.value })}>
-              {FREQUENCIES.map((fr) => <option key={fr} value={fr}>{fr.replace('_', ' ')}</option>)}
-            </select>
-          </div>
-          <button disabled={!s.classId || !s.feeHeadId || Number(s.amount) <= 0 || !currentYear || busy} onClick={addStructure}>
-            Add structure
-          </button>
-        </div>
-      </div>
+      {/* One card per class, with a monthly total. Replaces a flat table of every price in
+          the school, which could not answer "what does 9th cost?" without adding rows up. */}
+      <FeePlanPanel heads={heads} structures={structures} classes={classes} years={years}
+        classLabel={classLabel} onMsg={onMsg} reload={reload} />
 
       <LateFeeCard onMsg={onMsg} />
     </div>

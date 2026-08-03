@@ -6,7 +6,7 @@ import { useParams, useRouter } from 'next/navigation';
 import {
   api, apiGet, ApiError,
   type AcademicYear, type Campus, type Klass, type ManagedTeacher,
-  type Section, type Subject, type SubjectCatalogueEntry, type TeacherAssignment,
+  type FeeStructure, type Section, type Subject, type SubjectCatalogueEntry, type TeacherAssignment,
 } from '@/lib/api';
 import { useMe } from '@/lib/me-context';
 import { subjectCatalogueFrom } from '@/lib/subject-match';
@@ -33,6 +33,7 @@ export default function ClassDetailPage() {
   const me = useMe();
   const classId = String(params?.id ?? '');
   const canEdit = (me?.roles ?? []).some((r) => r === 'OWNER_ADMIN' || r === 'CAMPUS_ADMIN');
+  const isOwner = (me?.roles ?? []).includes('OWNER_ADMIN');
 
   const [klass, setKlass] = useState<Klass | null>(null);
   const [campuses, setCampuses] = useState<Campus[]>([]);
@@ -46,6 +47,7 @@ export default function ClassDetailPage() {
   const [busyKey, setBusyKey] = useState('');
   const [loaded, setLoaded] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
+  const [feeStructures, setFeeStructures] = useState<FeeStructure[] | null>(null);
 
   const load = useCallback(async () => {
     const [k, c, sec, sub, cat, st, y, a] = await Promise.all([
@@ -61,6 +63,9 @@ export default function ClassDetailPage() {
     setKlass(k.find((x) => x.id === classId) ?? null);
     setCampuses(c); setSections(sec); setSubjects(sub); setCatalogue(cat);
     setStaff(st); setYears(y); setAssignments(a);
+    // Fees are the owner's business and live on their own screen; this is a read-only figure,
+    // fetched separately so a failure never blocks the structural view the page exists for.
+    api.feeSetup.structures(classId).then(setFeeStructures).catch(() => setFeeStructures([]));
   }, [classId]);
 
   useEffect(() => { load().catch(() => {}).finally(() => setLoaded(true)); }, [load]);
@@ -142,6 +147,19 @@ export default function ClassDetailPage() {
   });
   const gaps = pairs.filter((p) => !mine.some((a) => a.sectionId === p.sectionId && a.subjectId === p.subjectId)).length;
 
+  // What is charged NOW: the latest started, still-active price per head, monthly ones summed.
+  // Mirrors the server's `inForceStructures` — several rows for one head are a price history,
+  // not several charges.
+  const monthlyFee = feeStructures === null ? null : (() => {
+    const today = new Date().toISOString().slice(0, 10);
+    const latest = new Map<string, FeeStructure>();
+    for (const r of [...feeStructures].sort((a, b) => a.effectiveFrom.localeCompare(b.effectiveFrom))) {
+      if (!r.isActive || r.frequency !== 'MONTHLY' || r.effectiveFrom.slice(0, 10) > today) continue;
+      latest.set(r.feeHeadId, r);
+    }
+    return [...latest.values()].reduce((sum, r) => sum + Number(r.amount), 0);
+  })();
+
   return (
     <div className="stack">
       <div className="row">
@@ -152,6 +170,16 @@ export default function ClassDetailPage() {
             {' · '}{subjects.length} subject{subjects.length === 1 ? '' : 's'}
             {counted && ` · ${strength} student${strength === 1 ? '' : 's'}`}
           </p>
+          {/* "What does this class cost?" belongs beside "who teaches it?" — it was previously
+              answerable only by adding fee rows up by eye on another screen. Read-only here and
+              owner-only, because setting the price is a money decision that lives on Fees. */}
+          {isOwner && monthlyFee !== null && (
+            <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+              {monthlyFee > 0
+                ? <>Fees <b>Rs {monthlyFee.toLocaleString()}</b> per month · <Link href="/fees">change →</Link></>
+                : <>No fees set for this class — <Link href="/fees">add them →</Link></>}
+            </p>
+          )}
         </div>
         <div className="chips">
           <Link className="chip" href="/classes">← Classes</Link>

@@ -117,6 +117,10 @@ describe('Staff attendance marking (e2e)', () => {
 
   afterEach(async () => {
     await platform.staffAttendance.deleteMany({ where: { schoolId } });
+    // Payslips before runs: the FK is RESTRICT, so deleting the run first throws — and a
+    // throwing afterEach leaves the NEXT test running against dirty state, which is how one
+    // broken cleanup reads as two unrelated failures.
+    await platform.payslip.deleteMany({ where: { schoolId } });
     await platform.payrollRun.deleteMany({ where: { schoolId } });
   });
 
@@ -453,6 +457,40 @@ describe('Staff attendance marking (e2e)', () => {
       expect(res.body.workingDay).toBe(false);
       expect(res.body.absent).toBe(0);
     });
+  });
+
+  it('deducts the same whether the office typed the absence or the day-close job derived it', async () => {
+    // The two sources must not disagree. Nothing in payroll looks at `source` today, and this
+    // asserts it stays that way — otherwise enabling the day-close job would quietly change
+    // everyone's pay, which is the failure that keeps a school from trusting the register.
+    const day = workingDay();
+    const d = new Date(day);
+    const joined = iso(new Date(Date.now() - 400 * 86400000));
+
+    const typed = await createStaff('paytyped@sat.pk', campusA, joined);
+    const derived = await createStaff('payderived@sat.pk', campusA, joined);
+    for (const id of [typed, derived]) {
+      const res = await ownerPost(`/api/v1/staff/${id}/salary-structures`, { basic: 30000, effectiveFrom: joined });
+      expect(res.status).toBe(201);
+    }
+
+    await mark(typed, 'ABSENT', day); // through the admin endpoint → source ADMIN
+    await platform.staffAttendance.create({ // as the day-close job writes it
+      data: { schoolId, staffId: derived, date: d, session: 'MORNING', status: 'ABSENT', source: 'SYSTEM' },
+    });
+
+    const run = await ownerPost('/api/v1/payroll-runs', { campusId: campusA, month: d.getUTCMonth() + 1, year: d.getUTCFullYear() });
+    expect(run.status).toBe(201);
+
+    const detail = await authed('get', `/api/v1/payroll-runs/${run.body.runId}`, ownerCookies);
+    const slips = detail.body.payslips as { staffId: string; netPay: string; deductions: unknown }[];
+    const a = slips.find((s) => s.staffId === typed);
+    const b = slips.find((s) => s.staffId === derived);
+    expect(a).toBeDefined();
+    expect(b).toBeDefined();
+    expect(Number(b!.netPay)).toBe(Number(a!.netPay));
+    // And the absence actually cost something — otherwise the equality above is vacuous.
+    expect(Number(a!.netPay)).toBeLessThan(30000);
   });
 
   it('freezes the month once its payroll run is approved', async () => {

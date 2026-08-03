@@ -1,0 +1,119 @@
+import { test, expect } from '@playwright/test';
+import { gotoApp, apiSetupGet, seedClassSection } from './helpers';
+
+/**
+ * The checks the Classes refactor plan listed as a manual browser pass (§8) and never got —
+ * first-run, responsive, keyboard, and the client-side seat guard. Automated instead of
+ * eyeballed, because a checklist that depends on somebody remembering to look is a checklist
+ * that stops being run.
+ */
+test.describe('classes — first run, responsive, keyboard', () => {
+  test('a school with no classes yet can still create its first one', async ({ page }) => {
+    // The near-miss the plan called out: Setup stopped rendering the class manager, so if this
+    // path is broken a brand-new school cannot start at all. Intercepted rather than seeded —
+    // proving it needs a tenant with zero classes, and provisioning one per run would leave
+    // throwaway tenants behind (the leak we already have from admin.spec).
+    await gotoApp(page);
+    await page.route('**/api/v1/classes*', async (route) => {
+      if (route.request().method() !== 'GET') return route.fallback();
+      return route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
+    });
+    await page.goto('/classes');
+
+    await expect(page.getByText(/No classes yet/i)).toBeVisible();
+    // The primary action must be present, enabled, and not hidden behind a tools flag.
+    const name = page.locator('label:text-is("Class name") + input');
+    await expect(name).toBeVisible();
+    await name.fill('Nursery');
+    await expect(page.getByRole('button', { name: 'Add class' })).toBeEnabled();
+    // The placeholder must read as an example, not as a filled-in value — people used to click
+    // Add class and wonder why nothing happened.
+    await page.reload();
+    await expect(page.locator('label:text-is("Class name") + input')).toHaveAttribute('placeholder', /e\.g\./);
+  });
+
+  test('the selected section is in the URL and survives the back button', async ({ page }) => {
+    await gotoApp(page);
+    const { classId, sectionId, className } = await seedClassSection(page);
+    try {
+      await page.goto(`/classes/${classId}`);
+      await page.locator('tr', { hasText: 'Section A' }).getByRole('button', { name: 'Open' }).click();
+      await expect(page).toHaveURL(new RegExp(`section=${sectionId}`));
+
+      // Navigate away and back: the pane must reopen, not reset to the section list.
+      await page.goto('/classes');
+      await page.goBack();
+      await expect(page).toHaveURL(new RegExp(`section=${sectionId}`));
+      await expect(page.getByText(`${className} · Section A`)).toBeVisible();
+
+      // A reload is the other half of "in the URL" — a shared link has to work.
+      await page.reload();
+      await expect(page.getByText(`${className} · Section A`)).toBeVisible();
+    } finally {
+      const cookies = await page.context().cookies();
+      const csrf = cookies.find((c) => c.name === 'csrf')?.value ?? '';
+      const del = (p: string) => page.request.delete(`http://localhost:3001/api/v1${p}`, { headers: { 'X-CSRF-Token': csrf } });
+      await del(`/sections/${sectionId}`);
+      for (const s of await apiSetupGet<{ id: string }[]>(page, `/subjects?classId=${classId}`)) await del(`/subjects/${s.id}`);
+      await del(`/classes/${classId}`);
+    }
+  });
+
+  test('the class list is usable on a phone', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 812 });
+    await gotoApp(page, '/classes');
+    await expect(page.getByRole('heading', { name: 'Classes' })).toBeVisible();
+
+    // The body must never scroll sideways — tables get their own scroll container instead.
+    const overflow = await page.evaluate(() =>
+      document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflow).toBeLessThanOrEqual(1); // sub-pixel rounding only
+
+    // Navigation still exists below 720px: the sidebar becomes a drawer, not nothing.
+    const toggle = page.locator('.nav-toggle');
+    await expect(toggle).toBeVisible();
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    await toggle.click();
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    await expect(page.locator('.sidebar')).toBeVisible();
+  });
+
+  test('seats cannot be cut below the students already sitting in them', async ({ page }) => {
+    await gotoApp(page);
+    // Needs a section that actually has students, so it uses a real one and never saves —
+    // the guard is a client-side block, and the point is that Save is unreachable, not that
+    // the server refuses afterwards.
+    const sections = await apiSetupGet<{ id: string; classId: string; name: string; enrolled: number | null }[]>(page, '/sections');
+    const occupied = sections.find((s) => (s.enrolled ?? 0) > 0);
+    test.skip(!occupied, 'no section on this tenant has enrolled students');
+
+    await page.goto(`/classes/${occupied!.classId}?section=${occupied!.id}`);
+    await page.getByRole('button', { name: 'Edit name & seats' }).click();
+
+    const seats = page.locator('label:text-is("Seats") + input');
+    const save = page.getByRole('button', { name: 'Save', exact: true });
+    await expect(save).toBeEnabled();
+
+    await seats.fill(String(occupied!.enrolled! - 1));
+    await expect(save).toBeDisabled();
+    // ...and it says why, next to the field, rather than failing silently.
+    await expect(page.getByText(/already enrolled — seats cannot be below/)).toBeVisible();
+
+    await page.getByRole('button', { name: 'Cancel' }).click();
+  });
+
+  test('the class row menu is reachable and announced to a screen reader', async ({ page }) => {
+    await gotoApp(page, '/classes');
+    const menu = page.locator('button[aria-haspopup="menu"]').first();
+    await expect(menu).toHaveAttribute('aria-expanded', 'false');
+    await expect(menu).toHaveAttribute('aria-label', /More actions/);
+
+    // Operable from the keyboard alone, not just by mouse.
+    await menu.focus();
+    await page.keyboard.press('Enter');
+    await expect(menu).toHaveAttribute('aria-expanded', 'true');
+    await expect(page.getByRole('menu')).toBeVisible();
+    // Worded items, not bare icons — the plan's reason for retiring the ↑ ↓ buttons.
+    await expect(page.getByRole('menuitem', { name: 'Move earlier' })).toBeVisible();
+  });
+});

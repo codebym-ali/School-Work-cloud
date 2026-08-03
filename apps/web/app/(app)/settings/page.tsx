@@ -109,6 +109,18 @@ export default function SettingsPage() {
         <Hint>
           Anyone checking in after <strong>{addMinutes(attendance.dayStartTime, attendance.graceMinutes)}</strong> is marked late.
         </Hint>
+
+        <Toggle label="Mark everyone unmarked as absent at the end of each day"
+          checked={attendance.autoMarkAbsent} disabled={!isOwner || busy === 'staffAttendance'}
+          onChange={(v) => save('staffAttendance', { staffAttendance: { autoMarkAbsent: v } })}
+          hint="Runs at 20:00. Approved leave is recorded as leave, holidays are skipped, and anything already recorded is left alone." />
+        {/* This is the one switch that creates salary deductions with nobody pressing anything,
+            so the consequence is stated where the decision is made — not discovered on a payslip. */}
+        <Hint>
+          {attendance.autoMarkAbsent
+            ? '⚠️ Absences reduce pay. Anyone the office forgets to mark will be recorded absent for that day.'
+            : 'Off: a day nobody records stays “not marked”, and the register shows it as a gap to chase.'}
+        </Hint>
       </Section>
 
       <Section title="Student attendance" blurb="How far back a class register may be filled in or corrected.">

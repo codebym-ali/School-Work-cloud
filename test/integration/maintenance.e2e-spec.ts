@@ -113,4 +113,148 @@ describe('Maintenance runner (e2e, §27)', () => {
       await platform.school.delete({ where: { id: credited } });
     }
   });
+
+  /**
+   * Day close (§9/§13). This is the only job that writes payroll-affecting rows with nobody
+   * pressing anything, so every guard gets its own assertion.
+   */
+  describe('staff-attendance-close', () => {
+    const school = randomUUID();
+    const sub = `mnt-${school.slice(0, 8)}`;
+    let present: string; // already marked by a human
+    let absentee: string; // unmarked → ABSENT
+    let onLeave: string; // approved leave covers today
+    let newJoiner: string; // joins tomorrow — was not employed today
+    let leaver: string; // left yesterday
+
+    const today = new Date(new Date().toISOString().slice(0, 10));
+    /** Weekly off defaults to SUNDAY; force a working week so the day is never skipped. */
+    const workingWeek = { staffAttendance: { autoMarkAbsent: true }, weeklyOffDays: [] as string[] };
+
+    const mkStaff = async (code: string, joinedAt: Date, leftAt?: Date) => {
+      const user = await platform.user.create({
+        data: { schoolId: school, email: `${code}@close.pk`, roles: ['TEACHER'] as never, status: 'ACTIVE' },
+      });
+      const sp = await platform.staffProfile.create({
+        data: { schoolId: school, userId: user.id, employeeCode: code, staffType: 'TEACHER', designation: 'T', joinedAt, leftAt },
+      });
+      return sp.id;
+    };
+
+    beforeAll(async () => {
+      await platform.school.create({ data: { id: school, name: 'Close School', subdomain: sub, settings: workingWeek } });
+      const longAgo = new Date(Date.now() - 400 * 86400000);
+      present = await mkStaff('C-PRESENT', longAgo);
+      absentee = await mkStaff('C-ABSENT', longAgo);
+      onLeave = await mkStaff('C-LEAVE', longAgo);
+      newJoiner = await mkStaff('C-NEW', new Date(Date.now() + 86400000));
+      leaver = await mkStaff('C-LEFT', longAgo, new Date(Date.now() - 86400000));
+
+      await platform.staffAttendance.create({
+        data: { schoolId: school, staffId: present, date: today, session: 'MORNING', status: 'PRESENT', source: 'SELF' },
+      });
+      await platform.staffLeave.create({
+        data: {
+          schoolId: school, staffId: onLeave, leaveType: 'CASUAL', status: 'APPROVED',
+          fromDate: today, toDate: today, reason: 'Family',
+        },
+      });
+    });
+
+    afterAll(async () => { await destroyTenant(platform, school); });
+
+    const rowFor = (staffId: string) =>
+      platform.staffAttendance.findFirst({ where: { schoolId: school, staffId, date: today } });
+
+    it('marks the unmarked, respects leave, and never touches what a human recorded', async () => {
+      const res = await maintenance.run('staff-attendance-close');
+      expect(res.marked).toBeGreaterThanOrEqual(2);
+
+      // Unmarked ⇒ ABSENT, attributed to the machine so it can be told apart and disputed.
+      expect(await rowFor(absentee)).toMatchObject({ status: 'ABSENT', source: 'SYSTEM' });
+      // Approved leave ⇒ ON_LEAVE, not ABSENT: authorised absence must not be punished.
+      expect(await rowFor(onLeave)).toMatchObject({ status: 'ON_LEAVE', source: 'SYSTEM' });
+      // A human already spoke — the job must never overwrite them.
+      expect(await rowFor(present)).toMatchObject({ status: 'PRESENT', source: 'SELF' });
+      // Nobody is invented for a person who was not employed on the day.
+      expect(await rowFor(newJoiner)).toBeNull();
+      expect(await rowFor(leaver)).toBeNull();
+    });
+
+    it('is idempotent — a second run writes nothing', async () => {
+      const before = await platform.staffAttendance.count({ where: { schoolId: school } });
+      const res = await maintenance.run('staff-attendance-close');
+      expect(res.marked).toBe(0);
+      expect(await platform.staffAttendance.count({ where: { schoolId: school } })).toBe(before);
+    });
+
+    it('does nothing for a school that has not opted in', async () => {
+      // The default. A school acquires salary deductions by choosing them, never by upgrading.
+      const optedOut = randomUUID();
+      await platform.school.create({
+        data: { id: optedOut, name: 'Opt Out', subdomain: `mnt-${optedOut.slice(0, 8)}`, settings: { weeklyOffDays: [] } },
+      });
+      try {
+        const user = await platform.user.create({
+          data: { schoolId: optedOut, email: 'x@optout.pk', roles: ['TEACHER'] as never, status: 'ACTIVE' },
+        });
+        await platform.staffProfile.create({
+          data: {
+            schoolId: optedOut, userId: user.id, employeeCode: 'OO-1', staffType: 'TEACHER',
+            designation: 'T', joinedAt: new Date(Date.now() - 400 * 86400000),
+          },
+        });
+        await maintenance.run('staff-attendance-close');
+        expect(await platform.staffAttendance.count({ where: { schoolId: optedOut } })).toBe(0);
+      } finally {
+        await destroyTenant(platform, optedOut);
+      }
+    });
+
+    it('skips a holiday, and skips a month whose payroll is already approved', async () => {
+      const other = randomUUID();
+      await platform.school.create({
+        data: { id: other, name: 'Guard School', subdomain: `mnt-${other.slice(0, 8)}`, settings: workingWeek },
+      });
+      try {
+        const user = await platform.user.create({
+          data: { schoolId: other, email: 'g@guard.pk', roles: ['TEACHER'] as never, status: 'ACTIVE' },
+        });
+        const staffId = (await platform.staffProfile.create({
+          data: {
+            schoolId: other, userId: user.id, employeeCode: 'G-1', staffType: 'TEACHER',
+            designation: 'T', joinedAt: new Date(Date.now() - 400 * 86400000),
+          },
+        })).id;
+
+        // A holiday must not be able to manufacture an absence.
+        const holiday = await platform.holiday.create({
+          data: { schoolId: other, date: today, name: 'Test Holiday' },
+        });
+        await maintenance.run('staff-attendance-close');
+        expect(await platform.staffAttendance.count({ where: { schoolId: other } })).toBe(0);
+        await platform.holiday.delete({ where: { id: holiday.id } });
+
+        // A payslip computed from these rows must not start disagreeing with them.
+        const campus = await platform.campus.create({ data: { schoolId: other, name: 'Main' } });
+        const run = await platform.payrollRun.create({
+          data: {
+            schoolId: other, campusId: campus.id, month: today.getUTCMonth() + 1, year: today.getUTCFullYear(),
+            status: 'APPROVED', createdById: user.id,
+          },
+        });
+        await maintenance.run('staff-attendance-close');
+        expect(await platform.staffAttendance.count({ where: { schoolId: other } })).toBe(0);
+
+        // With the run reversed to DRAFT, the same day closes normally — proving the two
+        // assertions above failed on the guard and not on some unrelated obstacle.
+        await platform.payrollRun.update({ where: { id: run.id }, data: { status: 'DRAFT' } });
+        await maintenance.run('staff-attendance-close');
+        expect(await platform.staffAttendance.findFirst({ where: { schoolId: other, staffId } }))
+          .toMatchObject({ status: 'ABSENT', source: 'SYSTEM' });
+      } finally {
+        await destroyTenant(platform, other);
+      }
+    });
+  });
 });

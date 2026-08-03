@@ -33,6 +33,11 @@ export class MaintenanceProcessor implements OnModuleInit, OnModuleDestroy {
     await this.queue.add('idempotency-purge', {}, { repeat: { pattern: '0 * * * *' }, ...opts }); // hourly
     await this.queue.add('sms-log-purge', {}, { repeat: { pattern: '0 2 * * *' }, ...opts }); // nightly 02:00
     await this.queue.add('sms-monthly-credit', {}, { repeat: { pattern: '30 0 1 * *' }, ...opts }); // 1st of month 00:30
+    // Day close, 20:00 — late enough that the office has finished, early enough to still be
+    // "today". No-op for every school that hasn't opted in (`staffAttendance.autoMarkAbsent`),
+    // which is all of them by default: this is the only job that writes payroll-affecting rows
+    // with nobody pressing anything.
+    await this.queue.add('staff-attendance-close', {}, { repeat: { pattern: '0 20 * * *' }, ...opts });
 
     this.worker = new Worker(
       QUEUE,

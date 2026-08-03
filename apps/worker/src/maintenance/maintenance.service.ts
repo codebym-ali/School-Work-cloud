@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ClsService } from 'nestjs-cls';
-import { captureError, CLS_KEYS } from '@common';
+import { AttendanceSource, AttendanceStatus } from '@prisma/client';
+import { captureError, CLS_KEYS, parseSchoolSettings, type SchoolSettings } from '@common';
 import { PlatformPrismaService, TenantPrismaService } from '@database';
 import { FeeJobsService } from '../../../api/src/modules/fees/fee-jobs.service';
 import { PLAN_MONTHLY_SMS_CREDITS } from '../../../api/src/modules/comms/sms/sms-plan-credits';
@@ -10,7 +11,8 @@ export type MaintenanceJob =
   | 'fee-integrity-check'
   | 'idempotency-purge'
   | 'sms-log-purge'
-  | 'sms-monthly-credit';
+  | 'sms-monthly-credit'
+  | 'staff-attendance-close';
 
 export interface MaintenanceResult {
   /** Tenants processed (per-tenant fee jobs). */
@@ -19,7 +21,12 @@ export interface MaintenanceResult {
   deleted?: number;
   /** Tenants granted this month's SMS plan credit. */
   credited?: number;
+  /** Staff-attendance rows written by the day-close job. */
+  marked?: number;
 }
+
+const WEEKDAYS = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'] as const;
+const startOfDay = (d: Date): number => Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
 
 /** Idempotency keys expire after 48h (blueprint §25.4). */
 const IDEMPOTENCY_TTL_MS = 48 * 60 * 60 * 1000;
@@ -54,7 +61,112 @@ export class MaintenanceService {
         return { deleted: await this.purgeSmsLogs() };
       case 'sms-monthly-credit':
         return { credited: await this.grantMonthlySmsCredits() };
+      case 'staff-attendance-close':
+        return { marked: await this.closeStaffAttendance() };
     }
+  }
+
+  /**
+   * End of day: give every unmarked staff member a status (§9/§13).
+   *
+   * **Opt-in per school** (`staffAttendance.autoMarkAbsent`, default false) and skipped
+   * entirely for any school that has not switched it on. That default is the whole safety
+   * story: this job writes `ABSENT` rows, and `payroll.absentDays()` counts those straight into
+   * a salary deduction — so a school acquires the behaviour by choosing it, never by upgrading.
+   *
+   * The rules, each guarding a way a wrong deduction gets created:
+   *  - nothing at all on a non-working day, so a holiday cannot manufacture absences;
+   *  - nothing for anyone not employed on that date — a guard must ask "was this true THEN";
+   *  - an approved leave becomes `ON_LEAVE`, not `ABSENT`, so authorised absence is not punished;
+   *  - a row that already exists is never touched, so a self check-in or the office's own entry
+   *    always wins over the machine;
+   *  - a month whose payroll is already APPROVED is skipped, or a paid payslip would stop
+   *    agreeing with the register it came from.
+   *
+   * Idempotent: re-running writes nothing new.
+   */
+  private async closeStaffAttendance(): Promise<number> {
+    const schools = await this.platform.school.findMany({ where: { isActive: true }, select: { id: true, settings: true } });
+    let marked = 0;
+
+    for (const school of schools) {
+      const settings = parseSchoolSettings(school.settings ?? {});
+      if (!settings.staffAttendance.autoMarkAbsent) continue;
+
+      await this.cls.run(async () => {
+        this.cls.set(CLS_KEYS.schoolId, school.id);
+        try {
+          await this.tenantPrisma.withTenant(async () => {
+            marked += await this.closeOneSchool(school.id, settings);
+          });
+        } catch (err) {
+          this.logger.error(`staff-attendance-close failed for school ${school.id}: ${(err as Error).message}`);
+          captureError(err, { schoolId: school.id });
+        }
+      });
+    }
+    if (marked > 0) this.logger.log(`staff-attendance-close: recorded ${marked} staff attendance row(s)`);
+    return marked;
+  }
+
+  private async closeOneSchool(schoolId: string, settings: SchoolSettings): Promise<number> {
+    const db = this.tenantPrisma.client;
+    const today = new Date(new Date().toISOString().slice(0, 10));
+    const session = settings.attendanceSessions[0];
+
+    // A payslip computed from these rows must not start disagreeing with them.
+    const approvedPayroll = await db.payrollRun.findFirst({
+      where: { month: today.getUTCMonth() + 1, year: today.getUTCFullYear(), status: 'APPROVED' },
+      select: { id: true },
+    });
+    if (approvedPayroll) {
+      this.logger.warn(`staff-attendance-close: school ${schoolId} skipped — payroll for this month is already approved`);
+      return 0;
+    }
+
+    const weeklyOff = settings.weeklyOffDays.includes(WEEKDAYS[today.getUTCDay()]);
+    if (weeklyOff) return 0;
+
+    const staff = await db.staffProfile.findMany({
+      where: { user: { deletedAt: null }, joinedAt: { lte: today } },
+      select: { id: true, leftAt: true, user: { select: { campusId: true } } },
+    });
+    if (!staff.length) return 0;
+
+    // Holidays can be campus-specific, so resolve them once and test per person.
+    const holidays = await db.holiday.findMany({ where: { date: today }, select: { campusId: true } });
+    const schoolWideHoliday = holidays.some((h) => h.campusId === null);
+    const holidayCampuses = new Set(holidays.map((h) => h.campusId).filter(Boolean) as string[]);
+    if (schoolWideHoliday) return 0;
+
+    const already = await db.staffAttendance.findMany({
+      where: { date: today, session, staffId: { in: staff.map((s) => s.id) } },
+      select: { staffId: true },
+    });
+    const marked = new Set(already.map((a) => a.staffId));
+
+    const leaves = await db.staffLeave.findMany({
+      where: { status: 'APPROVED', fromDate: { lte: today }, toDate: { gte: today } },
+      select: { staffId: true },
+    });
+    const onLeave = new Set(leaves.map((l) => l.staffId));
+
+    let written = 0;
+    for (const s of staff) {
+      if (marked.has(s.id)) continue; // a human already said something — never overwrite it
+      if (s.leftAt && startOfDay(s.leftAt) < startOfDay(today)) continue;
+      if (s.user.campusId && holidayCampuses.has(s.user.campusId)) continue;
+
+      await db.staffAttendance.create({
+        data: {
+          schoolId, staffId: s.id, date: today, session,
+          status: onLeave.has(s.id) ? AttendanceStatus.ON_LEAVE : AttendanceStatus.ABSENT,
+          source: AttendanceSource.SYSTEM,
+        },
+      });
+      written++;
+    }
+    return written;
   }
 
   /** Run a fee job for every ACTIVE tenant, isolated per school. */

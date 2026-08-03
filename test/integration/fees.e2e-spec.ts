@@ -180,10 +180,13 @@ describe('Fees end-to-end (e2e, §12)', () => {
   });
 
   it('applies late fees via mark-overdue, then a waiver zeroes the balance', async () => {
-    // A past-month invoice to go overdue.
+    // A past-month invoice to go overdue. May 2026, not January: the academic year starts
+    // 2026-04-01 and a fee now takes effect from the year's first day, so billing a month
+    // BEFORE the year began produces nothing — which is correct, and which this fixture used
+    // to rely on not being true.
     await put('/api/v1/late-fee-policy', { graceDays: 0, mode: 'FLAT', amount: 100 });
-    await post('/api/v1/fees/invoice-batches', { classId, month: 1, year: 2026 });
-    const overdueList = await get(`/api/v1/fees/invoices?studentId=${studentId}&month=1&year=2026`);
+    await post('/api/v1/fees/invoice-batches', { classId, month: 5, year: 2026 });
+    const overdueList = await get(`/api/v1/fees/invoices?studentId=${studentId}&month=5&year=2026`);
     const overdueId = overdueList.body.data[0].id;
 
     const marked = await post('/api/v1/fees/jobs/mark-overdue');
@@ -249,5 +252,156 @@ describe('Fees end-to-end (e2e, §12)', () => {
     expect(batch.body.generated).toBe(1);
     const gonesInvoices = await get(`/api/v1/fees/invoices?studentId=${goneId}&month=9&year=2026`);
     expect(gonesInvoices.body.data).toHaveLength(0);
+  });
+
+  /**
+   * A fee revision is a NEW row starting from a later month, never an edit of the old one.
+   * Without effective dating a school could not re-price mid-year at all — the unique key
+   * allowed exactly one row per class/head/year/frequency — and changing a price would have
+   * silently restated what families had already been billed.
+   */
+  describe('a mid-year price rise', () => {
+    let revClassId: string;
+    let tuitionId: string;
+    let revStudentId: string;
+
+    beforeAll(async () => {
+      const klass = await post('/api/v1/classes', { campusId, name: 'Rev-Grade', order: 7 });
+      revClassId = klass.body.id;
+      const section = await post('/api/v1/sections', { classId: revClassId, name: 'A' });
+      const student = await admit({
+        fullName: 'Rev Pupil', gender: 'MALE', dateOfBirth: '2019-03-03', campusId,
+        classId: revClassId, sectionId: section.body.id,
+        // Unique per run: guardians are resolved BY PHONE, so a literal reused from another
+        // test in this file links to that parent and 409s the CREATE.
+        guardian: { mode: 'CREATE', fullName: 'Rev Parent', phone: `03${String(Date.now()).slice(-9)}`, relation: 'FATHER' },
+      });
+      expect(student.status).toBe(201);
+      revStudentId = student.body.studentId;
+
+      const head = await post('/api/v1/fee-heads', { name: 'Rev Tuition' });
+      tuitionId = head.body.id;
+      // 1,000 from the start of the year...
+      await post('/api/v1/fee-structures', {
+        campusId, classId: revClassId, feeHeadId: tuitionId, academicYearId: yearId,
+        amount: 1000, frequency: 'MONTHLY', effectiveFrom: '2026-04-01',
+      });
+      // ...raised to 1,500 from September.
+      const raise = await post('/api/v1/fee-structures', {
+        campusId, classId: revClassId, feeHeadId: tuitionId, academicYearId: yearId,
+        amount: 1500, frequency: 'MONTHLY', effectiveFrom: '2026-09-01',
+      });
+      expect(raise.status).toBe(201);
+    });
+
+    it('bills the old price before the rise and the new price after it', async () => {
+      const august = await post('/api/v1/fees/invoice-batches', { classId: revClassId, month: 8, year: 2026 });
+      expect(august.body.generated).toBe(1);
+      const aug = await get(`/api/v1/fees/invoices?studentId=${revStudentId}&month=8&year=2026`);
+      expect(Number(aug.body.data[0].totalAmount)).toBe(1000);
+
+      const october = await post('/api/v1/fees/invoice-batches', { classId: revClassId, month: 10, year: 2026 });
+      expect(october.body.generated).toBe(1);
+      const oct = await get(`/api/v1/fees/invoices?studentId=${revStudentId}&month=10&year=2026`);
+      // Only ONE tuition line, at the new price — the two rows are a history, not two charges.
+      expect(Number(oct.body.data[0].totalAmount)).toBe(1500);
+      const detail = await get(`/api/v1/fees/invoices/${oct.body.data[0].id}`);
+      expect(detail.body.items.filter((i: { type: string }) => i.type === 'FEE')).toHaveLength(1);
+    });
+
+    it('leaves the invoice issued before the rise untouched', async () => {
+      // The whole reason a revision is a new row: August was computed from August's price and
+      // must still say 1,000 after the rise exists.
+      const aug = await get(`/api/v1/fees/invoices?studentId=${revStudentId}&month=8&year=2026`);
+      expect(Number(aug.body.data[0].totalAmount)).toBe(1000);
+    });
+
+    it('refuses to edit a price that has already been billed, and says what to do instead', async () => {
+      const rows = await get(`/api/v1/fee-structures?classId=${revClassId}`);
+      const april = rows.body.find((r: { effectiveFrom: string }) => r.effectiveFrom.startsWith('2026-04'));
+      const res = await request(server()).patch(`/api/v1/fee-structures/${april.id}`)
+        .set('Host', host).set('Cookie', cookies).set('X-CSRF-Token', csrf).send({ amount: 1200 });
+      expect(res.status).toBe(409);
+      expect(res.body.error.message).toMatch(/revision starting from a later month/i);
+      // Unchanged — a refused edit must not half-apply.
+      const after = await get(`/api/v1/fee-structures?classId=${revClassId}`);
+      expect(Number(after.body.find((r: { id: string }) => r.id === april.id).amount)).toBe(1000);
+    });
+
+    it('refuses to delete a billed price, but switching it off is always allowed', async () => {
+      const rows = await get(`/api/v1/fee-structures?classId=${revClassId}`);
+      const april = rows.body.find((r: { effectiveFrom: string }) => r.effectiveFrom.startsWith('2026-04'));
+
+      const del = await request(server()).delete(`/api/v1/fee-structures/${april.id}`)
+        .set('Host', host).set('Cookie', cookies).set('X-CSRF-Token', csrf);
+      expect(del.status).toBe(409);
+      expect(del.body.error.message).toMatch(/switch it off/i);
+
+      // Deactivating only affects FUTURE runs, so it is never blocked.
+      const off = await request(server()).patch(`/api/v1/fee-structures/${april.id}`)
+        .set('Host', host).set('Cookie', cookies).set('X-CSRF-Token', csrf).send({ isActive: false });
+      expect(off.status).toBe(200);
+      expect(off.body.isActive).toBe(false);
+    });
+
+    it('lets an unbilled typo be corrected outright', async () => {
+      // The defect this whole change exists for: before it, a mis-keyed amount was permanent.
+      const head = await post('/api/v1/fee-heads', { name: 'Typo Head' });
+      const created = await post('/api/v1/fee-structures', {
+        classId: revClassId, feeHeadId: head.body.id, academicYearId: yearId,
+        amount: 30000, frequency: 'MONTHLY', effectiveFrom: '2027-02-01', // a month nothing has billed
+      });
+      expect(created.status).toBe(201);
+
+      const fixed = await request(server()).patch(`/api/v1/fee-structures/${created.body.id}`)
+        .set('Host', host).set('Cookie', cookies).set('X-CSRF-Token', csrf).send({ amount: 3000 });
+      expect(fixed.status).toBe(200);
+      expect(Number(fixed.body.amount)).toBe(3000);
+    });
+
+    it('rejects a duplicate price with a clear 409, not a 500', async () => {
+      const dupe = await post('/api/v1/fee-structures', {
+        classId: revClassId, feeHeadId: tuitionId, academicYearId: yearId,
+        amount: 1234, frequency: 'MONTHLY', effectiveFrom: '2026-09-01', // same head, same month
+      });
+      expect(dupe.status).toBe(409);
+      expect(dupe.body.error.message).toMatch(/already has a price/i);
+    });
+
+    it('refuses a frequency that invoicing would never charge', async () => {
+      // ONE_TIME and ADMISSION are in the enum but createBatch only applies MONTHLY and
+      // ANNUAL, so accepting one would store a price that looks configured and bills nothing.
+      const head = await post('/api/v1/fee-heads', { name: 'Admission Fee' });
+      const res = await post('/api/v1/fee-structures', {
+        classId: revClassId, feeHeadId: head.body.id, academicYearId: yearId,
+        amount: 5000, frequency: 'ADMISSION',
+      });
+      expect(res.status).toBe(422);
+      expect(res.body.error.message).toMatch(/never appear on a bill/i);
+    });
+
+    it('copies a plan to another class, with an across-the-board rise', async () => {
+      const target = await post('/api/v1/classes', { campusId, name: 'Copy-Grade', order: 8 });
+      const res = await post('/api/v1/fee-structures/copy', {
+        fromClassId: revClassId, fromAcademicYearId: yearId,
+        toClassIds: [target.body.id], raisePercent: 10, effectiveFrom: '2026-04-01',
+      });
+      expect(res.status).toBe(201);
+      expect(res.body.created).toBeGreaterThan(0);
+
+      const copied = await get(`/api/v1/fee-structures?classId=${target.body.id}`);
+      const tuition = copied.body.find((r: { feeHeadId: string }) => r.feeHeadId === tuitionId);
+      // Only the price IN FORCE is copied (1500, the September revision), not the whole
+      // history — a revision that happened in 9th did not happen in the new class.
+      expect(Number(tuition.amount)).toBe(1650); // 1500 + 10%, rounded to whole rupees
+
+      // Re-running skips rather than duplicating or restating a price somebody set.
+      const again = await post('/api/v1/fee-structures/copy', {
+        fromClassId: revClassId, fromAcademicYearId: yearId,
+        toClassIds: [target.body.id], raisePercent: 10, effectiveFrom: '2026-04-01',
+      });
+      expect(again.body).toMatchObject({ created: 0 });
+      expect(again.body.skipped).toBeGreaterThan(0);
+    });
   });
 });

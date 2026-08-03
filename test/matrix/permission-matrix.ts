@@ -78,6 +78,11 @@ export const PERMISSION_MATRIX: MatrixRow[] = [
   { label: 'delete term', method: 'delete', path: '/api/v1/terms/00000000-0000-0000-0000-000000000000', allow: ['OWNER_ADMIN'], scopeGated: true },
   { label: 'list invoices', method: 'get', path: '/api/v1/fees/invoices', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT'], scopeGated: true },
   { label: 'generate invoice batch', method: 'post', path: '/api/v1/fees/invoice-batches', body: {}, allow: ['OWNER_ADMIN', 'ACCOUNTANT'] },
+  // What a class is charged is the owner's decision alone — an accountant collects money, they
+  // do not set the price. These had no matrix rows at all before the plan rework.
+  { label: 'change a fee price', method: 'patch', path: '/api/v1/fee-structures/00000000-0000-0000-0000-000000000000', body: {}, allow: ['OWNER_ADMIN'] },
+  { label: 'delete a fee price', method: 'delete', path: '/api/v1/fee-structures/00000000-0000-0000-0000-000000000000', allow: ['OWNER_ADMIN'] },
+  { label: 'copy a fee plan', method: 'post', path: '/api/v1/fee-structures/copy', body: {}, allow: ['OWNER_ADMIN'] },
   { label: 'reverse payment', method: 'post', path: '/api/v1/fees/payments/00000000-0000-0000-0000-000000000000/reversals', body: { reason: 'x' }, allow: ['OWNER_ADMIN'] },
   { label: 'class-strength report', method: 'get', path: '/api/v1/reports/class-strength', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT'], scopeGated: true },
   { label: 'dashboard', method: 'get', path: '/api/v1/dashboard', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT'] },

@@ -79,10 +79,17 @@ export class InvoicingService {
     const enrollments = await this.db.studentEnrollment.findMany({
       where: { classId: dto.classId, academicYearId, status: 'ACTIVE', student: { deletedAt: null } },
     });
-    const structures = await this.db.feeStructure.findMany({
-      where: { classId: dto.classId, academicYearId, isActive: true },
-      include: { feeHead: { select: { name: true } } },
-    });
+    // The price IN FORCE for the month being billed. A school that raises tuition in January
+    // has two rows for the same head; billing December must use December's price, so this
+    // takes the latest row starting on or before the month — not simply "the" structure.
+    const monthStart = new Date(Date.UTC(dto.year, dto.month - 1, 1));
+    const structures = inForceStructures(
+      await this.db.feeStructure.findMany({
+        where: { classId: dto.classId, academicYearId, isActive: true, effectiveFrom: { lte: monthStart } },
+        include: { feeHead: { select: { name: true } } },
+        orderBy: { effectiveFrom: 'asc' },
+      }),
+    );
 
     let generated = 0;
     const newInvoiceIds: string[] = [];
@@ -229,4 +236,20 @@ export class InvoicingService {
   private school() {
     return this.db.school.findFirst({ where: { id: this.sid } });
   }
+}
+
+/**
+ * Collapse a price history to the one row in force per (fee head, frequency).
+ *
+ * Callers pass rows already filtered to `effectiveFrom <= the month being billed` and sorted
+ * ascending, so the LAST row wins for each key. Keeping this a pure function means the
+ * "which price applies?" rule is testable on its own and cannot drift between invoicing and
+ * the fee-plan screen, which must agree about what a class currently costs.
+ */
+export function inForceStructures<T extends { feeHeadId: string; frequency: string; effectiveFrom: Date }>(
+  rows: readonly T[],
+): T[] {
+  const latest = new Map<string, T>();
+  for (const r of rows) latest.set(`${r.feeHeadId}:${r.frequency}`, r);
+  return [...latest.values()];
 }

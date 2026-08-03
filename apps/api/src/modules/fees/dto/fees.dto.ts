@@ -1,5 +1,9 @@
 import { Type } from 'class-transformer';
 import {
+  ArrayMinSize,
+  IsArray,
+  IsBoolean,
+  IsDateString,
   IsEnum,
   IsInt,
   IsNumber,
@@ -22,7 +26,8 @@ export class CreateFeeHeadDto {
 }
 
 export class CreateFeeStructureDto {
-  @IsUUID() campusId!: string;
+  /** Optional: derived from the class, which already determines the campus. */
+  @IsOptional() @IsUUID() campusId?: string;
   @IsUUID() classId!: string;
   @IsUUID() feeHeadId!: string;
   @IsUUID() academicYearId!: string;
@@ -32,6 +37,46 @@ export class CreateFeeStructureDto {
 
   @IsEnum(FeeFrequency)
   frequency!: FeeFrequency;
+
+  /**
+   * The month this price starts applying from. Omitted ⇒ the academic year's first day, which
+   * is what "this is the fee" means when a school sets one up. Supply a later date to record a
+   * revision: the earlier row stays, so invoices already issued keep the price they were
+   * computed from.
+   */
+  @IsOptional() @IsDateString()
+  effectiveFrom?: string;
+}
+
+export class UpdateFeeStructureDto {
+  /** Editable only while nothing has been billed from this row — see the service. */
+  @IsOptional() @IsNumber({ maxDecimalPlaces: 2 }) @IsPositive()
+  amount?: number;
+
+  /** Stop (or resume) charging it. Only ever affects future invoice runs. */
+  @IsOptional() @IsBoolean()
+  isActive?: boolean;
+}
+
+/** Copy a whole fee plan: one class's into others, or a year's into the next. */
+export class CopyFeePlanDto {
+  @IsUUID() fromClassId!: string;
+  @IsUUID() fromAcademicYearId!: string;
+
+  @IsArray() @ArrayMinSize(1) @IsUUID('4', { each: true })
+  toClassIds!: string[];
+
+  /** Omitted ⇒ the same year (copying across classes). */
+  @IsOptional() @IsUUID()
+  toAcademicYearId?: string;
+
+  /** Across-the-board rise, e.g. 10 for +10%. Rounded to 2dp. */
+  @IsOptional() @IsNumber({ maxDecimalPlaces: 2 }) @Min(-100) @Max(500)
+  raisePercent?: number;
+
+  /** Where the copied prices start. Omitted ⇒ the target year's first day. */
+  @IsOptional() @IsDateString()
+  effectiveFrom?: string;
 }
 
 export class UpsertLateFeePolicyDto {

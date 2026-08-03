@@ -1,11 +1,13 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Headers,
   HttpCode,
   HttpStatus,
   Param,
+  Patch,
   Post,
   Put,
   Query,
@@ -16,10 +18,12 @@ import { InvoicingService } from './invoicing.service';
 import { PaymentsService } from './payments.service';
 import { FeeJobsService } from './fee-jobs.service';
 import {
+  CopyFeePlanDto,
   CreateAdvanceDto,
   CreateDiscountDto,
   CreateFeeHeadDto,
   CreateFeeStructureDto,
+  UpdateFeeStructureDto,
   CreateInvoiceBatchDto,
   DefaultersQuery,
   InvoiceListQuery,
@@ -41,6 +45,19 @@ export class FeeStructuresController {
   constructor(private readonly setup: FeeSetupService) {}
   @Roles('OWNER_ADMIN') @Post() create(@Body() dto: CreateFeeStructureDto) { return this.setup.createStructure(dto); }
   @Get() list(@Query('classId') classId?: string) { return this.setup.listStructures(classId); }
+
+  /** Copy a plan across classes, or roll a year forward with an optional rise. */
+  @Roles('OWNER_ADMIN') @Post('copy') copy(@Body() dto: CopyFeePlanDto) { return this.setup.copyPlan(dto); }
+
+  // Amount is editable only until something has been billed from it; after that the honest
+  // change is a revision from a later month. Switching a fee off is always allowed.
+  @Roles('OWNER_ADMIN') @Patch(':id') update(@Param('id') id: string, @Body() dto: UpdateFeeStructureDto) {
+    return this.setup.updateStructure(id, dto);
+  }
+
+  @Roles('OWNER_ADMIN') @Delete(':id') @HttpCode(HttpStatus.NO_CONTENT) remove(@Param('id') id: string) {
+    return this.setup.deleteStructure(id);
+  }
 }
 
 @Controller('late-fee-policy')

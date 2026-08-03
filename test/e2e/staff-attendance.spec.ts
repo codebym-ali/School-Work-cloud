@@ -106,6 +106,43 @@ test.describe('staff attendance', () => {
     }
   });
 
+  test('every count on the register is exactly what clicking it shows', async ({ page }) => {
+    // The bug this guards: the "Present" tile counted present + late while the PRESENT filter
+    // matched only PRESENT, so the page reported 1 and then showed "Nobody matches this
+    // filter". Asserting the general invariant — a number IS its filter — rather than the one
+    // case, because the next such tile would break the same way.
+    await gotoApp(page, '/staff-attendance');
+
+    // Wait for the page to SETTLE before counting: `count()` does not auto-wait, so reading it
+    // immediately returns 0 and would skip this test on a working day — a guard that silently
+    // disables itself is worse than no guard.
+    const tiles = page.locator('.grid button.metric-link');
+    const closed = page.getByText(/no register today/i);
+    await expect(tiles.first().or(closed)).toBeVisible({ timeout: 10000 });
+    if (await closed.isVisible().catch(() => false)) test.skip(true, 'not a working day — no register today');
+
+    const count = await tiles.count();
+    expect(count).toBeGreaterThan(1);
+
+    for (let i = 1; i < count; i++) { // skip 0: the "Staff" tile is the unfiltered total
+      const tile = tiles.nth(i);
+      const label = (await tile.locator('.label').innerText()).trim();
+      const shown = Number((await tile.locator('.value').innerText()).trim());
+
+      await tile.click();
+      const rows = page.locator('table tbody tr');
+      const empty = page.getByText(/Nobody matches this filter|No staff records/);
+
+      if (shown === 0) {
+        await expect(empty).toBeVisible();
+      } else {
+        await expect(rows).toHaveCount(shown, { timeout: 7000 });
+      }
+      // eslint-disable-next-line no-console
+      console.log(`  ${label}: tile ${shown} = rows ${shown === 0 ? 0 : await rows.count()}`);
+    }
+  });
+
   test('the dashboard leads with what is NOT known, not just with absences', async ({ page }) => {
     await gotoApp(page);
     const card = page.locator('.card').filter({ hasText: 'Staff today' });

@@ -7,6 +7,26 @@ import { useMe } from '@/lib/me-context';
 import { attendanceBadge, humanizeStatus } from '@/lib/format';
 
 const STATUSES = ['PRESENT', 'LATE', 'HALF_DAY', 'ON_LEAVE', 'ABSENT'] as const;
+
+/**
+ * A count that IS its own filter.
+ *
+ * Tiles and filters must never be able to disagree: a "Present" tile that quietly included late
+ * arrivals sat next to a PRESENT filter that did not, so the page reported 1 and then showed
+ * nothing when you clicked. Binding the number and the filter to the same status makes that
+ * impossible rather than merely fixed.
+ */
+function StatTile({ label, value, active, alert, title, onClick }: {
+  label: string; value: number; active: boolean; alert?: boolean; title?: string; onClick: () => void;
+}) {
+  return (
+    <button type="button" onClick={onClick} title={title} aria-pressed={active}
+      className={`metric metric-link${alert ? ' metric-alert' : ''}`}>
+      <div className="value">{value}</div>
+      <div className="label">{label}</div>
+    </button>
+  );
+}
 const today = () => new Date().toISOString().slice(0, 10);
 const time = (t: string | null) => (t ? new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—');
 const MARKED_BY: Record<string, string> = { SELF: 'Self', ADMIN: 'Office', SYSTEM: 'Auto' };
@@ -102,20 +122,30 @@ export default function StaffAttendancePage() {
       </div>
 
       {summary && summary.workingDay && (
-        <div className="grid">
-          <div className="metric"><div className="value">{summary.totalStaff}</div><div className="label">Staff</div></div>
-          <div className="metric"><div className="value">{summary.present + summary.late}</div><div className="label">Present</div></div>
-          <div className={`metric${summary.absent > 0 ? ' metric-alert' : ''}`}>
-            <div className="value">{summary.absent}</div><div className="label">Absent</div>
+        <>
+          {/* The roll-up everyone actually wants ("how many are in?") lives in prose, NOT in a
+              tile. A tile reading "Present: 1" that counted late arrivals contradicted the
+              PRESENT filter beside it — the page said 1, you clicked, and got nothing. Every
+              tile below now maps to exactly one filter, so that class of lie is structural. */}
+          <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+            <strong>{summary.present + summary.late}</strong> of {summary.totalStaff} in today
+            {summary.late > 0 && ` (${summary.late} arrived late)`}
+            {summary.unmarked > 0 && ` · ${summary.unmarked} still unmarked`}
+          </p>
+          <div className="grid">
+            <StatTile label="Staff" value={summary.totalStaff} active={status === ''} onClick={() => setStatus('')} />
+            <StatTile label="On time" value={summary.present} active={status === 'PRESENT'} onClick={() => setStatus('PRESENT')} />
+            <StatTile label="Late" value={summary.late} active={status === 'LATE'} onClick={() => setStatus('LATE')} />
+            <StatTile label="Absent" value={summary.absent} alert={summary.absent > 0}
+              active={status === 'ABSENT'} onClick={() => setStatus('ABSENT')} />
+            <StatTile label="On leave" value={summary.onLeave} active={status === 'ON_LEAVE'} onClick={() => setStatus('ON_LEAVE')} />
+            {/* Leads the eye where the work is: nothing writes an ABSENT row on its own, so a
+                large "not marked" is the real state of the register, not a rounding detail. */}
+            <StatTile label="Not marked" value={summary.unmarked} alert={summary.unmarked > 0}
+              title="Nobody has recorded anything for these people — not the same as being absent"
+              active={status === 'UNMARKED'} onClick={() => setStatus('UNMARKED')} />
           </div>
-          <div className="metric"><div className="value">{summary.onLeave}</div><div className="label">On leave</div></div>
-          {/* Leads the eye where the work is: nothing writes an ABSENT row on its own, so a
-              large "not marked" is the real state of the register, not a rounding detail. */}
-          <div className={`metric${summary.unmarked > 0 ? ' metric-alert' : ''}`}
-            title="Nobody has recorded anything for these people — not the same as being absent">
-            <div className="value">{summary.unmarked}</div><div className="label">Not marked</div>
-          </div>
-        </div>
+        </>
       )}
 
       <div className="chips">

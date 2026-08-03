@@ -78,7 +78,13 @@ export default function MyAttendance() {
             <div className="value">{summary.percent == null ? '—' : `${summary.percent}%`}</div>
             <div className="label">Attendance</div>
           </div>
-          <div className="metric"><div className="value">{summary.present + summary.late}</div><div className="label">Days present</div></div>
+          {/* Late still counts as a full day for the percentage, so it belongs in this total —
+              but the label must say so. A "Days present" figure that silently absorbs late
+              arrivals is the same lie the register's tiles used to tell. */}
+          <div className="metric" title="Late arrivals count as a full day">
+            <div className="value">{summary.present + summary.late}</div>
+            <div className="label">Days present{summary.late > 0 ? ` (${summary.late} late)` : ''}</div>
+          </div>
           {/* A count, not just a percentage: "3 absent" is actionable, "94%" is not. */}
           <div className={`metric${summary.absent > 0 ? ' metric-alert' : ''}`}>
             <div className="value">{summary.absent}</div><div className="label">Days absent</div>

@@ -84,7 +84,13 @@ export const NAV: NavItem[] = [
   { href: '/me/fees', label: 'My Fees', icon: '💳', group: 'My Portal', roles: ['STUDENT'] },
 
 
-  { href: '/my-attendance', label: 'My Attendance', icon: '✅', group: 'My Portal', roles: ['STAFF'] },
+  // TEACHER included: the endpoint always permitted them (it is self-scoped, not role-scoped),
+  // but the nav did not — so a teacher had no way to reach their own attendance at all, which
+  // is the surface a teacher most needs now that they can check themselves in.
+  { href: '/my-attendance', label: 'My Attendance', icon: '✅', group: 'My Portal', roles: ['STAFF', 'TEACHER'] },
+  // ⚠️ Still STAFF-only by an earlier explicit request. Worth revisiting: `staff-leaves` permits
+  // TEACHER too, and a teacher who can be marked absent but cannot file leave has no way to
+  // reach ON_LEAVE — so an authorised absence lands as a plain absence, and that feeds payroll.
   { href: '/my-leaves', label: 'My Leaves', icon: '🗓️', group: 'My Portal', roles: ['STAFF'] },
   { href: '/my-payslips', label: 'My Payslips', icon: '💵', group: 'My Portal', roles: ['STAFF', 'TEACHER'] },
 

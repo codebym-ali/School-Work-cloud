@@ -110,3 +110,16 @@ export class MarkStaffAttendanceDto {
   @IsOptional() @IsString() @MaxLength(200)
   note?: string;
 }
+
+/**
+ * The caller's own attendance over a range. Note there is deliberately **no `staffId`** — the
+ * person is resolved from the session, so reading a colleague's record is not a permission
+ * that could be misconfigured, it is unexpressible.
+ */
+export class MyStaffAttendanceQuery {
+  @IsOptional() @IsDateString()
+  from?: string;
+
+  @IsOptional() @IsDateString()
+  to?: string;
+}

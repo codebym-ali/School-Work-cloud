@@ -305,7 +305,24 @@ export interface RosterRow {
   studentId: string; fullName: string; grNumber: string; registrationNo: string | null;
   rollNumber: number | null; enrollmentId: string;
 }
-export interface StaffAttendanceRow { date: string; session: string; status: string; checkIn: string | null; checkOut: string | null }
+/** `source` says who recorded it: SELF (the person), ADMIN (the office), SYSTEM (day close). */
+export interface StaffAttendanceRow { date: string; session: string; status: string; checkIn: string | null; checkOut: string | null; source: 'SELF' | 'ADMIN' | 'SYSTEM' }
+export interface StaffAttendanceSummary {
+  from: string; to: string;
+  present: number; late: number; halfDay: number; onLeave: number; absent: number;
+  marked: number; workingDays: number;
+  /** Working days with no record at all — deliberately NOT folded into `absent`. */
+  unmarked: number;
+  percent: number | null;
+}
+export interface CheckInState {
+  enabled: boolean;
+  nonWorkingDay: boolean;
+  today: { status: string; checkIn: string | null; source: string } | null;
+  /** What pressing the button would record right now, so "late" is announced, not sprung. */
+  wouldBe: 'PRESENT' | 'LATE';
+  dayStartTime: string;
+}
 export interface Payslip { id: string; runId: string; gross: string; attendanceDeduction: string; otherDeductions: string; netPay: string; status: string; paidAt: string | null }
 /** Admin queue rows carry the person's name so the screen never has to resolve ids itself. */
 export interface StaffLeaveRow extends StaffLeave { staffId: string; staff?: { fullName: string | null; employeeCode: string } }
@@ -372,7 +389,11 @@ export const api = {
     // INVITED until an owner sets one.
     create: (body: { email: string; staffType: string; fullName?: string; employeeCode: string; designation: string; joinedAt: string; campusId?: string; roles?: string[]; password?: string }) =>
       apiPost<{ userId: string; staffId: string; employeeCode: string; email: string; loginActive: boolean }>('/staff', body),
-    myAttendance: () => apiGet<StaffAttendanceRow[]>('/staff-attendance/mine'),
+    /** `qs` from `rangeQuery()` — one definition of "last 3 months" across every view. */
+    myAttendance: (qs = '') => apiGet<StaffAttendanceRow[]>(`/staff-attendance/mine${qs ? `?${qs}` : ''}`),
+    myAttendanceSummary: (qs = '') => apiGet<StaffAttendanceSummary>(`/staff-attendance/mine/summary${qs ? `?${qs}` : ''}`),
+    checkInState: () => apiGet<CheckInState>('/staff-attendance/mine/check-in'),
+    checkIn: () => apiPost<{ date: string; status: string; checkIn: string }>('/staff-attendance/check-in', {}),
   },
   /** Admin approval queue — both kinds of leave, the same two verbs. */
   leaveQueue: {

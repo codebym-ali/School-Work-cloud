@@ -6,6 +6,7 @@ import {
   AttendanceQuery,
   MarkAttendanceDto,
   MarkStaffAttendanceDto,
+  MyStaffAttendanceQuery,
   PatchAttendanceDto,
 } from './dto/attendance.dto';
 
@@ -54,7 +55,28 @@ export class StaffAttendanceController {
   // Self-service: any staff member reads their own record (self-scoped in the service,
   // §22.8) — no @Roles, mirroring GET /payslips/mine.
   @Get('mine')
-  mine() {
-    return this.attendance.myStaffAttendance();
+  mine(@Query() q: MyStaffAttendanceQuery) {
+    return this.attendance.myStaffAttendance(q.from, q.to);
+  }
+
+  @Get('mine/summary')
+  mineSummary(@Query() q: MyStaffAttendanceQuery) {
+    return this.attendance.myStaffAttendanceSummary(q.from, q.to);
+  }
+
+  /** Whether the button should be shown, and what it would record. */
+  @Get('mine/check-in')
+  checkInState() {
+    return this.attendance.myCheckInState();
+  }
+
+  /**
+   * Mark yourself present for today. Deliberately takes NO body: the date is today, the person
+   * is the caller, and the status comes from the clock — so there is nothing to tamper with.
+   */
+  @Post('check-in')
+  @HttpCode(HttpStatus.CREATED)
+  checkIn() {
+    return this.attendance.checkIn();
   }
 }

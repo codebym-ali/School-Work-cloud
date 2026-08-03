@@ -3,11 +3,14 @@ import { AttendanceSource, AttendanceStatus, type AttendanceSession, type Prisma
 import {
   AppError,
   assertCampusAccess,
+  attendancePercentFromStatuses,
   AuditActions,
+  checkInStatus,
   ErrorCodes,
   parseSchoolSettings,
   restrictedCampusId,
   TenantContext,
+  workingDaysBetween,
   type RequestUser,
 } from '@common';
 import { AuditService, TenantPrismaService } from '@database';
@@ -418,20 +421,171 @@ export class AttendanceService {
   }
 
   /**
-   * A staff member's own attendance history (self-service). Resolves the caller's
-   * StaffProfile from their user — no id from the client — so it can only ever return
-   * the logged-in person's records (§22.8). 403s if the account has no staff profile.
+   * A staff member marks themselves present, for today, once.
+   *
+   * The narrow shape IS the security model. `staff_attendance` feeds the payroll deduction, so
+   * a teacher who could mark themselves absent (or un-absent, or absent last Tuesday) would be
+   * setting their own pay. Hence: presence only, today only, status from the clock rather than
+   * from the request, and nothing about anybody else — the endpoint takes no `staffId` at all,
+   * so marking a colleague is not a permission that can be misconfigured, it is unexpressible.
+   *
+   * What this proves is that someone holding this login pressed a button at 07:58 — not that
+   * they were on the premises. That is the honest ceiling without hardware, which is why the
+   * row is timestamped, attributed, and overridable by the office.
    */
-  async myStaffAttendance() {
-    const userId = this.ctx.user?.userId;
-    const staff = userId ? await this.db.staffProfile.findFirst({ where: { userId } }) : null;
-    if (!staff) throw new AppError(ErrorCodes.FORBIDDEN, HttpStatus.FORBIDDEN, 'No staff profile is linked to this account');
-    return this.db.staffAttendance.findMany({
-      where: { staffId: staff.id },
-      orderBy: [{ date: 'desc' }],
-      take: 60,
-      select: { date: true, session: true, status: true, checkIn: true, checkOut: true },
+  async checkIn() {
+    const schoolId = this.ctx.requireSchoolId();
+    const user = this.ctx.user!;
+    const staff = await this.selfStaff();
+
+    const school = await this.db.school.findFirst({ where: { id: schoolId } });
+    const settings = parseSchoolSettings(school?.settings ?? {});
+    if (!settings.staffAttendance.selfMarking) {
+      throw new AppError(ErrorCodes.FORBIDDEN, HttpStatus.FORBIDDEN, 'Self check-in is switched off for this school');
+    }
+
+    const now = new Date();
+    const date = new Date(new Date().toISOString().slice(0, 10));
+    if (startOfDay(staff.joinedAt) > startOfDay(date) || (staff.leftAt && startOfDay(staff.leftAt) < startOfDay(date))) {
+      throw new AppError(ErrorCodes.FORBIDDEN, HttpStatus.FORBIDDEN, 'You are not employed on this date');
+    }
+    const campusId = staff.user.campusId;
+    if (campusId && (await this.isNonWorkingDay(date, campusId, settings.weeklyOffDays))) {
+      throw new AppError(ErrorCodes.VALIDATION_FAILED, HttpStatus.UNPROCESSABLE_ENTITY, 'Today is a holiday or weekly off — no attendance is taken.');
+    }
+    await this.assertPayrollOpen(date);
+
+    const session = settings.attendanceSessions[0];
+    const existing = await this.db.staffAttendance.findFirst({ where: { staffId: staff.id, date, session } });
+    if (existing) {
+      // Not an error to retry-proof away: check-in is a claim about a moment, and a second
+      // press must never overwrite the first timestamp or silently upgrade an office-recorded
+      // ABSENT back to PRESENT.
+      throw new AppError(ErrorCodes.CONFLICT, HttpStatus.CONFLICT, `You are already marked ${existing.status} today.`);
+    }
+
+    const status = checkInStatus(now, settings.staffAttendance.dayStartTime, settings.staffAttendance.graceMinutes);
+    const row = await this.db.staffAttendance.create({
+      data: {
+        schoolId, staffId: staff.id, date, session, status,
+        checkIn: now, source: AttendanceSource.SELF, markedById: user.userId,
+      },
+      select: { date: true, session: true, status: true, checkIn: true },
     });
+    return { ...row, dayStartTime: settings.staffAttendance.dayStartTime };
+  }
+
+  /** Whether the caller may check in right now, and why not — so the UI states the rule before
+   *  the click instead of springing an error after it. */
+  async myCheckInState() {
+    const schoolId = this.ctx.requireSchoolId();
+    const staff = await this.selfStaff();
+    const school = await this.db.school.findFirst({ where: { id: schoolId } });
+    const settings = parseSchoolSettings(school?.settings ?? {});
+    const now = new Date();
+    const date = new Date(now.toISOString().slice(0, 10));
+
+    const enabled = settings.staffAttendance.selfMarking;
+    const campusId = staff.user.campusId;
+    const nonWorking = campusId ? await this.isNonWorkingDay(date, campusId, settings.weeklyOffDays) : false;
+    const today = await this.db.staffAttendance.findFirst({
+      where: { staffId: staff.id, date, session: settings.attendanceSessions[0] },
+      select: { status: true, checkIn: true, source: true },
+    });
+    return {
+      enabled,
+      nonWorkingDay: nonWorking,
+      today,
+      /** What pressing the button would record right now — LATE is announced, never sprung. */
+      wouldBe: checkInStatus(now, settings.staffAttendance.dayStartTime, settings.staffAttendance.graceMinutes),
+      dayStartTime: settings.staffAttendance.dayStartTime,
+    };
+  }
+
+  /**
+   * A staff member's own attendance history (self-service), over a date range.
+   *
+   * Resolves the caller's StaffProfile from their user — no id from the client — so it can
+   * only ever return the logged-in person's records (§22.8). Previously a hard `take: 60`,
+   * which silently truncated: "how many days was I absent this year?" was unanswerable, and a
+   * percentage over an arbitrary last-60-rows window is not a fact about any period.
+   */
+  async myStaffAttendance(from?: string, to?: string) {
+    const staff = await this.selfStaff();
+    const range = this.resolveRange(from, to);
+    return this.db.staffAttendance.findMany({
+      where: { staffId: staff.id, date: { gte: range.from, lte: range.to } },
+      orderBy: [{ date: 'desc' }],
+      select: { date: true, session: true, status: true, checkIn: true, checkOut: true, source: true },
+    });
+  }
+
+  /** Counts for the caller's own range — including how many working days nobody marked. */
+  async myStaffAttendanceSummary(from?: string, to?: string) {
+    const schoolId = this.ctx.requireSchoolId();
+    const staff = await this.selfStaff();
+    const range = this.resolveRange(from, to);
+    const rows = await this.db.staffAttendance.findMany({
+      where: { staffId: staff.id, date: { gte: range.from, lte: range.to } },
+      select: { status: true },
+    });
+    const school = await this.db.school.findFirst({ where: { id: schoolId } });
+    const settings = parseSchoolSettings(school?.settings ?? {});
+
+    // Bound the window by employment: days before someone joined are not days they missed.
+    const start = new Date(Math.max(range.from.getTime(), startOfDay(staff.joinedAt)));
+    const end = new Date(Math.min(range.to.getTime(), staff.leftAt ? startOfDay(staff.leftAt) : range.to.getTime()));
+    let working = 0;
+    if (start.getTime() <= end.getTime()) {
+      const holidays = await this.db.holiday.findMany({
+        where: { date: { gte: start, lte: end }, OR: [{ campusId: staff.user.campusId }, { campusId: null }] },
+        select: { date: true },
+      });
+      working = workingDaysBetween(
+        start, end, settings.weeklyOffDays,
+        holidays.map((h) => h.date.toISOString().slice(0, 10)),
+      ).length;
+    }
+
+    const count = (s: AttendanceStatus) => rows.filter((r) => r.status === s).length;
+    const marked = rows.length;
+    return {
+      from: range.from.toISOString().slice(0, 10),
+      to: range.to.toISOString().slice(0, 10),
+      present: count(AttendanceStatus.PRESENT),
+      late: count(AttendanceStatus.LATE),
+      halfDay: count(AttendanceStatus.HALF_DAY),
+      onLeave: count(AttendanceStatus.ON_LEAVE),
+      absent: count(AttendanceStatus.ABSENT),
+      marked,
+      workingDays: working,
+      /** Working days with no record at all. Not the same as absent, and never folded into it. */
+      unmarked: Math.max(0, working - marked),
+      percent: attendancePercentFromStatuses(rows.map((r) => r.status)),
+    };
+  }
+
+  /** The caller's own StaffProfile. 403s if the account has no staff record. */
+  private async selfStaff() {
+    const userId = this.ctx.user?.userId;
+    const staff = userId
+      ? await this.db.staffProfile.findFirst({
+          where: { userId },
+          select: { id: true, joinedAt: true, leftAt: true, user: { select: { campusId: true } } },
+        })
+      : null;
+    if (!staff) throw new AppError(ErrorCodes.FORBIDDEN, HttpStatus.FORBIDDEN, 'No staff profile is linked to this account');
+    return staff;
+  }
+
+  /** Default window is the last 90 days — the screen's opening view, not all history. */
+  private resolveRange(from?: string, to?: string) {
+    const end = to ? new Date(to) : new Date(new Date().toISOString().slice(0, 10));
+    const start = from ? new Date(from) : new Date(end.getTime() - 90 * 86400000);
+    if (start.getTime() > end.getTime()) {
+      throw new AppError(ErrorCodes.VALIDATION_FAILED, HttpStatus.UNPROCESSABLE_ENTITY, '`from` is after `to`');
+    }
+    return { from: start, to: end };
   }
 
   // ── helpers ──────────────────────────────────────────────────────────────────

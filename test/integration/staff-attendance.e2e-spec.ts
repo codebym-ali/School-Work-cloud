@@ -225,6 +225,158 @@ describe('Staff attendance marking (e2e)', () => {
     expect(after).toBe(before);
   });
 
+  // ── Self check-in (S2) ─────────────────────────────────────────────────────
+  describe('self check-in', () => {
+    /** A real, signed-in teacher — the rules under test only apply to a non-admin. */
+    let teacherCookies: string[];
+    let teacherCsrf: string;
+    let teacherStaffId: string;
+    const teacherPw = 'Teach!Secret12';
+
+    const setSelfMarking = (on: boolean, extra: object = {}) =>
+      platform.school.update({
+        where: { id: schoolId },
+        data: { settings: { staffAttendance: { selfMarking: on, ...extra } } },
+      });
+
+    beforeAll(async () => {
+      teacherStaffId = await createStaff('selfmark@sat.pk', campusA, iso(new Date(Date.now() - 400 * 86400000)));
+      const staff = await platform.staffProfile.findFirstOrThrow({ where: { id: teacherStaffId } });
+      await platform.user.update({
+        where: { id: staff.userId! },
+        data: { status: 'ACTIVE', passwordHash: await argon2.hash(teacherPw, { type: argon2.argon2id }) },
+      });
+      teacherCookies = await login('selfmark@sat.pk', teacherPw);
+      teacherCsrf = csrfOf(teacherCookies);
+    });
+
+    afterEach(async () => { await setSelfMarking(false); });
+
+    const checkIn = () => authed('post', '/api/v1/staff-attendance/check-in', teacherCookies, teacherCsrf).send({});
+
+    it('is refused while the school has self-marking switched off', async () => {
+      await setSelfMarking(false);
+      const res = await checkIn();
+      expect(res.status).toBe(403);
+      expect(res.body.error.message).toMatch(/switched off/i);
+    });
+
+    it('records PRESENT or LATE from the CLOCK, with SELF provenance and a timestamp', async () => {
+      await setSelfMarking(true);
+      const res = await checkIn();
+      if (res.status === 422) return; // today is a weekly off — covered by its own case below
+      expect(res.status).toBe(201);
+
+      const row = await platform.staffAttendance.findFirstOrThrow({ where: { staffId: teacherStaffId } });
+      expect(row.source).toBe('SELF');
+      expect(row.checkIn).not.toBeNull();
+      // The teacher never said which of these it is — the server decided from the clock.
+      expect(['PRESENT', 'LATE']).toContain(row.status);
+    });
+
+    it('cannot be pressed twice — the second attempt does not overwrite the first timestamp', async () => {
+      await setSelfMarking(true);
+      const first = await checkIn();
+      if (first.status === 422) return;
+      const firstRow = await platform.staffAttendance.findFirstOrThrow({ where: { staffId: teacherStaffId } });
+
+      const second = await checkIn();
+      expect(second.status).toBe(409);
+      const afterRow = await platform.staffAttendance.findFirstOrThrow({ where: { staffId: teacherStaffId } });
+      expect(afterRow.checkIn).toEqual(firstRow.checkIn);
+    });
+
+    it('cannot resurrect a day the office already marked ABSENT', async () => {
+      // The exploit this endpoint exists to not have: pressing a button to undo a deduction.
+      await setSelfMarking(true);
+      await mark(teacherStaffId, 'ABSENT');
+      const res = await checkIn();
+      expect(res.status).toBe(409);
+      const row = await platform.staffAttendance.findFirstOrThrow({ where: { staffId: teacherStaffId } });
+      expect(row.status).toBe('ABSENT');
+      expect(row.source).toBe('ADMIN');
+    });
+
+    it('ignores a smuggled staffId, status and date — the handler reads no body at all', async () => {
+      await setSelfMarking(true);
+      const res = await authed('post', '/api/v1/staff-attendance/check-in', teacherCookies, teacherCsrf)
+        .send({ staffId: staffB, status: 'PRESENT', date: '2020-01-01' });
+      if (res.status === 422) return; // weekly off
+
+      // The handler declares no @Body(), so these fields are not validated away — they are
+      // never read. That is the stronger property: marking a colleague, backdating, or picking
+      // your own status are not permissions that could be misconfigured, they are unexpressible.
+      expect(res.status).toBe(201);
+      expect(await platform.staffAttendance.count({ where: { staffId: staffB } })).toBe(0);
+
+      const mine = await platform.staffAttendance.findFirstOrThrow({ where: { staffId: teacherStaffId } });
+      expect(mine.date.toISOString().slice(0, 10)).not.toBe('2020-01-01');
+      expect(mine.source).toBe('SELF');
+    });
+
+    it('a teacher still cannot mark anyone via the admin endpoint', async () => {
+      await setSelfMarking(true);
+      const res = await authed('post', '/api/v1/staff-attendance/bulk', teacherCookies, teacherCsrf)
+        .send({ date: workingDay(), session: 'MORNING', records: [{ staffId: teacherStaffId, status: 'PRESENT' }] });
+      expect(res.status).toBe(403);
+    });
+
+    it('reports what the button would do before it is pressed', async () => {
+      await setSelfMarking(true);
+      const res = await authed('get', '/api/v1/staff-attendance/mine/check-in', teacherCookies);
+      expect(res.status).toBe(200);
+      expect(res.body.enabled).toBe(true);
+      // Stated in advance so "you're late" is never sprung after the click.
+      expect(['PRESENT', 'LATE']).toContain(res.body.wouldBe);
+    });
+  });
+
+  // ── Own history (S2) ───────────────────────────────────────────────────────
+  describe('GET /staff-attendance/mine', () => {
+    let cookies: string[];
+
+    beforeAll(async () => {
+      const staff = await platform.staffProfile.findFirstOrThrow({ where: { id: staffA } });
+      await platform.user.update({
+        where: { id: staff.userId! },
+        data: { status: 'ACTIVE', passwordHash: await argon2.hash('Range!Secret12', { type: argon2.argon2id }) },
+      });
+      cookies = await login('sa@sat.pk', 'Range!Secret12');
+    });
+
+    it('filters by range and counts unmarked working days separately from absences', async () => {
+      const day = workingDay();
+      await mark(staffA, 'ABSENT', day);
+
+      const rows = await authed('get', `/api/v1/staff-attendance/mine?from=${day}&to=${day}`, cookies);
+      expect(rows.status).toBe(200);
+      expect(rows.body).toHaveLength(1);
+
+      const summary = await authed('get', `/api/v1/staff-attendance/mine/summary?from=${day}&to=${day}`, cookies);
+      expect(summary.body).toMatchObject({ absent: 1, marked: 1, workingDays: 1, unmarked: 0, percent: 0 });
+
+      // A range the person was employed for but nobody marked: unmarked, NOT absent. Folding
+      // one into the other is how a half-kept register turns into a salary deduction.
+      const earlier = iso(new Date(new Date(day).getTime() - 30 * 86400000));
+      const gap = await authed('get', `/api/v1/staff-attendance/mine/summary?from=${earlier}&to=${earlier}`, cookies);
+      expect(gap.body.absent).toBe(0);
+      expect(gap.body.unmarked).toBeGreaterThanOrEqual(0);
+      expect(gap.body.percent).toBeNull();
+    });
+
+    it('rejects an inverted range', async () => {
+      const res = await authed('get', '/api/v1/staff-attendance/mine?from=2026-08-10&to=2026-08-01', cookies);
+      expect(res.status).toBe(422);
+    });
+
+    it('403s an account with no staff profile — the owner has no own attendance to read', async () => {
+      // Authorization is resolved before the query, so this is a 403 and not an empty list:
+      // "you have no staff record" and "you were never marked" are different answers.
+      const res = await authed('get', '/api/v1/staff-attendance/mine', ownerCookies);
+      expect(res.status).toBe(403);
+    });
+  });
+
   it('freezes the month once its payroll run is approved', async () => {
     const day = workingDay();
     const d = new Date(day);

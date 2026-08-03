@@ -266,7 +266,7 @@ Ayesha Khan · Teacher · Main Campus
 | **S2** | Self check-in + range-filtered `mine`/`mine/summary`; `/my-attendance` gains the button, tiles and range filter; nav opened to TEACHER | integration · web tsc/lint |
 | **S3** | Owner read side: `summary`, register list, per-staff history + the two screens + dashboard card | integration · matrix · browser |
 | **S4** | QA: Playwright `staff-attendance.spec.ts`, full suite, brain update | `pnpm test` · both lints · build |
-| ~~S5~~ | **Deferred by D2** — day-close job in `MaintenanceService`. Built later against the §9 rules, which are written now so the behaviour is specified before it is automated. | — |
+| **S5** | ✅ **BUILT 2026-08-03, and OFF by default.** Day-close job in `MaintenanceService` (20:00 daily), plus the `autoMarkAbsent` switch on the settings screen. D2 stands: the code exists, the decision to run it is still the operator's — it is now a toggle rather than a deploy. Test cases 9 and 10 both covered. | maintenance e2e 9/9 · staff-attendance 26/26 |
 
 S1 is independently valuable and independently revertable (it closes a live §22.8 gap and needs
 no UI). The day-close job is deliberately last **and** deferred: it is the only part that writes

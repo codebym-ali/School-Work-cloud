@@ -1,11 +1,13 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { ZodError } from 'zod';
 import {
   AppError,
   assertCampusAccess,
   AuditActions,
   effectiveCampusFilter,
   ErrorCodes,
+  parseSchoolSettings,
   restrictedCampusId,
   TenantContext,
 } from '@common';
@@ -42,6 +44,95 @@ export class SetupService {
   /** Current tenant id — passed explicitly on writes; the extension asserts it matches. */
   private get sid(): string {
     return this.ctx.requireSchoolId();
+  }
+
+  // ── School settings ──────────────────────────────────────────────────────────
+  /**
+   * The school's own configuration, with defaults filled in.
+   *
+   * `School.settings` had **no API at all** until now: every value — the working week, the fee
+   * due day, whether teachers may check themselves in — could only be changed by a developer
+   * writing to the database. That made a school's own operating rules something it had to ask
+   * for, and it is how a demo tenant ended up marking a 19:18 check-in "late" against an 08:00
+   * default nobody had ever been able to see, let alone change.
+   */
+  async getSettings() {
+    const school = await this.db.school.findFirst({ where: { id: this.sid }, select: { settings: true } });
+    return parseSchoolSettings(school?.settings ?? {});
+  }
+
+  /**
+   * Merge a partial change into the settings blob (owner-only).
+   *
+   * **Merge, never replace.** The blob is one JSON column, so a PUT of the whole object would
+   * mean any client that hadn't been updated for a newly-added key would silently reset it to
+   * its default. Nested groups (`staffAttendance`, `staffLeaveQuotas`) merge one level down for
+   * the same reason — sending `{ staffAttendance: { graceMinutes: 5 } }` must not wipe
+   * `selfMarking`.
+   *
+   * The whole merged object is then validated by the Zod schema, so an invalid combination is
+   * rejected as a unit rather than half-applied.
+   */
+  async updateSettings(patch: Record<string, unknown>) {
+    const school = await this.db.school.findFirst({ where: { id: this.sid }, select: { settings: true } });
+    const current = parseSchoolSettings(school?.settings ?? {}) as unknown as Record<string, unknown>;
+
+    // ⚠️ Drop `undefined` FIRST, at every level. A class-validator DTO materialises every
+    // declared property, so `{ ...dto }` carries a key for each setting the caller never
+    // mentioned — and the nested DTOs do the same inside `staffAttendance`. Merging those writes
+    // `undefined` over the current value and Zod then fills in the default, so changing one
+    // field would quietly reset every other one. That is the exact "silently wipes it" failure
+    // this merge exists to prevent, arriving through the front door.
+    const changes = Object.entries(patch)
+      .filter(([, v]) => v !== undefined)
+      .map(([k, v]) => [k, isPlainObject(v) ? stripUndefined(v) : v] as const)
+      // A nested group whose every field was absent is not a change at all.
+      .filter(([, v]) => !isPlainObject(v) || Object.keys(v).length > 0);
+
+    const merged: Record<string, unknown> = { ...current };
+    for (const [key, value] of changes) {
+      const existing = current[key];
+      merged[key] = isPlainObject(value) && isPlainObject(existing)
+        ? { ...existing, ...value }
+        : value;
+    }
+
+    let next: ReturnType<typeof parseSchoolSettings>;
+    try {
+      next = parseSchoolSettings(merged);
+    } catch (e) {
+      const issue = e instanceof ZodError ? e.issues[0] : null;
+      throw new AppError(
+        ErrorCodes.VALIDATION_FAILED,
+        HttpStatus.UNPROCESSABLE_ENTITY,
+        issue ? `${issue.path.join('.') || 'settings'}: ${issue.message}` : 'Invalid settings',
+        issue ? [{ field: issue.path.join('.') || 'settings', issue: issue.message }] : undefined,
+      );
+    }
+
+    // Audit the DIFF, not the blob. These values govern money and pay, so "what changed" has to
+    // be readable a year later without diffing two dumps by eye.
+    const before: Record<string, unknown> = {};
+    const after: Record<string, unknown> = {};
+    for (const [key] of changes) {
+      const a = JSON.stringify(current[key]);
+      const b = JSON.stringify((next as unknown as Record<string, unknown>)[key]);
+      if (a !== b) {
+        before[key] = current[key];
+        after[key] = (next as unknown as Record<string, unknown>)[key];
+      }
+    }
+    if (Object.keys(after).length === 0) return next; // nothing actually moved — don't audit a non-event
+
+    await this.db.school.update({ where: { id: this.sid }, data: { settings: next as unknown as Prisma.InputJsonValue } });
+    await this.audit.record({
+      action: AuditActions.SCHOOL_SETTINGS_UPDATED,
+      entityType: 'School',
+      entityId: this.sid,
+      oldValue: before,
+      newValue: after,
+    });
+    return next;
   }
 
   // ── Academic years ─────────────────────────────────────────────────────────
@@ -432,4 +523,14 @@ export class SetupService {
 
 function normalizeSubjectName(value: string): string {
   return value.trim().replace(/\s+/g, ' ');
+}
+
+/** A JSON object (not null, not an array) — the only shape worth merging one level into. */
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
+/** Remove keys whose value is `undefined`, so an absent DTO field never overwrites a stored one. */
+function stripUndefined(v: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(v).filter(([, x]) => x !== undefined));
 }

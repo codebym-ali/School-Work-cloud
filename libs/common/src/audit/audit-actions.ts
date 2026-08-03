@@ -37,6 +37,10 @@ export const AuditActions = {
   USER_REMOVED: 'USER_REMOVED',
   MFA_RESET: 'MFA_RESET',
   SCHOOL_PROVISIONED: 'SCHOOL_PROVISIONED',
+  /** School settings changed. These govern money (fee due day, proration, sibling discount)
+   *  and pay (attendance windows, self-marking), so the row records only the keys that moved
+   *  with their before/after — a diff, not a dump of the whole blob. */
+  SCHOOL_SETTINGS_UPDATED: 'SCHOOL_SETTINGS_UPDATED',
 
   // finance / exams (later milestones — declared as they are used)
   FEE_WAIVED: 'FEE_WAIVED',

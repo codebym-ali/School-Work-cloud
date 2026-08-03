@@ -4,6 +4,7 @@ import {
   AcademicYearController,
   CampusController,
   ClassController,
+  SchoolSettingsController,
   SectionController,
   SubjectController,
 } from './setup.controller';
@@ -13,6 +14,7 @@ import {
     AcademicYearController,
     CampusController,
     ClassController,
+    SchoolSettingsController,
     SectionController,
     SubjectController,
   ],

@@ -14,7 +14,33 @@ import {
   UpdateSubjectDto,
   SectionListQuery,
   UpdateCampusDto,
+  UpdateSchoolSettingsDto,
 } from './dto/setup.dto';
+
+/**
+ * The school's own operating rules (§17.1). Until this existed they could only be changed by a
+ * developer writing to the database, so a school could not set its own working week, fee due
+ * day, or attendance windows without filing a request.
+ */
+@Controller('school-settings')
+export class SchoolSettingsController {
+  constructor(private readonly setup: SetupService) {}
+
+  // Readable by both admin roles — a campus admin needs to know the rules they work under
+  // (weekly off, backfill window) even though only the owner may change them.
+  @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
+  @Get()
+  get() {
+    return this.setup.getSettings();
+  }
+
+  /** Owner-only: these govern money and pay. Partial — send only what changes. */
+  @Roles('OWNER_ADMIN')
+  @Patch()
+  update(@Body() dto: UpdateSchoolSettingsDto) {
+    return this.setup.updateSettings({ ...dto } as Record<string, unknown>);
+  }
+}
 
 @Controller('academic-years')
 export class AcademicYearController {

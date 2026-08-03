@@ -63,6 +63,11 @@ export const PERMISSION_MATRIX: MatrixRow[] = [
   // payroll attendance deduction, so who may write them is a pay question. Marking is the
   // office's job: a teacher must never record staff attendance, least of all their own.
   { label: 'mark staff attendance', method: 'post', path: '/api/v1/staff-attendance/bulk', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'], scopeGated: true },
+  // School settings govern money (fee due day, proration, sibling discount) and pay
+  // (attendance windows, self check-in), so a campus admin reads the rules they work under
+  // but only the owner moves them.
+  { label: 'read school settings', method: 'get', path: '/api/v1/school-settings', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
+  { label: 'change school settings', method: 'patch', path: '/api/v1/school-settings', body: {}, allow: ['OWNER_ADMIN'] },
   // Oversight is admin + HR (HR_MANAGER isn't a seeded matrix role, so these rows assert the
   // deny side: a teacher must not be able to read the whole school's staff register, and an
   // accountant has no business in it either.

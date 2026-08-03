@@ -1,15 +1,20 @@
+import { Type } from 'class-transformer';
 import {
   IsArray,
   IsBoolean,
   IsDateString,
+  IsIn,
   IsInt,
+  IsNumber,
   IsOptional,
   IsString,
   IsUUID,
+  Matches,
   Max,
   MaxLength,
   Min,
   MinLength,
+  ValidateNested,
 } from 'class-validator';
 
 // ── Academic years ───────────────────────────────────────────────────────────
@@ -126,4 +131,55 @@ export class ClassListQuery {
 export class SectionListQuery {
   @IsOptional() @IsUUID()
   classId?: string;
+}
+
+// ── School settings ──────────────────────────────────────────────────────────
+class StaffAttendanceSettingsDto {
+  @IsOptional() @IsBoolean() selfMarking?: boolean;
+  @IsOptional() @IsBoolean() autoMarkAbsent?: boolean;
+  @IsOptional() @IsString() @Matches(/^([01]\d|2[0-3]):[0-5]\d$/, { message: 'dayStartTime must be HH:MM' })
+  dayStartTime?: string;
+  @IsOptional() @IsInt() @Min(0) @Max(120) graceMinutes?: number;
+}
+
+class StaffLeaveQuotasDto {
+  @IsOptional() @IsInt() @Min(0) CASUAL?: number;
+  @IsOptional() @IsInt() @Min(0) SICK?: number;
+  @IsOptional() @IsInt() @Min(0) UNPAID?: number;
+  @IsOptional() @IsInt() @Min(0) OTHER?: number;
+}
+
+/**
+ * A PARTIAL change to the school's settings — send only what moves.
+ *
+ * This mirrors the Zod schema in `libs/common` rather than replacing it: class-validator gives
+ * the request a 400 with a field name, and the service then validates the MERGED object with
+ * Zod, which is the single source of truth for what a valid settings blob is. Two layers on
+ * purpose — the DTO rejects nonsense shapes early, Zod rejects invalid combinations.
+ */
+export class UpdateSchoolSettingsDto {
+  @IsOptional() @IsArray() @IsIn(['MORNING', 'EVENING'], { each: true })
+  attendanceSessions?: string[];
+
+  @IsOptional() @IsArray()
+  @IsIn(['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY'], { each: true })
+  weeklyOffDays?: string[];
+
+  @IsOptional() @IsInt() @Min(0) @Max(90) attendanceEditWindowDays?: number;
+  @IsOptional() @IsInt() @Min(0) @Max(90) attendanceBackfillDays?: number;
+  @IsOptional() @IsBoolean() allowHolidayOverride?: boolean;
+
+  @IsOptional() @IsInt() @Min(1) @Max(28) feeDueDay?: number;
+  @IsOptional() @IsIn(['FULL', 'HALF', 'DAILY']) midMonthProration?: string;
+  @IsOptional() @IsNumber() @Min(0) @Max(100) siblingDiscountPercent?: number;
+  @IsOptional() @IsIn(['HARD', 'ADVISORY']) sectionCapacityMode?: string;
+  @IsOptional() @IsIn(['DIRECT', 'PIPELINE']) admissionsMode?: string;
+  @IsOptional() @IsBoolean() promotionRequiresFeeClearance?: boolean;
+  @IsOptional() @IsInt() @Min(0) smsOverdraftSegments?: number;
+
+  @IsOptional() @ValidateNested() @Type(() => StaffLeaveQuotasDto)
+  staffLeaveQuotas?: StaffLeaveQuotasDto;
+
+  @IsOptional() @ValidateNested() @Type(() => StaffAttendanceSettingsDto)
+  staffAttendance?: StaffAttendanceSettingsDto;
 }

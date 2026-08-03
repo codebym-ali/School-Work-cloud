@@ -315,6 +315,26 @@ export interface StaffAttendanceSummary {
   unmarked: number;
   percent: number | null;
 }
+export type WeekDay = 'MONDAY' | 'TUESDAY' | 'WEDNESDAY' | 'THURSDAY' | 'FRIDAY' | 'SATURDAY' | 'SUNDAY';
+/** Mirrors the Zod schema in `libs/common/config/school-settings.schema.ts`. Keep in step. */
+export interface SchoolSettings {
+  attendanceSessions: ('MORNING' | 'EVENING')[];
+  weeklyOffDays: WeekDay[];
+  attendanceEditWindowDays: number;
+  attendanceBackfillDays: number;
+  allowHolidayOverride: boolean;
+  feeDueDay: number;
+  midMonthProration: 'FULL' | 'HALF' | 'DAILY';
+  siblingDiscountPercent: number;
+  sectionCapacityMode: 'HARD' | 'ADVISORY';
+  admissionsMode: 'DIRECT' | 'PIPELINE';
+  promotionRequiresFeeClearance: boolean;
+  smsOverdraftSegments: number;
+  staffLeaveQuotas: { CASUAL?: number; SICK?: number; UNPAID?: number; OTHER?: number };
+  staffAttendance: { selfMarking: boolean; autoMarkAbsent: boolean; dayStartTime: string; graceMinutes: number };
+}
+type DeepPartial<T> = { [K in keyof T]?: T[K] extends object ? Partial<T[K]> : T[K] };
+
 export interface StaffDaySummary {
   date: string;
   workingDay: boolean;
@@ -416,6 +436,12 @@ export const api = {
     myAttendanceSummary: (qs = '') => apiGet<StaffAttendanceSummary>(`/staff-attendance/mine/summary${qs ? `?${qs}` : ''}`),
     checkInState: () => apiGet<CheckInState>('/staff-attendance/mine/check-in'),
     checkIn: () => apiPost<{ date: string; status: string; checkIn: string }>('/staff-attendance/check-in', {}),
+  },
+  /** The school's own operating rules. Read by admins, changed only by the owner. */
+  schoolSettings: {
+    get: () => apiGet<SchoolSettings>('/school-settings'),
+    /** Partial — send only what changed; the server merges, including one level into groups. */
+    update: (patch: DeepPartial<SchoolSettings>) => apiPatch<SchoolSettings>('/school-settings', patch),
   },
   /** Oversight: owner / campus admin / HR read the register; only admins mark it. */
   staffAttendance: {

@@ -76,6 +76,9 @@ export const NAV: NavItem[] = [
   { href: '/staff', label: 'Staff', icon: '🧑‍💼', group: 'People', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'HR_MANAGER'] },
 
   { href: '/setup', label: 'School configuration', icon: '⚙️', group: 'Administration', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
+  // Campus admins can READ the rules they work under (weekly off, backfill window); only the
+  // owner may change them, which the page states rather than hiding.
+  { href: '/settings', label: 'School settings', icon: '🎚️', group: 'Administration', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
   { href: '/campuses', label: 'Campus Hub', icon: '🏢', group: 'Administration', roles: ['OWNER_ADMIN'] },
 
   { href: '/me', label: 'My Dashboard', icon: '🏠', group: 'My Portal', roles: ['STUDENT'] },

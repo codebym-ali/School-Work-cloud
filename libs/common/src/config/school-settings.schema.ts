@@ -55,6 +55,31 @@ export const schoolSettingsSchema = z
       })
       .partial()
       .default({ CASUAL: 10, SICK: 8 }),
+    /**
+     * Staff attendance (§9/§13). Every switch defaults OFF, so no existing school changes
+     * behaviour on deploy — these govern how staff attendance is *recorded*, and it feeds the
+     * payroll attendance deduction.
+     *
+     * `selfMarking` lets a staff member assert their own PRESENCE for today. It is never
+     * absence, never a past date, and the status is derived from the clock rather than chosen
+     * — otherwise a teacher would be setting their own salary deduction.
+     *
+     * `autoMarkAbsent` (the day-close job) is DEFINED BUT NOT YET IMPLEMENTED — deliberately
+     * deferred, because a job that silently creates salary deductions before a school trusts
+     * the register is how the register stops being trusted. Until it exists, an ABSENT row
+     * only appears where a human put it, and screens lead with "not marked" rather than
+     * presenting an absent count over a half-kept register as fact.
+     */
+    staffAttendance: z
+      .object({
+        selfMarking: z.boolean().default(false),
+        autoMarkAbsent: z.boolean().default(false),
+        /** Local wall-clock start of the working day, HH:MM. */
+        dayStartTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).default('08:00'),
+        /** Minutes after `dayStartTime` still counted as on time. */
+        graceMinutes: z.number().int().min(0).max(120).default(15),
+      })
+      .default({}),
   })
   .strict(); // reject unknown keys (§17.1)
 

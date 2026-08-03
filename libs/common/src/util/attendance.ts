@@ -4,8 +4,10 @@
  * excluded from the denominator so an authorised absence never counts against attendance.
  * Returns null when there is nothing countable.
  *
- * Single source of truth for the student/parent portals — keep the Staff self-view
- * (`apps/web/app/(app)/my-attendance`) in sync with this weighting.
+ * Single source of truth on the server. The browser has one unavoidable twin —
+ * `apps/web/lib/attendance.ts` — because `apps/web` cannot import `@common`. **Change one,
+ * change both**; three copies of this calculation once gave a parent, a teacher and a director
+ * three different figures for the same child.
  */
 export function attendancePercentFromStatuses(statuses: readonly string[]): number | null {
   const countable = statuses.filter((s) => s !== 'ON_LEAVE');

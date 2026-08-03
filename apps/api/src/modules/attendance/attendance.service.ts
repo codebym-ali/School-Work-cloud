@@ -1,5 +1,5 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
-import { AttendanceStatus, type AttendanceSession, type Prisma } from '@prisma/client';
+import { AttendanceSource, AttendanceStatus, type AttendanceSession, type Prisma } from '@prisma/client';
 import {
   AppError,
   assertCampusAccess,
@@ -291,25 +291,130 @@ export class AttendanceService {
     return updated;
   }
 
-  // ── Staff attendance (basic) ─────────────────────────────────────────────────
+  // ── Staff attendance ─────────────────────────────────────────────────────────
+  /**
+   * The office records staff attendance for a day (§9/§13).
+   *
+   * This used to validate **nothing**: any date including the future, any staff member in any
+   * campus, no working-day check, no audit, and it returned the partial-failure shape (§25.3)
+   * while never populating it. That mattered more than it looked, because
+   * `payroll.absentDays()` counts these rows straight into the salary deduction — so a
+   * mis-keyed date or another campus's staff list moved somebody's pay.
+   *
+   * Now mirrors the student register: campus-scoped per row, no future dates, non-working days
+   * refused unless an admin overrides, one bad row never rejects the rest, provenance recorded,
+   * and overriding somebody's own SELF claim is audited.
+   */
   async markStaffBulk(dto: MarkStaffAttendanceDto): Promise<BulkResult> {
     const schoolId = this.ctx.requireSchoolId();
+    const user = this.ctx.user!;
     const date = new Date(dto.date);
+    if (startOfDay(date) > startOfDay(new Date())) {
+      throw new AppError(ErrorCodes.VALIDATION_FAILED, HttpStatus.UNPROCESSABLE_ENTITY, 'Date is in the future');
+    }
+
+    const school = await this.db.school.findFirst({ where: { id: schoolId } });
+    const settings = parseSchoolSettings(school?.settings ?? {});
+    if (!settings.attendanceSessions.includes(dto.session)) {
+      throw new AppError(ErrorCodes.VALIDATION_FAILED, HttpStatus.UNPROCESSABLE_ENTITY, 'Session not configured for this school');
+    }
+
+    // Freeze the month once payroll has been approved for it (§5.6 of the plan): the payslip
+    // was computed FROM these rows, so letting them move afterwards leaves a paid payslip
+    // disagreeing with its own register and neither number trustworthy. Reversing the run is
+    // the explicit path.
+    await this.assertPayrollOpen(date);
+
+    const restricted = restrictedCampusId(user);
     const errors: BulkResult['errors'] = [];
     let succeeded = 0;
+
     for (let i = 0; i < dto.records.length; i++) {
       const rec = dto.records[i];
-      const existing = await this.db.staffAttendance.findFirst({ where: { staffId: rec.staffId, date, session: dto.session } });
-      if (existing) {
-        await this.db.staffAttendance.update({ where: { id: existing.id }, data: { status: rec.status } });
-      } else {
+      const staff = await this.db.staffProfile.findFirst({
+        where: { id: rec.staffId },
+        select: { id: true, joinedAt: true, leftAt: true, user: { select: { campusId: true } } },
+      });
+      if (!staff) {
+        errors.push({ index: i, code: ErrorCodes.NOT_FOUND, message: 'Staff member not found' });
+        continue;
+      }
+      // §22.8 / P1.7 — a campus-bound admin marking another campus's staff was previously
+      // accepted outright. Per row, because the list is a mixed set of ids from the client.
+      if (restricted && staff.user.campusId !== restricted) {
+        errors.push({ index: i, code: ErrorCodes.FORBIDDEN, message: 'This staff member is in another campus' });
+        continue;
+      }
+      // Was this person employed on THAT date — not merely employed now. Same rule the student
+      // register applies to enrolments: a backdated write must ask "was this true then?".
+      if (startOfDay(staff.joinedAt) > startOfDay(date) || (staff.leftAt && startOfDay(staff.leftAt) < startOfDay(date))) {
+        errors.push({ index: i, code: ErrorCodes.VALIDATION_FAILED, message: `Not employed on ${dto.date}` });
+        continue;
+      }
+
+      // Working-day check is per campus (holidays can be campus-specific), so it sits inside
+      // the loop rather than above it.
+      const campusId = staff.user.campusId;
+      const off = campusId ? await this.isNonWorkingDay(date, campusId, settings.weeklyOffDays) : false;
+      if (off && !dto.allowHolidayOverride) {
+        errors.push({ index: i, code: ErrorCodes.VALIDATION_FAILED, message: 'Holiday or weekly-off day; override required' });
+        continue;
+      }
+
+      const existing = await this.db.staffAttendance.findFirst({
+        where: { staffId: rec.staffId, date, session: dto.session },
+      });
+      if (!existing) {
         await this.db.staffAttendance.create({
-          data: { schoolId, staffId: rec.staffId, date, session: dto.session, status: rec.status },
+          data: {
+            schoolId, staffId: rec.staffId, date, session: dto.session, status: rec.status,
+            source: AttendanceSource.ADMIN, markedById: user.userId, note: dto.note,
+          },
+        });
+        succeeded++;
+        continue;
+      }
+      if (existing.status === rec.status) {
+        succeeded++; // idempotent resubmit
+        continue;
+      }
+      await this.db.staffAttendance.update({
+        where: { id: existing.id },
+        data: { status: rec.status, source: AttendanceSource.ADMIN, markedById: user.userId, note: dto.note },
+      });
+      // Overriding what somebody said about themselves is a different act from filling in a
+      // blank, and it changes their pay. Audited with the previous value, because after the
+      // update the row no longer remembers what it claimed.
+      if (existing.source !== AttendanceSource.ADMIN) {
+        await this.audit.record({
+          action: AuditActions.STAFF_ATTENDANCE_OVERRIDDEN,
+          entityType: 'StaffAttendance',
+          entityId: existing.id,
+          oldValue: { status: existing.status, source: existing.source, checkIn: existing.checkIn },
+          newValue: { status: rec.status, source: AttendanceSource.ADMIN },
+          reason: dto.note,
         });
       }
       succeeded++;
     }
     return { succeeded, failed: errors.length, errors, absenceQueued: 0 };
+  }
+
+  /** Refuse a staff-attendance write into a month whose payroll run is already APPROVED. */
+  private async assertPayrollOpen(date: Date): Promise<void> {
+    const month = date.getUTCMonth() + 1;
+    const year = date.getUTCFullYear();
+    const approved = await this.db.payrollRun.findFirst({
+      where: { month, year, status: 'APPROVED' },
+      select: { id: true, month: true, year: true },
+    });
+    if (approved) {
+      throw new AppError(
+        ErrorCodes.CONFLICT,
+        HttpStatus.CONFLICT,
+        `Payroll for ${approved.month}/${approved.year} is already approved — reverse the payroll run before changing attendance for that month.`,
+      );
+    }
   }
 
   /**

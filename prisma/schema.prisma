@@ -499,6 +499,7 @@ model User {
   collectedPayments          FeePayment[]
   approvedDiscounts          Discount[]
   markedAttendance           AttendanceRecord[]
+  markedStaffAttendance      StaffAttendance[]    @relation("StaffAttendanceMarkedBy")
   moduleAccess               ModuleAccess[]
 
   // Actor back-relations. Every *_by_id column references a real user so the audit trail
@@ -1040,22 +1041,44 @@ model AttendanceRecord {
 }
 
 model StaffAttendance {
-  id        String            @id @default(uuid()) @db.Uuid
-  schoolId  String            @map("school_id") @db.Uuid
-  staffId   String            @map("staff_id") @db.Uuid
-  staff     StaffProfile      @relation(fields: [staffId, schoolId], references: [id, schoolId])
-  date      DateTime          @db.Date
-  session   AttendanceSession @default(MORNING)
-  status    AttendanceStatus
-  checkIn   DateTime?         @map("check_in")
-  checkOut  DateTime?         @map("check_out")
-  createdAt DateTime          @default(now()) @map("created_at")
-  updatedAt DateTime          @updatedAt @map("updated_at")
+  id       String            @id @default(uuid()) @db.Uuid
+  schoolId String            @map("school_id") @db.Uuid
+  staffId  String            @map("staff_id") @db.Uuid
+  staff    StaffProfile      @relation(fields: [staffId, schoolId], references: [id, schoolId])
+  date     DateTime          @db.Date
+  session  AttendanceSession @default(MORNING)
+  status   AttendanceStatus
+  checkIn  DateTime?         @map("check_in")
+  checkOut DateTime?         @map("check_out")
+
+  /// Who says so. A staff member may assert their own PRESENCE (SELF), which feeds payroll —
+  /// so the record must carry where it came from, or oversight is theatre. ADMIN is the
+  /// office; SYSTEM is the (not-yet-built) day-close job. Default ADMIN, which is exactly
+  /// what every pre-existing row was.
+  source     AttendanceSource @default(ADMIN)
+  markedById String?          @map("marked_by_id") @db.Uuid
+  markedBy   User?            @relation("StaffAttendanceMarkedBy", fields: [markedById, schoolId], references: [id, schoolId])
+  /// Why an admin overrode a SELF or SYSTEM record.
+  note       String?          @db.VarChar(200)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   @@unique([staffId, date, session])
   @@index([schoolId, date])
   @@index([staffId, schoolId])
+  /// The history drill-down is staffId + a date range, ordered by date; [staffId, schoolId]
+  /// cannot serve the ordering.
+  @@index([staffId, date])
+  @@index([markedById, schoolId])
   @@map("staff_attendance")
+}
+
+/// Provenance of an attendance record. SELF is only ever a presence claim for today.
+enum AttendanceSource {
+  SELF
+  ADMIN
+  SYSTEM
 }
 
 model StudentLeave {

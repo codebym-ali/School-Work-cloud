@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { api, type StaffAttendanceRow } from '@/lib/api';
 import { attendanceBadge, humanizeStatus } from '@/lib/format';
+import { attendancePercent } from '@/lib/attendance';
 
 const time = (t: string | null) => (t ? new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—');
 
@@ -15,11 +16,7 @@ export default function MyAttendance() {
   if (err) return <p className="error">Couldn&apos;t load your attendance.</p>;
   if (!rows) return <p className="muted">Loading…</p>;
 
-  // Attendance ratio: PRESENT/LATE = full day, HALF_DAY = half; leave days aren't counted
-  // against you, so they're excluded from the denominator entirely.
-  const countable = rows.filter((r) => r.status !== 'ON_LEAVE');
-  const credit = countable.reduce((s, r) => s + (r.status === 'PRESENT' || r.status === 'LATE' ? 1 : r.status === 'HALF_DAY' ? 0.5 : 0), 0);
-  const pct = countable.length ? Math.round((credit / countable.length) * 100) : null;
+  const pct = attendancePercent(rows.map((r) => r.status));
 
   return (
     <div className="stack">

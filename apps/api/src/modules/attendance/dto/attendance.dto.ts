@@ -101,4 +101,12 @@ export class MarkStaffAttendanceDto {
   @ValidateNested({ each: true })
   @Type(() => StaffAttendanceRecordInput)
   records!: StaffAttendanceRecordInput[];
+
+  /** Mark on a holiday/weekly-off day. Admin-only endpoint, so no extra role check is needed. */
+  @IsOptional() @IsBoolean()
+  allowHolidayOverride?: boolean;
+
+  /** Why — carried onto the row and into the audit entry when overriding a self-marked day. */
+  @IsOptional() @IsString() @MaxLength(200)
+  note?: string;
 }

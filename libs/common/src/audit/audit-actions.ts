@@ -45,6 +45,9 @@ export const AuditActions = {
   GRADE_CHANGED_POST_PUBLISH: 'GRADE_CHANGED_POST_PUBLISH',
   TERM_DELETED: 'TERM_DELETED',
   ATTENDANCE_EDITED_POST_WINDOW: 'ATTENDANCE_EDITED_POST_WINDOW',
+  /** An admin replaced what a staff member recorded about themselves. It changes their pay,
+   *  so the previous claim is preserved in `oldValue` — the row itself forgets. */
+  STAFF_ATTENDANCE_OVERRIDDEN: 'STAFF_ATTENDANCE_OVERRIDDEN',
   DISCOUNT_APPROVED: 'DISCOUNT_APPROVED',
   DISCOUNT_REVOKED: 'DISCOUNT_REVOKED',
   PROMOTION_OVERRIDE: 'PROMOTION_OVERRIDE',

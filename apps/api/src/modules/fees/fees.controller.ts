@@ -38,6 +38,14 @@ export class FeeHeadsController {
   constructor(private readonly setup: FeeSetupService) {}
   @Roles('OWNER_ADMIN') @Post() create(@Body() dto: CreateFeeHeadDto) { return this.setup.createHead(dto); }
   @Get() list() { return this.setup.listHeads(); }
+  // Renaming and removing were missing entirely, so the list only ever grew — a school could
+  // not clear a typo, let alone anything a test run left behind.
+  @Roles('OWNER_ADMIN') @Patch(':id') update(@Param('id') id: string, @Body() dto: CreateFeeHeadDto) {
+    return this.setup.updateHead(id, dto);
+  }
+  @Roles('OWNER_ADMIN') @Delete(':id') @HttpCode(HttpStatus.NO_CONTENT) remove(@Param('id') id: string) {
+    return this.setup.deleteHead(id);
+  }
 }
 
 @Controller('fee-structures')

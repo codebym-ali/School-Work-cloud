@@ -52,6 +52,9 @@ export const AuditActions = {
   /** An admin replaced what a staff member recorded about themselves. It changes their pay,
    *  so the previous claim is preserved in `oldValue` — the row itself forgets. */
   STAFF_ATTENDANCE_OVERRIDDEN: 'STAFF_ATTENDANCE_OVERRIDDEN',
+  /** A chargeable item was removed from the school's list. Only ever possible while nothing
+   *  references it, so the name is all that needs preserving. */
+  FEE_HEAD_DELETED: 'FEE_HEAD_DELETED',
   /** A class's price changed or was switched off. These decide what every family in that
    *  class is billed, so the previous amount is preserved in `oldValue`. */
   FEE_STRUCTURE_UPDATED: 'FEE_STRUCTURE_UPDATED',

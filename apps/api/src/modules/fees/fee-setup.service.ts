@@ -28,11 +28,74 @@ export class FeeSetupService {
   }
 
   // ── Fee heads ────────────────────────────────────────────────────────────────
-  createHead(dto: CreateFeeHeadDto) {
-    return this.db.feeHead.create({ data: { schoolId: this.sid, name: dto.name } });
+  async createHead(dto: CreateFeeHeadDto) {
+    try {
+      return await this.db.feeHead.create({ data: { schoolId: this.sid, name: dto.name } });
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        throw new AppError(ErrorCodes.CONFLICT, HttpStatus.CONFLICT, `You already have a fee called “${dto.name}”.`);
+      }
+      throw e;
+    }
   }
+
   listHeads() {
     return this.db.feeHead.findMany({ orderBy: { name: 'asc' } });
+  }
+
+  /** Rename a fee. The name appears on every invoice line, so a typo is worth correcting. */
+  async updateHead(id: string, dto: CreateFeeHeadDto) {
+    await this.headOr404(id);
+    try {
+      return await this.db.feeHead.update({ where: { id }, data: { name: dto.name } });
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        throw new AppError(ErrorCodes.CONFLICT, HttpStatus.CONFLICT, `You already have a fee called “${dto.name}”.`);
+      }
+      throw e;
+    }
+  }
+
+  /**
+   * Remove a fee from the school's list.
+   *
+   * Fee heads were create-and-read only, so the dropdown accumulated everything ever typed —
+   * including test debris — with no way for a school to tidy it. Deleting is refused while
+   * anything references the head, and the message names what: a head that priced a class or
+   * appeared on an invoice must keep existing, or those records stop being explicable.
+   */
+  async deleteHead(id: string) {
+    const head = await this.headOr404(id);
+    const [structures, discounts, invoiceItems] = await Promise.all([
+      this.db.feeStructure.count({ where: { feeHeadId: id } }),
+      this.db.discount.count({ where: { feeHeadId: id } }),
+      this.db.feeInvoiceItem.count({ where: { feeHeadId: id } }),
+    ]);
+    const blockers = [
+      structures && `${structures} class price${structures === 1 ? '' : 's'}`,
+      invoiceItems && `${invoiceItems} invoice line${invoiceItems === 1 ? '' : 's'}`,
+      discounts && `${discounts} discount${discounts === 1 ? '' : 's'}`,
+    ].filter(Boolean);
+    if (blockers.length) {
+      throw new AppError(
+        ErrorCodes.CONFLICT,
+        HttpStatus.CONFLICT,
+        `“${head.name}” is still used by ${blockers.join(' and ')} — it cannot be deleted.`,
+      );
+    }
+    await this.db.feeHead.delete({ where: { id } });
+    await this.audit.record({
+      action: AuditActions.FEE_HEAD_DELETED,
+      entityType: 'FeeHead',
+      entityId: id,
+      oldValue: { name: head.name },
+    });
+  }
+
+  private async headOr404(id: string) {
+    const head = await this.db.feeHead.findFirst({ where: { id } });
+    if (!head) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'Fee not found');
+    return head;
   }
 
   // ── Fee structures ───────────────────────────────────────────────────────────

@@ -380,6 +380,33 @@ describe('Fees end-to-end (e2e, §12)', () => {
       expect(res.body.error.message).toMatch(/never appear on a bill/i);
     });
 
+    it('renames a fee, and refuses to delete one that is still in use', async () => {
+      // Fee heads were create-and-read only, so the school's list only ever grew — every typo
+      // and every name a test run left behind stayed in the dropdown for ever.
+      const head = await post('/api/v1/fee-heads', { name: `Lab-${Date.now()}` });
+      const renamed = await request(server()).patch(`/api/v1/fee-heads/${head.body.id}`)
+        .set('Host', host).set('Cookie', cookies).set('X-CSRF-Token', csrf).send({ name: 'Laboratory' });
+      expect(renamed.status).toBe(200);
+      expect(renamed.body.name).toBe('Laboratory');
+
+      // Unused ⇒ removable.
+      const gone = await request(server()).delete(`/api/v1/fee-heads/${head.body.id}`)
+        .set('Host', host).set('Cookie', cookies).set('X-CSRF-Token', csrf);
+      expect(gone.status).toBe(204);
+
+      // In use ⇒ refused, naming what uses it, so the invoices it produced stay explicable.
+      const blocked = await request(server()).delete(`/api/v1/fee-heads/${tuitionId}`)
+        .set('Host', host).set('Cookie', cookies).set('X-CSRF-Token', csrf);
+      expect(blocked.status).toBe(409);
+      expect(blocked.body.error.message).toMatch(/still used by .*class price/i);
+    });
+
+    it('refuses a duplicate fee name with a clear 409', async () => {
+      const dupe = await post('/api/v1/fee-heads', { name: 'Rev Tuition' });
+      expect(dupe.status).toBe(409);
+      expect(dupe.body.error.message).toMatch(/already have a fee called/i);
+    });
+
     it('copies a plan to another class, with an across-the-board rise', async () => {
       const target = await post('/api/v1/classes', { campusId, name: 'Copy-Grade', order: 8 });
       const res = await post('/api/v1/fee-structures/copy', {

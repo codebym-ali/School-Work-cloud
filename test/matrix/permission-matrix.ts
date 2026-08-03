@@ -80,6 +80,8 @@ export const PERMISSION_MATRIX: MatrixRow[] = [
   { label: 'generate invoice batch', method: 'post', path: '/api/v1/fees/invoice-batches', body: {}, allow: ['OWNER_ADMIN', 'ACCOUNTANT'] },
   // What a class is charged is the owner's decision alone — an accountant collects money, they
   // do not set the price. These had no matrix rows at all before the plan rework.
+  { label: 'rename a fee', method: 'patch', path: '/api/v1/fee-heads/00000000-0000-0000-0000-000000000000', body: {}, allow: ['OWNER_ADMIN'] },
+  { label: 'delete a fee', method: 'delete', path: '/api/v1/fee-heads/00000000-0000-0000-0000-000000000000', allow: ['OWNER_ADMIN'] },
   { label: 'change a fee price', method: 'patch', path: '/api/v1/fee-structures/00000000-0000-0000-0000-000000000000', body: {}, allow: ['OWNER_ADMIN'] },
   { label: 'delete a fee price', method: 'delete', path: '/api/v1/fee-structures/00000000-0000-0000-0000-000000000000', allow: ['OWNER_ADMIN'] },
   { label: 'copy a fee plan', method: 'post', path: '/api/v1/fee-structures/copy', body: {}, allow: ['OWNER_ADMIN'] },

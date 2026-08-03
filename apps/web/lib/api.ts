@@ -552,6 +552,10 @@ export const api = {
   feeSetup: {
     heads: () => apiGet<FeeHead[]>('/fee-heads'),
     createHead: (name: string) => apiPost<FeeHead>('/fee-heads', { name }),
+    /** The name appears on every invoice line, so a typo is worth correcting. */
+    renameHead: (id: string, name: string) => apiPatch<FeeHead>(`/fee-heads/${id}`, { name }),
+    /** Refused while any class price, invoice line or discount still references it. */
+    deleteHead: (id: string) => apiDelete<null>(`/fee-heads/${id}`),
     structures: (classId?: string) => apiGet<FeeStructure[]>(`/fee-structures${classId ? `?classId=${classId}` : ''}`),
     createStructure: (body: { classId: string; feeHeadId: string; academicYearId: string; amount: number; frequency: string; effectiveFrom?: string }) =>
       apiPost<FeeStructure>('/fee-structures', body),

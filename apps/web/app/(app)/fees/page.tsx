@@ -8,6 +8,7 @@ import {
 import { hasModule, useMe } from '@/lib/me-context';
 import { classLabeller } from '@/lib/labels';
 import { FeePlanPanel } from './fee-plan-panel';
+import { ConfirmDialog } from '../classes/confirm-dialog';
 
 const now = new Date();
 
@@ -185,7 +186,11 @@ function FeeSetupPanel({ heads, structures, classes, years, classLabel, onMsg, r
         <p className="muted" style={{ margin: 0, fontSize: 13 }}>The chargeable items (Tuition, Transport, Lab …). A fee structure prices one head for one class.</p>
         <div className="row" style={{ justifyContent: 'flex-start', gap: 8, flexWrap: 'wrap' }}>
           {heads.length === 0 && <span className="muted" style={{ fontSize: 13 }}>None yet — add the first one below.</span>}
-          {heads.map((h) => <span key={h.id} className="badge">{h.name}</span>)}
+          {heads.map((h) => (
+            <FeeHeadChip key={h.id} head={h} busy={busy}
+              onRename={(name) => run(() => api.feeSetup.renameHead(h.id, name), 'Fee renamed')}
+              onDelete={() => run(() => api.feeSetup.deleteHead(h.id), `Removed “${h.name}”`)} />
+          ))}
         </div>
         <div className="inline-form">
           <div><label>New fee head</label><input value={headName} onChange={(e) => setHeadName(e.target.value)} placeholder="Tuition" /></div>
@@ -255,5 +260,63 @@ function LateFeeCard({ onMsg }: { onMsg: (ok: boolean, text: string) => void }) 
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * One chargeable item, renameable and removable.
+ *
+ * Fee heads were create-and-read only, so the list only ever grew — every typo and every name a
+ * test run left behind stayed in the dropdown for ever, with no way for a school to tidy it.
+ * Deleting is refused server-side while any class price, invoice line or discount references
+ * the head, and the message names which — so the button stays available and the explanation
+ * arrives when it is actually true.
+ */
+function FeeHeadChip({ head, busy, onRename, onDelete }: {
+  head: FeeHead; busy: boolean;
+  onRename: (name: string) => void;
+  onDelete: () => void;
+}) {
+  const [editing, setEditing] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState(false);
+
+  if (editing !== null) {
+    return (
+      <span className="inline-form" style={{ gap: 4 }}>
+        <input autoFocus value={editing} style={{ width: 150 }}
+          onChange={(e) => setEditing(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && editing.trim()) { onRename(editing.trim()); setEditing(null); }
+            if (e.key === 'Escape') setEditing(null);
+          }} />
+        <button className="small" disabled={!editing.trim() || busy}
+          onClick={() => { onRename(editing.trim()); setEditing(null); }}>Save</button>
+        <button className="ghost small" onClick={() => setEditing(null)}>Cancel</button>
+      </span>
+    );
+  }
+
+  return (
+    <>
+      <span className="badge" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+        {head.name}
+        <button type="button" className="ghost small" style={{ padding: '2px 6px', minHeight: 24 }}
+          aria-label={`Rename ${head.name}`} onClick={() => setEditing(head.name)}>Rename</button>
+        {/* Worded, spaced, and CONFIRMED. The first version was a bare ✕ flush against Rename
+            with no confirmation, and it cost a real fee head within minutes of shipping — the
+            same rule the Classes screen already learned: a destructive control must never sit
+            one stray pixel from a harmless one, and must state its blast radius first. */}
+        <button type="button" className="ghost small" style={{ padding: '2px 8px', minHeight: 24, marginLeft: 2, color: '#b91c1c' }}
+          aria-label={`Delete ${head.name}`} disabled={busy} onClick={() => setConfirming(true)}>Delete</button>
+      </span>
+      {confirming && (
+        <ConfirmDialog
+          title={`Delete “${head.name}”?`}
+          body={'It disappears from every class’s fee list. Removal is refused while any class price, invoice line or discount still uses it.'}
+          confirmLabel="Delete fee"
+          onConfirm={() => { onDelete(); }}
+          onClose={() => setConfirming(false)} />
+      )}
+    </>
   );
 }

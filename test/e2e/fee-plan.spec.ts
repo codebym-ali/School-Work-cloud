@@ -65,6 +65,11 @@ test.describe('fee plan', () => {
       }
       for (const s of await apiSetupGet<{ id: string }[]>(page, `/subjects?classId=${classId}`)) await del(`/subjects/${s.id}`);
       await del(`/classes/${classId}`);
+      // ⚠️ The fee heads too. An earlier version of this spec left one behind per run, and the
+      // operator found their fee dropdown full of `Tuition-<timestamp>` — a test that tidies
+      // everything except the thing on screen has not tidied up.
+      await del(`/fee-heads/${tuition.id}`);
+      await del(`/fee-heads/${transport.id}`);
     }
   });
 });

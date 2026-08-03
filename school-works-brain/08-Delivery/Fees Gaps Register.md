@@ -1,7 +1,7 @@
 ---
 title: Fees — known gaps & flaws
 type: register
-status: F1–F7 CLOSED 2026-08-03 · F8 open
+status: F1–F7, F9 CLOSED 2026-08-03 · F8 open
 created: 2026-08-03
 scope: fee heads, fee structures, invoice generation
 ---
@@ -159,3 +159,39 @@ student PII, and writes are correctly owner-only, but it is not information thos
 Noticed while gating the class workbench's fee line to the owner in the UI, which is a display
 fix over an open endpoint rather than a real boundary. **Fix:** `@Roles('OWNER_ADMIN',
 'CAMPUS_ADMIN', 'ACCOUNTANT')` on both reads, and a matrix row asserting the deny side.
+
+
+---
+
+## F9 — Fee heads were create-and-read only ✅ **FIXED 2026-08-03**
+
+Reported by the operator, who opened the fee dropdown and found **24 entries, 23 of them test
+debris**: `LoadTuition<ts>` from the fee-season load driver, `Tuition <ts>` from older runs, and
+`Tuition-<ts>` / `Transport-<ts>` from **this session's own Playwright spec**, which tidied the
+class, sections, subjects and prices it created — but not the heads, which are the part actually
+on screen. *A test that cleans everything except the thing the operator looks at has not cleaned
+up.*
+
+The debris was only half the story. `/fee-heads` was **POST + GET only** — the same
+create-and-read-only pattern as F1 and the subject rename before it — so the list could only ever
+grow and the school had no way to tidy it themselves.
+
+**Fixed:** `PATCH` (rename — the name appears on every invoice line) and `DELETE`, refused while
+any class price, invoice line or discount references the head, with the message naming which.
+Duplicate names now 409 instead of surfacing a raw P2002. The Playwright spec deletes its own
+heads. Demo's 23 junk heads were removed after confirming zero references from structures,
+discounts and invoice items.
+
+### ⚠️ And the fix immediately caused a data loss, which is the lesson worth keeping
+
+The first version of the chip shipped a bare **`✕` flush against Rename, with no confirmation**.
+Within minutes the operator's one real fee head — `Tuition (Term)` — was gone. **The audit row
+is what made it recoverable**: `FEE_HEAD_DELETED` preserved the name (`audit_logs` has no FK to
+the entity precisely so the row outlives it), so it could be identified and restored rather than
+guessed at.
+
+The Classes screen had already learned this exact rule on 2026-07-30 — *"a destructive control
+must never sit one stray pixel from a harmless one"*, worded buttons, confirm first — and I did
+not apply it here. The delete is now a worded button, spaced, behind `ConfirmDialog` stating the
+blast radius. **A rule recorded in [[Key Decisions]] is worth nothing if it is not applied to the
+next screen.**

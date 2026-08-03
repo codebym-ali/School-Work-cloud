@@ -8,6 +8,8 @@ import {
   MarkStaffAttendanceDto,
   MyStaffAttendanceQuery,
   PatchAttendanceDto,
+  StaffHistoryQuery,
+  StaffRegisterQuery,
 } from './dto/attendance.dto';
 
 @Controller('attendance')
@@ -78,5 +80,26 @@ export class StaffAttendanceController {
   @HttpCode(HttpStatus.CREATED)
   checkIn() {
     return this.attendance.checkIn();
+  }
+
+  // ── Oversight. HR_MANAGER reads but never marks: they own the workforce record, and
+  // attendance feeds pay — the same boundary that keeps salary structures owner-only.
+  @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN', 'HR_MANAGER')
+  @Get('summary')
+  summary(@Query() q: StaffRegisterQuery) {
+    return this.attendance.staffDaySummary(q.date, q.campusId);
+  }
+
+  /** The day's register — every staff member, including those nobody has marked. */
+  @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN', 'HR_MANAGER')
+  @Get()
+  register(@Query() q: StaffRegisterQuery) {
+    return this.attendance.staffRegister(q.date, q.status, q.campusId);
+  }
+
+  @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN', 'HR_MANAGER')
+  @Get('staff/:staffId')
+  history(@Param('staffId') staffId: string, @Query() q: StaffHistoryQuery) {
+    return this.attendance.staffHistory(staffId, q.from, q.to);
   }
 }

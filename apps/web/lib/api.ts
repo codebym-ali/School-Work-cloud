@@ -315,6 +315,28 @@ export interface StaffAttendanceSummary {
   unmarked: number;
   percent: number | null;
 }
+export interface StaffDaySummary {
+  date: string;
+  workingDay: boolean;
+  holidayName: string | null;
+  totalStaff: number;
+  present: number; late: number; halfDay: number; onLeave: number; absent: number;
+  /** Nobody recorded anything. Never folded into `absent` — see the register. */
+  unmarked: number;
+  selfMarked: number;
+}
+/** `status: null` means nobody has said — which is why the register starts from the staff list. */
+export interface StaffRegisterRow {
+  staffId: string; name: string; employeeCode: string; staffType: string; campus: string | null;
+  status: string | null; checkIn: string | null; source: string | null; note: string | null;
+}
+export interface StaffHistory {
+  staff: { id: string; name: string; employeeCode: string; staffType: string; campus: string | null; joinedAt: string };
+  from: string; to: string;
+  present: number; late: number; onLeave: number; absent: number;
+  percent: number | null;
+  rows: { id: string; date: string; status: string; checkIn: string | null; source: string; note: string | null }[];
+}
 export interface CheckInState {
   enabled: boolean;
   nonWorkingDay: boolean;
@@ -394,6 +416,21 @@ export const api = {
     myAttendanceSummary: (qs = '') => apiGet<StaffAttendanceSummary>(`/staff-attendance/mine/summary${qs ? `?${qs}` : ''}`),
     checkInState: () => apiGet<CheckInState>('/staff-attendance/mine/check-in'),
     checkIn: () => apiPost<{ date: string; status: string; checkIn: string }>('/staff-attendance/check-in', {}),
+  },
+  /** Oversight: owner / campus admin / HR read the register; only admins mark it. */
+  staffAttendance: {
+    daySummary: (date?: string, campusId?: string) => {
+      const qs = new URLSearchParams({ ...(date ? { date } : {}), ...(campusId ? { campusId } : {}) }).toString();
+      return apiGet<StaffDaySummary>(`/staff-attendance/summary${qs ? `?${qs}` : ''}`);
+    },
+    register: (q: { date?: string; status?: string; campusId?: string } = {}) => {
+      const qs = new URLSearchParams(Object.entries(q).filter(([, v]) => v) as [string, string][]).toString();
+      return apiGet<StaffRegisterRow[]>(`/staff-attendance${qs ? `?${qs}` : ''}`);
+    },
+    history: (staffId: string, qs = '') =>
+      apiGet<StaffHistory>(`/staff-attendance/staff/${staffId}${qs ? `?${qs}` : ''}`),
+    mark: (body: { date: string; session: string; records: { staffId: string; status: string }[]; note?: string; allowHolidayOverride?: boolean }) =>
+      apiPost<{ succeeded: number; failed: number; errors: { index: number; message: string }[] }>('/staff-attendance/bulk', body),
   },
   /** Admin approval queue — both kinds of leave, the same two verbs. */
   leaveQueue: {

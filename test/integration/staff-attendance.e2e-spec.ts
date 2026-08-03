@@ -377,6 +377,84 @@ describe('Staff attendance marking (e2e)', () => {
     });
   });
 
+  // ── Oversight (S3) ─────────────────────────────────────────────────────────
+  describe('owner oversight', () => {
+    it('counts unmarked staff separately from absent ones', async () => {
+      const day = workingDay();
+      await mark(staffA, 'ABSENT', day);
+
+      const res = await authed('get', `/api/v1/staff-attendance/summary?date=${day}`, ownerCookies);
+      expect(res.status).toBe(200);
+      // Asserted as a RELATIONSHIP, not a headcount — other blocks in this spec add staff, and
+      // a hard number would make this test about fixture order rather than about the rule.
+      //
+      // The rule: exactly one person is recorded absent, and everyone else is UNMARKED, not
+      // absent. Reporting "1 absent" while silently treating the rest as fine would present a
+      // half-kept register as fact — which is why the day-close job was deferred, not assumed.
+      const { totalStaff, absent, unmarked, workingDay: isWorking } = res.body;
+      expect(isWorking).toBe(true);
+      expect(absent).toBe(1);
+      expect(unmarked).toBe(totalStaff - 1);
+      expect(totalStaff).toBeGreaterThan(1);
+    });
+
+    it('the register lists people nobody marked, and UNMARKED is filterable', async () => {
+      const day = workingDay();
+      await mark(staffA, 'PRESENT', day);
+
+      const all = await authed('get', `/api/v1/staff-attendance?date=${day}`, ownerCookies);
+      // A query over staff_attendance alone could never return these rows — the register has
+      // to start from the staff LIST, or the people worth chasing are exactly the ones it omits.
+      const marked = all.body.filter((r: { status: string | null }) => r.status !== null);
+      const blank = all.body.filter((r: { status: string | null }) => r.status === null);
+      expect(marked).toHaveLength(1);
+      expect(blank.length).toBe(all.body.length - 1);
+
+      const gaps = await authed('get', `/api/v1/staff-attendance?date=${day}&status=UNMARKED`, ownerCookies);
+      expect(gaps.body).toHaveLength(blank.length);
+      expect(gaps.body.every((r: { status: string | null }) => r.status === null)).toBe(true);
+    });
+
+    it('a campus admin sees only their own campus, and cannot ask for another', async () => {
+      const day = workingDay();
+      const own = await authed('get', `/api/v1/staff-attendance?date=${day}`, adminCookies);
+      expect(own.body.every((r: { staffId: string }) => r.staffId !== staffB)).toBe(true);
+
+      // A client-supplied campusId for someone else's campus is IGNORED, not honoured (P1.7).
+      const forced = await authed('get', `/api/v1/staff-attendance?date=${day}&campusId=${campusB}`, adminCookies);
+      expect(forced.status).toBe(200);
+      expect(forced.body.every((r: { staffId: string }) => r.staffId !== staffB)).toBe(true);
+    });
+
+    it('one staff member’s history defaults to their whole employment, not an invented window', async () => {
+      const day = workingDay();
+      await mark(staffA, 'ABSENT', day);
+
+      const res = await authed('get', `/api/v1/staff-attendance/staff/${staffA}`, ownerCookies);
+      expect(res.status).toBe(200);
+      expect(res.body.staff).toMatchObject({ id: staffA });
+      // No `from` ⇒ from the joining date, so a lifetime question gets a lifetime answer.
+      expect(res.body.from).toBe(res.body.staff.joinedAt);
+      expect(res.body.absent).toBe(1);
+      expect(res.body.rows).toHaveLength(1);
+    });
+
+    it('a campus admin cannot read another campus’s staff history', async () => {
+      const res = await authed('get', `/api/v1/staff-attendance/staff/${staffB}`, adminCookies);
+      expect(res.status).toBe(403);
+      expect(res.body.error.code).toBe('FORBIDDEN');
+    });
+
+    it('says plainly when the day is not a working one', async () => {
+      const sunday = new Date();
+      while (sunday.getUTCDay() !== 0) sunday.setUTCDate(sunday.getUTCDate() - 1);
+      const res = await authed('get', `/api/v1/staff-attendance/summary?date=${iso(sunday)}`, ownerCookies);
+      // Otherwise a Sunday reads as every member of staff being absent.
+      expect(res.body.workingDay).toBe(false);
+      expect(res.body.absent).toBe(0);
+    });
+  });
+
   it('freezes the month once its payroll run is approved', async () => {
     const day = workingDay();
     const d = new Date(day);

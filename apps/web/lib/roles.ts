@@ -94,6 +94,10 @@ export const NAV: NavItem[] = [
   { href: '/my-leaves', label: 'My Leaves', icon: '🗓️', group: 'My Portal', roles: ['STAFF'] },
   { href: '/my-payslips', label: 'My Payslips', icon: '💵', group: 'My Portal', roles: ['STAFF', 'TEACHER'] },
 
+  // HR reads the register but never marks it — attendance feeds pay, and the same boundary
+  // that keeps salary structures owner-only applies here.
+  { href: '/staff-attendance', label: 'Staff Attendance', icon: '🗓️', group: 'People', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'HR_MANAGER'] },
+
   // Account security is every user's own business — no `roles` (any authenticated) and reached
   // from the top bar rather than the sidebar.
   { href: '/security', label: 'Security', icon: '🔒', group: 'My Portal', hidden: true },

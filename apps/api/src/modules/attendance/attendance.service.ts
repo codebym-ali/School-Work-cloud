@@ -23,7 +23,7 @@ import type {
   PatchAttendanceDto,
 } from './dto/attendance.dto';
 
-const WEEKDAYS = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'];
+const WEEKDAYS = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'] as const;
 
 export interface BulkResult {
   succeeded: number;
@@ -563,6 +563,168 @@ export class AttendanceService {
       unmarked: Math.max(0, working - marked),
       percent: attendancePercentFromStatuses(rows.map((r) => r.status)),
     };
+  }
+
+  // ── Oversight (owner / campus admin / HR read-only) ──────────────────────────
+  /**
+   * The staff register for one day: how many people, and what is known about each of them.
+   *
+   * **`unmarked` is returned separately from `absent` and must stay that way.** Nothing writes
+   * an ABSENT row on its own (the day-close job is deliberately deferred), so an absent count
+   * presented alone would be a number that looks like fact and is not — it would read as "3
+   * absences" when what happened is "39 people nobody recorded". The dashboard leads with the
+   * gap for exactly that reason.
+   */
+  async staffDaySummary(dateStr?: string, campusId?: string) {
+    const schoolId = this.ctx.requireSchoolId();
+    const date = dateStr ? new Date(dateStr) : new Date(new Date().toISOString().slice(0, 10));
+    const campusFilter = this.staffCampusFilter(campusId);
+
+    const school = await this.db.school.findFirst({ where: { id: schoolId } });
+    const settings = parseSchoolSettings(school?.settings ?? {});
+
+    const staff = await this.db.staffProfile.findMany({
+      where: { user: { deletedAt: null, ...campusFilter }, joinedAt: { lte: date } },
+      select: { id: true, leftAt: true },
+    });
+    const active = staff.filter((s) => !s.leftAt || startOfDay(s.leftAt) >= startOfDay(date));
+
+    const rows = active.length
+      ? await this.db.staffAttendance.findMany({
+          where: { date, staffId: { in: active.map((s) => s.id) } },
+          select: { status: true, source: true },
+        })
+      : [];
+
+    // Whether the day is a working one is a per-campus question (holidays can be campus-
+    // specific). With no campus filter we answer for the school's default calendar.
+    const holiday = await this.db.holiday.findFirst({
+      where: { date, ...(campusId ? { OR: [{ campusId }, { campusId: null }] } : {}) },
+      select: { name: true },
+    });
+    const weeklyOff = settings.weeklyOffDays.includes(WEEKDAYS[date.getUTCDay()]);
+
+    const count = (s: AttendanceStatus) => rows.filter((r) => r.status === s).length;
+    return {
+      date: date.toISOString().slice(0, 10),
+      workingDay: !weeklyOff && !holiday,
+      holidayName: holiday?.name ?? null,
+      totalStaff: active.length,
+      present: count(AttendanceStatus.PRESENT),
+      late: count(AttendanceStatus.LATE),
+      halfDay: count(AttendanceStatus.HALF_DAY),
+      onLeave: count(AttendanceStatus.ON_LEAVE),
+      absent: count(AttendanceStatus.ABSENT),
+      /** Nobody recorded anything. NOT absence — see the note above. */
+      unmarked: Math.max(0, active.length - rows.length),
+      selfMarked: rows.filter((r) => r.source === AttendanceSource.SELF).length,
+    };
+  }
+
+  /**
+   * Every staff member for one day with their status — including those with **no record**,
+   * which a query over `staff_attendance` alone could never return. Filtering by `UNMARKED`
+   * is what turns this from a report into the worklist that gets the register filled in.
+   */
+  async staffRegister(dateStr?: string, status?: string, campusId?: string) {
+    const date = dateStr ? new Date(dateStr) : new Date(new Date().toISOString().slice(0, 10));
+    const campusFilter = this.staffCampusFilter(campusId);
+
+    const staff = await this.db.staffProfile.findMany({
+      where: { user: { deletedAt: null, ...campusFilter }, joinedAt: { lte: date } },
+      select: {
+        id: true, fullName: true, employeeCode: true, staffType: true, leftAt: true,
+        user: { select: { email: true, campus: { select: { name: true } } } },
+      },
+      orderBy: { employeeCode: 'asc' },
+    });
+    const active = staff.filter((s) => !s.leftAt || startOfDay(s.leftAt) >= startOfDay(date));
+
+    const records = active.length
+      ? await this.db.staffAttendance.findMany({
+          where: { date, staffId: { in: active.map((s) => s.id) } },
+          select: { id: true, staffId: true, status: true, checkIn: true, source: true, note: true },
+        })
+      : [];
+    const byStaff = new Map(records.map((r) => [r.staffId, r]));
+
+    const merged = active.map((s) => {
+      const rec = byStaff.get(s.id);
+      return {
+        staffId: s.id,
+        name: s.fullName ?? s.user.email,
+        employeeCode: s.employeeCode,
+        staffType: s.staffType,
+        campus: s.user.campus?.name ?? null,
+        // `null` status is the honest rendering of "nobody has said", and it is why this
+        // endpoint starts from the staff list rather than from the attendance table.
+        status: rec?.status ?? null,
+        checkIn: rec?.checkIn ?? null,
+        source: rec?.source ?? null,
+        note: rec?.note ?? null,
+      };
+    });
+    if (!status) return merged;
+    if (status === 'UNMARKED') return merged.filter((r) => r.status === null);
+    return merged.filter((r) => r.status === status);
+  }
+
+  /** One person's history over a range, with the same counts their own screen shows. */
+  async staffHistory(staffId: string, from?: string, to?: string) {
+    const staff = await this.db.staffProfile.findFirst({
+      where: { id: staffId },
+      select: {
+        id: true, fullName: true, employeeCode: true, staffType: true, joinedAt: true, leftAt: true,
+        user: { select: { email: true, campusId: true, campus: { select: { name: true } } } },
+      },
+    });
+    if (!staff) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'Staff member not found');
+    // Campus scoping for staff is the USER's campus — the same rule `getStaff` applies, so
+    // there is one answer per entity rather than a second one invented here.
+    assertCampusAccess(this.ctx.user, staff.user.campusId);
+
+    // "All time" is a real option on this screen, so an absent `from` means from the day they
+    // joined — not an invented epoch, and not a silently truncated window.
+    const end = to ? new Date(to) : new Date(new Date().toISOString().slice(0, 10));
+    const start = from ? new Date(from) : new Date(startOfDay(staff.joinedAt));
+    if (start.getTime() > end.getTime()) {
+      throw new AppError(ErrorCodes.VALIDATION_FAILED, HttpStatus.UNPROCESSABLE_ENTITY, '`from` is after `to`');
+    }
+
+    const rows = await this.db.staffAttendance.findMany({
+      where: { staffId, date: { gte: start, lte: end } },
+      orderBy: [{ date: 'desc' }],
+      select: { id: true, date: true, status: true, checkIn: true, source: true, note: true },
+    });
+    const count = (s: AttendanceStatus) => rows.filter((r) => r.status === s).length;
+    return {
+      staff: {
+        id: staff.id,
+        name: staff.fullName ?? staff.user.email,
+        employeeCode: staff.employeeCode,
+        staffType: staff.staffType,
+        campus: staff.user.campus?.name ?? null,
+        joinedAt: staff.joinedAt.toISOString().slice(0, 10),
+      },
+      from: start.toISOString().slice(0, 10),
+      to: end.toISOString().slice(0, 10),
+      present: count(AttendanceStatus.PRESENT),
+      late: count(AttendanceStatus.LATE),
+      onLeave: count(AttendanceStatus.ON_LEAVE),
+      absent: count(AttendanceStatus.ABSENT),
+      percent: attendancePercentFromStatuses(rows.map((r) => r.status)),
+      rows: rows.map((r) => ({ ...r, date: r.date.toISOString().slice(0, 10) })),
+    };
+  }
+
+  /**
+   * Campus filter for staff reads. A campus-bound caller is forced to their own campus and a
+   * client-supplied `campusId` for another campus is ignored rather than honoured (P1.7).
+   */
+  private staffCampusFilter(campusId?: string) {
+    const restricted = restrictedCampusId(this.ctx.user);
+    if (restricted) return { campusId: restricted };
+    return campusId ? { campusId } : {};
   }
 
   /** The caller's own StaffProfile. 403s if the account has no staff record. */

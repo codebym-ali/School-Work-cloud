@@ -63,6 +63,12 @@ export const PERMISSION_MATRIX: MatrixRow[] = [
   // payroll attendance deduction, so who may write them is a pay question. Marking is the
   // office's job: a teacher must never record staff attendance, least of all their own.
   { label: 'mark staff attendance', method: 'post', path: '/api/v1/staff-attendance/bulk', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'], scopeGated: true },
+  // Oversight is admin + HR (HR_MANAGER isn't a seeded matrix role, so these rows assert the
+  // deny side: a teacher must not be able to read the whole school's staff register, and an
+  // accountant has no business in it either.
+  { label: 'staff attendance day summary', method: 'get', path: '/api/v1/staff-attendance/summary', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'], scopeGated: true },
+  { label: 'staff attendance register', method: 'get', path: '/api/v1/staff-attendance', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'], scopeGated: true },
+  { label: 'one staff member’s attendance history', method: 'get', path: '/api/v1/staff-attendance/staff/00000000-0000-0000-0000-000000000000', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'], scopeGated: true },
   { label: 'create exam', method: 'post', path: '/api/v1/exams', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'], scopeGated: true },
   { label: 'delete term', method: 'delete', path: '/api/v1/terms/00000000-0000-0000-0000-000000000000', allow: ['OWNER_ADMIN'], scopeGated: true },
   { label: 'list invoices', method: 'get', path: '/api/v1/fees/invoices', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT'], scopeGated: true },

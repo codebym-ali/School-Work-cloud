@@ -5,6 +5,7 @@ import {
   IsBoolean,
   IsDateString,
   IsEnum,
+  IsIn,
   IsInt,
   IsOptional,
   IsString,
@@ -117,6 +118,28 @@ export class MarkStaffAttendanceDto {
  * that could be misconfigured, it is unexpressible.
  */
 export class MyStaffAttendanceQuery {
+  @IsOptional() @IsDateString()
+  from?: string;
+
+  @IsOptional() @IsDateString()
+  to?: string;
+}
+
+/** `status` accepts the attendance statuses plus `UNMARKED` — the register's whole point is
+ *  that "nobody has said" is a filterable state, not the absence of one. */
+export class StaffRegisterQuery {
+  @IsOptional() @IsDateString()
+  date?: string;
+
+  @IsOptional() @IsIn([...Object.values(AttendanceStatus), 'UNMARKED'])
+  status?: string;
+
+  @IsOptional() @IsUUID()
+  campusId?: string;
+}
+
+export class StaffHistoryQuery {
+  /** Absent ⇒ from the day they joined, so "all time" is a real answer. */
   @IsOptional() @IsDateString()
   from?: string;
 

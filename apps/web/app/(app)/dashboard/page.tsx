@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { api, type AdmissionsSummary, type Dashboard } from '@/lib/api';
+import { api, type AdmissionsSummary, type Dashboard, type StaffDaySummary } from '@/lib/api';
 import { useMe } from '@/lib/me-context';
 import { canReach } from '@/lib/roles';
 
@@ -48,10 +48,15 @@ export default function DashboardPage() {
   const me = useMe();
   const [data, setData] = useState<Dashboard | null>(null);
   const [adm, setAdm] = useState<AdmissionsSummary | null>(null);
+  const [staff, setStaff] = useState<StaffDaySummary | null>(null);
   const [err, setErr] = useState(false);
 
   useEffect(() => {
     api.dashboard().then(setData).catch(() => setErr(true));
+    // Fails silently for a role the API denies, so the section simply doesn't render — the
+    // same pattern the other rollups use rather than showing an error to someone who was
+    // never meant to see the card.
+    api.staffAttendance.daySummary().then(setStaff).catch(() => {});
     // Every figure in this summary counts Inquiry rows, so in a DIRECT school (no enquiry
     // pipeline) the card would advertise "0 open inquiries · 0% conversion" for ever — a
     // metric that can never move is worse than no metric. Skip the fetch entirely.
@@ -81,6 +86,15 @@ export default function DashboardPage() {
   if ((data.failedSmsCount ?? 0) > 0 && data.visible.includes('failedSmsCount')) attention.push({ text: `${data.failedSmsCount} failed SMS`, href: '/reports' });
   if (adm && adm.totals.readyToAdmit > 0) attention.push({ text: `${adm.totals.readyToAdmit} student${adm.totals.readyToAdmit === 1 ? '' : 's'} ready to admit`, href: '/admissions' });
   if (adm && adm.testsToday > 0) attention.push({ text: `${adm.testsToday} entry test${adm.testsToday === 1 ? '' : 's'} today`, href: '/admissions' });
+  // Only on a working day, and only what is actually known. Nothing writes an ABSENT row on
+  // its own yet, so an unmarked register is the honest thing to chase — surfacing "0 absent"
+  // from a register nobody filled in would be a reassuring lie.
+  if (staff?.workingDay && staff.absent > 0) {
+    attention.push({ text: `${staff.absent} staff absent today`, href: `/staff-attendance?date=${staff.date}&status=ABSENT` });
+  }
+  if (staff?.workingDay && staff.unmarked > 0) {
+    attention.push({ text: `${staff.unmarked} staff not marked today`, href: `/staff-attendance?date=${staff.date}&status=UNMARKED` });
+  }
 
   const reachableAttention = attention.filter((a) => canReach(me?.roles, a.href, me?.admissionsMode));
 
@@ -132,6 +146,34 @@ export default function DashboardPage() {
           </div>
         );
       })}
+
+      {staff && canReach(me?.roles, '/staff-attendance', me?.admissionsMode) && (
+        <div>
+          <div className="section-title">People</div>
+          <Link href={`/staff-attendance?date=${staff.date}`} className="card metric-link pipeline-card" style={{ maxWidth: 420 }}>
+            <div className="row">
+              <strong style={{ fontSize: 14 }}>🗓️ Staff today</strong>
+              <span className="metric-go">Open register →</span>
+            </div>
+            {staff.workingDay ? (
+              <>
+                <div className="value" style={{ marginTop: 6 }}>{staff.present + staff.late} of {staff.totalStaff}</div>
+                <div className="label">marked present</div>
+                <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>
+                  {staff.absent} absent · {staff.onLeave} on leave ·{' '}
+                  {/* Called out because nothing derives absence yet: a big "not marked" is the
+                      real state of the register, and folding it into "absent" would be a lie. */}
+                  <strong style={{ color: staff.unmarked ? '#b45309' : 'inherit' }}>{staff.unmarked} not marked</strong>
+                </div>
+              </>
+            ) : (
+              <div className="muted" style={{ fontSize: 13, marginTop: 8 }}>
+                {staff.holidayName ?? 'Weekly off'} — no register today.
+              </div>
+            )}
+          </Link>
+        </div>
+      )}
 
       {adm && (
         <div>

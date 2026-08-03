@@ -493,9 +493,14 @@ describe('Staff attendance marking (e2e)', () => {
     expect(Number(a!.netPay)).toBeLessThan(30000);
   });
 
-  it('freezes the month once its payroll run is approved', async () => {
+  it('freezes the approved campus for that month — and ONLY that campus', async () => {
     const day = workingDay();
     const d = new Date(day);
+    // PayrollRun is unique on [school, campus, month, year] — one run per campus. Approving
+    // campus A must not take campus B's register away for the rest of the month, which a
+    // campus-blind lock did. Sent as ONE request spanning both campuses, because that is the
+    // shape that made the original defect invisible: a single-campus fixture cannot tell a
+    // scoped guard from an unscoped one.
     await platform.payrollRun.create({
       data: {
         schoolId, campusId: campusA, month: d.getUTCMonth() + 1, year: d.getUTCFullYear(),
@@ -503,12 +508,18 @@ describe('Staff attendance marking (e2e)', () => {
       },
     });
 
-    const res = await mark(staffA, 'ABSENT', day);
-    // A payslip was computed FROM these rows. Letting them move afterwards leaves a paid
-    // payslip disagreeing with its own register, and neither number can be trusted again.
-    expect(res.status).toBe(409);
-    expect(res.body.error.code).toBe('CONFLICT');
-    expect(res.body.error.message).toMatch(/reverse the payroll run/i);
+    const res = await ownerPost('/api/v1/staff-attendance/bulk', {
+      date: day, session: 'MORNING',
+      records: [{ staffId: staffA, status: 'ABSENT' }, { staffId: staffB, status: 'ABSENT' }],
+    });
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ succeeded: 1, failed: 1 });
+    expect(res.body.errors[0]).toMatchObject({ index: 0, code: 'CONFLICT' });
+    expect(res.body.errors[0].message).toMatch(/reverse the payroll run/i);
+
+    // A payslip was computed from campus A's rows, so they hold still...
     expect(await platform.staffAttendance.count({ where: { staffId: staffA } })).toBe(0);
+    // ...while campus B, whose pay is not settled, carries on working.
+    expect(await platform.staffAttendance.count({ where: { staffId: staffB } })).toBe(1);
   });
 });

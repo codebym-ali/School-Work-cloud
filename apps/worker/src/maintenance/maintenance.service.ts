@@ -114,14 +114,16 @@ export class MaintenanceService {
     const today = new Date(new Date().toISOString().slice(0, 10));
     const session = settings.attendanceSessions[0];
 
-    // A payslip computed from these rows must not start disagreeing with them.
-    const approvedPayroll = await db.payrollRun.findFirst({
+    // A payslip computed from these rows must not start disagreeing with them — but the freeze
+    // is PER CAMPUS. `PayrollRun` is unique on [schoolId, campusId, month, year], so approving
+    // one campus on the 25th must not stop the day close for the school's other campuses.
+    const approvedRuns = await db.payrollRun.findMany({
       where: { month: today.getUTCMonth() + 1, year: today.getUTCFullYear(), status: 'APPROVED' },
-      select: { id: true },
+      select: { campusId: true },
     });
-    if (approvedPayroll) {
-      this.logger.warn(`staff-attendance-close: school ${schoolId} skipped — payroll for this month is already approved`);
-      return 0;
+    const frozenCampuses = new Set(approvedRuns.map((r) => r.campusId));
+    if (frozenCampuses.size) {
+      this.logger.log(`staff-attendance-close: school ${schoolId} — ${frozenCampuses.size} campus(es) frozen by approved payroll`);
     }
 
     const weeklyOff = settings.weeklyOffDays.includes(WEEKDAYS[today.getUTCDay()]);
@@ -156,6 +158,8 @@ export class MaintenanceService {
       if (marked.has(s.id)) continue; // a human already said something — never overwrite it
       if (s.leftAt && startOfDay(s.leftAt) < startOfDay(today)) continue;
       if (s.user.campusId && holidayCampuses.has(s.user.campusId)) continue;
+      // Their campus's pay is settled for the month; theirs alone is skipped.
+      if (s.user.campusId && frozenCampuses.has(s.user.campusId)) continue;
 
       await db.staffAttendance.create({
         data: {

@@ -15,7 +15,7 @@ scope: staff + student attendance, the day-close job, and the timing rules aroun
 
 ---
 
-## G1 — Payroll lock ignores the campus 🔴 **High · defect shipped 2026-08-03**
+## G1 — Payroll lock ignores the campus ✅ **FIXED 2026-08-03** *(was High)*
 
 `PayrollRun` is unique on `[schoolId, campusId, month, year]` — **one run per campus per month**.
 Both locks I added query without `campusId`:
@@ -33,8 +33,18 @@ anything anywhere.
 in the *same* campus, so a campus-blind query and a campus-scoped one behave identically. **A
 guard tested only in the single-campus case is untested.**
 
-**Fix:** resolve the staff member's campus and scope both queries to it. The day-close job must
-skip **per campus**, not per school. Add a two-campus regression case.
+**Fixed.** Both sides now resolve the set of campuses whose payroll is approved for that month
+(one query) and apply it **per staff member**:
+- `markStaffBulk` refuses only the affected rows, through the existing partial-failure contract,
+  so a bulk register spanning two campuses saves the campus that is still open. It is no longer a
+  whole-request 409 — a mixed list must not be rejected because one campus is settled.
+- `checkIn` keeps its 409, scoped to the caller's own campus.
+- The day-close job skips **per campus** instead of returning from the whole school.
+- A staff member with no campus belongs to no payroll run and is never frozen.
+
+**Regression tests are deliberately two-campus**, in one request, because that is the shape the
+original defect hid behind. **Proven non-vacuous:** neutering the scope back to "any approved run
+freezes everything" fails exactly the new case.
 
 ---
 

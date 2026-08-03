@@ -322,11 +322,13 @@ export class AttendanceService {
       throw new AppError(ErrorCodes.VALIDATION_FAILED, HttpStatus.UNPROCESSABLE_ENTITY, 'Session not configured for this school');
     }
 
-    // Freeze the month once payroll has been approved for it (§5.6 of the plan): the payslip
-    // was computed FROM these rows, so letting them move afterwards leaves a paid payslip
-    // disagreeing with its own register and neither number trustworthy. Reversing the run is
-    // the explicit path.
-    await this.assertPayrollOpen(date);
+    // Freeze the month once payroll has been approved for it: the payslip was computed FROM
+    // these rows, so letting them move afterwards leaves a paid payslip disagreeing with its
+    // own register and neither number trustworthy. Reversing the run is the explicit path.
+    //
+    // Resolved once, applied PER ROW below, because the freeze is per campus and a bulk
+    // register may span several — one frozen campus must not reject another's rows.
+    const frozenCampuses = await this.frozenCampusIds(date);
 
     const restricted = restrictedCampusId(user);
     const errors: BulkResult['errors'] = [];
@@ -355,9 +357,15 @@ export class AttendanceService {
         continue;
       }
 
+      const campusId = staff.user.campusId;
+      // Their campus's payroll is settled for this month; theirs alone is refused.
+      if (campusId && frozenCampuses.has(campusId)) {
+        errors.push({ index: i, code: ErrorCodes.CONFLICT, message: this.payrollFrozenMessage(date) });
+        continue;
+      }
+
       // Working-day check is per campus (holidays can be campus-specific), so it sits inside
       // the loop rather than above it.
-      const campusId = staff.user.campusId;
       const off = campusId ? await this.isNonWorkingDay(date, campusId, settings.weeklyOffDays) : false;
       if (off && !dto.allowHolidayOverride) {
         errors.push({ index: i, code: ErrorCodes.VALIDATION_FAILED, message: 'Holiday or weekly-off day; override required' });
@@ -403,20 +411,34 @@ export class AttendanceService {
     return { succeeded, failed: errors.length, errors, absenceQueued: 0 };
   }
 
-  /** Refuse a staff-attendance write into a month whose payroll run is already APPROVED. */
-  private async assertPayrollOpen(date: Date): Promise<void> {
-    const month = date.getUTCMonth() + 1;
-    const year = date.getUTCFullYear();
-    const approved = await this.db.payrollRun.findFirst({
-      where: { month, year, status: 'APPROVED' },
-      select: { id: true, month: true, year: true },
+  /**
+   * Campuses whose payroll for this month is already APPROVED, so their attendance is frozen.
+   *
+   * **Per campus, not per school.** `PayrollRun` is unique on `[schoolId, campusId, month,
+   * year]` — one run per campus — so a school that approves campus A on the 25th must not lose
+   * the ability to record attendance in campuses B and C for the rest of the month. One query,
+   * because a bulk register can carry staff from several campuses.
+   *
+   * A staff member with no campus belongs to no payroll run and is therefore never frozen.
+   */
+  private async frozenCampusIds(date: Date): Promise<Set<string>> {
+    const runs = await this.db.payrollRun.findMany({
+      where: { month: date.getUTCMonth() + 1, year: date.getUTCFullYear(), status: 'APPROVED' },
+      select: { campusId: true },
     });
-    if (approved) {
-      throw new AppError(
-        ErrorCodes.CONFLICT,
-        HttpStatus.CONFLICT,
-        `Payroll for ${approved.month}/${approved.year} is already approved — reverse the payroll run before changing attendance for that month.`,
-      );
+    return new Set(runs.map((r) => r.campusId));
+  }
+
+  private payrollFrozenMessage(date: Date): string {
+    return `Payroll for ${date.getUTCMonth() + 1}/${date.getUTCFullYear()} is already approved for this campus — reverse the payroll run before changing attendance for that month.`;
+  }
+
+  /** Single-person variant (self check-in): the caller's own campus only. */
+  private async assertPayrollOpen(date: Date, campusId: string | null): Promise<void> {
+    if (!campusId) return;
+    const frozen = await this.frozenCampusIds(date);
+    if (frozen.has(campusId)) {
+      throw new AppError(ErrorCodes.CONFLICT, HttpStatus.CONFLICT, this.payrollFrozenMessage(date));
     }
   }
 
@@ -453,7 +475,7 @@ export class AttendanceService {
     if (campusId && (await this.isNonWorkingDay(date, campusId, settings.weeklyOffDays))) {
       throw new AppError(ErrorCodes.VALIDATION_FAILED, HttpStatus.UNPROCESSABLE_ENTITY, 'Today is a holiday or weekly off — no attendance is taken.');
     }
-    await this.assertPayrollOpen(date);
+    await this.assertPayrollOpen(date, campusId);
 
     const session = settings.attendanceSessions[0];
     const existing = await this.db.staffAttendance.findFirst({ where: { staffId: staff.id, date, session } });

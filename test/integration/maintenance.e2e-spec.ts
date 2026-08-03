@@ -235,19 +235,37 @@ describe('Maintenance runner (e2e, §27)', () => {
         expect(await platform.staffAttendance.count({ where: { schoolId: other } })).toBe(0);
         await platform.holiday.delete({ where: { id: holiday.id } });
 
-        // A payslip computed from these rows must not start disagreeing with them.
-        const campus = await platform.campus.create({ data: { schoolId: other, name: 'Main' } });
+        // A payslip computed from these rows must not start disagreeing with them — but the
+        // freeze is PER CAMPUS. Two campuses, one payroll approved: the settled campus is
+        // skipped, the other still closes. A single-campus fixture cannot tell those apart,
+        // which is exactly how the campus-blind version shipped.
+        const campusA = await platform.campus.create({ data: { schoolId: other, name: 'Main' } });
+        const campusB = await platform.campus.create({ data: { schoolId: other, name: 'Second' } });
+        await platform.user.update({ where: { id: user.id }, data: { campusId: campusA.id } });
+
+        const userB = await platform.user.create({
+          data: { schoolId: other, campusId: campusB.id, email: 'b@guard.pk', roles: ['TEACHER'] as never, status: 'ACTIVE' },
+        });
+        const staffB = (await platform.staffProfile.create({
+          data: {
+            schoolId: other, userId: userB.id, employeeCode: 'G-2', staffType: 'TEACHER',
+            designation: 'T', joinedAt: new Date(Date.now() - 400 * 86400000),
+          },
+        })).id;
+
         const run = await platform.payrollRun.create({
           data: {
-            schoolId: other, campusId: campus.id, month: today.getUTCMonth() + 1, year: today.getUTCFullYear(),
+            schoolId: other, campusId: campusA.id, month: today.getUTCMonth() + 1, year: today.getUTCFullYear(),
             status: 'APPROVED', createdById: user.id,
           },
         });
         await maintenance.run('staff-attendance-close');
-        expect(await platform.staffAttendance.count({ where: { schoolId: other } })).toBe(0);
+        expect(await platform.staffAttendance.findFirst({ where: { schoolId: other, staffId } })).toBeNull();
+        expect(await platform.staffAttendance.findFirst({ where: { schoolId: other, staffId: staffB } }))
+          .toMatchObject({ status: 'ABSENT', source: 'SYSTEM' });
 
-        // With the run reversed to DRAFT, the same day closes normally — proving the two
-        // assertions above failed on the guard and not on some unrelated obstacle.
+        // With the run reversed to DRAFT, campus A closes too — proving it was held back by the
+        // guard and not by some unrelated obstacle.
         await platform.payrollRun.update({ where: { id: run.id }, data: { status: 'DRAFT' } });
         await maintenance.run('staff-attendance-close');
         expect(await platform.staffAttendance.findFirst({ where: { schoolId: other, staffId } }))

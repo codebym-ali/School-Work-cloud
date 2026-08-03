@@ -257,4 +257,12 @@ Blueprint's AWS reference (RDS/ECS/S3/KMS…) is replaced by **Contabo + Coolify
 - **"Nobody said" is not "absent", and the register must start from the PEOPLE.** A query over the attendance table can only return those already marked — the people worth chasing are exactly the ones it omits. `unmarked` is displayed beside `absent` everywhere, never inside it; an absent count over a half-kept register is a reassuring lie.
 - **Do not automate a deduction before the data is trusted.** The day-close job that derives ABSENT is deliberately deferred: shipping it alongside the register would create salary deductions in week one from a habit nobody has formed yet.
 
+## Configuration and self-consistent screens (added 2026-08-03)
+- **A partial-update DTO is not partial.** class-validator materialises every declared property, so spreading it produces a key for each field the caller never sent — an overwrite wearing a patch's clothes. Strip `undefined` at every level *before* merging, or changing one setting silently resets the rest.
+- **Merge settings, never replace them.** One JSON column shared by every feature means a `PUT` from a client that predates a newly-added key resets it to default. Merge, then validate the whole object as a unit so an invalid combination is rejected rather than half-applied.
+- **Audit the diff, not the blob.** Record only the keys that moved, with before/after. A dump of the whole object is unreadable a year later, and a write that changed nothing is not an event.
+- **A number on screen must BE its filter.** A "Present" tile that counted late arrivals sat beside a PRESENT filter that did not: the page said 1, you clicked, and got nothing. Bind the count and the filter to the same predicate so they cannot disagree; put roll-ups that span predicates in prose, where they cannot be clicked into a contradiction.
+- **Name the rule, not the field.** Settings screens say *"a teacher may fill in a missed day up to 7 days later"*, not `attendanceBackfillDays`, and state the consequence (*"anyone checking in after 09:45 is marked late"*) rather than leaving the reader to derive it.
+- **Don't expose a switch for behaviour that doesn't exist.** `autoMarkAbsent` is deliberately absent from the settings screen while the day-close job is unbuilt — a toggle that changes nothing is a defect, not a placeholder.
+
 **Source:** [[consistency-register]] · [[school-management-master-blueprint]] §2–§34

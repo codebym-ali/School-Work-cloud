@@ -82,7 +82,7 @@ export class FeeLinkService {
    * token would have to be assembled by hand at every call site (SMS, the screen, a future
    * reminder job) with a different chance of getting the host wrong each time.
    */
-  async issueFor(invoiceId: string) {
+  async issueFor(invoiceId: string, requestHost?: string) {
     const settings = await this.assertEnabled();
     const invoice = await this.db.feeInvoice.findFirst({
       where: { id: invoiceId },
@@ -91,14 +91,34 @@ export class FeeLinkService {
     if (!invoice) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'Invoice not found');
     assertCampusAccess(this.ctx.user, invoice.enrollment.campusId);
 
-    const school = await this.db.school.findFirst({ where: { id: this.sid }, select: { subdomain: true } });
     const token = this.issue(invoice.id);
     return {
       token,
-      url: `https://${school?.subdomain}.${this.env.APP_APEX_DOMAIN}/p/${token}`,
+      url: `${this.originFor(requestHost)}/p/${token}`,
       expiresInDays: TOKEN_TTL_DAYS,
       proofPolicy: settings.feeSubmission.proofPolicy,
     };
+  }
+
+  /**
+   * The origin to put in the link — which is **not** the origin this request arrived on.
+   *
+   * Two wrong answers were tried first, and both produced a URL the clerk copies and the parent
+   * cannot open:
+   *  - all of `APP_APEX_DOMAIN`: gives the apex, losing the school's subdomain entirely;
+   *  - all of the request Host: in dev the Next proxy forwards `demo.localhost` but rewrites the
+   *    port to the API's, so the link came out as `demo.localhost:4000` — the API, not the app.
+   *
+   * So take the part each source is actually authoritative for: the **tenant host** from the
+   * request (it is the school the office is signed into) and the **browser-facing port** from
+   * config (only the deployment knows where the web app is served). In production the apex
+   * carries no port and this reduces to `https://<subdomain>.<apex>/p/…`.
+   */
+  private originFor(requestHost?: string): string {
+    const bare = (requestHost?.trim() || this.env.APP_APEX_DOMAIN).split(':')[0].toLowerCase();
+    const apexPort = this.env.APP_APEX_DOMAIN.split(':')[1];
+    const local = bare === 'localhost' || bare.endsWith('.localhost') || bare === '127.0.0.1';
+    return `${local ? 'http' : 'https'}://${bare}${apexPort ? `:${apexPort}` : ''}`;
   }
 
   /**

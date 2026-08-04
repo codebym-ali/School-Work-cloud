@@ -411,6 +411,24 @@ export interface CheckInState {
   /** When the register is settled, or null where the school doesn't run the day close. */
   closeAtTime: string | null;
 }
+export interface FeeLinkView {
+  studentFirstName: string;
+  month: number | null;
+  year: number;
+  dueDate: string;
+  outstanding: string;
+  settled: boolean;
+  methods: string[];
+  proofPolicy: 'OFF' | 'OPTIONAL' | 'REQUIRED';
+  pendingClaim: { submittedOn: string; amount: string } | null;
+}
+export interface FeeLinkClaim {
+  amount: number;
+  method: string;
+  transactionRef?: string;
+  paidOn: string;
+  note?: string;
+}
 export interface Payslip { id: string; runId: string; gross: string; attendanceDeduction: string; otherDeductions: string; netPay: string; status: string; paidAt: string | null }
 /** Admin queue rows carry the person's name so the screen never has to resolve ids itself. */
 export interface StaffLeaveRow extends StaffLeave { staffId: string; staff?: { fullName: string | null; employeeCode: string } }
@@ -500,6 +518,37 @@ export const api = {
       const put = await fetch(presign.url, { method: 'PUT', body: file, headers: { 'Content-Type': file.type } });
       if (!put.ok) throw new ApiError(put.status, 'UPLOAD_FAILED', 'Could not upload that file. Please try again.');
       return apiPost<{ fileKey: string }>('/uploads/confirm', { key: presign.key, mimeType: file.type });
+    },
+  },
+  /**
+   * The guardian fee link — a PUBLIC surface. No session, no CSRF (the API marks it `@Public`),
+   * and the token in the path is the entire authorisation. Everything here is reachable by
+   * whoever holds the link, so nothing may be added to these responses that the school would
+   * not print on a challan.
+   */
+  feeLink: {
+    view: (token: string) => apiGet<FeeLinkView>(`/public/fee-link/${token}`),
+    /**
+     * Upload → PUT → submit. The QUARANTINE key goes back with the claim, and the server
+     * promotes it (magic bytes + virus scan) as part of accepting the submission, so a claim can
+     * never reference a file that was not scanned.
+     */
+    async submit(token: string, body: FeeLinkClaim, file: File | null) {
+      let proofFileKey: string | undefined;
+      let proofMimeType: string | undefined;
+      if (file) {
+        const presign = await apiPost<{ key: string; url: string; maxBytes: number }>(
+          `/public/fee-link/${token}/upload`, { filename: file.name, mimeType: file.type },
+        );
+        if (file.size > presign.maxBytes) {
+          throw new ApiError(413, 'TOO_LARGE', `That file is too big — the limit is ${Math.round(presign.maxBytes / 1024 / 1024)} MB.`);
+        }
+        const put = await fetch(presign.url, { method: 'PUT', body: file, headers: { 'Content-Type': file.type } });
+        if (!put.ok) throw new ApiError(put.status, 'UPLOAD_FAILED', 'Could not upload that photo. Please try again.');
+        proofFileKey = presign.key;
+        proofMimeType = file.type;
+      }
+      return apiPost<{ id: string; status: string }>(`/public/fee-link/${token}/claim`, { ...body, proofFileKey, proofMimeType });
     },
   },
   /** The school's own operating rules. Read by admins, changed only by the owner. */

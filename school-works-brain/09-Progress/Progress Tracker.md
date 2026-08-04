@@ -11,7 +11,7 @@ overall: 6 of 7 milestones (GA) — full v1 domain built; M7 hardening complete
 > [!info] Living document — update at the **end of every phase**.
 > Procedure at the bottom. Related: [[Roadmap & Milestones]] · [[Testing & Quality]].
 
-**Last updated:** 2026-07-14 · **Stack:** Contabo VPS + Coolify + self-hosted Postgres 16 + Redis + Cloudflare R2 (see [[Deployment & Operations]]) · **Repo:** NestJS monorepo (`apps/api`, `apps/worker`, `libs/common`, `libs/database`).
+**Last updated:** 2026-08-04 · **Stack:** Contabo VPS + Coolify + self-hosted Postgres 16 + Redis + Cloudflare R2 (see [[Deployment & Operations]]) · **Repo:** NestJS monorepo (`apps/api`, `apps/worker`, `libs/common`, `libs/database`).
 
 ## Milestone status
 
@@ -58,6 +58,29 @@ overall: 6 of 7 milestones (GA) — full v1 domain built; M7 hardening complete
 - [x] **Users & roles** (§23, §22.8): `UsersModule` — the owner provisions staff/admin logins (`POST /users`: email + role + campus + initial password → argon2-hashed, ACTIVE immediately so they can sign in). Campus-bound roles **require a campus** (OWNER_ADMIN is school-wide); a **CAMPUS_ADMIN may only grant lower roles** (ACCOUNTANT/TEACHER/STAFF) and is **forced to their own campus** (even if they name another). `GET /users` (scoped), owner-only `PATCH /users/:id` + `POST /users/:id/reset-password`. UI: a **Campuses** screen (replaces a flat user list) — each campus shows its users **grouped by role** (Campus Admins/Accountants/Teachers/Staff) with an **inline "+ Add user"** (campus pre-selected) and a per-campus **login link** (`/login?campus=<name>` — brands the shared login page; auth is school-wide, scoping is post-login), plus a **School-wide** section for owners. **Campus names are unique per school** (case-insensitive; clean 409). Verified: `users.e2e` (create → the new account actually signs in → scoping/escalation blocked → reset works), matrix rows, and live Playwright (`campuses.spec` — add campus admin + duplicate-name rejection). *(Closes the "who creates a campus admin's login" gap; invite-link flow can layer on later.)*
 - [x] **Fix:** the student-portal commit left a whole-repo `tsc` break (a matrix row typed `allow: ['STUDENT']`, not a seeded role) — corrected to `allow: []` (STUDENT-only ⇒ all seeded roles denied), so CI typecheck is green again.
 - [ ] Production Coolify (VPS) deploy, pen test, staging DR drill on real R2, pilot
+
+## 2026-08-04 — authz gap, day-close, the browser suite, and the guardian link
+- [x] **F8 closed — four fee READS shipped with no `@Roles`.** Filed as two; the controller had four,
+  and `GET /discounts?studentId=` returned a named child's hardship/staff/sibling concessions to any
+  authenticated session. Filed Low-Med, closed **High**. The matrix had rows for the *writes* only,
+  which is exactly what hid it. Four rows added (24 assertions, both directions).
+- [x] **G2 closed — the day close is per school.** `staffAttendance.closeAtTime` (default 20:00, so
+  no behaviour changed on upgrade) + an hourly tick that settles only schools whose own local time
+  has passed. Also fixed the two things it exposed: a cron-written ABSENT that *accused* the teacher
+  it was about, rendered as a green `badge ok`; and a deadline nobody could see until they missed it.
+- [x] **The browser suite went from 9 red / 29 to 27 passed · 2 skipped · 0 failed**, then 28 with the
+  guardian spec. The suite now owns an `E2E Automation` campus with its own admission officer, so it
+  never takes a seat a real person holds. It surfaced a genuine bug: **CSV import was unusable by
+  anybody** — officer-only on the API, on a screen the officer's nav could not open.
+- [x] **B4 shipped — the guardian upload link.** Signed stateless token → public page at
+  `/p/[token]` → PENDING claim. Details and the reasoning in [[Fee Submission Plan]] §5.2a.
+- [x] **`drainSms` consolidated.** Three hand-copied helpers meant three copies of the same two bugs,
+  fixed one at a time over separate sessions. Now `test/integration/support/sms.ts`.
+
+**Test count: 678 integration (32 suites) · 52 unit · 7 isolation · 28 Playwright (2 skipped).**
+
+Open next: **B5** (receipt PDF + `/me/fees`), **B6** (aggregator seam, stub only), and the
+attendance register's **G3–G8** — G3/G4/G5 are product decisions rather than code.
 
 ---
 

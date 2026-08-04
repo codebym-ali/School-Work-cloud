@@ -1,7 +1,7 @@
 ---
 title: Fee submission — online, offline, and proof of payment
 type: plan
-status: proposed — awaiting decisions (§7)
+status: B0–B4 SHIPPED (B4 on 2026-08-04) · B5–B6 open · decisions D1–D6 settled
 created: 2026-08-04
 scope: apps/api fees + uploads + portal · apps/web fees, students, /me · prisma
 ---
@@ -150,6 +150,45 @@ signed token bound to one invoice, short expiry, one-time-ish use, rate-limited 
 IP, existing magic-byte + **ClamAV** validation, images/PDF only, size-capped, and the token
 reveals *only* the child's first name and the amount — never the full record.
 
+### 5.2a What shipped, and the parts worth remembering (2026-08-04)
+
+**Stateless token.** HMAC-SHA256 over `invoiceId.expiry` with a domain separator, 30-day TTL, no
+token table. Nothing to leak, nothing to purge, no migration. Revocation is expiry, the
+one-pending-claim rule, and the settings switch — which is a real kill switch, not decoration.
+
+**Every rejection is the same 404.** Bad shape, bad signature, expired, wrong tenant, feature off.
+Distinguishing them would build an oracle, and no legitimate guardian does anything different
+with the difference.
+
+**Tenancy is not carried by the token.** The school comes from the Host, so the invoice is read
+inside that tenant's RLS transaction — a token minted for one school 404s on another's subdomain.
+Verified live against a second tenant, not just asserted.
+
+**The page shows a first name.** The link travels by SMS and gets forwarded; it has to be safe to
+open in a group chat. No GR number, no surname, no guardian details.
+
+**Uploads reuse the §22.6 pipeline** — MIME allowlist, quarantine prefix, magic bytes, ClamAV —
+and the quarantine key is promoted *as part of* submitting, so no claim can ever reference an
+unscanned object. Building a simpler path for the one surface strangers can reach would have been
+exactly backwards.
+
+**Rate limited on two axes** (per token *and* per IP, new `feeLink` policy). Per-token alone is
+defeated by holding many tokens; per-IP alone by spreading across addresses.
+
+**No AuditLog row for a link submission.** `userId` is NOT NULL with an FK to `users` because that
+table attributes actions to a *person*, and here there is none. Inventing an actor would put a lie
+in the trail; making the column nullable weakens it for every other action. The claim row is the
+record, and verification is audited against the real cashier.
+
+**Two defects the browser caught that types did not:**
+- the link was built from `APP_APEX_DOMAIN` and came out as `:3000` where the web app serves
+  `:3001`; then from the request Host, which the dev proxy rewrites to the API's port. Neither
+  source is authoritative alone — the **tenant host** comes from the request, the
+  **browser-facing port** from config. `.env` was also simply wrong and is corrected.
+- `params` was typed as a `Promise` and read with `use()` (the Next 15 shape). It typechecked
+  cleanly and crashed the page at runtime on Next 14. *A page that compiles is not a page that
+  renders.*
+
 ### 5.3 Online gateway — design the seam, do not build it yet
 
 For routes 5–6 the right integration is an **aggregator (Kuickpay / 1Bill / 1LINK)**, not a card
@@ -281,7 +320,7 @@ a toggle whose "off" position is a defect.
 | **B1** | **`feeSubmission` settings + enforcement** — accepted methods, proof policy, cheque clearing; the School settings section; `pay()` refuses a disabled method | Decides what every screen below even offers, so it comes before them. Ships alone and is useful alone: a cash-only school immediately stops seeing five methods it does not use |
 | **B2** | Proof on an office-recorded payment + proof visible on the student profile | Immediate value, no new surface, no security question |
 | **B3** | `FeePaymentClaim` + verify/reject + the office queue + dashboard chip | The workflow that makes proof mean something |
-| **B4** | Guardian SMS link (tokenised, no login) + rate limits + the claim it creates — **behind `guardianUploadLink`** | The labour actually disappears here |
+| **B4** | ✅ **SHIPPED 2026-08-04.** Tokenised link, public page at `/p/[token]`, rate limits, the PENDING claim it creates — behind `guardianUploadLink`. See §5.2a below. | The labour actually disappears here |
 | **B5** | Receipt PDF + payments and receipts on `/me/fees` | What the family asks for |
 | **B6** | Aggregator seam: PSID on the invoice, `ONLINE` method, HMAC webhook — **stub, not integrated** | Ready for the day a merchant account exists |
 

@@ -30,10 +30,34 @@ export default function FeesPage() {
   const [paying, setPaying] = useState<string | null>(null);
   const [pay, setPay] = useState({ amountPaid: '', method: 'CASH', transactionRef: '', proofFileKey: '' });
   const [uploading, setUploading] = useState(false);
+  const [linking, setLinking] = useState<string | null>(null);
+  const [copied, setCopied] = useState<string | null>(null);
   const [setupOpen, setSetupOpen] = useState(false);
   const [settings, setSettings] = useState<SchoolSettings | null>(null);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const classLabel = classLabeller(classes, campuses);
+
+  /**
+   * Hand the family a link instead of chasing a WhatsApp screenshot.
+   *
+   * Copied to the clipboard rather than opened: the clerk pastes it into WhatsApp or an SMS,
+   * which is how these actually reach a parent here. The link is a bearer credential for one
+   * invoice, so the button is deliberately per-row and never bulk.
+   */
+  async function copyLink(invoiceId: string) {
+    setLinking(invoiceId);
+    try {
+      const { url } = await apiPost<{ url: string }>(`/fees/invoices/${invoiceId}/guardian-link`, {});
+      await navigator.clipboard.writeText(url);
+      setCopied(invoiceId);
+      setMsg({ ok: true, text: 'Payment link copied — send it to the guardian.' });
+      setTimeout(() => setCopied(null), 4000);
+    } catch (e) {
+      setMsg({ ok: false, text: e instanceof ApiError ? e.message : 'Could not make a link' });
+    } finally {
+      setLinking(null);
+    }
+  }
 
   async function loadInvoices() {
     const res = await apiGet<Paged<Invoice>>('/fees/invoices?pageSize=100');
@@ -187,7 +211,18 @@ export default function FeesPage() {
                         onClick={() => collect(i.id)}>Save</button>
                       <button className="ghost small" onClick={() => setPaying(null)}>×</button>
                     </span>
-                  ) : <button className="ghost small" onClick={() => { setPaying(i.id); setPay({ amountPaid: String(Math.max(Number(i.totalAmount) - Number(i.paidAmount), 0)), method: acceptedMethods[0], transactionRef: '', proofFileKey: '' }); }}>Collect</button>
+                  ) : (
+                    <span className="row" style={{ gap: 6, justifyContent: 'flex-end' }}>
+                      {/* Only when the school has switched the link on, and only for a bill that
+                          still owes something — a link to a settled invoice is a dead end. */}
+                      {settings?.feeSubmission.guardianUploadLink && i.status !== 'PAID' && (
+                        <button className="ghost small" disabled={linking === i.id} onClick={() => void copyLink(i.id)}>
+                          {linking === i.id ? 'Making…' : copied === i.id ? '✓ Copied' : '🔗 Payment link'}
+                        </button>
+                      )}
+                      <button className="ghost small" onClick={() => { setPaying(i.id); setPay({ amountPaid: String(Math.max(Number(i.totalAmount) - Number(i.paidAmount), 0)), method: acceptedMethods[0], transactionRef: '', proofFileKey: '' }); }}>Collect</button>
+                    </span>
+                  )
                 )}
               </td>
             </tr>

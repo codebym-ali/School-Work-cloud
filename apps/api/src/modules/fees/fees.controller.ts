@@ -180,8 +180,8 @@ export class FeesController {
    */
   @Roles('OWNER_ADMIN', 'ACCOUNTANT')
   @Post('invoices/:id/guardian-link')
-  guardianLink(@Param('id') id: string) {
-    return this.feeLink.issueFor(id);
+  guardianLink(@Param('id') id: string, @Headers('host') host?: string) {
+    return this.feeLink.issueFor(id, host);
   }
 
   @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT')

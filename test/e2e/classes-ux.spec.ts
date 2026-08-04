@@ -25,6 +25,12 @@ test.describe('classes — first run, responsive, keyboard', () => {
     const name = page.locator('label:text-is("Class name") + input');
     await expect(name).toBeVisible();
     await name.fill('Nursery');
+    // The campus picker only renders for a multi-campus school (a single campus is auto-selected),
+    // and this tenant grew a second campus after the spec was written — so the spec sat red while
+    // "Choose a campus first." was the correct answer. Pick one when asked; the assertion below is
+    // about the button being reachable, not about how many campuses happen to exist today.
+    const campus = page.locator('label:text-is("Campus") + select');
+    if (await campus.count()) await campus.selectOption({ index: 1 });
     await expect(page.getByRole('button', { name: 'Add class' })).toBeEnabled();
     // The placeholder must read as an example, not as a filled-in value — people used to click
     // Add class and wonder why nothing happened.

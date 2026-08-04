@@ -88,6 +88,15 @@ export const PERMISSION_MATRIX: MatrixRow[] = [
   { label: 'reject a payment claim', method: 'post', path: '/api/v1/fees/claims/00000000-0000-0000-0000-000000000000/reject', body: {}, allow: ['OWNER_ADMIN', 'ACCOUNTANT'] },
   // Proof of payment is financial evidence: the same audience that may see the payment.
   { label: 'read payment proof', method: 'get', path: '/api/v1/fees/payments/00000000-0000-0000-0000-000000000000/proof', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT'], scopeGated: true },
+  // F8: these four READS shipped with no `@Roles` while every write beside them was owner-only,
+  // so the fee catalogue, every class's prices, the late-fee rule and — worst — named students'
+  // concessions were readable by any authenticated session. The matrix had rows for the writes
+  // only, which is precisely why nothing caught it: **a guarded write does not imply a guarded
+  // read, and only a row here proves either.**
+  { label: 'list fee heads', method: 'get', path: '/api/v1/fee-heads', allow: ['OWNER_ADMIN', 'ACCOUNTANT'] },
+  { label: 'list fee prices', method: 'get', path: '/api/v1/fee-structures', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT'] },
+  { label: 'read late-fee policy', method: 'get', path: '/api/v1/late-fee-policy', allow: ['OWNER_ADMIN', 'ACCOUNTANT'] },
+  { label: 'list student discounts', method: 'get', path: '/api/v1/discounts', allow: ['OWNER_ADMIN', 'ACCOUNTANT'] },
   { label: 'rename a fee', method: 'patch', path: '/api/v1/fee-heads/00000000-0000-0000-0000-000000000000', body: {}, allow: ['OWNER_ADMIN'] },
   { label: 'delete a fee', method: 'delete', path: '/api/v1/fee-heads/00000000-0000-0000-0000-000000000000', allow: ['OWNER_ADMIN'] },
   { label: 'change a fee price', method: 'patch', path: '/api/v1/fee-structures/00000000-0000-0000-0000-000000000000', body: {}, allow: ['OWNER_ADMIN'] },

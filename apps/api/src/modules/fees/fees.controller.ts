@@ -42,7 +42,10 @@ import {
 export class FeeHeadsController {
   constructor(private readonly setup: FeeSetupService) {}
   @Roles('OWNER_ADMIN') @Post() create(@Body() dto: CreateFeeHeadDto) { return this.setup.createHead(dto); }
-  @Get() list() { return this.setup.listHeads(); }
+  // Reads were left unguarded here while every write was owner-only, so the whole fee catalogue
+  // was readable by any authenticated session — teacher, student, parent. An endpoint's read is
+  // not "the safe half"; it is the half that leaks. `/fees` is the only caller (owner+cashier).
+  @Roles('OWNER_ADMIN', 'ACCOUNTANT') @Get() list() { return this.setup.listHeads(); }
   // Renaming and removing were missing entirely, so the list only ever grew — a school could
   // not clear a typo, let alone anything a test run left behind.
   @Roles('OWNER_ADMIN') @Patch(':id') update(@Param('id') id: string, @Body() dto: CreateFeeHeadDto) {
@@ -57,6 +60,9 @@ export class FeeHeadsController {
 export class FeeStructuresController {
   constructor(private readonly setup: FeeSetupService) {}
   @Roles('OWNER_ADMIN') @Post() create(@Body() dto: CreateFeeStructureDto) { return this.setup.createStructure(dto); }
+  // CAMPUS_ADMIN included: the class workbench (`/classes/[id]`) shows the class's fee plan, and
+  // that screen is theirs. They may read the plan for their campus's classes, never change it.
+  @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT')
   @Get() list(@Query('classId') classId?: string) { return this.setup.listStructures(classId); }
 
   /** Copy a plan across classes, or roll a year forward with an optional rise. */
@@ -77,13 +83,17 @@ export class FeeStructuresController {
 export class LateFeePolicyController {
   constructor(private readonly setup: FeeSetupService) {}
   @Roles('OWNER_ADMIN') @Put() upsert(@Body() dto: UpsertLateFeePolicyDto) { return this.setup.upsertLateFeePolicy(dto); }
-  @Get() get() { return this.setup.getLateFeePolicy(); }
+  @Roles('OWNER_ADMIN', 'ACCOUNTANT') @Get() get() { return this.setup.getLateFeePolicy(); }
 }
 
 @Controller('discounts')
 export class DiscountsController {
   constructor(private readonly setup: FeeSetupService) {}
   @Roles('OWNER_ADMIN') @Post() create(@Body() dto: CreateDiscountDto) { return this.setup.createDiscount(dto); }
+  // The worst of the four that shipped unguarded: `?studentId=` returns a named child's fee
+  // concessions — hardship, staff-child, sibling — which any authenticated user could read,
+  // including that child's classmates. Narrowest set that matches the writes; no UI calls it yet.
+  @Roles('OWNER_ADMIN', 'ACCOUNTANT')
   @Get() list(@Query('studentId') studentId?: string) { return this.setup.listDiscounts(studentId); }
   @Roles('OWNER_ADMIN') @Post(':id/revoke') revoke(@Param('id') id: string) { return this.setup.revokeDiscount(id); }
 }

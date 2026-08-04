@@ -1,7 +1,7 @@
 ---
 title: Fees — known gaps & flaws
 type: register
-status: F1–F7, F9 CLOSED 2026-08-03 · F8 open
+status: F1–F9 CLOSED · F8 closed 2026-08-04 (and reclassified Low-Med → High on inspection)
 created: 2026-08-03
 scope: fee heads, fee structures, invoice generation
 ---
@@ -150,15 +150,40 @@ refused, copy with rise + skip-on-rerun), 3 matrix rows, 1 Playwright display te
 
 ---
 
-## F8 — Fee prices are readable by any signed-in user 🟡 **Low-Med · OPEN**
+## F8 — Fee reads were open to any signed-in user ✅ **FIXED 2026-08-04**
 
-`GET /fee-structures` and `GET /fee-heads` carry **no `@Roles`**, so any authenticated
-account — a teacher, a staff member, a student — can read what every class is charged. Not
-student PII, and writes are correctly owner-only, but it is not information those roles need.
+Filed as two unguarded reads (`GET /fee-structures`, `GET /fee-heads`). On opening the
+controller it was **four** — and the fourth reclassified the whole gap:
 
-Noticed while gating the class workbench's fee line to the owner in the UI, which is a display
-fix over an open endpoint rather than a real boundary. **Fix:** `@Roles('OWNER_ADMIN',
-'CAMPUS_ADMIN', 'ACCOUNTANT')` on both reads, and a matrix row asserting the deny side.
+| Endpoint | Was | Now |
+|---|---|---|
+| `GET /fee-heads` | *(none)* | `OWNER_ADMIN, ACCOUNTANT` |
+| `GET /fee-structures` | *(none)* | `OWNER_ADMIN, CAMPUS_ADMIN, ACCOUNTANT` |
+| `GET /late-fee-policy` | *(none)* | `OWNER_ADMIN, ACCOUNTANT` |
+| `GET /discounts?studentId=` | *(none)* | `OWNER_ADMIN, ACCOUNTANT` |
+
+`GET /discounts?studentId=` returns a **named child's fee concessions** — hardship, staff-child,
+sibling. Any authenticated session could read it, including that child's own classmates. That is
+not "fee prices are not secret" (the Low-Med this was filed as); it is a family's financial
+circumstances, and it moves the gap to **High**. Filed severity reflected the two endpoints
+someone happened to notice, not the shape of the hole.
+
+`CAMPUS_ADMIN` is on `/fee-structures` alone, because the class workbench (`/classes/[id]`)
+shows a class's fee plan and that screen is theirs — read the plan, never change it. The other
+three are money, so owner + cashier.
+
+**Why nothing caught it:** the matrix had rows for the *writes* only. Every write beside these
+reads was correctly `OWNER_ADMIN`, which is exactly what made the gap invisible — the module
+looked guarded. *A guarded write does not imply a guarded read, and only a matrix row proves
+either.* Four rows added; 24 new assertions (4 × 6 roles), both directions.
+
+`GET /discounts` also has **no UI caller at all** — the fifth instance of the endpoint-nobody-calls
+pattern in this codebase (after `PUT /sections/:id/subjects`, `PATCH /subjects/:id`,
+`POST /staff-attendance/bulk`, and the fee-structure/fee-head writes).
+
+**Verified:** integration 666/666, isolation 7, lint + build clean; owner reads still 200 on all
+four against the live API; 13 Playwright specs green including `fee-plan`, which exercises both
+calling screens.
 
 
 ---

@@ -81,6 +81,22 @@ export async function apiSetupPost<T = unknown>(page: Page, path: string, body: 
   return res.json() as Promise<T>;
 }
 
+/**
+ * Authenticated same-origin DELETE, for a spec tidying up what it created.
+ *
+ * These specs run against the operator's real demo tenant, so anything a spec creates and does
+ * not remove accumulates in a screen a human actually looks at — the fee-head debris (F9) was
+ * exactly this, 23 junk entries in a live dropdown. Best-effort by design: a failed cleanup
+ * must not fail an otherwise-passing test, but it must be *attempted*.
+ */
+export async function apiSetupDelete(page: Page, path: string): Promise<void> {
+  const cookies = await page.context().cookies();
+  const csrf = cookies.find((c) => c.name === 'csrf')?.value ?? '';
+  await page.request.delete(`http://localhost:3001/api/v1${path}`, {
+    headers: { 'X-CSRF-Token': csrf },
+  }).catch(() => undefined);
+}
+
 /** Authenticated same-origin GET for test setup (reads seed ids like the current year). */
 export async function apiSetupGet<T = unknown>(page: Page, path: string): Promise<T> {
   const res = await page.request.get(`http://localhost:3001/api/v1${path}`);

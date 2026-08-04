@@ -35,10 +35,38 @@ async function main(): Promise<void> {
   try {
     const school = await prisma.school.findFirst({ where: { subdomain: SUBDOMAIN } });
     if (!school) throw new Error(`Demo tenant "${SUBDOMAIN}" not found — run pnpm db:seed first.`);
-    const campus = await prisma.campus.findFirst({ where: { schoolId: school.id }, orderBy: { name: 'asc' } });
-    if (!campus) throw new Error('Demo tenant has no campus.');
+    const campuses = await prisma.campus.findMany({ where: { schoolId: school.id }, orderBy: { name: 'asc' } });
+    if (!campuses.length) throw new Error('Demo tenant has no campus.');
 
     const hash = (p: string) => argon2.hash(p, { type: argon2.argon2id });
+
+    /**
+     * CAMPUS_ADMIN and ADMISSION_CONTROLLER are **seat roles**: `02_partial_uniques.sql` enforces
+     * one holder per campus in the DB, so on a tenant somebody has actually configured, the
+     * obvious campus is already taken.
+     *
+     * This script used to pick the first campus alphabetically and `create()` blind, which threw
+     * P2002 and — because nothing caught it — **aborted the whole run**, so the PARENT and STUDENT
+     * logins further down were never created at all. That is why `student@demo.pk` did not exist
+     * and `student-portal.spec` had been failing: a seeder that dies on the first taken seat
+     * silently skips everything after it.
+     *
+     * Now: take a campus whose seat is free, and if every seat is taken, skip that role with a
+     * reason. A dev seeder must never evict the person holding a seat on a real tenant.
+     */
+    const SEAT_ROLES: Role[] = ['CAMPUS_ADMIN', 'ADMISSION_CONTROLLER'];
+    const schoolId = school.id;
+    async function campusFor(roles: Role[]): Promise<{ id: string; name: string } | 'all-taken'> {
+      const seat = roles.find((r) => SEAT_ROLES.includes(r));
+      if (!seat) return campuses[0];
+      for (const c of campuses) {
+        const holder = await prisma.user.findFirst({
+          where: { schoolId, campusId: c.id, deletedAt: null, roles: { has: seat } },
+        });
+        if (!holder) return c;
+      }
+      return 'all-taken';
+    }
 
     for (const u of STAFF) {
       const existing = await prisma.user.findFirst({ where: { schoolId: school.id, email: u.email } });
@@ -46,17 +74,22 @@ async function main(): Promise<void> {
         console.log(`• ${u.email} already exists — skipped`);
         continue;
       }
+      const target = u.campusBound ? await campusFor(u.roles) : campuses[0];
+      if (target === 'all-taken') {
+        console.log(`• ${u.email} skipped — every campus already has a ${u.roles.join(',')} and the seat is one-per-campus`);
+        continue;
+      }
       await prisma.user.create({
         data: {
           schoolId: school.id,
-          campusId: u.campusBound ? campus.id : null,
+          campusId: u.campusBound ? target.id : null,
           email: u.email,
           passwordHash: await hash(u.password),
           roles: u.roles,
           status: 'ACTIVE',
         },
       });
-      console.log(`✔ ${u.email} / ${u.password}  [${u.roles.join(',')}${u.campusBound ? ` @ ${campus.name}` : ''}]`);
+      console.log(`✔ ${u.email} / ${u.password}  [${u.roles.join(',')}${u.campusBound ? ` @ ${target.name}` : ''}]`);
     }
 
     // A real, login-capable PARENT linked to an existing student so the parent view works.

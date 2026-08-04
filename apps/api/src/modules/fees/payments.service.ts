@@ -8,6 +8,7 @@ import {
   ErrorCodes,
   paginate,
   parseSchoolSettings,
+  PdfService,
   StorageService,
   restrictedCampusId,
   TenantContext,
@@ -38,6 +39,7 @@ export class PaymentsService {
     private readonly sms: SmsProducer,
     private readonly access: AccessService,
     private readonly storage: StorageService,
+    private readonly pdf: PdfService,
   ) {}
 
   private get db() {
@@ -290,6 +292,81 @@ export class PaymentsService {
     }
     const expiresInSeconds = 600;
     const url = await this.storage.presignGet(payment.proofFileKey, expiresInSeconds, `receipt-${payment.receiptNo}-proof`);
+    return { url, expiresInSeconds };
+  }
+
+  /**
+   * The receipt as a PDF — the thing the family actually asks for.
+   *
+   * Rendered on demand rather than stored at payment time: a receipt is a *view* of the payment
+   * and the invoice around it, and both can legitimately move afterwards (a later instalment
+   * changes "still outstanding", a reversal voids the whole thing). A file frozen at 16:04 on the
+   * day of payment would quietly start disagreeing with the ledger it came from.
+   *
+   * Reversed payments are refused outright. Handing someone a clean-looking receipt for money
+   * that has been reversed is how a receipt stops meaning anything.
+   *
+   * Access mirrors `proofUrl`: campus-scoped for staff, and a STUDENT may fetch their own — the
+   * check is in the service because it reads tenant rows (§22.8).
+   */
+  async receiptPdf(paymentId: string): Promise<{ url: string; expiresInSeconds: number }> {
+    const payment = await this.db.feePayment.findFirst({
+      where: { id: paymentId },
+      select: {
+        id: true, receiptNo: true, amountPaid: true, method: true, transactionRef: true, paidAt: true,
+        reversal: { select: { id: true } },
+        collectedBy: { select: { email: true } },
+        invoice: {
+          select: {
+            month: true, year: true, totalAmount: true, paidAmount: true,
+            enrollment: { select: { campusId: true, class: { select: { name: true } } } },
+            student: { select: { fullName: true, grNumber: true, userId: true } },
+          },
+        },
+      },
+    });
+    if (!payment) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'Payment not found');
+
+    const caller = this.ctx.user!;
+    const isStudent = caller.roles.includes('STUDENT');
+    if (isStudent) {
+      // Self-scoped by the record, never by an id from the client.
+      if (payment.invoice.student.userId !== caller.userId) {
+        throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'Payment not found');
+      }
+    } else {
+      assertCampusAccess(this.ctx.user, payment.invoice.enrollment.campusId);
+    }
+
+    if (payment.reversal) {
+      throw new AppError(
+        ErrorCodes.CONFLICT,
+        HttpStatus.CONFLICT,
+        `Receipt #${payment.receiptNo} was reversed — there is no valid receipt for it.`,
+      );
+    }
+
+    const school = await this.db.school.findFirst({ where: { id: this.sid }, select: { name: true } });
+    const buffer = await this.pdf.feeReceipt({
+      schoolName: school?.name ?? 'School',
+      receiptNo: payment.receiptNo,
+      studentName: payment.invoice.student.fullName,
+      grNumber: payment.invoice.student.grNumber,
+      className: payment.invoice.enrollment.class.name,
+      period: payment.invoice.month ? `${payment.invoice.month}/${payment.invoice.year}` : String(payment.invoice.year),
+      paidOn: payment.paidAt.toISOString().slice(0, 10),
+      method: payment.method,
+      amountPaid: Number(payment.amountPaid),
+      invoiceTotal: Number(payment.invoice.totalAmount),
+      paidToDate: Number(payment.invoice.paidAmount),
+      receivedBy: payment.collectedBy.email,
+      transactionRef: payment.transactionRef,
+    });
+
+    const fileKey = `receipts/${this.sid}/${payment.id}.pdf`;
+    await this.storage.putObject(fileKey, buffer, 'application/pdf');
+    const expiresInSeconds = 600;
+    const url = await this.storage.presignGet(fileKey, expiresInSeconds, `receipt-${payment.receiptNo}.pdf`);
     return { url, expiresInSeconds };
   }
 

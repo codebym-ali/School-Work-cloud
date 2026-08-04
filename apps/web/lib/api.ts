@@ -222,7 +222,13 @@ export interface PortalOverview {
 }
 export interface PortalAttendance { date: string; session: string; status: string }
 export interface PortalResult { term: string; overallPercent: number; grade: string; sectionRank: number | null }
-export interface PortalFee { id: string; month: number | null; year: number; total: number; paid: number; remaining: number; status: string; dueDate: string }
+export interface PortalPayment { id: string; receiptNo: number; amount: number; method: string; paidAt: string; reversed: boolean }
+export interface PortalFee {
+  id: string; month: number | null; year: number; total: number; paid: number; remaining: number;
+  status: string; dueDate: string;
+  /** The receipts against this bill. "You owe X" without them is the half-answer. */
+  payments: PortalPayment[];
+}
 
 export interface ManagedUser { id: string; email: string; roles: string[]; campusId: string | null; campusName: string | null; status: string }
 
@@ -724,5 +730,7 @@ export const api = {
     performance: () => apiGet<PortalPerformance>('/portal/performance'),
     attendanceSummary: () => apiGet<PortalAttendanceSummary>('/portal/attendance/summary'),
     fees: () => apiGet<PortalFee[]>('/portal/fees'),
+    /** A short-lived presigned link to the student's OWN receipt; the server checks ownership. */
+    receipt: (paymentId: string) => apiGet<{ url: string }>(`/portal/fees/payments/${paymentId}/receipt`),
   },
 };

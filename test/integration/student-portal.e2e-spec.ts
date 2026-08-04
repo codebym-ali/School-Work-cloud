@@ -24,6 +24,11 @@ describe('Student portal (e2e, §28)', () => {
   let sectionId: string;
   let subjectId: string;
   let grNumber: string;
+  let classId: string;
+  let campusId: string;
+  let yearId: string;
+  let admit: (dto: object) => request.Test;
+  let myStudentId: string;
 
   const sub = `sp-${randomUUID().slice(0, 8)}`;
   const host = `${sub}.localhost`;
@@ -54,15 +59,18 @@ describe('Student portal (e2e, §28)', () => {
     schoolId = prov.schoolId;
 
     ownerCookies = await login(owner.email, owner.password);
-    await ownerPost('/api/v1/academic-years', { name: '2026-27', startDate: '2026-04-01', endDate: '2027-03-31', isCurrent: true });
+    yearId = (await ownerPost('/api/v1/academic-years', { name: '2026-27', startDate: '2026-04-01', endDate: '2027-03-31', isCurrent: true })).body.id;
+    campusId = prov.campusId;
     const klass = await ownerPost('/api/v1/classes', { campusId: prov.campusId, name: 'Grade 1', order: 1 });
+    classId = klass.body.id;
     const section = await ownerPost('/api/v1/sections', { classId: klass.body.id, name: 'A' });
-    const { admit } = await admissionController(app, platform, schoolId, host, prov.campusId);
+    ({ admit } = await admissionController(app, platform, schoolId, host, prov.campusId));
     const student = await admit({
       fullName: 'Kid One', gender: 'MALE', dateOfBirth: '2015-05-10', campusId: prov.campusId, classId: klass.body.id, sectionId: section.body.id,
       guardian: { mode: 'CREATE', fullName: 'Papa', phone: '03007654321', relation: 'FATHER' },
     });
     grNumber = student.body.grNumber;
+    myStudentId = student.body.studentId;
     enrollmentId = student.body.enrollmentId;
     sectionId = section.body.id;
     subjectId = (await ownerPost('/api/v1/subjects', { classId: klass.body.id, name: 'Maths' })).body.id;
@@ -94,6 +102,64 @@ describe('Student portal (e2e, §28)', () => {
       expect(res.status).toBe(200);
       expect(Array.isArray(res.body)).toBe(true);
     }
+  });
+
+  /**
+   * Fees and receipts on the student's own page (B5).
+   *
+   * The security assertion is the second half: a STUDENT may fetch **their own** receipt and must
+   * not be able to fetch anyone else's. The check lives in the service because it reads tenant
+   * rows, so nothing but a test like this proves it actually fires.
+   */
+  it('shows the student their invoices WITH receipts, and refuses another child’s receipt', async () => {
+    const sectionRes = await request(server()).get(`/api/v1/sections?classId=${classId}`).set('Host', host).set('Cookie', ownerCookies);
+    const sid = sectionRes.body[0].id;
+
+    const head = await ownerPost('/api/v1/fee-heads', { name: 'Tuition' });
+    await ownerPost('/api/v1/fee-structures', {
+      campusId, classId, feeHeadId: head.body.id, academicYearId: yearId, amount: 1000, frequency: 'MONTHLY',
+    });
+
+    // A second child, so "someone else's receipt" is a real row rather than a made-up id.
+    const other = await admit({
+      fullName: 'Kid Two', gender: 'FEMALE', dateOfBirth: '2015-06-11', campusId, classId, sectionId: sid,
+      guardian: { mode: 'CREATE', fullName: 'Mama', phone: '03009998877', relation: 'MOTHER' },
+    });
+
+    await ownerPost('/api/v1/fees/invoice-batches', { classId, month: 9, year: 2026 });
+    const invoicesOf = async (studentId: string) =>
+      (await request(server()).get(`/api/v1/fees/invoices?studentId=${studentId}&month=9&year=2026`)
+        .set('Host', host).set('Cookie', ownerCookies)).body.data;
+
+    // The portal deliberately never returns a student id, so this comes from the fixture.
+    const mine = (await invoicesOf(myStudentId))[0];
+    const theirs = (await invoicesOf(other.body.studentId))[0];
+
+    const payFor = async (invoiceId: string) =>
+      request(server()).post(`/api/v1/fees/invoices/${invoiceId}/payments`)
+        .set('Host', host).set('Cookie', ownerCookies).set('X-CSRF-Token', csrfOf(ownerCookies))
+        .set('Idempotency-Key', randomUUID())
+        .send({ amountPaid: 400, method: 'CASH' });
+
+    const myPayment = await payFor(mine.id);
+    const theirPayment = await payFor(theirs.id);
+    expect(myPayment.status).toBe(201);
+    expect(theirPayment.status).toBe(201);
+
+    // The bill and what has been paid against it arrive together — "you owe X" without "and here
+    // is receipt #N you already have" is the half-answer that starts a phone call.
+    const fees = await get('/api/v1/portal/fees', studentCookies);
+    const invoice = fees.body.find((f: { id: string }) => f.id === mine.id);
+    expect(invoice.payments).toHaveLength(1);
+    expect(invoice.payments[0]).toMatchObject({ receiptNo: myPayment.body.receiptNo, amount: 400, reversed: false });
+
+    const ok = await get(`/api/v1/portal/fees/payments/${myPayment.body.paymentId}/receipt`, studentCookies);
+    expect(ok.status).toBe(200);
+    expect(ok.body.url).toBeTruthy();
+
+    // Another child's receipt — 404, not 403: a student should not learn that the payment exists.
+    const denied = await get(`/api/v1/portal/fees/payments/${theirPayment.body.paymentId}/receipt`, studentCookies);
+    expect(denied.status).toBe(404);
   });
 
   /** The student sees their OWN trend — never a rank or a class average. That is a product

@@ -32,7 +32,7 @@ test.describe('guardian fee link', () => {
 
       // A billable child of our own: the demo tenant's invoices are all settled, and a settled
       // invoice cannot exercise the form at all.
-      const { classId, className } = await seedClassSectionStudent(page);
+      const { classId, className, studentName } = await seedClassSectionStudent(page);
       const head = await apiSetupPost<{ id: string }>(page, '/fee-heads', { name: `GL ${Date.now()}` });
       const years = await apiSetupGet<{ id: string; isCurrent: boolean }[]>(page, '/academic-years');
       const year = years.find((y) => y.isCurrent) ?? years[0];
@@ -78,6 +78,19 @@ test.describe('guardian fee link', () => {
       // It must never read as a receipt.
       await expect(guardian.getByText(/This is not a\s+receipt/i)).toBeVisible();
       await guardianCtx.close();
+
+      // Take it back out of the queue. The submission this spec makes is real, and "Payment
+      // submissions" is a screen the office actually works — three runs left three PENDING rows
+      // for someone to puzzle over. Rejecting is the supported undo (a claim is never deleted:
+      // the record of what was submitted is the point), and a REJECTED row sits in a tab nobody
+      // is asked to action.
+      // Matched on the student, not the invoice: the claims list does not project `invoice.id`,
+      // so filtering on it silently matched nothing and the cleanup ran over an empty array.
+      const pending = await apiSetupGet<{ data: { id: string; student: { fullName: string } }[] }>(page, '/fees/claims?status=PENDING');
+      const mine = pending.data.filter((c) => c.student.fullName === studentName);
+      for (const c of mine) {
+        await apiSetupPost(page, `/fees/claims/${c.id}/reject`, { reason: 'Automated test submission' });
+      }
     } finally {
       if (!wasOn) {
         await page.request.patch('http://localhost:3001/api/v1/school-settings', {

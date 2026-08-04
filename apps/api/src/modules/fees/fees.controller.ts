@@ -211,6 +211,13 @@ export class FeesController {
     return this.payments.proofUrl(id);
   }
 
+  /** The receipt itself, as a PDF — what the family asks for at the counter. */
+  @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT')
+  @Get('payments/:id/receipt')
+  receipt(@Param('id') id: string) {
+    return this.payments.receiptPdf(id);
+  }
+
   @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT')
   @Get('payments')
   listPayments(@Query() q: PaymentListQuery) {

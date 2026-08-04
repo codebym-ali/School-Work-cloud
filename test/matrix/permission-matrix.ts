@@ -108,6 +108,9 @@ export const PERMISSION_MATRIX: MatrixRow[] = [
   { label: 'change a fee price', method: 'patch', path: '/api/v1/fee-structures/00000000-0000-0000-0000-000000000000', body: {}, allow: ['OWNER_ADMIN'] },
   { label: 'delete a fee price', method: 'delete', path: '/api/v1/fee-structures/00000000-0000-0000-0000-000000000000', allow: ['OWNER_ADMIN'] },
   { label: 'copy a fee plan', method: 'post', path: '/api/v1/fee-structures/copy', body: {}, allow: ['OWNER_ADMIN'] },
+  // A receipt is financial evidence about one family: the same audience that may see the payment.
+  // (The STUDENT's own receipt is a different route under /portal, self-scoped in the service.)
+  { label: 'read a fee receipt', method: 'get', path: '/api/v1/fees/payments/00000000-0000-0000-0000-000000000000/receipt', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT'], scopeGated: true },
   { label: 'reverse payment', method: 'post', path: '/api/v1/fees/payments/00000000-0000-0000-0000-000000000000/reversals', body: { reason: 'x' }, allow: ['OWNER_ADMIN'] },
   { label: 'class-strength report', method: 'get', path: '/api/v1/reports/class-strength', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT'], scopeGated: true },
   { label: 'dashboard', method: 'get', path: '/api/v1/dashboard', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT'] },

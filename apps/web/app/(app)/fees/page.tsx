@@ -32,6 +32,7 @@ export default function FeesPage() {
   const [uploading, setUploading] = useState(false);
   const [linking, setLinking] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
+  const [justPaid, setJustPaid] = useState<{ paymentId: string; receiptNo: number } | null>(null);
   const [setupOpen, setSetupOpen] = useState(false);
   const [settings, setSettings] = useState<SchoolSettings | null>(null);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
@@ -94,16 +95,29 @@ export default function FeesPage() {
 
   async function collect(id: string) {
     try {
-      await apiPost(`/fees/invoices/${id}/payments`, {
+      const res = await apiPost<{ paymentId: string; receiptNo: number }>(`/fees/invoices/${id}/payments`, {
         amountPaid: Number(pay.amountPaid),
         method: pay.method,
         ...(pay.transactionRef.trim() ? { transactionRef: pay.transactionRef.trim() } : {}),
         ...(pay.proofFileKey ? { proofFileKey: pay.proofFileKey } : {}),
       }, idemKey());
-      setMsg({ ok: true, text: 'Payment recorded' });
+      setMsg({ ok: true, text: `Payment recorded — receipt #${res.receiptNo}` });
+      // The family is standing at the counter NOW, so the receipt is offered here rather than
+      // being something the clerk has to go and find afterwards.
+      setJustPaid({ paymentId: res.paymentId, receiptNo: res.receiptNo });
       setPaying(null); setPay({ amountPaid: '', method: acceptedMethods[0], transactionRef: '', proofFileKey: '' });
       await loadInvoices();
     } catch (e) { setMsg({ ok: false, text: e instanceof ApiError ? e.message : 'Payment failed' }); }
+  }
+
+  /** Presigned and short-lived, so it is fetched on the click, not rendered as a stale href. */
+  async function openReceipt(paymentId: string) {
+    try {
+      const { url } = await apiGet<{ url: string }>(`/fees/payments/${paymentId}/receipt`);
+      window.open(url, '_blank', 'noopener');
+    } catch (e) {
+      setMsg({ ok: false, text: e instanceof ApiError ? e.message : 'Could not open that receipt' });
+    }
   }
 
   /** Straight to storage, virus-scanned, then we keep only the key it comes back with. */
@@ -134,6 +148,16 @@ export default function FeesPage() {
         )}
       </div>
       {msg && <div className={`toast ${msg.ok ? 'ok' : 'err'}`}>{msg.text}</div>}
+      {/* Offered at the counter, in the moment — not a thing the clerk has to go and find. */}
+      {justPaid && (
+        <div className="card row" style={{ alignItems: 'center', gap: 10 }}>
+          <strong>Receipt #{justPaid.receiptNo} is ready</strong>
+          <span className="row" style={{ gap: 8, marginLeft: 'auto' }}>
+            <button className="small" onClick={() => void openReceipt(justPaid.paymentId)}>⬇ Open receipt (PDF)</button>
+            <button className="ghost small" onClick={() => setJustPaid(null)}>Dismiss</button>
+          </span>
+        </div>
+      )}
 
       {isOwner && setupOpen && (
         <FeeSetupPanel

@@ -33,6 +33,25 @@ export interface PayslipPdf {
   netPay: number;
 }
 
+export interface FeeReceiptPdf {
+  schoolName: string;
+  /** Gap-free per school — this is the number the family quotes back at the counter. */
+  receiptNo: number;
+  studentName: string;
+  grNumber: string;
+  className: string;
+  /** The period the money is FOR, which is not the day it was paid. */
+  period: string;
+  paidOn: string;
+  method: string;
+  amountPaid: number;
+  /** After this payment, so the family can see whether anything is still owed. */
+  invoiceTotal: number;
+  paidToDate: number;
+  receivedBy: string;
+  transactionRef: string | null;
+}
+
 export interface TablePdf {
   schoolName: string;
   title: string;
@@ -81,6 +100,40 @@ export class PdfService {
       kv(doc, 'Attendance deduction', money(d.attendanceDeduction));
       kv(doc, 'Other deductions', money(d.otherDeductions));
       doc.moveDown(0.5).fontSize(13).text(`Net pay: ${money(d.netPay)}`, { underline: true });
+    });
+  }
+
+  /**
+   * A fee receipt — the piece of paper a Pakistani school hands across the counter.
+   *
+   * It states the **receipt number** first because that is what a family quotes back when they
+   * come to argue, and it is gap-free per school precisely so it can be cited. It also states
+   * what is still owed after this payment: a receipt that shows only the amount received leaves
+   * the payer to work out whether they are square, and they will assume they are.
+   */
+  feeReceipt(d: FeeReceiptPdf): Promise<Buffer> {
+    return build((doc) => {
+      header(doc, d.schoolName, `Fee Receipt #${d.receiptNo}`);
+      doc.moveDown();
+      kv(doc, 'Student', `${d.studentName} (GR ${d.grNumber})`);
+      kv(doc, 'Class', d.className);
+      kv(doc, 'Fee for', d.period);
+      doc.moveDown(0.5);
+      kv(doc, 'Received on', d.paidOn);
+      kv(doc, 'Method', d.method);
+      if (d.transactionRef) kv(doc, 'Reference', d.transactionRef);
+      kv(doc, 'Received by', d.receivedBy);
+      doc.moveDown(0.5);
+      doc.fontSize(13).text(`Amount received: ${money(d.amountPaid)}`, { underline: true });
+      doc.moveDown(0.5).fontSize(11);
+      const outstanding = d.invoiceTotal - d.paidToDate;
+      kv(doc, 'Invoice total', money(d.invoiceTotal));
+      kv(doc, 'Paid to date', money(d.paidToDate));
+      kv(doc, outstanding > 0 ? 'Still outstanding' : 'Balance', money(Math.max(outstanding, 0)));
+      doc.moveDown();
+      doc.fontSize(9).fillColor('#666666')
+        .text('This receipt is issued against a payment recorded by the school office.', { align: 'center' })
+        .fillColor('black');
     });
   }
 

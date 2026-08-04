@@ -32,6 +32,11 @@ test.describe('payment submissions', () => {
     }
 
     // An empty queue says so plainly rather than showing a bare table.
+    //
+    // Wait for the card to settle first. Counting rows while it still says "Loading…" reads as
+    // zero, and the spec then demanded an empty-state message that had not rendered either — a
+    // race that only shows up once the screen has enough to fetch to be slow.
+    await expect(page.getByText('Loading…')).toHaveCount(0);
     const rows = page.locator('table tbody tr');
     if (await rows.count() === 0) {
       await expect(page.getByText(/Nothing is waiting to be checked/i)).toBeVisible();

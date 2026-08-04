@@ -199,3 +199,9 @@ can ignore or delete the whole campus — but it was already 21 classes after a 
 trade for now: cleanup would have to unpick sections, subjects, enrolments and the admitted
 student. **Revisit if that campus ever needs to be looked at**, or add a teardown that drops
 classes older than a day.
+
+Same shape, found the hard way on 2026-08-04: the guardian-link spec submits a **real claim**, and
+three runs left three PENDING rows in *Payment submissions* — a screen the office actually works
+through. It now rejects its own claim afterwards (a claim is never deleted; the record of what was
+submitted is the point), so the residue is an inert REJECTED row in a tab nobody actions rather
+than fake work in the queue. **Debris in a list is tolerable; debris in a queue is a task.**

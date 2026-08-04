@@ -1,6 +1,7 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, Param } from '@nestjs/common';
 import { Roles } from '@common';
 import { StudentPortalService } from './student-portal.service';
+import { PaymentsService } from '../fees/payments.service';
 
 /**
  * Student self-service portal (§28). STUDENT-only; every route is read-only and resolves
@@ -10,7 +11,10 @@ import { StudentPortalService } from './student-portal.service';
 @Roles('STUDENT')
 @Controller('portal')
 export class StudentPortalController {
-  constructor(private readonly portal: StudentPortalService) {}
+  constructor(
+    private readonly portal: StudentPortalService,
+    private readonly payments: PaymentsService,
+  ) {}
 
   @Get('overview')
   overview() {
@@ -42,5 +46,18 @@ export class StudentPortalController {
   @Get('fees')
   fees() {
     return this.portal.fees();
+  }
+
+  /**
+   * The student's own receipt as a PDF.
+   *
+   * Delegates to the ordinary payment path rather than reimplementing it — same renderer, same
+   * refusal for a reversed payment. The self-check lives in `PaymentsService.receiptPdf`, which
+   * matches the payment's student against the caller (§22.8: it reads tenant rows, so it cannot
+   * be a guard) and 404s otherwise. No id from the client can widen that.
+   */
+  @Get('fees/payments/:id/receipt')
+  receipt(@Param('id') id: string) {
+    return this.payments.receiptPdf(id);
   }
 }

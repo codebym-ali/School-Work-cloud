@@ -149,6 +149,22 @@ describe('Fees end-to-end (e2e, §12)', () => {
     expect(receipts.every((r) => r.status === 'SENT')).toBe(true);
   });
 
+  /**
+   * The receipt PDF (B5). Rendered on demand, not stored at payment time: a receipt is a *view*
+   * of the payment and the invoice around it, and both move afterwards.
+   */
+  it('serves the receipt as a real PDF, and refuses one for a reversed payment', async () => {
+    const res = await get(`/api/v1/fees/payments/${firstPaymentId}/receipt`);
+    expect(res.status).toBe(200);
+    expect(res.body.url).toBeTruthy();
+
+    // Actually fetch it: a presigned URL that 404s is the failure mode a status check misses.
+    const pdf = await fetch(res.body.url);
+    expect(pdf.status).toBe(200);
+    const head = Buffer.from(await pdf.arrayBuffer()).subarray(0, 5).toString();
+    expect(head).toBe('%PDF-');
+  });
+
   it('reverses a payment (OWNER_ADMIN) and recomputes the invoice', async () => {
     const rev = await post(`/api/v1/fees/payments/${firstPaymentId}/reversals`, { reason: 'Bounced cheque' });
     expect(rev.status).toBe(201);
@@ -160,6 +176,12 @@ describe('Fees end-to-end (e2e, §12)', () => {
 
     const integrity = await get('/api/v1/fees/integrity-check');
     expect(integrity.body.ok).toBe(true);
+
+    // A clean-looking receipt for money that has been reversed is how a receipt stops meaning
+    // anything — so the same call that worked a moment ago is now refused, by name.
+    const receipt = await get(`/api/v1/fees/payments/${firstPaymentId}/receipt`);
+    expect(receipt.status).toBe(409);
+    expect(receipt.body.error.message).toMatch(/reversed/i);
   });
 
   /**

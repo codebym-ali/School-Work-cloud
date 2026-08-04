@@ -227,7 +227,19 @@ export class StudentPortalService {
     const invoices = await this.db.feeInvoice.findMany({
       where: { studentId: student.id },
       orderBy: [{ year: 'desc' }, { month: 'desc' }],
-      select: { id: true, month: true, year: true, totalAmount: true, paidAmount: true, status: true, dueDate: true },
+      select: {
+        id: true, month: true, year: true, totalAmount: true, paidAmount: true, status: true, dueDate: true,
+        // The receipts, alongside the bill they belong to. "You owe 900" without "and here is
+        // what you have already paid, receipt #41" is half an answer, and the half that starts
+        // the phone call to the office.
+        payments: {
+          orderBy: { paidAt: 'desc' },
+          select: {
+            id: true, receiptNo: true, amountPaid: true, method: true, paidAt: true,
+            reversal: { select: { id: true } },
+          },
+        },
+      },
     });
     return invoices.map((i) => ({
       id: i.id,
@@ -238,6 +250,16 @@ export class StudentPortalService {
       remaining: money(Number(i.totalAmount) - Number(i.paidAmount)),
       status: i.status,
       dueDate: i.dueDate,
+      payments: i.payments.map((p) => ({
+        id: p.id,
+        receiptNo: p.receiptNo,
+        amount: Number(p.amountPaid),
+        method: p.method,
+        paidAt: p.paidAt,
+        // Shown, not hidden: a family that was handed a receipt needs to know it was reversed,
+        // and a payment that silently vanishes from the list is how a dispute starts.
+        reversed: p.reversal !== null,
+      })),
     }));
   }
 }

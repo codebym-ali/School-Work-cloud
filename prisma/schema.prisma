@@ -120,6 +120,11 @@ enum PaymentMethod {
   CARD
   CHEQUE
   ADVANCE // guardian advance/credit applied to an invoice (§12)
+  /// Settled through a payment aggregator (Kuickpay / 1Bill / 1LINK): the parent pays inside
+  /// their own bank app against the invoice's PSID. Unlike every other method here, an ONLINE
+  /// payment is NOT a claim someone has to verify — the aggregator's webhook is the bank
+  /// telling us the money moved, so it creates the FeePayment directly (Fee Submission Plan §5.3).
+  ONLINE
 }
 
 enum AttendanceStatus {
@@ -908,6 +913,10 @@ model FeeInvoice {
   status       FeeInvoiceStatus  @default(PENDING)
   month        Int?
   year         Int
+  /// Consumer number printed on the challan and quoted in the parent's bank app (§5.3).
+  /// Deterministic and unique per school so an aggregator can address exactly one invoice;
+  /// null until the school switches an aggregator on, which nothing does yet.
+  psid         String?           @map("psid") @db.VarChar(20)
   createdAt    DateTime          @default(now()) @map("created_at")
   updatedAt    DateTime          @updatedAt @map("updated_at")
 
@@ -917,6 +926,7 @@ model FeeInvoice {
 
   @@unique([id, schoolId])
   // Partial unique in SQL migration: one batch-generated invoice per (student, month, year)
+  @@unique([schoolId, psid])
   @@index([schoolId, studentId, status])
   @@index([schoolId, status, dueDate])
   @@index([enrollmentId, schoolId])

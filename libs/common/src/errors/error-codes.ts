@@ -40,6 +40,8 @@ export const ErrorCodes = {
   NOT_FOUND: 'NOT_FOUND',
   CONFLICT: 'CONFLICT',
   RATE_LIMITED: 'RATE_LIMITED',
+  /** A route that exists as a deliberate seam but is not wired up — refuses rather than half-works. */
+  NOT_IMPLEMENTED: 'NOT_IMPLEMENTED',
   INTERNAL: 'INTERNAL',
 } as const;
 

@@ -825,4 +825,47 @@ describe('Fees end-to-end (e2e, §12)', () => {
       await setLink(true);
     });
   });
+
+  /**
+   * The aggregator seam (§5.3) — a stub, and the tests say so.
+   *
+   * What is asserted is what is real: the endpoint exists, it is public, and it **fails closed**.
+   * Nothing here pretends settlement works, because it does not — but the failure modes that
+   * would matter on the day it does are pinned now, while they are cheap to get right.
+   */
+  describe('aggregator settlement seam', () => {
+    const settle = (body: object, signature?: string) => {
+      const r = request(server()).post('/api/v1/webhooks/fee-settlement/kuickpay').set('Host', host);
+      return (signature ? r.set('X-Signature', signature) : r).send(body);
+    };
+
+    it('refuses every call while no aggregator secret is configured', async () => {
+      // The dev/test env sets no AGGREGATOR_WEBHOOK_HMAC_SECRET, which is the point: an
+      // unconfigured deployment must refuse rather than fall through to "unsigned is fine".
+      const res = await settle({ psid: '0001234567890', amount: 900, aggregatorRef: 'KP-1' }, 'deadbeef');
+      expect(res.status).toBe(403);
+
+      // Unsigned is refused identically — no secret means nothing is acceptable.
+      expect((await settle({ psid: '0001234567890', amount: 900, aggregatorRef: 'KP-2' })).status).toBe(403);
+    });
+
+    it('validates the payload before it does anything else', async () => {
+      // No session and no CSRF: this is a @Public route, so the DTO is the first line of defence.
+      const res = await settle({ psid: 'x', amount: -5 }, 'deadbeef');
+      expect([400, 403, 422]).toContain(res.status);
+    });
+
+    it('carries the PSID column and the ONLINE method the seam is built on', async () => {
+      // The schema half of B6 — a column and an enum value nothing uses yet. Asserted because a
+      // migration that silently failed to apply would otherwise surface months later, when an
+      // aggregator contract is signed and everyone assumes this part was done.
+      const invoice = await platform.feeInvoice.findFirst({ where: { schoolId }, select: { psid: true } });
+      expect(invoice).toHaveProperty('psid', null);
+
+      const methods = await platform.$queryRawUnsafe<{ v: string }[]>(
+        `SELECT unnest(enum_range(NULL::"PaymentMethod"))::text AS v`,
+      );
+      expect(methods.map((m) => m.v)).toContain('ONLINE');
+    });
+  });
 });

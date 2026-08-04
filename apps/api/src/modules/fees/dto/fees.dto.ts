@@ -237,6 +237,25 @@ export class SubmitLinkClaimDto {
   note?: string;
 }
 
+/**
+ * What an aggregator posts when a parent pays inside their bank app (§5.3).
+ *
+ * Note what is NOT here: any notion of who collected the money. The caller is unauthenticated,
+ * so an actor taken from this body would be an actor chosen by a stranger.
+ */
+export class AggregatorSettlementDto {
+  /** The consumer number printed on the challan — carries the tenancy, so no Host is needed. */
+  @IsString() @MinLength(4) @MaxLength(20)
+  psid!: string;
+
+  @IsNumber({ maxDecimalPlaces: 2 }) @IsPositive()
+  amount!: number;
+
+  /** The aggregator's own reference. Doubles as the idempotency key: banks retry. */
+  @IsString() @MinLength(4) @MaxLength(120)
+  aggregatorRef!: string;
+}
+
 export class LinkUploadDto {
   @IsString() @MinLength(1) @MaxLength(200) filename!: string;
   @IsString() @MinLength(1) @MaxLength(100) mimeType!: string;

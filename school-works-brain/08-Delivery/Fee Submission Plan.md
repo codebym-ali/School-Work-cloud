@@ -1,7 +1,7 @@
 ---
 title: Fee submission — online, offline, and proof of payment
 type: plan
-status: B0–B4 SHIPPED (B4 on 2026-08-04) · B5–B6 open · decisions D1–D6 settled
+status: B0–B6 SHIPPED 2026-08-04 (B6 as a seam only, deliberately) · decisions D1–D6 settled
 created: 2026-08-04
 scope: apps/api fees + uploads + portal · apps/web fees, students, /me · prisma
 ---
@@ -206,6 +206,37 @@ The seam:
 none of which exist. The model carries the enum value and the invoice carries the PSID field so
 the day it is signed is a wiring job, not a redesign.
 
+### 5.3a What the seam is, and where it deliberately stops (2026-08-04)
+
+Real and tested today:
+- **`fee_invoices.psid`**, `VARCHAR(20)`, nullable, **unique per school** — Postgres treats NULLs
+  as distinct, so every un-issued invoice coexists under the constraint. The migration was
+  hand-curated: `migrate diff` tried to `DROP INDEX students_full_name_trgm` for the **eleventh**
+  time, and `db:check-migrations` now fails the build on it rather than relying on someone reading
+  the SQL.
+- **`PaymentMethod.ONLINE`** — the one method that is not a claim. A guardian's screenshot is
+  somebody's word; an aggregator callback is the bank saying the money moved.
+- **`POST /webhooks/fee-settlement/:provider`** — public, HMAC-signed, rate-limited. The signature
+  covers `psid.amount.aggregatorRef`, not just the PSID: signing the identifier alone would let
+  anyone who saw one legitimate callback replay it for a different figure. **No secret configured
+  ⇒ every call is refused**, so a half-configured deployment fails closed instead of trusting
+  unsigned callers. Cross-tenant lookup is by PSID (the caller is a bank; there is no Host to
+  resolve a tenant from), and the aggregator's reference is the replay guard, because banks retry.
+
+**Where it stops, and why.** Writing the `FeePayment` needs an answer to *"who collected this?"*
+and `collectedById` is NOT NULL with an FK to `users`, because that column exists to name the
+clerk who took the money. A bank settled this; there is no clerk. All three shortcuts are worse
+than stopping: taking an id from the callback body lets an **unauthenticated caller choose the
+actor**; attributing it to the owner puts a lie in the ledger (the same reason the guardian link
+writes no audit row); making the column nullable weakens it for every real payment. The right
+answer is a per-school **service account for machine-made payments** — a product decision with an
+owner, not something to invent inside a stub. Until then the endpoint returns a clear **501** so
+nobody can mistake it for live.
+
+**Verified live**, not only in tests: no secret → 403 · wrong signature → 403 · valid signature +
+unknown PSID → 204 (silent ack, so an unauthenticated caller cannot enumerate PSIDs) · valid
+signature + known PSID → 501.
+
 ---
 
 ## 6. Where it shows — the student portfolio
@@ -321,8 +352,8 @@ a toggle whose "off" position is a defect.
 | **B2** | Proof on an office-recorded payment + proof visible on the student profile | Immediate value, no new surface, no security question |
 | **B3** | `FeePaymentClaim` + verify/reject + the office queue + dashboard chip | The workflow that makes proof mean something |
 | **B4** | ✅ **SHIPPED 2026-08-04.** Tokenised link, public page at `/p/[token]`, rate limits, the PENDING claim it creates — behind `guardianUploadLink`. See §5.2a below. | The labour actually disappears here |
-| **B5** | Receipt PDF + payments and receipts on `/me/fees` | What the family asks for |
-| **B6** | Aggregator seam: PSID on the invoice, `ONLINE` method, HMAC webhook — **stub, not integrated** | Ready for the day a merchant account exists |
+| **B5** | ✅ **SHIPPED 2026-08-04.** `feeReceipt` PDF, `GET /fees/payments/:id/receipt`, payments + receipts on `/me/fees`, receipt offered at the counter the moment it is collected. | What the family asks for |
+| **B6** | ✅ **SHIPPED 2026-08-04 as a seam.** `psid` column (unique per school), `ONLINE` method, HMAC webhook that verifies and then **refuses**. See §5.3a. | Ready for the day a merchant account exists |
 
 ---
 

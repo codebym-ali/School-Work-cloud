@@ -10,6 +10,8 @@ import { PaymentsService } from './payments.service';
 import { FeeJobsService } from './fee-jobs.service';
 import { FeeLinkService } from './fee-link.service';
 import { FeeLinkController } from './fee-link.controller';
+import { AggregatorService } from './aggregator.service';
+import { AggregatorWebhookController } from './aggregator.controller';
 import {
   DiscountsController,
   FeeHeadsController,
@@ -29,9 +31,10 @@ import {
     DiscountsController,
     FeeClaimsController,
     FeeLinkController,
+    AggregatorWebhookController,
     FeesController,
   ],
-  providers: [FeeSetupService, ClaimsService, InvoicingService, PaymentsService, FeeJobsService, FeeLinkService],
-  exports: [FeeSetupService, ClaimsService, InvoicingService, PaymentsService, FeeJobsService, FeeLinkService],
+  providers: [FeeSetupService, ClaimsService, InvoicingService, PaymentsService, FeeJobsService, FeeLinkService, AggregatorService],
+  exports: [FeeSetupService, ClaimsService, InvoicingService, PaymentsService, FeeJobsService, FeeLinkService, AggregatorService],
 })
 export class FeesModule {}

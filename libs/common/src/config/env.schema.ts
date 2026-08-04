@@ -74,6 +74,10 @@ export const envSchema = z.object({
   SMS_API_KEY: z.string().optional(),
   SMS_SENDER_ID: z.string().optional(),
   SMS_WEBHOOK_HMAC_SECRET: z.string().min(1),
+  /** Signs aggregator settlement callbacks (§5.3). OPTIONAL and unset by default: no secret
+   *  means no school is integrated, and the webhook fails closed rather than accepting unsigned
+   *  callbacks — a stub that ships half-configured must refuse, not trust. */
+  AGGREGATOR_WEBHOOK_HMAC_SECRET: z.string().optional(),
 
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
   // Error monitoring (§31). Unset ⇒ Sentry stays off (dev/test/CI).

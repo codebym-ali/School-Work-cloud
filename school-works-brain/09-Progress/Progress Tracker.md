@@ -77,10 +77,17 @@ overall: 6 of 7 milestones (GA) — full v1 domain built; M7 hardening complete
 - [x] **`drainSms` consolidated.** Three hand-copied helpers meant three copies of the same two bugs,
   fixed one at a time over separate sessions. Now `test/integration/support/sms.ts`.
 
-**Test count: 678 integration (32 suites) · 52 unit · 7 isolation · 28 Playwright (2 skipped).**
+- [x] **B5 shipped — receipts.** A real `feeReceipt` PDF, the office gets it offered the moment a
+  payment is collected, and a family sees their own on `/me/fees`. Rendered on demand (a receipt
+  is a *view*, and the invoice around it moves), and refused outright for a reversed payment.
+- [x] **B6 shipped — as a seam, deliberately.** `psid` column, `ONLINE` method, HMAC webhook that
+  verifies, resolves the tenant, guards replays — and then returns **501**, because writing the
+  payment needs a service account that does not exist yet. Details in [[Fee Submission Plan]] §5.3a.
 
-Open next: **B5** (receipt PDF + `/me/fees`), **B6** (aggregator seam, stub only), and the
-attendance register's **G3–G8** — G3/G4/G5 are product decisions rather than code.
+**Test count: 687 integration (32 suites) · 52 unit · 7 isolation · 28 Playwright (2 skipped).**
+
+Open next: the attendance register's **G3–G8**. G3/G4/G5 are product decisions rather than code,
+and the aggregator seam waits on a merchant agreement plus the service-account decision.
 
 ---
 

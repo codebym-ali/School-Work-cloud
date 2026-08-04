@@ -21,12 +21,15 @@ x-app-env: &app-env
   REDIS_URL: redis://redis:6379
   S3_ENDPOINT: http://minio:9000
   NODE_ENV: production
+  # .env's API_PORT=4000 is the local-dev convention; the image's EXPOSE, the healthcheck
+  # below, and the Traefik loadbalancer label all assume the container listens on 3000.
+  API_PORT: '3000'
   TZ: Asia/Karachi
 
 services:
   migrate:
     build: .
-    command: sh -c "prisma migrate deploy && node scripts/apply-sql-companions.mjs && node scripts/check-rls-coverage.mjs"
+    command: sh -c "npx prisma migrate deploy && node scripts/apply-sql-companions.mjs && node scripts/check-rls-coverage.mjs"
     env_file: .env
     environment: *app-env
     depends_on:
@@ -98,7 +101,7 @@ services:
   # forwards the original Host so multi-tenant subdomain resolution works end-to-end.
   # For TLS in prod, add a websecure :443 entrypoint + a certresolver (Let's Encrypt).
   traefik:
-    image: traefik:v3.1
+    image: traefik:v3.5
     command:
       - --providers.docker=true
       - --providers.docker.exposedbydefault=false
@@ -106,7 +109,7 @@ services:
     ports:
       - '80:80'
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       - api
       - web

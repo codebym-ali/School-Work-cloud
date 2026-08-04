@@ -1,0 +1,17 @@
+# Local-only override: publishes api/web directly to the host so the containerized
+# stack is reachable without Traefik, which can't reach this machine's Docker daemon
+# (see Traefik's logs — a Docker API version-negotiation issue specific to this
+# environment's Docker Desktop build). Not part of the real deployment topology —
+# don't ship this alongside docker-compose.prod.yml in production.
+#
+#   docker compose -f docker-compose.prod.yml -f docker-compose.local-ports.yml up -d
+services:
+  api:
+    ports:
+      - '4001:3000'
+  web:
+    ports:
+      - '3002:3001'
+  postgres:
+    ports:
+      - '5434:5432'

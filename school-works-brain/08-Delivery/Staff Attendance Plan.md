@@ -1,7 +1,7 @@
 ---
 title: Staff Attendance — self-marking, history and oversight
 type: plan
-status: proposed — awaiting decisions (§8)
+status: SHIPPED 2026-08-03 — S0–S5 all built (S5 off by default); §8 decisions D1–D5 all DECIDED
 created: 2026-08-03
 scope: apps/api attendance + hr(payroll) · apps/worker maintenance · apps/web my-attendance, staff, dashboard · libs/common settings
 ---

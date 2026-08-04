@@ -1,12 +1,26 @@
 ---
 title: Setup Screen UX Remediation Plan
 type: plan
-status: proposed — awaiting product decisions (§1)
+status: LARGELY SUPERSEDED by the Classes Screen Refactor (2026-08-02) — see the note below before acting on it
 created: 2026-07-27
 scope: apps/web/app/(app)/setup/page.tsx (630 LOC) + supporting API/schema
 ---
 
 # Setup Screen — UX Remediation Plan
+
+> [!warning] Read this first — the screen this plan audits no longer owns the work (2026-08-04)
+> The **Classes Screen Refactor** (2026-08-02/03) moved class/section/subject management out of
+> `/setup` entirely: School configuration now *hands classes off* rather than managing them, and
+> a Playwright spec asserts it. So most of SU-01…SU-41 describe a screen that has since been
+> reshaped, and several objectives below were met somewhere else:
+> - **O1 "the screen never lies"** and **O2 "kill subject drift"** — landed on `/classes` and the
+>   per-class workbench, not here.
+> - **O3 "destructive actions are survivable"** — landed as the `ConfirmDialog` rule applied
+>   across Classes and the fee heads (which is where a bare `✕` deleted a live fee head).
+>
+> **Do not work this plan top-to-bottom.** Before reviving it, re-audit `/setup` as it stands
+> today and keep only the findings that still reproduce — an audit is a snapshot, and this one
+> is of a screen that has been rebuilt around it. Kept for the reasoning, not as a work list.
 
 > Source audit: 39 findings (SU-01 … SU-39) raised against `/setup`, plus 2 found while
 > verifying the schema for this plan (SU-40, SU-41). Clarity score at audit: **5/10**.

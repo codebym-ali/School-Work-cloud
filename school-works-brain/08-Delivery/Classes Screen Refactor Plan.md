@@ -1,7 +1,7 @@
 ---
 title: Classes Screen Refactor Plan
 type: plan
-status: proposed — awaiting approval (§9 decisions)
+status: SHIPPED 2026-08-02/03 — P0–P4 all built; §9 decisions all DECIDED
 created: 2026-08-02
 scope: apps/web/app/(app)/classes/** + apps/web/app/(app)/setup/page.tsx + apps/api hr.listAssignments
 ---

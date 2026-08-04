@@ -97,6 +97,12 @@ export const PERMISSION_MATRIX: MatrixRow[] = [
   { label: 'list fee prices', method: 'get', path: '/api/v1/fee-structures', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT'] },
   { label: 'read late-fee policy', method: 'get', path: '/api/v1/late-fee-policy', allow: ['OWNER_ADMIN', 'ACCOUNTANT'] },
   { label: 'list student discounts', method: 'get', path: '/api/v1/discounts', allow: ['OWNER_ADMIN', 'ACCOUNTANT'] },
+  // Minting a guardian link creates a BEARER CREDENTIAL for one invoice — whoever holds it can
+  // file a claim against that bill without signing in. So it is the cashier's call, not a campus
+  // admin's, and never a teacher's. (The public surface the token opens is @Public by design and
+  // therefore has no row here; its guards are the signature, the expiry and the settings flag,
+  // asserted in fees.e2e.)
+  { label: 'mint a guardian fee link', method: 'post', path: '/api/v1/fees/invoices/00000000-0000-0000-0000-000000000000/guardian-link', body: {}, allow: ['OWNER_ADMIN', 'ACCOUNTANT'] },
   { label: 'rename a fee', method: 'patch', path: '/api/v1/fee-heads/00000000-0000-0000-0000-000000000000', body: {}, allow: ['OWNER_ADMIN'] },
   { label: 'delete a fee', method: 'delete', path: '/api/v1/fee-heads/00000000-0000-0000-0000-000000000000', allow: ['OWNER_ADMIN'] },
   { label: 'change a fee price', method: 'patch', path: '/api/v1/fee-structures/00000000-0000-0000-0000-000000000000', body: {}, allow: ['OWNER_ADMIN'] },

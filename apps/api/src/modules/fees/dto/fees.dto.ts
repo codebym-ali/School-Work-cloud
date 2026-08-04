@@ -203,6 +203,45 @@ export class SubmitClaimDto {
   autoVerify?: boolean;
 }
 
+/**
+ * What a guardian submits through the tokenised link.
+ *
+ * No `invoiceId` — the token carries it. Accepting one from the body would let anyone holding
+ * any valid link file claims against every invoice in the school, which is the entire attack
+ * this surface has to be closed against. No `autoVerify` either: a guardian's own screenshot
+ * confirming itself would defeat the claim/payment split.
+ */
+export class SubmitLinkClaimDto {
+  @IsNumber({ maxDecimalPlaces: 2 }) @IsPositive()
+  amount!: number;
+
+  @IsEnum(PaymentMethod)
+  method!: PaymentMethod;
+
+  @IsOptional() @IsString() @MaxLength(120)
+  transactionRef?: string;
+
+  /** The date the payer says they paid — not when they submitted it. */
+  @IsDateString()
+  paidOn!: string;
+
+  /** The quarantine key just PUT to. Promoted (and virus-scanned) as part of submitting. */
+  @IsOptional() @IsString() @MaxLength(300)
+  proofFileKey?: string;
+
+  /** Needed to re-check the magic bytes against the declared type on promotion. */
+  @IsOptional() @IsString() @MaxLength(100)
+  proofMimeType?: string;
+
+  @IsOptional() @IsString() @MaxLength(300)
+  note?: string;
+}
+
+export class LinkUploadDto {
+  @IsString() @MinLength(1) @MaxLength(200) filename!: string;
+  @IsString() @MinLength(1) @MaxLength(100) mimeType!: string;
+}
+
 export class RejectClaimDto {
   /** Shown to whoever submitted it, so "no" is actionable rather than mysterious. */
   @IsString() @MinLength(3) @MaxLength(300)

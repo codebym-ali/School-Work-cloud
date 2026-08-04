@@ -19,6 +19,7 @@ import { FeeSetupService } from './fee-setup.service';
 import { InvoicingService } from './invoicing.service';
 import { PaymentsService } from './payments.service';
 import { FeeJobsService } from './fee-jobs.service';
+import { FeeLinkService } from './fee-link.service';
 import {
   CopyFeePlanDto,
   CreateAdvanceDto,
@@ -155,6 +156,7 @@ export class FeesController {
     private readonly invoicing: InvoicingService,
     private readonly payments: PaymentsService,
     private readonly jobs: FeeJobsService,
+    private readonly feeLink: FeeLinkService,
   ) {}
 
   @Roles('OWNER_ADMIN', 'ACCOUNTANT')
@@ -167,6 +169,19 @@ export class FeesController {
   @Get('invoices')
   listInvoices(@Query() q: InvoiceListQuery) {
     return this.invoicing.list(q);
+  }
+
+  /**
+   * Mint a guardian upload link for one invoice (§5.2).
+   *
+   * Owner/cashier only, and a POST rather than a GET: it creates a bearer credential that lets
+   * whoever holds it file a claim against this invoice, so it should not be sitting in a browser
+   * history or a proxy log because someone opened a page.
+   */
+  @Roles('OWNER_ADMIN', 'ACCOUNTANT')
+  @Post('invoices/:id/guardian-link')
+  guardianLink(@Param('id') id: string) {
+    return this.feeLink.issueFor(id);
   }
 
   @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT')

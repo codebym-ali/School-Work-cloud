@@ -2,11 +2,14 @@ import { Module } from '@nestjs/common';
 import { AccessModule } from '../access/access.module';
 import { SetupModule } from '../setup/setup.module';
 import { CommsModule } from '../comms/comms.module';
+import { UploadsModule } from '../uploads/uploads.module';
 import { FeeSetupService } from './fee-setup.service';
 import { ClaimsService } from './claims.service';
 import { InvoicingService } from './invoicing.service';
 import { PaymentsService } from './payments.service';
 import { FeeJobsService } from './fee-jobs.service';
+import { FeeLinkService } from './fee-link.service';
+import { FeeLinkController } from './fee-link.controller';
 import {
   DiscountsController,
   FeeHeadsController,
@@ -18,16 +21,17 @@ import {
 
 /** Fees end-to-end (blueprint §12): setup, invoicing, payments, reversals, advances, jobs. */
 @Module({
-  imports: [SetupModule, CommsModule, AccessModule],
+  imports: [SetupModule, CommsModule, AccessModule, UploadsModule],
   controllers: [
     FeeHeadsController,
     FeeStructuresController,
     LateFeePolicyController,
     DiscountsController,
     FeeClaimsController,
+    FeeLinkController,
     FeesController,
   ],
-  providers: [FeeSetupService, ClaimsService, InvoicingService, PaymentsService, FeeJobsService],
-  exports: [FeeSetupService, ClaimsService, InvoicingService, PaymentsService, FeeJobsService],
+  providers: [FeeSetupService, ClaimsService, InvoicingService, PaymentsService, FeeJobsService, FeeLinkService],
+  exports: [FeeSetupService, ClaimsService, InvoicingService, PaymentsService, FeeJobsService, FeeLinkService],
 })
 export class FeesModule {}

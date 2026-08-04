@@ -11,8 +11,11 @@
  *   manual SMS   100/school/h  (recipient/day cap enforced separately in the SMS service)
  */
 
-/** What the limit is keyed on. `email`/`refreshToken` are derived per-request for pre-auth flows. */
-export type RateLimitScope = 'ip' | 'user' | 'school' | 'email' | 'refreshToken';
+/**
+ * What the limit is keyed on. `email`/`refreshToken`/`feeLinkToken` are derived per-request for
+ * flows that have no authenticated principal to key on.
+ */
+export type RateLimitScope = 'ip' | 'user' | 'school' | 'email' | 'refreshToken' | 'feeLinkToken';
 
 export interface RateLimitRule {
   scope: RateLimitScope;
@@ -28,7 +31,8 @@ export type RateLimitPolicyName =
   | 'login'
   | 'refresh'
   | 'parentRead'
-  | 'manualSms';
+  | 'manualSms'
+  | 'feeLink';
 
 const MIN = 60;
 const HOUR = 60 * 60;
@@ -45,4 +49,18 @@ export const RATE_LIMIT_POLICIES: Record<RateLimitPolicyName, readonly RateLimit
   refresh: [{ scope: 'refreshToken', limit: 60, windowSec: HOUR }],
   parentRead: [{ scope: 'user', limit: 600, windowSec: HOUR }],
   manualSms: [{ scope: 'school', limit: 100, windowSec: HOUR }],
+  /**
+   * The guardian fee link — a public, no-login write surface, so it is bounded on BOTH axes.
+   *
+   * Per token, because a forwarded link is a bearer credential and one leaked link must not
+   * become an unbounded upload channel. Per IP as well, because otherwise someone holding many
+   * tokens simply spreads the load across them and the per-token limit buys nothing.
+   *
+   * Generous enough for a real family: 30 requests covers loading the page, retrying a photo a
+   * few times and submitting, several times over.
+   */
+  feeLink: [
+    { scope: 'feeLinkToken', limit: 30, windowSec: HOUR },
+    { scope: 'ip', limit: 60, windowSec: HOUR },
+  ],
 } as const;

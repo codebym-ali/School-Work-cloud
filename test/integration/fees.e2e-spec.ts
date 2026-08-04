@@ -677,4 +677,130 @@ describe('Fees end-to-end (e2e, §12)', () => {
       expect(again.body.skipped).toBeGreaterThan(0);
     });
   });
+
+  /**
+   * The guardian upload link (§5.2) — the product's only PUBLIC, unauthenticated write surface.
+   *
+   * Its whole security model is the signed token, so these assertions are the security model:
+   * a tampered token, an expired one and a disabled school must all be refused, and the page
+   * must not become a window into the student record.
+   */
+  describe('guardian upload link', () => {
+    const setLink = (on: boolean) =>
+      request(server()).patch('/api/v1/school-settings')
+        .set('Host', host).set('Cookie', cookies).set('X-CSRF-Token', csrf)
+        .send({ feeSubmission: { guardianUploadLink: on } });
+
+    /** Public: deliberately NO cookie and NO CSRF header — only the Host, which picks the tenant. */
+    const pub = (path: string) => request(server()).get(path).set('Host', host);
+    const pubPost = (path: string, body: object) =>
+      request(server()).post(path).set('Host', host).send(body);
+
+    let linkInvoiceId: string;
+    let token: string;
+
+    beforeAll(async () => {
+      await setLink(true);
+
+      // Its OWN class, student and fee plan. Two collisions made the shared fixtures unusable:
+      // Sara carries a guardian advance that auto-pays her next invoice the moment it exists, and
+      // invoice batches are idempotent per (class, month, year) — so every month this class had
+      // already been billed in returned `generated: 0` and left a brand-new student with no
+      // invoice at all. Hunting for an unused month is a fixture that breaks the next time
+      // somebody adds a test above this one.
+      const klass = await post('/api/v1/classes', { campusId, name: 'Link Grade', order: 9 });
+      const linkClassId = klass.body.id;
+      const section = await post('/api/v1/sections', { classId: linkClassId, name: 'A' });
+      const head = await post('/api/v1/fee-heads', { name: 'Link Tuition' });
+      await post('/api/v1/fee-structures', {
+        campusId, classId: linkClassId, feeHeadId: head.body.id,
+        academicYearId: yearId, amount: 1000, frequency: 'MONTHLY',
+      });
+      const child = await admit({
+        fullName: 'Bilal Ahmed', gender: 'MALE', dateOfBirth: '2019-03-03',
+        campusId, classId: linkClassId, sectionId: section.body.id,
+        guardian: { mode: 'CREATE', fullName: 'Nadia Ahmed', phone: '03331234567', relation: 'MOTHER' },
+      });
+      await post('/api/v1/fees/invoice-batches', { classId: linkClassId, month: 9, year: 2026 });
+      const invs = await get(`/api/v1/fees/invoices?studentId=${child.body.studentId}&month=9&year=2026`);
+      linkInvoiceId = invs.body.data[0].id;
+      const issued = await post(`/api/v1/fees/invoices/${linkInvoiceId}/guardian-link`, {});
+      expect(issued.status).toBe(201);
+      token = issued.body.token;
+      expect(issued.body.url).toContain(`/p/${token}`);
+    });
+
+    afterAll(async () => { await setLink(false); });
+
+    it('shows the payer their own bill — first name only, nothing else about the child', async () => {
+      const res = await pub(`/api/v1/public/fee-link/${token}`);
+      expect(res.status).toBe(200);
+      expect(res.body.studentFirstName).toBe('Bilal');     // "Bilal Ahmed" → first name only
+      expect(Number(res.body.outstanding)).toBeGreaterThan(0);
+      // A link travels by SMS and gets forwarded: it must not carry the record with it.
+      const body = JSON.stringify(res.body);
+      expect(body).not.toContain('Ahmed');                 // no surname, no guardian name
+      expect(res.body.grNumber).toBeUndefined();
+      expect(res.body.studentId).toBeUndefined();
+      expect(res.body.invoiceId).toBeUndefined();
+    });
+
+    it('refuses a tampered token — the signature covers the invoice id', async () => {
+      // Re-encode the payload for a DIFFERENT invoice, keeping the original signature. This is
+      // the attack the HMAC exists for: one valid link must not become a link to every invoice.
+      const [body, sig] = token.split('.');
+      const payload = Buffer.from(body, 'base64url').toString('utf8');
+      const swapped = payload.replace(/^[^.]+/, invoiceId);
+      const forged = `${Buffer.from(swapped).toString('base64url')}.${sig}`;
+      expect((await pub(`/api/v1/public/fee-link/${forged}`)).status).toBe(404);
+
+      // And a flipped signature byte.
+      const flipped = `${body}.${sig.slice(0, -1)}${sig.slice(-1) === 'A' ? 'B' : 'A'}`;
+      expect((await pub(`/api/v1/public/fee-link/${flipped}`)).status).toBe(404);
+      expect((await pub('/api/v1/public/fee-link/not-a-token')).status).toBe(404);
+    });
+
+    // Runs BEFORE the claim test below: once a PENDING claim exists the one-at-a-time rule
+    // answers first with a 409, and this assertion would be testing that instead.
+    it('refuses a method the school does not accept', async () => {
+      const res = await pubPost(`/api/v1/public/fee-link/${token}/claim`, {
+        amount: 100, method: 'ADVANCE', transactionRef: 'GL-3', paidOn: '2026-09-05',
+      });
+      expect([400, 422]).toContain(res.status);
+    });
+
+    it('creates a PENDING claim that moves no money, and refuses a second one', async () => {
+      const before = await get(`/api/v1/fees/invoices/${linkInvoiceId}`);
+      const paidBefore = Number(before.body.paidAmount);
+
+      const res = await pubPost(`/api/v1/public/fee-link/${token}/claim`, {
+        amount: 100, method: 'BANK_TRANSFER', transactionRef: 'GL-1', paidOn: '2026-09-05',
+      });
+      expect(res.status).toBe(201);
+      expect(res.body.status).toBe('PENDING');
+
+      // The claim is a statement, not a payment: the invoice must be untouched.
+      const after = await get(`/api/v1/fees/invoices/${linkInvoiceId}`);
+      expect(Number(after.body.paidAmount)).toBe(paidBefore);
+
+      // It lands in the office queue attributed to the link, with nobody as the submitter.
+      const queued = (await get('/api/v1/fees/claims?status=PENDING')).body.data
+        .find((c: { transactionRef: string }) => c.transactionRef === 'GL-1');
+      expect(queued).toMatchObject({ source: 'GUARDIAN_LINK', status: 'PENDING' });
+
+      // A forwarded link must not become an unbounded write surface.
+      const second = await pubPost(`/api/v1/public/fee-link/${token}/claim`, {
+        amount: 100, method: 'BANK_TRANSFER', transactionRef: 'GL-2', paidOn: '2026-09-05',
+      });
+      expect(second.status).toBe(409);
+    });
+
+    it('is invisible while the school has it switched off', async () => {
+      await setLink(false);
+      // 404, not 403: an unconfigured school should not confirm the surface exists.
+      expect((await pub(`/api/v1/public/fee-link/${token}`)).status).toBe(404);
+      expect((await post(`/api/v1/fees/invoices/${linkInvoiceId}/guardian-link`, {})).status).toBe(404);
+      await setLink(true);
+    });
+  });
 });

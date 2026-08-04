@@ -107,6 +107,15 @@ export class RateLimitGuard implements CanActivate {
         if (!raw) return req.ip ?? null; // no token yet → fall back to IP
         return createHash('sha256').update(raw).digest('hex');
       }
+      case 'feeLinkToken': {
+        const token = (req.params as Record<string, string> | undefined)?.token;
+        // No token in the path ⇒ nothing to key on. Falling back to the IP would silently merge
+        // every tokenless request into one bucket; returning null just drops THIS rule, and the
+        // policy's IP rule still applies.
+        if (!token) return null;
+        // Hashed: the raw token is a bearer credential and Redis keys end up in logs and dumps.
+        return createHash('sha256').update(token).digest('hex');
+      }
       default:
         return null;
     }

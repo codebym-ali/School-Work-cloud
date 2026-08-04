@@ -60,25 +60,10 @@ export class ClaimsService {
     if (!invoice) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'Invoice not found');
     assertCampusAccess(this.ctx.user, invoice.enrollment.campusId);
 
-    if (dto.proofFileKey && !dto.proofFileKey.startsWith(`uploads/${this.sid}/`)) {
-      throw new AppError(ErrorCodes.FORBIDDEN, HttpStatus.FORBIDDEN, 'That file does not belong to your school');
-    }
-    // The same reference twice is the commonest honest mistake — a family resending the screenshot
-    // they already sent. Caught here so they are told now, rather than at the counter after the
-    // office has spent time on it. The partial unique on fee_payments is the backstop.
-    if (dto.transactionRef) {
-      const seen = await this.db.feePaymentClaim.findFirst({
-        where: { transactionRef: dto.transactionRef, method: dto.method, status: { not: ClaimStatus.REJECTED } },
-        select: { id: true, status: true },
-      });
-      if (seen) {
-        throw new AppError(
-          ErrorCodes.CONFLICT,
-          HttpStatus.CONFLICT,
-          `Reference ${dto.transactionRef} has already been submitted and is ${seen.status.toLowerCase()}.`,
-        );
-      }
-    }
+    this.assertFileIsOurs(dto.proofFileKey);
+    // Shared with the guardian-link path so the two cannot drift apart: the partial unique on
+    // fee_payments is the backstop, this is the early, human-readable one.
+    await this.assertRefUnused(dto.transactionRef, dto.method);
 
     const claim = await this.db.feePaymentClaim.create({
       data: {
@@ -103,6 +88,79 @@ export class ClaimsService {
     });
 
     return autoVerify ? this.verify(claim.id) : claim;
+  }
+
+  /**
+   * The guardian-link path (§5.2). Authorised by the signed token, not by a session.
+   *
+   * It cannot go through `submit()` because that calls `assertCampusAccess`, which fails closed
+   * for a request with no principal — correctly so. The token is bound to one invoice, which is
+   * a *narrower* authority than any campus grant, so the campus check has nothing to add here.
+   *
+   * Everything else is deliberately identical: same duplicate-reference rule, same file-ownership
+   * rule, same audit action, same PENDING outcome. `autoVerify` is not a parameter — a guardian's
+   * own screenshot verifying itself would defeat the entire claim/payment split.
+   */
+  async submitViaLink(invoiceId: string, dto: Omit<SubmitClaimDto, 'invoiceId' | 'autoVerify'>) {
+    const invoice = await this.db.feeInvoice.findFirst({
+      where: { id: invoiceId },
+      select: { id: true, studentId: true },
+    });
+    if (!invoice) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'Invoice not found');
+
+    await this.assertRefUnused(dto.transactionRef, dto.method);
+    this.assertFileIsOurs(dto.proofFileKey);
+
+    const claim = await this.db.feePaymentClaim.create({
+      data: {
+        schoolId: this.sid,
+        studentId: invoice.studentId,
+        invoiceId: invoice.id,
+        amount: dto.amount,
+        method: dto.method,
+        transactionRef: dto.transactionRef,
+        paidOn: new Date(dto.paidOn),
+        proofFileKey: dto.proofFileKey,
+        note: dto.note,
+        source: ClaimSource.GUARDIAN_LINK,
+        // Nobody signed in — this is the case `submittedById` was made nullable for.
+        submittedById: null,
+      },
+      select: { id: true, status: true, amount: true, createdAt: true },
+    });
+    // No AuditLog row, deliberately. `AuditLog.userId` is NOT NULL with an FK to `users`, because
+    // the whole point of that table is attributing an action to a *person* — and here there is no
+    // person, only whoever held the link. The alternatives were both worse than omission:
+    // inventing an actor (the owner, say) would put a lie in the audit trail, and making the
+    // column nullable would weaken it for every other action to accommodate this one.
+    //
+    // Nothing is actually lost: the claim row IS the record — it carries `source=GUARDIAN_LINK`,
+    // a null `submittedById`, the timestamp, the amount, the reference and the proof file. And
+    // the step that matters, verification, is audited against the real cashier who did it.
+    return claim;
+  }
+
+  /** A file must live under this school's prefix — the only thing stopping a crafted key. */
+  private assertFileIsOurs(proofFileKey: string | undefined | null): void {
+    if (proofFileKey && !proofFileKey.startsWith(`uploads/${this.sid}/`)) {
+      throw new AppError(ErrorCodes.FORBIDDEN, HttpStatus.FORBIDDEN, 'That file does not belong to your school');
+    }
+  }
+
+  /** The same reference twice is the commonest honest mistake — say so now, not at the counter. */
+  private async assertRefUnused(transactionRef: string | undefined | null, method: PaymentMethod): Promise<void> {
+    if (!transactionRef) return;
+    const seen = await this.db.feePaymentClaim.findFirst({
+      where: { transactionRef, method, status: { not: ClaimStatus.REJECTED } },
+      select: { id: true, status: true },
+    });
+    if (seen) {
+      throw new AppError(
+        ErrorCodes.CONFLICT,
+        HttpStatus.CONFLICT,
+        `Reference ${transactionRef} has already been submitted and is ${seen.status.toLowerCase()}.`,
+      );
+    }
   }
 
   /**

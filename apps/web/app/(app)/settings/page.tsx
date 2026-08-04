@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { api, ApiError, type SchoolSettings, type WeekDay } from '@/lib/api';
+import { api, ApiError, PAYMENT_METHODS, PAYMENT_METHOD_LABEL, type SchoolSettings, type WeekDay } from '@/lib/api';
 import { useMe } from '@/lib/me-context';
 
 const DAYS: WeekDay[] = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY'];
@@ -146,6 +146,60 @@ export default function SettingsPage() {
           checked={s.promotionRequiresFeeClearance} disabled={!isOwner || busy === 'promotionRequiresFeeClearance'}
           onChange={(v) => save('promotionRequiresFeeClearance', { promotionRequiresFeeClearance: v })}
           hint="An admin can still override for one student, and the override is recorded." />
+      </Section>
+
+      <Section title="Fee collection" blurb="How your school takes money, and what the office must attach when it does.">
+        <div className="stack" style={{ gap: 4 }}>
+          <span style={{ fontSize: 14 }}>We accept</span>
+          <div className="chips">
+            {PAYMENT_METHODS.map((m) => {
+              const on = s.feeSubmission.methods.includes(m);
+              // Never let the last one be switched off — a school that accepts nothing cannot
+              // take a payment at all, and the API would refuse every method.
+              const last = on && s.feeSubmission.methods.length === 1;
+              return (
+                <button key={m} type="button" className={`chip${on ? ' active' : ''}`}
+                  disabled={!isOwner || last || busy === 'feeSubmission'}
+                  title={last ? 'Your school must accept at least one way of paying' : undefined}
+                  onClick={() => save('feeSubmission', {
+                    feeSubmission: {
+                      methods: on ? s.feeSubmission.methods.filter((x) => x !== m) : [...s.feeSubmission.methods, m],
+                    },
+                  })}>
+                  {on ? '✓ ' : ''}{PAYMENT_METHOD_LABEL[m]}
+                </button>
+              );
+            })}
+          </div>
+          <Hint>
+            Only these appear when the office collects a payment — and anything else is refused,
+            not just hidden.
+          </Hint>
+        </div>
+
+        <div className="stack" style={{ gap: 4 }}>
+          <span style={{ fontSize: 14 }}>Proof of payment for non-cash</span>
+          <Choice
+            value={s.feeSubmission.proofPolicy} disabled={!isOwner || busy === 'feeSubmission'}
+            onChange={(v) => save('feeSubmission', { feeSubmission: { proofPolicy: v as SchoolSettings['feeSubmission']['proofPolicy'] } })}
+            options={[
+              { value: 'OFF', label: 'Don’t ask for it', hint: 'Only the reference number is recorded.' },
+              { value: 'OPTIONAL', label: 'Attach it when there is one', hint: 'The screenshot or stamped challan is kept with the payment.' },
+              { value: 'REQUIRED', label: 'Always require it', hint: 'A bank transfer or wallet payment cannot be recorded without the proof.' },
+            ]} />
+        </div>
+
+        {s.feeSubmission.methods.includes('CHEQUE') && (
+          <NumberRow label="A cheque counts as paid after" suffix="days"
+            value={s.feeSubmission.chequeClearingDays} min={0} max={30} disabled={!isOwner}
+            onSave={(v) => save('feeSubmission', { feeSubmission: { chequeClearingDays: v } })}
+            hint="A cheque is not money until it clears — this is how long it is held first." />
+        )}
+
+        <Toggle label="Let parents send proof from a link in the fee SMS"
+          checked={s.feeSubmission.guardianUploadLink} disabled={!isOwner || busy === 'feeSubmission'}
+          onChange={(v) => save('feeSubmission', { feeSubmission: { guardianUploadLink: v } })}
+          hint="No account needed — the fee SMS carries a private link where a parent can upload their transfer screenshot. The office still verifies every one before a receipt is issued." />
       </Section>
 
       <Section title="Admissions" blurb="How students are taken on.">

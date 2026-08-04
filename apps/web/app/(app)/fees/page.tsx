@@ -3,7 +3,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   api, apiGet, apiPost, ApiError, idemKey,
-  type AcademicYear, type Campus, type FeeHead, type FeeStructure, type Invoice, type Klass, type Paged, type Student,
+  PAYMENT_METHOD_LABEL,
+  type AcademicYear, type Campus, type FeeHead, type FeeStructure, type Invoice, type Klass,
+  type Paged, type PaymentMethodKey, type SchoolSettings, type Student,
 } from '@/lib/api';
 import { hasModule, useMe } from '@/lib/me-context';
 import { classLabeller } from '@/lib/labels';
@@ -28,6 +30,7 @@ export default function FeesPage() {
   const [paying, setPaying] = useState<string | null>(null);
   const [pay, setPay] = useState({ amountPaid: '', method: 'CASH' });
   const [setupOpen, setSetupOpen] = useState(false);
+  const [settings, setSettings] = useState<SchoolSettings | null>(null);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const classLabel = classLabeller(classes, campuses);
 
@@ -49,6 +52,9 @@ export default function FeesPage() {
     apiGet<Paged<Student>>('/students?pageSize=100').then((r) => setNames(Object.fromEntries(r.data.map((s) => [s.id, `${s.fullName} (${s.grNumber})`])))).catch(() => {});
     loadInvoices().catch(() => {});
     loadSetup().catch(() => {});
+    // Fails silently for a role the API denies (an accountant reads it, a clerk may not) —
+    // the form then falls back to cash, which every school accepts.
+    api.schoolSettings.get().then(setSettings).catch(() => {});
   }, [loadSetup]);
 
   const selectedHasStructure = !batch.classId || structures.some((s) => s.classId === batch.classId);
@@ -69,6 +75,8 @@ export default function FeesPage() {
       await loadInvoices();
     } catch (e) { setMsg({ ok: false, text: e instanceof ApiError ? e.message : 'Payment failed' }); }
   }
+
+  const acceptedMethods = settings?.feeSubmission.methods ?? (['CASH'] as PaymentMethodKey[]);
 
   const badge = (s: string) => s === 'PAID' ? 'ok' : s === 'OVERDUE' ? 'bad' : s === 'WAIVED' ? '' : 'warn';
 
@@ -133,13 +141,15 @@ export default function FeesPage() {
                   paying === i.id ? (
                     <span className="inline-form">
                       <input style={{ width: 90 }} placeholder="Amount" value={pay.amountPaid} onChange={(e) => setPay({ ...pay, amountPaid: e.target.value })} />
-                      <select style={{ width: 130 }} value={pay.method} onChange={(e) => setPay({ ...pay, method: e.target.value })}>
-                        <option>CASH</option><option>BANK_TRANSFER</option><option>EASYPAISA</option><option>JAZZCASH</option><option>CARD</option><option>CHEQUE</option>
+                      {/* Only what the school actually accepts — the API refuses anything else,
+                          so offering a method here that would be rejected is a trap. */}
+                      <select style={{ width: 150 }} value={pay.method} onChange={(e) => setPay({ ...pay, method: e.target.value })}>
+                        {acceptedMethods.map((m) => <option key={m} value={m}>{PAYMENT_METHOD_LABEL[m]}</option>)}
                       </select>
                       <button className="small" onClick={() => collect(i.id)}>Save</button>
                       <button className="ghost small" onClick={() => setPaying(null)}>×</button>
                     </span>
-                  ) : <button className="ghost small" onClick={() => { setPaying(i.id); setPay({ amountPaid: String(Math.max(Number(i.totalAmount) - Number(i.paidAmount), 0)), method: 'CASH' }); }}>Collect</button>
+                  ) : <button className="ghost small" onClick={() => { setPaying(i.id); setPay({ amountPaid: String(Math.max(Number(i.totalAmount) - Number(i.paidAmount), 0)), method: acceptedMethods[0] }); }}>Collect</button>
                 )}
               </td>
             </tr>

@@ -323,6 +323,15 @@ export interface StaffAttendanceSummary {
   unmarked: number;
   percent: number | null;
 }
+/** The ways a school can accept money. ADVANCE is excluded — it is the school applying a credit
+ *  the guardian already deposited, not a way of paying, so it is never a configurable option. */
+export const PAYMENT_METHODS = ['CASH', 'BANK_TRANSFER', 'EASYPAISA', 'JAZZCASH', 'CHEQUE', 'CARD'] as const;
+export type PaymentMethodKey = (typeof PAYMENT_METHODS)[number];
+export const PAYMENT_METHOD_LABEL: Record<PaymentMethodKey, string> = {
+  CASH: 'Cash', BANK_TRANSFER: 'Bank transfer', EASYPAISA: 'EasyPaisa',
+  JAZZCASH: 'JazzCash', CHEQUE: 'Cheque', CARD: 'Card',
+};
+
 export type WeekDay = 'MONDAY' | 'TUESDAY' | 'WEDNESDAY' | 'THURSDAY' | 'FRIDAY' | 'SATURDAY' | 'SUNDAY';
 /** Mirrors the Zod schema in `libs/common/config/school-settings.schema.ts`. Keep in step. */
 export interface SchoolSettings {
@@ -339,6 +348,13 @@ export interface SchoolSettings {
   promotionRequiresFeeClearance: boolean;
   smsOverdraftSegments: number;
   staffLeaveQuotas: { CASUAL?: number; SICK?: number; UNPAID?: number; OTHER?: number };
+  /** How this school takes money. `methods` is ENFORCED by the API, not merely rendered. */
+  feeSubmission: {
+    methods: PaymentMethodKey[];
+    proofPolicy: 'OFF' | 'OPTIONAL' | 'REQUIRED';
+    guardianUploadLink: boolean;
+    chequeClearingDays: number;
+  };
   staffAttendance: { selfMarking: boolean; autoMarkAbsent: boolean; dayStartTime: string; graceMinutes: number };
 }
 type DeepPartial<T> = { [K in keyof T]?: T[K] extends object ? Partial<T[K]> : T[K] };

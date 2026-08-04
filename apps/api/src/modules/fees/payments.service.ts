@@ -7,6 +7,7 @@ import {
   AuditActions,
   ErrorCodes,
   paginate,
+  parseSchoolSettings,
   restrictedCampusId,
   TenantContext,
   toSkipTake,
@@ -66,6 +67,11 @@ export class PaymentsService {
       if (dto.method !== PaymentMethod.CASH && !dto.transactionRef) {
         throw new AppError(ErrorCodes.VALIDATION_FAILED, HttpStatus.UNPROCESSABLE_ENTITY, 'transactionRef required for non-cash payments');
       }
+      // The school's own list of what it accepts, enforced HERE and not merely hidden from the
+      // dropdown — a display gate over an open endpoint is not a rule (see F8 in the fees
+      // register). ADVANCE is exempt: it is not a way of paying, it is the school applying a
+      // credit the guardian already deposited.
+      await this.assertMethodAccepted(dto.method);
       const remaining = money(Number(invoice.totalAmount) - Number(invoice.paidAmount));
       if (dto.amountPaid > remaining) {
         throw new AppError(ErrorCodes.OVERPAYMENT_USE_ADVANCE, HttpStatus.UNPROCESSABLE_ENTITY, `Amount exceeds remaining ${remaining}; use the advance endpoint`);
@@ -200,6 +206,31 @@ export class PaymentsService {
   }
 
   // ── helpers ──────────────────────────────────────────────────────────────────
+  /**
+   * Refuse a payment method this school does not accept.
+   *
+   * `ADVANCE` is exempt by design: it is not a way of paying, it is the school applying a credit
+   * the guardian already deposited, so a school that accepts only cash must still be able to
+   * draw down an advance.
+   *
+   * Refusing here rather than only omitting the option from the dropdown is the whole point —
+   * an unenforced setting is decoration, and the same mistake is already logged as F8 (fee
+   * prices hidden in the UI but readable by anyone signed in).
+   */
+  private async assertMethodAccepted(method: PaymentMethod): Promise<void> {
+    if (method === PaymentMethod.ADVANCE) return;
+    const school = await this.db.school.findFirst({ where: { id: this.sid }, select: { settings: true } });
+    const { methods } = parseSchoolSettings(school?.settings ?? {}).feeSubmission;
+    if (!methods.includes(method as (typeof methods)[number])) {
+      throw new AppError(
+        ErrorCodes.VALIDATION_FAILED,
+        HttpStatus.UNPROCESSABLE_ENTITY,
+        `This school does not accept ${method.replace('_', ' ').toLowerCase()} payments. `
+        + `Accepted: ${methods.join(', ')}. An owner can change this in School settings.`,
+      );
+    }
+  }
+
   /** Gap-free per-school receipt number (shared by payments and reversals). */
   private async nextReceiptNo(): Promise<number> {
     const school = await this.db.school.update({ where: { id: this.sid }, data: { nextReceiptNo: { increment: 1 } } });

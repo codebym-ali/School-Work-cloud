@@ -70,6 +70,36 @@ export const schoolSettingsSchema = z
      * only appears where a human put it, and screens lead with "not marked" rather than
      * presenting an absent count over a half-kept register as fact.
      */
+    /**
+     * How this school takes money (§12). Schools differ enormously here: a one-branch school
+     * collects cash over the counter and must not be shown wallet references and challan
+     * numbers it will never use, while a larger one runs bank transfer, JazzCash and EasyPaisa
+     * side by side.
+     *
+     * **`methods` is enforced in the service, not just hidden in the UI** — a method the school
+     * does not accept is refused by `pay()`. Hiding alone would be a display gate over an open
+     * endpoint. Switching one off governs only NEW payments: money already taken by cheque
+     * stays readable, reversible and on its receipt.
+     *
+     * Deliberately absent: any switch that would let a claimed payment auto-verify. That is a
+     * correctness rule, not a preference — a settings screen must not offer a toggle whose
+     * "off" position is a defect.
+     */
+    feeSubmission: z
+      .object({
+        /** Cash-only is the honest default for a new school; it grows into the rest. */
+        methods: z
+          .array(z.enum(['CASH', 'BANK_TRANSFER', 'EASYPAISA', 'JAZZCASH', 'CHEQUE', 'CARD']))
+          .min(1, 'Accept at least one payment method')
+          .default(['CASH']),
+        /** Whether a screenshot / challan counterfoil is attached to a non-cash payment. */
+        proofPolicy: z.enum(['OFF', 'OPTIONAL', 'REQUIRED']).default('OPTIONAL'),
+        /** Guardians upload proof from a link in the fee SMS — no account, no portal. */
+        guardianUploadLink: z.boolean().default(false),
+        /** Days a cheque is held before it counts as money — a cheque is not money until it clears. */
+        chequeClearingDays: z.number().int().min(0).max(30).default(3),
+      })
+      .default({}),
     staffAttendance: z
       .object({
         selfMarking: z.boolean().default(false),

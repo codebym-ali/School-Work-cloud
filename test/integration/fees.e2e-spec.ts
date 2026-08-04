@@ -179,6 +179,72 @@ describe('Fees end-to-end (e2e, §12)', () => {
     expect(integrity.body.ok).toBe(true);
   });
 
+  /**
+   * The school chooses which ways it accepts money, and that choice is ENFORCED here rather
+   * than merely hidden from the dropdown — an unenforced setting is decoration.
+   */
+  describe('accepted payment methods', () => {
+    const setMethods = (methods: string[]) =>
+      request(server()).patch('/api/v1/school-settings')
+        .set('Host', host).set('Cookie', cookies).set('X-CSRF-Token', csrf)
+        .send({ feeSubmission: { methods } });
+
+    afterEach(async () => { await setMethods(['CASH', 'BANK_TRANSFER', 'EASYPAISA', 'JAZZCASH', 'CHEQUE', 'CARD']); });
+
+    it('refuses a method the school does not accept, and names what it does', async () => {
+      await setMethods(['CASH']);
+      const batch = await post('/api/v1/fees/invoice-batches', { classId, month: 6, year: 2026 });
+      expect(batch.body.generated).toBe(1);
+      const inv = (await get(`/api/v1/fees/invoices?studentId=${studentId}&month=6&year=2026`)).body.data[0];
+
+      const refused = await post(`/api/v1/fees/invoices/${inv.id}/payments`,
+        { amountPaid: 100, method: 'JAZZCASH', transactionRef: 'JZ-1' }, idem());
+      expect(refused.status).toBe(422);
+      expect(refused.body.error.message).toMatch(/does not accept jazzcash/i);
+      expect(refused.body.error.message).toMatch(/Accepted: CASH/);
+
+      // ...and the accepted one still works, so this is a filter, not a freeze.
+      const ok = await post(`/api/v1/fees/invoices/${inv.id}/payments`, { amountPaid: 100, method: 'CASH' }, idem());
+      expect(ok.status).toBe(201);
+    });
+
+    it('still applies a guardian advance when the school takes cash only', async () => {
+      // ADVANCE is not a way of paying — it is the school drawing down a credit the guardian
+      // already deposited. Blocking it because "we only take cash" would strand real money.
+      await setMethods(['CASH']);
+      const dep = await post('/api/v1/fees/advances', { parentId, amount: 500 }, idem());
+      expect(dep.status).toBe(201);
+
+      const batch = await post('/api/v1/fees/invoice-batches', { classId, month: 11, year: 2026 });
+      expect(batch.body.generated).toBe(1);
+      const inv = (await get(`/api/v1/fees/invoices?studentId=${studentId}&month=11&year=2026`)).body.data[0];
+      // The advance was applied during generation despite ADVANCE not being an "accepted method".
+      expect(Number(inv.paidAmount)).toBeGreaterThan(0);
+    });
+
+    it('leaves payments already taken by a since-disabled method alone', async () => {
+      // Switching a method off governs NEW payments only — money already collected stays
+      // readable and reversible, the same rule as deactivating a fee structure.
+      const batch = await post('/api/v1/fees/invoice-batches', { classId, month: 12, year: 2026 });
+      expect(batch.body.generated).toBe(1);
+      const inv = (await get(`/api/v1/fees/invoices?studentId=${studentId}&month=12&year=2026`)).body.data[0];
+      const paid = await post(`/api/v1/fees/invoices/${inv.id}/payments`,
+        { amountPaid: 100, method: 'CHEQUE', transactionRef: 'CHQ-9911' }, idem());
+      expect(paid.status).toBe(201);
+
+      await setMethods(['CASH']);
+      // Filtered by method, which the payments list does support — the point is that the
+      // cheque payment is still THERE and readable after cheques were switched off.
+      const after = await get('/api/v1/fees/payments?method=CHEQUE');
+      expect(after.status).toBe(200);
+      expect(after.body.data.some((p: { id: string }) => p.id === paid.body.paymentId)).toBe(true);
+
+      // And it is still reversible — a disabled method must not strand real money.
+      const reversed = await post(`/api/v1/fees/payments/${paid.body.paymentId}/reversals`, { reason: 'Cheque bounced' });
+      expect(reversed.status).toBe(201);
+    });
+  });
+
   it('applies late fees via mark-overdue, then a waiver zeroes the balance', async () => {
     // A past-month invoice to go overdue. May 2026, not January: the academic year starts
     // 2026-04-01 and a fee now takes effect from the year's first day, so billing a month

@@ -147,6 +147,22 @@ describe('School settings (e2e)', () => {
     expect(after).toBe(before);
   });
 
+  it('requires at least one accepted payment method', async () => {
+    // A school that accepts nothing cannot take a payment at all — every method would be
+    // refused, and the fee screen would offer an empty dropdown.
+    const res = await patch({ feeSubmission: { methods: [] } });
+    expect(res.status).toBe(400);
+  });
+
+  it('defaults a new school to cash only, proof optional, no guardian link', async () => {
+    const res = await get();
+    // Conservative on purpose: a school starts at the simplest thing that works and switches on
+    // what it grows into. Nothing here should appear for a school that has not asked for it.
+    expect(res.body.feeSubmission).toMatchObject({
+      methods: ['CASH'], proofPolicy: 'OPTIONAL', guardianUploadLink: false, chequeClearingDays: 3,
+    });
+  });
+
   it('a campus admin may read the rules but not change them', async () => {
     // They work under these rules (weekly off, backfill window) so they need to see them;
     // the values govern money and pay, so only the owner moves them.

@@ -1,5 +1,6 @@
 import { Type } from 'class-transformer';
 import {
+  ArrayMinSize,
   IsArray,
   IsBoolean,
   IsDateString,
@@ -142,6 +143,16 @@ class StaffAttendanceSettingsDto {
   @IsOptional() @IsInt() @Min(0) @Max(120) graceMinutes?: number;
 }
 
+class FeeSubmissionSettingsDto {
+  @IsOptional() @IsArray() @ArrayMinSize(1, { message: 'Accept at least one payment method' })
+  @IsIn(['CASH', 'BANK_TRANSFER', 'EASYPAISA', 'JAZZCASH', 'CHEQUE', 'CARD'], { each: true })
+  methods?: string[];
+
+  @IsOptional() @IsIn(['OFF', 'OPTIONAL', 'REQUIRED']) proofPolicy?: string;
+  @IsOptional() @IsBoolean() guardianUploadLink?: boolean;
+  @IsOptional() @IsInt() @Min(0) @Max(30) chequeClearingDays?: number;
+}
+
 class StaffLeaveQuotasDto {
   @IsOptional() @IsInt() @Min(0) CASUAL?: number;
   @IsOptional() @IsInt() @Min(0) SICK?: number;
@@ -182,4 +193,7 @@ export class UpdateSchoolSettingsDto {
 
   @IsOptional() @ValidateNested() @Type(() => StaffAttendanceSettingsDto)
   staffAttendance?: StaffAttendanceSettingsDto;
+
+  @IsOptional() @ValidateNested() @Type(() => FeeSubmissionSettingsDto)
+  feeSubmission?: FeeSubmissionSettingsDto;
 }

@@ -25,7 +25,8 @@ test.describe('exams', () => {
     const { className, sectionName, subjectName, studentName } = await seedClassSectionStudent(page);
 
     // 2) Exams page: term, exam
-    await page.getByRole('link', { name: 'Exams', exact: true }).click();
+    // 'Exams & Results' — the nav label, not 'Exams'.
+    await page.getByRole('link', { name: 'Exams & Results', exact: true }).click();
     await page.waitForURL('**/exams');
 
     // The subject seeded above must be visible on the read-only card.

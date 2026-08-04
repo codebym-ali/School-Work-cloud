@@ -1,11 +1,26 @@
 import { test, expect } from '@playwright/test';
-import { gotoApp, fieldInput, fieldSelect, cardByHeading } from './helpers';
+import { gotoApp, login, apiSetupGet, e2eOfficer, fieldInput, fieldSelect, cardByHeading } from './helpers';
 
+/**
+ * The enquiry pipeline: inquiry → entry test → admit.
+ *
+ * Two reasons this could never pass as written, both structural rather than incidental:
+ *  - it navigated via a sidebar "Admissions" link that a **DIRECT** school deliberately hides
+ *    from everyone but the officer (no enquiry pipeline ⇒ the page is a dead end);
+ *  - every step it drives — inquiry, entry test, admit — only exists in **PIPELINE** mode, where
+ *    in DIRECT "the form IS the page". So on a DIRECT tenant there is nothing here to test.
+ *
+ * It now checks the school's mode and skips when there is no pipeline, and runs as the admission
+ * officer, who is both the only role that may admit and the only one this page is built for.
+ */
 test.describe('admissions', () => {
   test('inquiry -> entry test -> admit -> appears in Students', async ({ page }) => {
     await gotoApp(page);
-    await page.getByRole('link', { name: 'Admissions', exact: true }).click();
-    await page.waitForURL('**/admissions');
+    const settings = await apiSetupGet<{ admissionsMode: string }>(page, '/school-settings');
+    test.skip(settings.admissionsMode !== 'PIPELINE', 'This tenant is DIRECT — it has no enquiry pipeline to drive.');
+
+    const officer = await e2eOfficer(page);
+    await login(page, officer.email, officer.password, '**/admissions');
 
     const ts = Date.now();
     const studentName = `Test Applicant ${ts}`;

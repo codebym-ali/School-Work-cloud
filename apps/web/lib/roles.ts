@@ -57,7 +57,12 @@ export const NAV: NavItem[] = [
   // Owner included: assigning a campus's admission officer is owner-only, so hiding the screen
   // from them left the one person who can do it unable to find it.
   { href: '/admissions-team', label: 'Admission Portal', icon: '🎓', group: 'Enrollment', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
-  { href: '/students', label: 'Students', icon: '👥', group: 'Enrollment', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
+  // ADMISSION_CONTROLLER included: the API has always permitted them here, and **CSV import is
+  // ADMISSION_CONTROLLER-only** while its button lives on this screen — so the one role allowed
+  // to bulk-import students could not open the page that does it, and the feature was unusable
+  // by anybody. Same shape as the teacher who could be marked absent but could not reach their
+  // own attendance: a nav that is stricter than the API silently removes a capability.
+  { href: '/students', label: 'Students', icon: '👥', group: 'Enrollment', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ADMISSION_CONTROLLER'] },
 
   { href: '/classes', label: 'Classes', icon: '📚', group: 'Academics', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
   { href: '/attendance', label: 'Attendance', icon: '✅', group: 'Academics', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'TEACHER'] },

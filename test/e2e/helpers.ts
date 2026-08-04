@@ -4,13 +4,25 @@ import { expect, request, type Locator, type Page } from '@playwright/test';
 export const STORAGE_STATE = 'test/e2e/.auth/owner.json';
 export const PLATFORM_STORAGE_STATE = 'test/e2e/.auth/platform.json';
 
-/** Logs in via the /login form and waits for the app shell to land on /dashboard. */
-export async function login(page: Page, email = 'owner@demo.pk', password = 'Owner!Secret12'): Promise<void> {
+/**
+ * Logs in via the /login form and waits for the app shell.
+ *
+ * `landing` is a parameter because **the landing page is role-dependent** (`landingPath` in
+ * `lib/roles.ts`): an owner gets /dashboard, an admission officer /admissions, a student /me.
+ * Hardcoding /dashboard meant any non-owner login timed out on a navigation that was never
+ * going to happen — which reads as "login is broken" rather than "wrong expectation".
+ */
+export async function login(
+  page: Page,
+  email = 'owner@demo.pk',
+  password = 'Owner!Secret12',
+  landing = '**/dashboard',
+): Promise<void> {
   await page.goto('/login');
   await page.getByLabel('Email').fill(email);
   await page.getByLabel('Password').fill(password);
   await page.getByRole('button', { name: /sign in/i }).click();
-  await page.waitForURL('**/dashboard');
+  await page.waitForURL(landing);
   await expect(page.locator('.sidebar')).toBeVisible();
 }
 
@@ -140,15 +152,60 @@ export interface SeededClassWithStudent extends SeededClass {
  *
  * Assumes an owner session (storageState or `login()`), and leaves the page where it was.
  */
+export const E2E_CAMPUS_NAME = 'E2E Automation';
+export const E2E_OFFICER_EMAIL = 'e2e.officer@demo.pk';
+export const E2E_OFFICER_PASSWORD = 'E2eOfficer!Secret12';
+
+/**
+ * The campus this suite owns, created once and reused.
+ *
+ * Everything here lands on a **separate campus** rather than the school's real ones, because the
+ * suite needs an `ADMISSION_CONTROLLER` (admitting is officer-only) and that is a **seat role** —
+ * one holder per campus, enforced by a partial unique index. Nominating an officer on a real
+ * campus would evict whoever holds the seat, on every run. Its own campus has its own free seat,
+ * so nothing of the school's is touched.
+ *
+ * Idempotent: campus names are unique per school, so this is find-then-create, and repeated runs
+ * reuse the same campus instead of accumulating one per run.
+ */
+export async function e2eCampusId(page: Page): Promise<string> {
+  const campuses = await apiSetupGet<{ id: string; name: string }[]>(page, '/campuses');
+  const found = campuses.find((c) => c.name.toLowerCase() === E2E_CAMPUS_NAME.toLowerCase());
+  if (found) return found.id;
+  const created = await apiSetupPost<{ id: string }>(page, '/campuses', { name: E2E_CAMPUS_NAME });
+  return created.id;
+}
+
+/**
+ * The admission officer for that campus — find-then-create, same reasoning as above.
+ * Returns credentials rather than a session so the caller can open its own request context and
+ * leave the owner's `storageState` untouched.
+ */
+export async function e2eOfficer(page: Page): Promise<{ email: string; password: string }> {
+  const envEmail = process.env.E2E_ADMISSION_OFFICER_EMAIL;
+  const envPassword = process.env.E2E_ADMISSION_OFFICER_PASSWORD;
+  // An explicitly nominated officer still wins — a CI tenant may prefer to supply its own.
+  if (envEmail && envPassword) return { email: envEmail, password: envPassword };
+
+  const users = await apiSetupGet<{ id: string; email: string }[]>(page, '/users');
+  if (!users.some((u) => u.email === E2E_OFFICER_EMAIL)) {
+    await apiSetupPost(page, '/users', {
+      email: E2E_OFFICER_EMAIL,
+      password: E2E_OFFICER_PASSWORD,
+      roles: ['ADMISSION_CONTROLLER'],
+      campusId: await e2eCampusId(page),
+    });
+  }
+  return { email: E2E_OFFICER_EMAIL, password: E2E_OFFICER_PASSWORD };
+}
+
 export async function seedClassSection(page: Page): Promise<SeededClass> {
   const ts = Date.now();
   const className = `Cls${ts}`;
   const sectionName = 'A';
   const subjectName = `Subj${ts}`;
 
-  const campuses = await apiSetupGet<{ id: string }[]>(page, '/campuses');
-  if (!campuses.length) throw new Error('Seed failed: the tenant has no campus — a class must belong to one.');
-  const campusId = campuses[0].id;
+  const campusId = await e2eCampusId(page);
 
   const existing = await apiSetupGet<{ order: number; campusId: string }[]>(page, '/classes');
   const order = Math.max(0, ...existing.filter((k) => k.campusId === campusId).map((k) => k.order)) + 1;
@@ -168,30 +225,15 @@ export async function seedClassSection(page: Page): Promise<SeededClass> {
  * fees, reports, CSV import).
  *
  * ⚠️ Admitting is **`ADMISSION_CONTROLLER`-only** by an explicit product decision (segregation
- * of duties): the owner session every other spec uses is 403 on `POST /students`. There is
- * also at most ONE officer per campus, so this helper must NOT mint or reassign the seat —
- * on a real tenant that would take the seat away from the person holding it, on every run.
+ * of duties): the owner session every other spec uses is 403 on `POST /students`.
  *
- * So it signs in as an officer you nominate. Set both variables to a campus officer whose
- * campus the seeded class lands in:
- *
- *     E2E_ADMISSION_OFFICER_EMAIL=... E2E_ADMISSION_OFFICER_PASSWORD=... pnpm test:e2e
- *
- * Without them the specs that need a student fail with this explanation rather than with a
- * timeout against a form that no longer exists.
+ * The officer is the suite's own, on the suite's own campus (see `e2eOfficer`), so the seat it
+ * holds is never one the school cares about. `E2E_ADMISSION_OFFICER_EMAIL` /
+ * `E2E_ADMISSION_OFFICER_PASSWORD` still override it if you want to nominate someone.
  */
 export async function seedClassSectionStudent(page: Page): Promise<SeededClassWithStudent> {
   const seeded = await seedClassSection(page);
-  const email = process.env.E2E_ADMISSION_OFFICER_EMAIL;
-  const password = process.env.E2E_ADMISSION_OFFICER_PASSWORD;
-  if (!email || !password) {
-    throw new Error(
-      'Cannot seed a student: admitting is ADMISSION_CONTROLLER-only and the shared session is the owner. '
-      + 'Set E2E_ADMISSION_OFFICER_EMAIL and E2E_ADMISSION_OFFICER_PASSWORD to an officer holding the seat '
-      + 'for the campus under test. The helper deliberately does not assign the seat itself — there is one '
-      + 'officer per campus, and taking it would displace the real holder on every run.',
-    );
-  }
+  const { email, password } = await e2eOfficer(page);
 
   const ts = Date.now();
   const studentName = `Student ${ts}`;

@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { gotoApp, seedClassSectionStudent, cardByHeading } from './helpers';
+import { gotoApp, login, seedClassSectionStudent, e2eOfficer, cardByHeading } from './helpers';
 
 /**
  * Students CSV import (§22.6) — drives the real UI against the live API. Seeds a fresh
@@ -10,7 +10,19 @@ import { gotoApp, seedClassSectionStudent, cardByHeading } from './helpers';
 test.describe('students CSV import', () => {
   test('validate reports bad rows, then a clean import adds siblings', async ({ page }) => {
     await gotoApp(page);
-    const { className, sectionName } = await seedClassSectionStudent(page); // lands on /students
+    const { className, sectionName } = await seedClassSectionStudent(page);
+
+    // `POST /students/import` is ADMISSION_CONTROLLER-only, so this spec cannot run as the owner
+    // the shared session uses — every Validate/Import click would 403. Re-log as the suite's
+    // officer, who is the role that actually does this job.
+    //
+    // (Worth noting separately: the "Import CSV" button is NOT role-gated in the UI, so an owner
+    // is offered an action that always fails. Recorded as a gap, not fixed here.)
+    const officer = await e2eOfficer(page);
+    await login(page, officer.email, officer.password, '**/admissions');
+    // The helper used to leave the browser on /students by driving the UI; it is API-only now,
+    // so the navigation has to be explicit.
+    await gotoApp(page, '/students');
 
     const ts = Date.now();
     const phone = `03${String(ts).slice(-9)}`;

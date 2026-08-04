@@ -89,7 +89,13 @@ function StudentsInner() {
       <div className="row">
         <h1>Students</h1>
         <div className="row" style={{ gap: 8 }}>
-          <button className="ghost" onClick={() => setImporting((v) => !v)}>{importing ? 'Close' : 'Import CSV'}</button>
+          {/* Import is ADMISSION_CONTROLLER-only on the API (same segregation of duties as
+              admitting), but this button was offered to everyone — so an owner could open the
+              form, paste a file, and get a 403 with no way to tell why. An action nobody's role
+              permits is worse than no button. */}
+          {isAdmissionController && (
+            <button className="ghost" onClick={() => setImporting((v) => !v)}>{importing ? 'Close' : 'Import CSV'}</button>
+          )}
           {/* Admitting is admission-controller-only (#31); owner/campus admins read here.
               Module checked too, so the owner switching `admissions.admit` off hides it in
               both places this form is offered (here and /admissions). */}

@@ -49,6 +49,7 @@ export default function DashboardPage() {
   const [data, setData] = useState<Dashboard | null>(null);
   const [adm, setAdm] = useState<AdmissionsSummary | null>(null);
   const [staff, setStaff] = useState<StaffDaySummary | null>(null);
+  const [pendingClaims, setPendingClaims] = useState(0);
   const [err, setErr] = useState(false);
 
   useEffect(() => {
@@ -57,6 +58,9 @@ export default function DashboardPage() {
     // same pattern the other rollups use rather than showing an error to someone who was
     // never meant to see the card.
     api.staffAttendance.daySummary().then(setStaff).catch(() => {});
+    // Claims arrive and nobody looks without this — the plan called that failure mode out
+    // before the queue was built, so the chip ships with it, not after.
+    api.feeSetup.pendingClaims().then((r) => setPendingClaims(r.pending)).catch(() => {});
     // Every figure in this summary counts Inquiry rows, so in a DIRECT school (no enquiry
     // pipeline) the card would advertise "0 open inquiries · 0% conversion" for ever — a
     // metric that can never move is worse than no metric. Skip the fetch entirely.
@@ -91,6 +95,12 @@ export default function DashboardPage() {
   // from a register nobody filled in would be a reassuring lie.
   if (staff?.workingDay && staff.absent > 0) {
     attention.push({ text: `${staff.absent} staff absent today`, href: `/staff-attendance?date=${staff.date}&status=ABSENT` });
+  }
+  if (pendingClaims > 0) {
+    attention.push({
+      text: `${pendingClaims} payment${pendingClaims === 1 ? '' : 's'} awaiting verification`,
+      href: '/fee-claims',
+    });
   }
   if (staff?.workingDay && staff.unmarked > 0) {
     attention.push({ text: `${staff.unmarked} staff not marked today`, href: `/staff-attendance?date=${staff.date}&status=UNMARKED` });

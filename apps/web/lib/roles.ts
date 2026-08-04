@@ -69,6 +69,9 @@ export const NAV: NavItem[] = [
   { href: '/performance', label: 'Performance', icon: '🎯', group: 'Academics', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
 
   { href: '/fees', label: 'Fees', icon: '💳', group: 'Finance', roles: ['OWNER_ADMIN', 'ACCOUNTANT'] },
+  // A campus admin may READ the queue (it is their campus's money) but only the cashier and the
+  // owner may verify — confirming a submission is what issues the receipt.
+  { href: '/fee-claims', label: 'Payment submissions', icon: '🧾', group: 'Finance', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT'] },
 
   // The HR manager's single home. Recruitment was removed 2026-07-30 and this role's real job
   // is owning the campus staff record, so there is one staff screen, role-shaped, rather than a

@@ -157,6 +157,19 @@ export interface Payment {
   /** Presence only — the storage key never leaves the server. */
   hasProof: boolean;
 }
+/** A claim is NOT a payment: `paymentId` is null until someone verifies it. */
+export interface FeeClaim {
+  id: string; studentId: string; invoiceId: string;
+  amount: string; method: string; transactionRef: string | null;
+  paidOn: string; note: string | null;
+  status: 'PENDING' | 'VERIFIED' | 'REJECTED';
+  source: 'OFFICE' | 'STUDENT_PORTAL' | 'GUARDIAN_LINK';
+  rejectionReason: string | null; paymentId: string | null; createdAt: string;
+  /** Presence only — the storage key never leaves the server. */
+  hasProof: boolean;
+  student: { fullName: string; grNumber: string };
+  invoice: { month: number | null; year: number; totalAmount: string; paidAmount: string };
+}
 export interface LateFeePolicy { id: string; graceDays: number; mode: string; amount: string; maxAmount: string | null }
 export interface Discount {
   id: string; studentId: string; type: string; value: string; feeHeadId: string | null;
@@ -609,6 +622,17 @@ export const api = {
     copyPlan: (body: { fromClassId: string; fromAcademicYearId: string; toClassIds: string[]; toAcademicYearId?: string; raisePercent?: number; effectiveFrom?: string }) =>
       apiPost<{ created: number; skipped: number; details: string[] }>('/fee-structures/copy', body),
     lateFeePolicy: () => apiGet<LateFeePolicy | null>('/late-fee-policy'),
+    /** Payment submissions — money somebody says arrived, pending a human check. */
+    claims: (q: { status?: string; studentId?: string } = {}) => {
+      const qs = new URLSearchParams({ ...(q.status ? { status: q.status } : {}), ...(q.studentId ? { studentId: q.studentId } : {}), pageSize: '100' }).toString();
+      return apiGet<Paged<FeeClaim>>(`/fees/claims?${qs}`);
+    },
+    pendingClaims: () => apiGet<{ pending: number }>('/fees/claims/pending-count'),
+    submitClaim: (body: { invoiceId: string; amount: number; method: string; transactionRef?: string; paidOn: string; proofFileKey?: string; note?: string; autoVerify?: boolean }) =>
+      apiPost<FeeClaim & { receiptNo?: number }>('/fees/claims', body),
+    verifyClaim: (id: string) => apiPost<FeeClaim & { receiptNo: number }>(`/fees/claims/${id}/verify`, {}),
+    rejectClaim: (id: string, reason: string) => apiPost<FeeClaim>(`/fees/claims/${id}/reject`, { reason }),
+    claimProof: (id: string) => apiGet<{ url: string }>(`/fees/claims/${id}/proof`),
     /** Short-lived signed link to the proof attached to a payment. */
     paymentProof: (paymentId: string) =>
       apiGet<{ url: string; expiresInSeconds: number }>(`/fees/payments/${paymentId}/proof`),

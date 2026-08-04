@@ -28,7 +28,8 @@ export default function FeesPage() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [batch, setBatch] = useState({ classId: '', month: String(now.getMonth() + 1), year: String(now.getFullYear()) });
   const [paying, setPaying] = useState<string | null>(null);
-  const [pay, setPay] = useState({ amountPaid: '', method: 'CASH' });
+  const [pay, setPay] = useState({ amountPaid: '', method: 'CASH', transactionRef: '', proofFileKey: '' });
+  const [uploading, setUploading] = useState(false);
   const [setupOpen, setSetupOpen] = useState(false);
   const [settings, setSettings] = useState<SchoolSettings | null>(null);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
@@ -69,14 +70,32 @@ export default function FeesPage() {
 
   async function collect(id: string) {
     try {
-      await apiPost(`/fees/invoices/${id}/payments`, { amountPaid: Number(pay.amountPaid), method: pay.method }, idemKey());
+      await apiPost(`/fees/invoices/${id}/payments`, {
+        amountPaid: Number(pay.amountPaid),
+        method: pay.method,
+        ...(pay.transactionRef.trim() ? { transactionRef: pay.transactionRef.trim() } : {}),
+        ...(pay.proofFileKey ? { proofFileKey: pay.proofFileKey } : {}),
+      }, idemKey());
       setMsg({ ok: true, text: 'Payment recorded' });
-      setPaying(null); setPay({ amountPaid: '', method: 'CASH' });
+      setPaying(null); setPay({ amountPaid: '', method: acceptedMethods[0], transactionRef: '', proofFileKey: '' });
       await loadInvoices();
     } catch (e) { setMsg({ ok: false, text: e instanceof ApiError ? e.message : 'Payment failed' }); }
   }
 
+  /** Straight to storage, virus-scanned, then we keep only the key it comes back with. */
+  async function attachProof(file: File) {
+    setUploading(true);
+    try {
+      const { fileKey } = await api.uploads.upload(file);
+      setPay((p) => ({ ...p, proofFileKey: fileKey }));
+      setMsg({ ok: true, text: 'Proof attached' });
+    } catch (e) {
+      setMsg({ ok: false, text: e instanceof ApiError ? e.message : 'Could not attach that file' });
+    } finally { setUploading(false); }
+  }
+
   const acceptedMethods = settings?.feeSubmission.methods ?? (['CASH'] as PaymentMethodKey[]);
+  const proofPolicy = settings?.feeSubmission.proofPolicy ?? 'OPTIONAL';
 
   const badge = (s: string) => s === 'PAID' ? 'ok' : s === 'OVERDUE' ? 'bad' : s === 'WAIVED' ? '' : 'warn';
 
@@ -146,10 +165,29 @@ export default function FeesPage() {
                       <select style={{ width: 150 }} value={pay.method} onChange={(e) => setPay({ ...pay, method: e.target.value })}>
                         {acceptedMethods.map((m) => <option key={m} value={m}>{PAYMENT_METHOD_LABEL[m]}</option>)}
                       </select>
-                      <button className="small" onClick={() => collect(i.id)}>Save</button>
+                      {/* Cash over the counter has no reference and no screenshot; asking for
+                          either would make the commonest payment the most awkward one. */}
+                      {pay.method !== 'CASH' && (
+                        <input style={{ width: 130 }} placeholder="Reference no."
+                          value={pay.transactionRef} onChange={(e) => setPay({ ...pay, transactionRef: e.target.value })} />
+                      )}
+                      {pay.method !== 'CASH' && proofPolicy !== 'OFF' && (
+                        pay.proofFileKey ? (
+                          <span className="badge ok">✓ proof attached</span>
+                        ) : (
+                          <label className="ghost small" style={{ padding: '4px 8px', cursor: 'pointer', border: '1px solid var(--border)', borderRadius: 6 }}>
+                            {uploading ? 'Uploading…' : proofPolicy === 'REQUIRED' ? '📎 Attach proof *' : '📎 Attach proof'}
+                            <input type="file" accept="image/jpeg,image/png,application/pdf" style={{ display: 'none' }}
+                              onChange={(e) => { const f = e.target.files?.[0]; if (f) void attachProof(f); }} />
+                          </label>
+                        )
+                      )}
+                      <button className="small"
+                        disabled={uploading || (proofPolicy === 'REQUIRED' && pay.method !== 'CASH' && !pay.proofFileKey)}
+                        onClick={() => collect(i.id)}>Save</button>
                       <button className="ghost small" onClick={() => setPaying(null)}>×</button>
                     </span>
-                  ) : <button className="ghost small" onClick={() => { setPaying(i.id); setPay({ amountPaid: String(Math.max(Number(i.totalAmount) - Number(i.paidAmount), 0)), method: acceptedMethods[0] }); }}>Collect</button>
+                  ) : <button className="ghost small" onClick={() => { setPaying(i.id); setPay({ amountPaid: String(Math.max(Number(i.totalAmount) - Number(i.paidAmount), 0)), method: acceptedMethods[0], transactionRef: '', proofFileKey: '' }); }}>Collect</button>
                 )}
               </td>
             </tr>

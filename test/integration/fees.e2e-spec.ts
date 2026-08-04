@@ -245,6 +245,91 @@ describe('Fees end-to-end (e2e, §12)', () => {
     });
   });
 
+  /**
+   * Proof of payment — the WhatsApp screenshot or stamped challan that justifies a non-cash
+   * payment. Stored as a private storage key and read back only through a short-lived
+   * presigned link, behind the same authorization as the payment itself.
+   */
+  describe('proof of payment', () => {
+    const setPolicy = (proofPolicy: string) =>
+      request(server()).patch('/api/v1/school-settings')
+        .set('Host', host).set('Cookie', cookies).set('X-CSRF-Token', csrf)
+        .send({ feeSubmission: { proofPolicy } });
+
+    // Months must sit INSIDE the academic year (Apr 2026 – Mar 2027): a fee takes effect from
+    // the year's first day, so billing a month before it generates nothing at all.
+    const invoiceFor = async (month: number, year = 2026) => {
+      const batch = await post('/api/v1/fees/invoice-batches', { classId, month, year });
+      expect(batch.status).toBe(201);
+      const inv = (await get(`/api/v1/fees/invoices?studentId=${studentId}&month=${month}&year=${year}`)).body.data[0];
+      expect(inv).toBeDefined();
+      return inv;
+    };
+
+    afterAll(async () => { await setPolicy('OPTIONAL'); });
+
+    it('refuses a file key belonging to another school', async () => {
+      // A stored key is a capability. Validating it at the moment it is ACCEPTED — rather than
+      // when it is later presigned — is what stops one tenant attaching another's document.
+      const inv = await invoiceFor(4);
+      const res = await post(`/api/v1/fees/invoices/${inv.id}/payments`,
+        { amountPaid: 50, method: 'BANK_TRANSFER', transactionRef: 'X-1', proofFileKey: 'uploads/00000000-0000-0000-0000-000000000000/evil.jpg' },
+        idem());
+      expect(res.status).toBe(403);
+      expect(res.body.error.message).toMatch(/does not belong to your school/i);
+    });
+
+    it('when proof is REQUIRED, a non-cash payment without it is refused — but cash is not', async () => {
+      await setPolicy('REQUIRED');
+      const inv = await invoiceFor(10);
+
+      const noProof = await post(`/api/v1/fees/invoices/${inv.id}/payments`,
+        { amountPaid: 50, method: 'BANK_TRANSFER', transactionRef: 'NP-1' }, idem());
+      expect(noProof.status).toBe(422);
+      expect(noProof.body.error.message).toMatch(/requires proof of payment/i);
+
+      // Cash over the counter has no screenshot, and demanding one would make the commonest
+      // payment in a Pakistani school impossible to record.
+      const cash = await post(`/api/v1/fees/invoices/${inv.id}/payments`, { amountPaid: 50, method: 'CASH' }, idem());
+      expect(cash.status).toBe(201);
+    });
+
+    it('stores the proof and serves it back through a short-lived link', async () => {
+      await setPolicy('OPTIONAL');
+      const inv = await invoiceFor(1, 2027);
+      const key = `uploads/${schoolId}/proof-${randomUUID()}.jpg`;
+      const paid = await post(`/api/v1/fees/invoices/${inv.id}/payments`,
+        { amountPaid: 50, method: 'JAZZCASH', transactionRef: `JZ-${randomUUID().slice(0, 8)}`, proofFileKey: key }, idem());
+      expect(paid.status).toBe(201);
+
+      const proof = await get(`/api/v1/fees/payments/${paid.body.paymentId}/proof`);
+      expect(proof.status).toBe(200);
+      // A signed URL, not the raw key: the object stays private and the link expires.
+      expect(proof.body.url).toMatch(/^https?:\/\//);
+      expect(proof.body.url).not.toContain(key.split('/').pop()!.replace('.jpg', '') + '"');
+      expect(proof.body.expiresInSeconds).toBeGreaterThan(0);
+    });
+
+    it('never puts the storage key in a list — only that proof exists', async () => {
+      // A key is how a file is addressed. Broadcasting it invites someone to try it where the
+      // ownership check is weaker; the list therefore says only whether there IS proof.
+      const list = await get('/api/v1/fees/payments?method=JAZZCASH');
+      expect(list.status).toBe(200);
+      const withProof = list.body.data.find((p: { hasProof: boolean }) => p.hasProof);
+      expect(withProof).toBeDefined();
+      expect(withProof).not.toHaveProperty('proofFileKey');
+      expect(JSON.stringify(list.body)).not.toContain('uploads/');
+    });
+
+    it('says so plainly when a payment has no proof, rather than returning a broken link', async () => {
+      const inv = await invoiceFor(2, 2027);
+      const cash = await post(`/api/v1/fees/invoices/${inv.id}/payments`, { amountPaid: 50, method: 'CASH' }, idem());
+      const proof = await get(`/api/v1/fees/payments/${cash.body.paymentId}/proof`);
+      expect(proof.status).toBe(404);
+      expect(proof.body.error.message).toMatch(/no proof was attached/i);
+    });
+  });
+
   it('applies late fees via mark-overdue, then a waiver zeroes the balance', async () => {
     // A past-month invoice to go overdue. May 2026, not January: the academic year starts
     // 2026-04-01 and a fee now takes effect from the year's first day, so billing a month

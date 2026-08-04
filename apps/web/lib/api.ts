@@ -150,6 +150,13 @@ export interface FeeStructure {
   id: string; campusId: string; classId: string; feeHeadId: string; academicYearId: string;
   amount: string; frequency: string; isActive: boolean; effectiveFrom: string;
 }
+/** `proofFileKey` is never sent to the browser — presence is signalled by `hasProof`. */
+export interface Payment {
+  id: string; invoiceId: string; receiptNo: number; amountPaid: string; method: string;
+  transactionRef: string | null; paidAt: string;
+  /** Presence only — the storage key never leaves the server. */
+  hasProof: boolean;
+}
 export interface LateFeePolicy { id: string; graceDays: number; mode: string; amount: string; maxAmount: string | null }
 export interface Discount {
   id: string; studentId: string; type: string; value: string; feeHeadId: string | null;
@@ -461,6 +468,25 @@ export const api = {
     checkInState: () => apiGet<CheckInState>('/staff-attendance/mine/check-in'),
     checkIn: () => apiPost<{ date: string; status: string; checkIn: string }>('/staff-attendance/check-in', {}),
   },
+  /**
+   * Private file upload (§22.6): ask for a presigned PUT, send the bytes straight to storage,
+   * then confirm so the server can magic-byte check and virus-scan it before promoting it out
+   * of quarantine. Returns the storage KEY — never a URL. Reading a file back always goes
+   * through the endpoint that owns it, so the ownership check cannot be skipped.
+   */
+  uploads: {
+    async upload(file: File): Promise<{ fileKey: string }> {
+      const presign = await apiPost<{ key: string; url: string; maxBytes: number }>('/uploads', {
+        filename: file.name, mimeType: file.type,
+      });
+      if (file.size > presign.maxBytes) {
+        throw new ApiError(413, 'TOO_LARGE', `That file is too big — the limit is ${Math.round(presign.maxBytes / 1024 / 1024)} MB.`);
+      }
+      const put = await fetch(presign.url, { method: 'PUT', body: file, headers: { 'Content-Type': file.type } });
+      if (!put.ok) throw new ApiError(put.status, 'UPLOAD_FAILED', 'Could not upload that file. Please try again.');
+      return apiPost<{ fileKey: string }>('/uploads/confirm', { key: presign.key, mimeType: file.type });
+    },
+  },
   /** The school's own operating rules. Read by admins, changed only by the owner. */
   schoolSettings: {
     get: () => apiGet<SchoolSettings>('/school-settings'),
@@ -583,6 +609,9 @@ export const api = {
     copyPlan: (body: { fromClassId: string; fromAcademicYearId: string; toClassIds: string[]; toAcademicYearId?: string; raisePercent?: number; effectiveFrom?: string }) =>
       apiPost<{ created: number; skipped: number; details: string[] }>('/fee-structures/copy', body),
     lateFeePolicy: () => apiGet<LateFeePolicy | null>('/late-fee-policy'),
+    /** Short-lived signed link to the proof attached to a payment. */
+    paymentProof: (paymentId: string) =>
+      apiGet<{ url: string; expiresInSeconds: number }>(`/fees/payments/${paymentId}/proof`),
     upsertLateFeePolicy: (body: { graceDays: number; mode: string; amount: number; maxAmount?: number }) =>
       apiPut<LateFeePolicy>('/late-fee-policy', body),
     discounts: () => apiGet<Discount[]>('/discounts'),

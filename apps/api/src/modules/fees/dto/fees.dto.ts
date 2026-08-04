@@ -142,6 +142,14 @@ export class PayInvoiceDto {
 
   @IsOptional() @IsString() @MaxLength(120)
   transactionRef?: string;
+
+  /**
+   * Storage key of the transfer screenshot / stamped challan / cheque image, as returned by
+   * `POST /uploads/confirm`. Never a URL — the object is private and is read back only through
+   * a short-lived presigned link. The service checks the key belongs to this school.
+   */
+  @IsOptional() @IsString() @MaxLength(300)
+  proofFileKey?: string;
 }
 
 export class CreateAdvanceDto {

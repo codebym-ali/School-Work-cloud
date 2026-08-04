@@ -8,6 +8,7 @@ import {
   ErrorCodes,
   paginate,
   parseSchoolSettings,
+  StorageService,
   restrictedCampusId,
   TenantContext,
   toSkipTake,
@@ -36,6 +37,7 @@ export class PaymentsService {
     private readonly audit: AuditService,
     private readonly sms: SmsProducer,
     private readonly access: AccessService,
+    private readonly storage: StorageService,
   ) {}
 
   private get db() {
@@ -72,6 +74,7 @@ export class PaymentsService {
       // register). ADVANCE is exempt: it is not a way of paying, it is the school applying a
       // credit the guardian already deposited.
       await this.assertMethodAccepted(dto.method);
+      await this.assertProofAcceptable(dto.method, dto.proofFileKey);
       const remaining = money(Number(invoice.totalAmount) - Number(invoice.paidAmount));
       if (dto.amountPaid > remaining) {
         throw new AppError(ErrorCodes.OVERPAYMENT_USE_ADVANCE, HttpStatus.UNPROCESSABLE_ENTITY, `Amount exceeds remaining ${remaining}; use the advance endpoint`);
@@ -86,6 +89,7 @@ export class PaymentsService {
           amountPaid: dto.amountPaid,
           method: dto.method,
           transactionRef: dto.transactionRef,
+          proofFileKey: dto.proofFileKey,
           collectedById: this.ctx.user!.userId,
         },
       });
@@ -202,7 +206,11 @@ export class PaymentsService {
       this.db.feePayment.findMany({ where, skip, take, orderBy: { paidAt: 'desc' } }),
       this.db.feePayment.count({ where }),
     ]);
-    return paginate(rows, total, q);
+    // Report only that proof EXISTS, never the storage key. The key is how a file is addressed;
+    // broadcasting it in a list invites someone to try it somewhere the ownership check is
+    // weaker. Reading the file goes through `proofUrl`, which authorises the payment first.
+    const safe = rows.map(({ proofFileKey, ...p }) => ({ ...p, hasProof: proofFileKey !== null }));
+    return paginate(safe, total, q);
   }
 
   // ── helpers ──────────────────────────────────────────────────────────────────
@@ -229,6 +237,60 @@ export class PaymentsService {
         + `Accepted: ${methods.join(', ')}. An owner can change this in School settings.`,
       );
     }
+  }
+
+  /**
+   * Enforce the school's proof policy, and refuse a key that is not this school's.
+   *
+   * `REQUIRED` applies only to non-cash: cash over the counter has no screenshot and demanding
+   * one would make the commonest payment in a Pakistani school impossible to record. `ADVANCE`
+   * is exempt for the same reason it is exempt from the method list — nobody hands over money,
+   * the school is drawing down a credit it already holds.
+   *
+   * The key check is the security half. `confirmUpload` writes objects under
+   * `uploads/{schoolId}/`, so a key from another tenant is refused here rather than being
+   * stored and later presigned — a stored key is a capability, and it must be validated at the
+   * moment it is accepted, not at the moment it is used.
+   */
+  private async assertProofAcceptable(method: PaymentMethod, proofFileKey?: string): Promise<void> {
+    if (proofFileKey && !proofFileKey.startsWith(`uploads/${this.sid}/`)) {
+      throw new AppError(ErrorCodes.FORBIDDEN, HttpStatus.FORBIDDEN, 'That file does not belong to your school');
+    }
+    if (method === PaymentMethod.CASH || method === PaymentMethod.ADVANCE) return;
+
+    const school = await this.db.school.findFirst({ where: { id: this.sid }, select: { settings: true } });
+    const { proofPolicy } = parseSchoolSettings(school?.settings ?? {}).feeSubmission;
+    if (proofPolicy === 'REQUIRED' && !proofFileKey) {
+      throw new AppError(
+        ErrorCodes.VALIDATION_FAILED,
+        HttpStatus.UNPROCESSABLE_ENTITY,
+        'This school requires proof of payment for non-cash payments — attach the transfer screenshot or stamped challan.',
+      );
+    }
+  }
+
+  /**
+   * A short-lived link to the proof attached to one payment.
+   *
+   * Deliberately keyed on the PAYMENT, not on the file key. A generic "give me a URL for this
+   * key" endpoint would hand a signed link to anyone who could guess or replay an opaque
+   * string; resolving the key only AFTER authorising the payment means the ownership check
+   * cannot be bypassed. Same shape as the documents and payslip readers.
+   */
+  async proofUrl(paymentId: string): Promise<{ url: string; expiresInSeconds: number }> {
+    const payment = await this.db.feePayment.findFirst({
+      where: { id: paymentId },
+      select: { proofFileKey: true, receiptNo: true, invoice: { select: { enrollment: { select: { campusId: true } } } } },
+    });
+    if (!payment) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'Payment not found');
+    // A campus-bound cashier sees their own campus's payments only (§22.8, P1.7).
+    assertCampusAccess(this.ctx.user, payment.invoice.enrollment.campusId);
+    if (!payment.proofFileKey) {
+      throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'No proof was attached to this payment');
+    }
+    const expiresInSeconds = 600;
+    const url = await this.storage.presignGet(payment.proofFileKey, expiresInSeconds, `receipt-${payment.receiptNo}-proof`);
+    return { url, expiresInSeconds };
   }
 
   /** Gap-free per-school receipt number (shared by payments and reversals). */

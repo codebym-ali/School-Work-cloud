@@ -943,6 +943,10 @@ model FeePayment {
   amountPaid     Decimal       @map("amount_paid") @db.Decimal(12, 2)
   method         PaymentMethod
   transactionRef String?       @map("transaction_ref")
+  /// The screenshot, stamped challan counterfoil or cheque image that justifies this payment.
+  /// A storage key under `uploads/{schoolId}/`, never a URL — the object is private and is
+  /// served only through a short-lived presigned link, behind the same checks as the payment.
+  proofFileKey   String?       @map("proof_file_key")
   collectedById  String        @map("collected_by_id") @db.Uuid
   collectedBy    User          @relation(fields: [collectedById, schoolId], references: [id, schoolId])
   paidAt         DateTime      @default(now()) @map("paid_at")

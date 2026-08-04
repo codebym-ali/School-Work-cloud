@@ -121,6 +121,15 @@ export class FeesController {
     return this.payments.pay(id, dto, key);
   }
 
+  /** A short-lived link to the proof attached to one payment. Keyed on the PAYMENT, never on
+   *  the file key — resolving the key only after authorising the payment is what stops an
+   *  opaque string being replayed for someone else's document. */
+  @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT')
+  @Get('payments/:id/proof')
+  proof(@Param('id') id: string) {
+    return this.payments.proofUrl(id);
+  }
+
   @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT')
   @Get('payments')
   listPayments(@Query() q: PaymentListQuery) {

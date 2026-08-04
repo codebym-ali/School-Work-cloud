@@ -4,15 +4,13 @@ import cookieParser from 'cookie-parser';
 import request from 'supertest';
 import { randomUUID } from 'node:crypto';
 import type { Queue } from 'bullmq';
-import { ClsService } from 'nestjs-cls';
-import { CLS_KEYS } from '@common';
-import { PlatformPrismaService, TenantPrismaService } from '@database';
+import { PlatformPrismaService } from '@database';
 import { AppModule } from '../../apps/api/src/app.module';
 import { ProvisioningService } from '../../apps/api/src/modules/platform/provisioning.service';
 import { admissionController } from './support/admission';
-import { SmsService } from '../../apps/api/src/modules/comms/sms/sms.service';
 import { SMS_QUEUE } from '../../apps/api/src/modules/comms/sms/sms.types';
 import { destroyTenant } from './support/tenant';
+import { drainSmsFor } from './support/sms';
 
 /**
  * M4 gate (roadmap M4): collect-fee E2E + fee-integrity-check clean.
@@ -23,9 +21,6 @@ import { destroyTenant } from './support/tenant';
 describe('Fees end-to-end (e2e, §12)', () => {
   let app: INestApplication;
   let platform: PlatformPrismaService;
-  let cls: ClsService;
-  let tenantPrisma: TenantPrismaService;
-  let sms: SmsService;
   let schoolId: string;
   let cookies: string[];
   let csrf: string;
@@ -53,16 +48,7 @@ describe('Fees end-to-end (e2e, §12)', () => {
   const get = (p: string) => request(server()).get(p).set('Host', host).set('Cookie', cookies);
   const idem = () => ({ 'Idempotency-Key': randomUUID() });
 
-  async function drainSms(): Promise<void> {
-    const queue = app.get<Queue>(SMS_QUEUE, { strict: false });
-    for (const job of await queue.getJobs(['waiting', 'delayed', 'active', 'prioritized'])) {
-      await cls.run(async () => {
-        cls.set(CLS_KEYS.schoolId, schoolId);
-        await tenantPrisma.withTenant(() => sms.dispatch(job.data));
-      });
-      await job.remove();
-    }
-  }
+  const drainSms = () => drainSmsFor(app, schoolId);
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
@@ -73,9 +59,6 @@ describe('Fees end-to-end (e2e, §12)', () => {
     await app.init();
 
     platform = app.get(PlatformPrismaService);
-    cls = app.get(ClsService);
-    tenantPrisma = app.get(TenantPrismaService);
-    sms = app.get(SmsService, { strict: false });
 
     const provisioning = app.get(ProvisioningService, { strict: false });
     const prov = await provisioning.provisionSchool({ name: 'Fee School', subdomain: sub, ownerEmail: email, ownerPassword: password });

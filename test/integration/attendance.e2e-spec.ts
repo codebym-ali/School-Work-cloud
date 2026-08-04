@@ -13,6 +13,7 @@ import { admissionController } from './support/admission';
 import { SmsService } from '../../apps/api/src/modules/comms/sms/sms.service';
 import { SMS_QUEUE } from '../../apps/api/src/modules/comms/sms/sms.types';
 import { destroyTenant } from './support/tenant';
+import { drainSmsFor } from './support/sms';
 import * as argon2 from 'argon2';
 
 /**
@@ -66,26 +67,7 @@ describe('Attendance + absence SMS (e2e, §9/§14)', () => {
    *  weekly off — an admin may override, and the flag is ignored on a working day. */
   const todayStr = new Date().toISOString().slice(0, 10);
 
-  /** The `sms` queue is shared across the whole Redis instance, so it can hold jobs from other
-   *  tenants (a parallel spec, or a leftover from an interrupted run). Each job must therefore be
-   *  dispatched under ITS OWN schoolId — forcing this spec's schoolId onto every job re-attributes
-   *  another tenant's SMS to this school and breaks the log assertions below. Mirrors how the real
-   *  worker resolves the tenant (`sms.processor.ts`). Jobs belonging to other schools are left alone.
-   *  NOTE: a dev worker attached to the same Redis will race this and double-dispatch — stop
-   *  `start:worker:dev` before running the integration suite. */
-  async function drainSms(): Promise<number> {
-    const queue = app.get<Queue>(SMS_QUEUE, { strict: false });
-    const jobs = await queue.getJobs(['waiting', 'delayed', 'active', 'prioritized']);
-    const mine = jobs.filter((j) => (j.data as { schoolId?: string })?.schoolId === schoolId);
-    for (const job of mine) {
-      await cls.run(async () => {
-        cls.set(CLS_KEYS.schoolId, (job.data as { schoolId: string }).schoolId);
-        await tenantPrisma.withTenant(() => sms.dispatch(job.data));
-      });
-      await job.remove();
-    }
-    return mine.length;
-  }
+  const drainSms = () => drainSmsFor(app, schoolId);
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();

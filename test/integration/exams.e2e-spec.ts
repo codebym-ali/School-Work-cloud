@@ -4,15 +4,13 @@ import cookieParser from 'cookie-parser';
 import request from 'supertest';
 import { randomUUID } from 'node:crypto';
 import type { Queue } from 'bullmq';
-import { ClsService } from 'nestjs-cls';
-import { CLS_KEYS } from '@common';
-import { PlatformPrismaService, TenantPrismaService } from '@database';
+import { PlatformPrismaService } from '@database';
 import { AppModule } from '../../apps/api/src/app.module';
 import { ProvisioningService } from '../../apps/api/src/modules/platform/provisioning.service';
 import { admissionController } from './support/admission';
-import { SmsService } from '../../apps/api/src/modules/comms/sms/sms.service';
 import { SMS_QUEUE } from '../../apps/api/src/modules/comms/sms/sms.types';
 import { destroyTenant } from './support/tenant';
+import { drainSmsFor } from './support/sms';
 
 /**
  * M5 gate (roadmap M5): enter/publish marks + parent views report card.
@@ -22,9 +20,6 @@ import { destroyTenant } from './support/tenant';
 describe('Exams & report cards (e2e, §11)', () => {
   let app: INestApplication;
   let platform: PlatformPrismaService;
-  let cls: ClsService;
-  let tenantPrisma: TenantPrismaService;
-  let sms: SmsService;
   let schoolId: string;
   let cookies: string[];
   let csrf: string;
@@ -50,16 +45,7 @@ describe('Exams & report cards (e2e, §11)', () => {
     request(server()).put(p).set('Host', host).set('Cookie', cookies).set('X-CSRF-Token', csrf).send(b);
   const get = (p: string) => request(server()).get(p).set('Host', host).set('Cookie', cookies);
 
-  async function drainSms(): Promise<void> {
-    const queue = app.get<Queue>(SMS_QUEUE, { strict: false });
-    for (const job of await queue.getJobs(['waiting', 'delayed', 'active', 'prioritized'])) {
-      await cls.run(async () => {
-        cls.set(CLS_KEYS.schoolId, schoolId);
-        await tenantPrisma.withTenant(() => sms.dispatch(job.data));
-      });
-      await job.remove();
-    }
-  }
+  const drainSms = () => drainSmsFor(app, schoolId);
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
@@ -70,9 +56,6 @@ describe('Exams & report cards (e2e, §11)', () => {
     await app.init();
 
     platform = app.get(PlatformPrismaService);
-    cls = app.get(ClsService);
-    tenantPrisma = app.get(TenantPrismaService);
-    sms = app.get(SmsService, { strict: false });
 
     const prov = await app.get(ProvisioningService, { strict: false }).provisionSchool({ name: 'Exam School', subdomain: sub, ownerEmail: email, ownerPassword: password });
     schoolId = prov.schoolId;

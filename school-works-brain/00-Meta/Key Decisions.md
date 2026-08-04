@@ -265,4 +265,9 @@ Blueprint's AWS reference (RDS/ECS/S3/KMS…) is replaced by **Contabo + Coolify
 - **Name the rule, not the field.** Settings screens say *"a teacher may fill in a missed day up to 7 days later"*, not `attendanceBackfillDays`, and state the consequence (*"anyone checking in after 09:45 is marked late"*) rather than leaving the reader to derive it.
 - **Don't expose a switch for behaviour that doesn't exist.** `autoMarkAbsent` is deliberately absent from the settings screen while the day-close job is unbuilt — a toggle that changes nothing is a defect, not a placeholder.
 
+## Test infrastructure: the shared queue (added 2026-08-04)
+- **Three copies of a helper is three copies of every bug in it.** `drainSms` was hand-copied into the attendance, exams and fees specs. The same two defects were then fixed *one copy at a time*, over separate sessions, each fix looking like it had solved the problem until the next spec's turn came round. Now one function: `test/integration/support/sms.ts`.
+- **The `sms` queue is shared across the whole Redis instance, so a test helper does not own what it reads.** Draining "all jobs" and forcing the calling spec's `schoolId` onto each re-attributes another tenant's message to this school, corrupts both specs' log assertions, and deletes the job out from under whoever queued it. Filter to your own jobs; dispatch each under **its own** `schoolId`, the way `sms.processor.ts` does.
+- **Distinguish a fact about the product from a fact about the machine.** A job locked by another worker made three suites red while nothing was wrong with attendance, exams or fees. Cleanup of state you don't own is best-effort — assert on the product, tolerate the environment. (The real guard against a live worker double-dispatching is `support/no-worker.js`.)
+
 **Source:** [[consistency-register]] · [[school-management-master-blueprint]] §2–§34

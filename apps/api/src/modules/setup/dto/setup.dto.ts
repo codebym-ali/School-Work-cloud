@@ -180,6 +180,8 @@ export class UpdateSchoolSettingsDto {
 
   @IsOptional() @IsInt() @Min(0) @Max(90) attendanceEditWindowDays?: number;
   @IsOptional() @IsInt() @Min(0) @Max(90) attendanceBackfillDays?: number;
+  @IsOptional() @IsString() @Matches(/^([01]\d|2[0-3]):[0-5]\d$/, { message: 'attendanceMarkByTime must be HH:MM' })
+  attendanceMarkByTime?: string;
   @IsOptional() @IsBoolean() allowHolidayOverride?: boolean;
 
   @IsOptional() @IsInt() @Min(1) @Max(28) feeDueDay?: number;

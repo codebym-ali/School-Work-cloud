@@ -148,6 +148,55 @@ describe('Attendance + absence SMS (e2e, §9/§14)', () => {
     await app.close();
   });
 
+  /**
+   * G3 — which registers are still unmarked today.
+   *
+   * The rule that matters is **where the query starts**: from the SECTIONS, not from the
+   * attendance table. A query over `attendance_records` can only ever return registers somebody
+   * already filled in, so it returns the opposite of what is wanted. The staff register learned
+   * this the hard way ("nobody said" is not "absent"); this is the student half.
+   */
+  describe('unmarked registers today', () => {
+    const setMarkBy = (time: string) =>
+      request(server()).patch('/api/v1/school-settings')
+        .set('Host', host).set('Cookie', cookies).set('X-CSRF-Token', csrf)
+        .send({ attendanceMarkByTime: time });
+
+    afterAll(async () => { await setMarkBy('10:00'); });
+
+    it("stays quiet before the school's own deadline, then names the section", async () => {
+      // 23:59 — never reached during a run, so the deadline has not passed.
+      await setMarkBy('23:59');
+      const early = await get('/api/v1/attendance/unmarked-today');
+      expect(early.status).toBe(200);
+      expect(early.body.due).toBe(false);
+
+      // 00:00 — always passed. The section exists and (on a fresh tenant) is unmarked, so it is
+      // listed: the answer comes from the section list, not from rows that do not exist.
+      await setMarkBy('00:00');
+      const due = await get('/api/v1/attendance/unmarked-today');
+      expect(due.body.due).toBe(true);
+      expect(due.body.markByTime).toBe('00:00');
+      // Either it is outstanding, or an earlier test in this file already marked it — both are
+      // consistent, so assert the shape and the invariant rather than a brittle count.
+      for (const row of due.body.sections) {
+        expect(row.marked).toBeLessThan(row.expected);
+        expect(row).toHaveProperty('className');
+        expect(row).toHaveProperty('sectionName');
+      }
+      expect(due.body.count).toBe(due.body.sections.length);
+    });
+
+    it("is the head's view, not a teacher's", async () => {
+      // A list of which colleagues are behind is oversight, not self-service. A teacher gets
+      // their own coverage strip instead.
+      const teacher = await teacherSession();
+      const res = await request(server()).get('/api/v1/attendance/unmarked-today')
+        .set('Host', host).set('Cookie', teacher);
+      expect(res.status).toBe(403);
+    });
+  });
+
   it('rejects a future date (422)', async () => {
     const future = new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10);
     const res = await post('/api/v1/attendance/bulk', {

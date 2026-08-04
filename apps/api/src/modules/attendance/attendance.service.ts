@@ -250,6 +250,78 @@ export class AttendanceService {
     );
   }
 
+  /**
+   * Which sections have not had today's register marked (G3).
+   *
+   * **Starts from the SECTIONS, not from the attendance table** — the same rule the staff
+   * register had to learn. A query over `attendance_records` can only return registers somebody
+   * already filled in; the ones worth chasing are precisely the ones it omits.
+   *
+   * Surfaces, never polices. Nothing here blocks marking, derives a status or messages anyone:
+   * it answers "who hasn't done it yet", and only once the school's own `attendanceMarkByTime`
+   * has passed — before that a blank register is a lesson that hasn't happened yet, and a system
+   * that complains then gets ignored when it matters.
+   *
+   * `partial` is distinguished from untouched: a register interrupted halfway is a different
+   * problem from one never started, and needs a different word from whoever chases it.
+   */
+  async unmarkedToday() {
+    const schoolId = this.ctx.requireSchoolId();
+    const school = await this.db.school.findFirst({ where: { id: schoolId } });
+    const settings = parseSchoolSettings(school?.settings ?? {});
+    const session = settings.attendanceSessions[0];
+    const academicYearId = await this.setup.requireCurrentYearId();
+
+    const now = new Date();
+    const nowHhMm = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+    // ⚠️ Server wall clock, not the school's — the same fleet-wide timezone assumption as the
+    // staff day close. See G4; stated here rather than left implied.
+    const due = nowHhMm >= settings.attendanceMarkByTime;
+    const date = new Date(startOfDay(now));
+
+    const restricted = restrictedCampusId(this.ctx.user);
+    const sections = await this.db.section.findMany({
+      where: { ...(restricted ? { class: { campusId: restricted } } : {}) },
+      select: { id: true, name: true, class: { select: { name: true, campusId: true } } },
+    });
+
+    const rows = await Promise.all(
+      sections.map(async (s) => {
+        // A holiday or weekly off is not a gap. Crying wolf every Sunday is how a warning
+        // becomes wallpaper — the coverage strip learned this first.
+        if (await this.isNonWorkingDay(date, s.class.campusId, settings.weeklyOffDays)) return null;
+
+        const [expected, marked] = await Promise.all([
+          this.db.studentEnrollment.count({
+            where: { sectionId: s.id, academicYearId, status: 'ACTIVE', student: { deletedAt: null }, startedAt: { lte: date } },
+          }),
+          this.db.attendanceRecord.count({
+            where: { date, session, enrollment: { sectionId: s.id, academicYearId } },
+          }),
+        ]);
+        // A section with nobody in it cannot be behind on anything.
+        if (expected === 0 || marked >= expected) return null;
+        return {
+          sectionId: s.id,
+          className: s.class.name,
+          sectionName: s.name,
+          expected,
+          marked,
+          partial: marked > 0,
+        };
+      }),
+    );
+
+    const outstanding = rows.filter((r): r is NonNullable<typeof r> => r !== null);
+    return {
+      /** Whether the school's own deadline has passed yet — the UI stays quiet until it has. */
+      due,
+      markByTime: settings.attendanceMarkByTime,
+      count: outstanding.length,
+      sections: outstanding.sort((a, b) => a.className.localeCompare(b.className) || a.sectionName.localeCompare(b.sectionName)),
+    };
+  }
+
   async query(q: AttendanceQuery) {
     const where: Prisma.AttendanceRecordWhereInput = {};
     if (q.date) where.date = new Date(q.date);

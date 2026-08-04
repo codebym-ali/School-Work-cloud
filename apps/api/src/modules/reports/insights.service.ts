@@ -55,6 +55,8 @@ export class DashboardService {
 
     // Ops metrics: admins only (an ACCOUNTANT neither sees nor triggers these queries).
     let todayAttendancePercent: number | null = null;
+    let todayAttendanceMarked: number | null = null;
+    let todayAttendanceExpected: number | null = null;
     let pendingLeaves: number | null = null;
     let failedSmsCount: number | null = null;
     if (isAdmin) {
@@ -65,6 +67,24 @@ export class DashboardService {
       });
       const present = todayRecords.filter((r) => r.status === 'PRESENT' || r.status === 'LATE' || r.status === 'HALF_DAY').length;
       todayAttendancePercent = todayRecords.length ? Math.round((present / todayRecords.length) * 100) : null;
+
+      // ⚠️ That percentage is over the records that EXIST, so on its own it is a reassuring lie:
+      // one section of twenty marked, everyone present ⇒ "100%". The staff register learned this
+      // rule the hard way — a percentage over a half-kept register is not a fact about the school.
+      //
+      // So the coverage travels WITH it and is displayed beside it, never folded into it. Folding
+      // would produce a different lie (a school that has marked half its registers is not "50%
+      // attendance"), and hiding it leaves the reassuring one.
+      const expectedToday = await this.db.studentEnrollment.count({
+        where: {
+          status: 'ACTIVE',
+          student: { deletedAt: null },
+          startedAt: { lte: day },
+          ...(restricted ? { campusId: restricted } : {}),
+        },
+      });
+      todayAttendanceMarked = todayRecords.length;
+      todayAttendanceExpected = expectedToday;
 
       const [studentLeaves, staffLeaves, failedSms] = await Promise.all([
         this.db.studentLeave.count({ where: { status: 'PENDING', ...(restricted ? { student: { enrollments: { some: { status: 'ACTIVE', campusId: restricted } } } } : {}) } }),
@@ -78,6 +98,8 @@ export class DashboardService {
     return {
       enrollmentCount,
       todayAttendancePercent,
+      todayAttendanceMarked,
+      todayAttendanceExpected,
       monthCollections: Number(collections._sum.amountPaid ?? 0),
       defaulterCount: defaulters.length,
       pendingLeaves,

@@ -76,8 +76,18 @@ export interface UserModule { key: string; label: string; description: string; r
 export interface Dashboard {
   enrollmentCount: number; todayAttendancePercent: number | null; monthCollections: number;
   defaulterCount: number; pendingLeaves: number | null; failedSmsCount: number | null;
+  /** Coverage travels WITH the percentage: 100% off two marked registers is not 100% attendance. */
+  todayAttendanceMarked: number | null; todayAttendanceExpected: number | null;
   /** Metric keys this role should see — the UI renders only these cards (role-shaping). */
   visible: string[];
+}
+/** Registers still unmarked today (G3) — surfaced to the head, never enforced on the teacher. */
+export interface UnmarkedRegisters {
+  /** False before the school's own mark-by time: the UI stays quiet until the deadline passes. */
+  due: boolean;
+  markByTime: string;
+  count: number;
+  sections: Array<{ sectionId: string; className: string; sectionName: string; expected: number; marked: number; partial: boolean }>;
 }
 /** Shared vocabulary with the API and the student portal, so the ranges never diverge. */
 export const PERFORMANCE_RANGES = ['1w', '1m', '2m', '3m', '6m'] as const;
@@ -381,6 +391,7 @@ export interface SchoolSettings {
     guardianUploadLink: boolean;
     chequeClearingDays: number;
   };
+  attendanceMarkByTime: string;
   staffAttendance: { selfMarking: boolean; autoMarkAbsent: boolean; dayStartTime: string; graceMinutes: number; closeAtTime: string };
 }
 type DeepPartial<T> = { [K in keyof T]?: T[K] extends object ? Partial<T[K]> : T[K] };
@@ -505,6 +516,9 @@ export const api = {
     myAttendance: (qs = '') => apiGet<StaffAttendanceRow[]>(`/staff-attendance/mine${qs ? `?${qs}` : ''}`),
     myAttendanceSummary: (qs = '') => apiGet<StaffAttendanceSummary>(`/staff-attendance/mine/summary${qs ? `?${qs}` : ''}`),
     checkInState: () => apiGet<CheckInState>('/staff-attendance/mine/check-in'),
+    /** Which class registers are still unmarked today. Admins only — a teacher gets their own
+     *  coverage strip, not a list of which colleagues are behind. */
+    unmarkedRegisters: () => apiGet<UnmarkedRegisters>('/attendance/unmarked-today'),
     checkIn: () => apiPost<{ date: string; status: string; checkIn: string }>('/staff-attendance/check-in', {}),
   },
   /**

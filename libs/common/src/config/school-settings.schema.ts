@@ -32,6 +32,18 @@ export const schoolSettingsSchema = z
      * reporting, so it needs a floor. Admins remain unlimited (audited).
      */
     attendanceBackfillDays: z.number().int().min(0).max(90).default(7),
+    /**
+     * Local wall-clock time by which each section's register is expected to be marked (G3).
+     *
+     * **It surfaces; it does not police.** Nothing is blocked after it, nobody is punished, and
+     * no attendance is derived — an unmarked day stays an honest gap for ever, because "nobody
+     * said" is not "absent" and absence SMS goes to real parents. All it decides is *when the
+     * head is shown the gap*: before this time a blank register is simply a lesson that hasn't
+     * happened yet, and complaining then trains people to ignore the complaint.
+     *
+     * Default 10:00 — after a normal first period, well before the day ends.
+     */
+    attendanceMarkByTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).default('10:00'),
     allowHolidayOverride: z.boolean().default(false),
     feeDueDay: z.number().int().min(1).max(28).default(10),
     midMonthProration: z.enum(['FULL', 'HALF', 'DAILY']).default('FULL'),

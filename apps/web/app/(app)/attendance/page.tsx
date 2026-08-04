@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { apiGet, apiPost, ApiError, type Campus, type Enrollment, type Klass, type Section } from '@/lib/api';
+import { api, apiGet, apiPost, ApiError, type Campus, type Enrollment, type Klass, type Section, type UnmarkedRegisters } from '@/lib/api';
 import { sectionLabeller } from '@/lib/labels';
 
 interface DayCoverage { date: string; working: boolean; marked: number; expected: number }
@@ -90,14 +90,21 @@ export default function AttendancePage() {
 
   const [coverage, setCoverage] = useState<DayCoverage[]>([]);
   const [autoLoaded, setAutoLoaded] = useState(false);
+  const [unmarked, setUnmarked] = useState<UnmarkedRegisters | null>(null);
 
   useEffect(() => {
     apiGet<Klass[]>('/classes').then(setClasses).catch(() => {});
     apiGet<Section[]>('/sections').then(setSections).catch(() => {});
     apiGet<Campus[]>('/campuses').then(setCampuses).catch(() => {});
     // Deep-link from "My Classes" (e.g. /attendance?sectionId=…): preselect that section.
-    const sid = new URLSearchParams(window.location.search).get('sectionId');
+    const params = new URLSearchParams(window.location.search);
+    const sid = params.get('sectionId');
     if (sid) setSectionId(sid);
+    // Arrived from the dashboard's "N registers not marked today" chip: show WHICH ones, or the
+    // chip is a number that points at a page where you still have to go looking.
+    if (params.get('unmarked')) {
+      api.staff.unmarkedRegisters().then(setUnmarked).catch(() => {});
+    }
   }, []);
 
   // Once the deep-linked section is set, load its roster automatically (one time).
@@ -157,6 +164,30 @@ export default function AttendancePage() {
     <div className="stack">
       <h1>Attendance</h1>
       {msg && <div className={`toast ${msg.ok ? 'ok' : 'err'}`}>{msg.text}</div>}
+
+      {/* Surfaced, not enforced: this names the sections still outstanding and lets the reader
+          jump straight into one. Nothing here blocks or punishes anybody. */}
+      {unmarked && unmarked.count > 0 && (
+        <div className="card stack" style={{ borderLeft: '4px solid #d97706' }}>
+          <strong style={{ fontSize: 15 }}>
+            {unmarked.count} register{unmarked.count === 1 ? '' : 's'} not marked today
+          </strong>
+          <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+            Expected to be marked by {unmarked.markByTime}. Nothing is recorded for these students
+            until someone marks them — an unmarked day stays a gap, it is never assumed.
+          </p>
+          <div className="row" style={{ justifyContent: 'flex-start', flexWrap: 'wrap', gap: 8 }}>
+            {unmarked.sections.map((u) => (
+              <button key={u.sectionId} type="button" className="chip"
+                onClick={() => { setSectionId(u.sectionId); setDate(today()); }}>
+                {u.className} {u.sectionName}
+                {/* Half-done and never-started are different problems needing different effort. */}
+                {u.partial ? ` — ${u.marked}/${u.expected} done` : ''} →
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
       {date !== today() && (
         <div className="toast warn">
           You&apos;re marking <b>{new Date(date).toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })}</b>,

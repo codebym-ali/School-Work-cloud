@@ -143,7 +143,19 @@ export default function SettingsPage() {
         )}
       </Section>
 
-      <Section title="Student attendance" blurb="How far back a class register may be filled in or corrected.">
+      <Section title="Student attendance" blurb="When registers are expected, and how far back one may be filled in or corrected.">
+        <div style={{ maxWidth: 160 }}>
+          <label>Registers marked by</label>
+          <input type="time" defaultValue={s.attendanceMarkByTime} disabled={!isOwner}
+            onBlur={(e) => { if (e.target.value && e.target.value !== s.attendanceMarkByTime) save('attendanceMarkByTime', { attendanceMarkByTime: e.target.value }); }} />
+        </div>
+        {/* Says plainly what it does and — just as importantly — what it does NOT do. A setting
+            that looks like enforcement but only changes a dashboard would be worse than none. */}
+        <Hint>
+          After <strong>{s.attendanceMarkByTime}</strong> your dashboard lists any section whose register
+          is still unmarked. Nothing is blocked and nobody is marked automatically — an unmarked day
+          stays a gap until a person fills it in.
+        </Hint>
         <NumberRow label="A teacher may fill in a missed day up to" suffix="days later"
           value={s.attendanceBackfillDays} min={0} max={90} disabled={!isOwner}
           onSave={(v) => save('attendanceBackfillDays', { attendanceBackfillDays: v })}

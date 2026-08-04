@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { api, type AdmissionsSummary, type Dashboard, type StaffDaySummary } from '@/lib/api';
+import { api, type AdmissionsSummary, type Dashboard, type StaffDaySummary, type UnmarkedRegisters } from '@/lib/api';
 import { useMe } from '@/lib/me-context';
 import { canReach } from '@/lib/roles';
 
@@ -50,6 +50,7 @@ export default function DashboardPage() {
   const [adm, setAdm] = useState<AdmissionsSummary | null>(null);
   const [staff, setStaff] = useState<StaffDaySummary | null>(null);
   const [pendingClaims, setPendingClaims] = useState(0);
+  const [unmarked, setUnmarked] = useState<UnmarkedRegisters | null>(null);
   const [err, setErr] = useState(false);
 
   useEffect(() => {
@@ -61,6 +62,8 @@ export default function DashboardPage() {
     // Claims arrive and nobody looks without this — the plan called that failure mode out
     // before the queue was built, so the chip ships with it, not after.
     api.feeSetup.pendingClaims().then((r) => setPendingClaims(r.pending)).catch(() => {});
+    // Fails silently for a role the API denies, like the other rollups.
+    api.staff.unmarkedRegisters().then(setUnmarked).catch(() => {});
     // Every figure in this summary counts Inquiry rows, so in a DIRECT school (no enquiry
     // pipeline) the card would advertise "0 open inquiries · 0% conversion" for ever — a
     // metric that can never move is worse than no metric. Skip the fetch entirely.
@@ -95,6 +98,14 @@ export default function DashboardPage() {
   // from a register nobody filled in would be a reassuring lie.
   if (staff?.workingDay && staff.absent > 0) {
     attention.push({ text: `${staff.absent} staff absent today`, href: `/staff-attendance?date=${staff.date}&status=ABSENT` });
+  }
+  // Only once the school's own deadline has passed. Before it, an unmarked register is a lesson
+  // that hasn't happened yet — nagging then is how a warning becomes wallpaper.
+  if (unmarked?.due && unmarked.count > 0) {
+    attention.push({
+      text: `${unmarked.count} register${unmarked.count === 1 ? '' : 's'} not marked today`,
+      href: '/attendance?unmarked=1',
+    });
   }
   if (pendingClaims > 0) {
     attention.push({
@@ -149,6 +160,16 @@ export default function DashboardPage() {
                     <span style={{ fontSize: 18 }} aria-hidden="true">{t.icon}</span>
                   </div>
                   <div className="label">{t.label}</div>
+                  {/* The coverage sits BESIDE the percentage, never inside it. "95%" over two of
+                      twenty marked registers is a reassuring lie; folding coverage in would make
+                      a different one (a half-marked school is not "50% attendance"). */}
+                  {t.key === 'todayAttendancePercent' && data.todayAttendanceExpected ? (
+                    <div className="muted" style={{ fontSize: 12 }}>
+                      from {data.todayAttendanceMarked} of {data.todayAttendanceExpected} marked
+                      {data.todayAttendanceExpected > (data.todayAttendanceMarked ?? 0) &&
+                        ` · ${data.todayAttendanceExpected - (data.todayAttendanceMarked ?? 0)} not yet`}
+                    </div>
+                  ) : null}
                   <div className="metric-go">View →</div>
                 </Link>
               ))}

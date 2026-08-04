@@ -84,10 +84,19 @@ overall: 6 of 7 milestones (GA) — full v1 domain built; M7 hardening complete
   verifies, resolves the tenant, guards replays — and then returns **501**, because writing the
   payment needs a service account that does not exist yet. Details in [[Fee Submission Plan]] §5.3a.
 
-**Test count: 687 integration (32 suites) · 52 unit · 7 isolation · 28 Playwright (2 skipped).**
+- [x] **G3 closed — the class register has a deadline that surfaces rather than polices.**
+  `attendanceMarkByTime`, an admin-only "which registers are unmarked today" query that starts
+  from the SECTIONS, and a dashboard chip that appears only after the deadline and names the
+  sections. Nothing blocks, nothing is auto-marked: an unmarked day stays an honest gap.
+  It also caught a live lie — `todayAttendancePercent` read **100% with 9 of 17 students marked**
+  on the operator's own tenant. Coverage now sits beside the percentage.
 
-Open next: the attendance register's **G3–G8**. G3/G4/G5 are product decisions rather than code,
-and the aggregator seam waits on a merchant agreement plus the service-account decision.
+**Test count: 694 integration (32 suites) · 52 unit · 7 isolation · 28 Playwright (2 skipped).**
+
+Open next: **G4** (per-tenant timezone — latent until a tenant sits outside Pakistan, and now
+load-bearing in two places), **G5** (staff backfill floor — a decision to record either way),
+G6–G8 and G10 (low). The aggregator seam waits on a merchant agreement plus the service-account
+decision.
 
 ---
 

@@ -25,6 +25,18 @@ export class AttendanceController {
     return this.attendance.markBulk(dto);
   }
 
+  /**
+   * Which registers are still unmarked today (G3) — the head's view, so admins only.
+   *
+   * Deliberately NOT open to TEACHER: this is a list of colleagues who are behind, and a teacher
+   * needs their own coverage strip, not a leaderboard of everyone else's.
+   */
+  @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
+  @Get('unmarked-today')
+  unmarkedToday() {
+    return this.attendance.unmarkedToday();
+  }
+
   /** Which of the last N days this section is marked for — powers the backfill strip. */
   @Get('coverage')
   coverage(@Query() q: AttendanceCoverageQuery) {

@@ -1,7 +1,7 @@
 ---
 title: Attendance — known gaps & flaws
 type: register
-status: open — G1, G2 fixed · G3–G8 open · running list, added to as flaws surface
+status: open — G1, G2, G3, G9 fixed · G4–G8, G10 open · running list, added to as flaws surface
 created: 2026-08-03
 scope: staff + student attendance, the day-close job, and the timing rules around both
 ---
@@ -84,16 +84,41 @@ code now says so at the comparison rather than leaving it implied.
 
 ---
 
-## G3 — No deadline for the class register at all 🟡 **Med · missing feature, not a bug**
+## G3 — No deadline for the class register ✅ **FIXED 2026-08-04** *(was Med)*
 
-There is **no rule that today's student attendance must be marked by any time.**
-`attendanceBackfillDays` bounds how far *back* a teacher may fill in — never by *when* today's
-must be done. The coverage strip shows which days are missing; nothing has an opinion about
-lateness, and nobody is told.
+**Decided: surface it, don't police it.** A school's enforcement here is social — the head chases
+the teacher — so the system's job is to make the gap visible to the head, not to block, punish or
+invent attendance. Decision taken with the operator 2026-08-04, alongside: **an unmarked day stays
+an unmarked day, for ever.** Nothing auto-marks present (that manufactures records nobody
+witnessed, and they feed report cards) and nothing auto-marks absent (absence SMS goes to real
+parents, so a forgetful teacher would text a wave of families whose children were in class).
 
-**Open product question:** does the school want to police this (a per-school or per-section
-"mark by" time, plus something that notices and tells the head), or is the coverage strip
-enough? Worth deciding before building — an unenforced deadline is just another number.
+Built:
+- **`attendanceMarkByTime`** (HH:MM, default 10:00) — after a normal first period, well before the
+  day ends. It decides only *when the head is shown the gap*: before it, a blank register is a
+  lesson that hasn't happened yet, and complaining then trains people to ignore the complaint.
+- **`GET /attendance/unmarked-today`** — admin-only, campus-scoped. **Starts from the SECTIONS**,
+  which is the whole point: a query over `attendance_records` can only return registers somebody
+  already filled in, so it returns the opposite of what is wanted. Same lesson the staff register
+  learned. Non-working days are excluded (crying wolf every Sunday is how a warning becomes
+  wallpaper) and `partial` distinguishes a half-done register from one never started.
+- A dashboard chip that appears **only after the deadline**, click-through to `/attendance?unmarked=1`,
+  where the sections are named and each is one click from being marked. A chip that points at a
+  page where you still have to go looking is barely better than no chip.
+- Deliberately **not** open to TEACHER: this is a list of colleagues who are behind, which is
+  oversight. A teacher gets their own coverage strip.
+
+### The adjacent defect it surfaced — `todayAttendancePercent` was a reassuring lie
+
+The dashboard computed `present / records-that-exist`. **Live on the operator's tenant it read
+100% while 9 of 17 students were marked** — one marked section, everyone present, and the school
+is told it is perfect. This is exactly the rule the staff register established ("a percentage over
+a half-kept register is not a fact about the school"); the student side had never been given it.
+
+Fixed the same way: coverage travels **with** the percentage and is displayed **beside** it, never
+folded in. Folding would produce a different lie — a school that has marked half its registers is
+not "50% attendance" — and hiding it leaves the reassuring one. The tile now reads
+*100% · from 9 of 17 marked · 8 not yet*.
 
 ---
 

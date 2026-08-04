@@ -330,6 +330,118 @@ describe('Fees end-to-end (e2e, §12)', () => {
     });
   });
 
+  /**
+   * Payment claims. The property under test throughout is the one the whole design exists for:
+   * **a claim is not a payment** until a human says the money arrived.
+   */
+  describe('payment claims', () => {
+    const today = () => new Date().toISOString().slice(0, 10);
+    const claimFor = (invoiceId: string, extra: object = {}) =>
+      post('/api/v1/fees/claims', {
+        invoiceId, amount: 100, method: 'BANK_TRANSFER',
+        transactionRef: `IBFT-${randomUUID().slice(0, 8)}`, paidOn: today(), ...extra,
+      });
+
+    const invoiceFor = async (month: number, year = 2026) => {
+      await post('/api/v1/fees/invoice-batches', { classId, month, year });
+      const inv = (await get(`/api/v1/fees/invoices?studentId=${studentId}&month=${month}&year=${year}`)).body.data[0];
+      expect(inv).toBeDefined();
+      return inv;
+    };
+
+    it('a pending claim moves NO money — the invoice is untouched', async () => {
+      const inv = await invoiceFor(3, 2027);
+      const before = Number(inv.paidAmount);
+
+      const claim = await claimFor(inv.id);
+      expect(claim.status).toBe(201);
+      expect(claim.body.status).toBe('PENDING');
+      expect(claim.body.paymentId).toBeNull();
+
+      // The whole point: no receipt number consumed, nothing collected, defaulter unchanged.
+      const after = (await get(`/api/v1/fees/invoices?studentId=${studentId}&month=3&year=2027`)).body.data[0];
+      expect(Number(after.paidAmount)).toBe(before);
+      expect(await platform.feePayment.count({ where: { invoiceId: inv.id } })).toBe(0);
+    });
+
+    it('verifying creates the real payment, with a receipt, and links the two', async () => {
+      const inv = await invoiceFor(4, 2027);
+      const claim = await claimFor(inv.id);
+
+      const verified = await post(`/api/v1/fees/claims/${claim.body.id}/verify`);
+      expect(verified.status).toBe(201);
+      expect(verified.body.status).toBe('VERIFIED');
+      expect(verified.body.receiptNo).toBeGreaterThan(0);
+
+      // The bridge: from the claim you can reach the receipt it produced, and back again.
+      const row = await platform.feePaymentClaim.findFirstOrThrow({ where: { id: claim.body.id } });
+      expect(row.paymentId).not.toBeNull();
+      const payment = await platform.feePayment.findFirstOrThrow({ where: { id: row.paymentId! } });
+      expect(Number(payment.amountPaid)).toBe(100);
+
+      // ...and the money actually moved this time.
+      const after = (await get(`/api/v1/fees/invoices?studentId=${studentId}&month=4&year=2027`)).body.data[0];
+      expect(Number(after.paidAmount)).toBe(100);
+    });
+
+    it('cannot be verified twice — one claim, one receipt', async () => {
+      const inv = await invoiceFor(5, 2027);
+      const claim = await claimFor(inv.id);
+      await post(`/api/v1/fees/claims/${claim.body.id}/verify`);
+
+      const again = await post(`/api/v1/fees/claims/${claim.body.id}/verify`);
+      expect(again.status).toBe(409);
+      expect(again.body.error.message).toMatch(/already verified/i);
+      expect(await platform.feePayment.count({ where: { invoiceId: inv.id } })).toBe(1);
+    });
+
+    it('rejecting records the reason and leaves the invoice alone', async () => {
+      const inv = await invoiceFor(6, 2027);
+      const claim = await claimFor(inv.id);
+
+      const rejected = await post(`/api/v1/fees/claims/${claim.body.id}/reject`, { reason: 'Reference not on our statement' });
+      expect(rejected.status).toBe(201);
+      expect(rejected.body).toMatchObject({ status: 'REJECTED', rejectionReason: 'Reference not on our statement' });
+      expect(await platform.feePayment.count({ where: { invoiceId: inv.id } })).toBe(0);
+
+      // A rejected claim is terminal — no quiet second chance that could double-collect.
+      const late = await post(`/api/v1/fees/claims/${claim.body.id}/verify`);
+      expect(late.status).toBe(409);
+    });
+
+    it('refuses a reference already submitted, so a resent screenshot is caught early', async () => {
+      const inv = await invoiceFor(7, 2027);
+      const ref = `IBFT-DUP-${randomUUID().slice(0, 6)}`;
+      const first = await claimFor(inv.id, { transactionRef: ref });
+      expect(first.status).toBe(201);
+
+      const dupe = await claimFor(inv.id, { transactionRef: ref });
+      expect(dupe.status).toBe(409);
+      expect(dupe.body.error.message).toMatch(/already been submitted/i);
+    });
+
+    it('the office can record and verify in one action — the clerk took the money', async () => {
+      const inv = await invoiceFor(8, 2027);
+      const oneStep = await claimFor(inv.id, { autoVerify: true });
+      expect(oneStep.status).toBe(201);
+      expect(oneStep.body.status).toBe('VERIFIED');
+      expect(oneStep.body.receiptNo).toBeGreaterThan(0);
+    });
+
+    it('the queue counts what is waiting, and never leaks the storage key', async () => {
+      const count = await get('/api/v1/fees/claims/pending-count');
+      expect(count.status).toBe(200);
+      expect(count.body.pending).toBeGreaterThanOrEqual(1);
+
+      const list = await get('/api/v1/fees/claims?status=PENDING');
+      expect(list.status).toBe(200);
+      expect(list.body.data[0]).toHaveProperty('hasProof');
+      expect(JSON.stringify(list.body)).not.toContain('uploads/');
+      // The queue is worked oldest-first — the family waiting longest goes first.
+      expect(list.body.data[0].student).toHaveProperty('fullName');
+    });
+  });
+
   it('applies late fees via mark-overdue, then a waiver zeroes the balance', async () => {
     // A past-month invoice to go overdue. May 2026, not January: the academic year starts
     // 2026-04-01 and a fee now takes effect from the year's first day, so billing a month

@@ -265,6 +265,7 @@ model School {
   feeInvoiceBatches   FeeInvoiceBatch[]
   feeInvoices         FeeInvoice[]
   feePayments         FeePayment[]
+  feePaymentClaims    FeePaymentClaim[]
   discounts           Discount[]
   lateFeePolicy       LateFeePolicy?
   attendanceRecords   AttendanceRecord[]
@@ -500,6 +501,8 @@ model User {
   approvedDiscounts          Discount[]
   markedAttendance           AttendanceRecord[]
   markedStaffAttendance      StaffAttendance[]    @relation("StaffAttendanceMarkedBy")
+  submittedFeeClaims         FeePaymentClaim[]    @relation("ClaimSubmittedBy")
+  reviewedFeeClaims          FeePaymentClaim[]    @relation("ClaimReviewedBy")
   moduleAccess               ModuleAccess[]
 
   // Actor back-relations. Every *_by_id column references a real user so the audit trail
@@ -629,6 +632,7 @@ model Student {
   updatedAt           DateTime      @updatedAt @map("updated_at")
 
   guardians   StudentGuardian[]
+  feeClaims   FeePaymentClaim[]
   enrollments StudentEnrollment[]
   admission   Admission?
   invoices    FeeInvoice[]
@@ -909,6 +913,7 @@ model FeeInvoice {
 
   items    FeeInvoiceItem[]
   payments FeePayment[]
+  claims   FeePaymentClaim[]
 
   @@unique([id, schoolId])
   // Partial unique in SQL migration: one batch-generated invoice per (student, month, year)
@@ -933,6 +938,75 @@ model FeeInvoiceItem {
   @@map("fee_invoice_items")
 }
 
+/// Somebody says they have paid. **This is not a payment.**
+///
+/// An unverified claim must never mint a receipt number, move `paidAmount`, appear in
+/// collections or clear a defaulter — the office reconciles against the bank statement, and a
+/// screenshot is a claim until it does. Verifying one creates the real `FeePayment` through the
+/// ordinary payment path, so idempotency, the row lock, the gap-free receipt sequence and the
+/// receipt SMS all continue to apply unchanged.
+model FeePaymentClaim {
+  id       String @id @default(uuid()) @db.Uuid
+  schoolId String @map("school_id") @db.Uuid
+  school   School @relation(fields: [schoolId], references: [id])
+
+  /// A family pays for a CHILD, so the claim is anchored to the student even when the invoice
+  /// it settles is obvious.
+  studentId String  @map("student_id") @db.Uuid
+  student   Student @relation(fields: [studentId, schoolId], references: [id, schoolId])
+  invoiceId String  @map("invoice_id") @db.Uuid
+  invoice   FeeInvoice @relation(fields: [invoiceId, schoolId], references: [id, schoolId])
+
+  amount         Decimal       @db.Decimal(12, 2)
+  method         PaymentMethod
+  transactionRef String?       @map("transaction_ref")
+  /// The date the payer says they paid — NOT when they uploaded. A transfer made on the 8th and
+  /// sent in on the 12th was still made on the 8th, and the late-fee question turns on that.
+  paidOn         DateTime      @map("paid_on") @db.Date
+  proofFileKey   String?       @map("proof_file_key")
+  note           String?       @db.VarChar(300)
+
+  status          ClaimStatus @default(PENDING)
+  source          ClaimSource
+  submittedById   String?     @map("submitted_by_id") @db.Uuid
+  submittedBy     User?       @relation("ClaimSubmittedBy", fields: [submittedById, schoolId], references: [id, schoolId])
+  reviewedById    String?     @map("reviewed_by_id") @db.Uuid
+  reviewedBy      User?       @relation("ClaimReviewedBy", fields: [reviewedById, schoolId], references: [id, schoolId])
+  reviewedAt      DateTime?   @map("reviewed_at")
+  rejectionReason String?     @map("rejection_reason") @db.VarChar(300)
+
+  /// Set when verified — the bridge that makes a receipt traceable back to the evidence that
+  /// justified it, and a claim traceable forward to the receipt it produced.
+  paymentId String?     @unique @map("payment_id") @db.Uuid
+  payment   FeePayment? @relation(fields: [paymentId, schoolId], references: [id, schoolId])
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([paymentId, schoolId])
+  @@index([schoolId, status])
+  @@index([studentId, schoolId])
+  @@index([invoiceId, schoolId])
+  @@index([submittedById, schoolId])
+  @@index([reviewedById, schoolId])
+  @@map("fee_payment_claims")
+}
+
+enum ClaimStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
+/// Where a claim came in from. OFFICE claims are verified by the clerk in the same action —
+/// they took the money — while anything self-submitted waits for a human to match it against
+/// the bank statement.
+enum ClaimSource {
+  OFFICE
+  STUDENT_PORTAL
+  GUARDIAN_LINK
+}
+
 model FeePayment {
   id             String        @id @default(uuid()) @db.Uuid
   schoolId       String        @map("school_id") @db.Uuid
@@ -952,6 +1026,7 @@ model FeePayment {
   paidAt         DateTime      @default(now()) @map("paid_at")
 
   reversal PaymentReversal?
+  claim    FeePaymentClaim?
 
   @@unique([id, schoolId])
   @@unique([schoolId, receiptNo])

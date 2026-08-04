@@ -5,6 +5,7 @@ import {
   IsBoolean,
   IsDateString,
   IsEnum,
+  IsIn,
   IsInt,
   IsNumber,
   IsOptional,
@@ -172,4 +173,43 @@ export class PaymentListQuery extends PaginationQuery {
 export class DefaultersQuery {
   @IsOptional() @IsUUID() campusId?: string;
   @IsOptional() @Type(() => Number) @IsInt() @Min(0) minDays?: number;
+}
+
+// ── Payment claims ───────────────────────────────────────────────────────────
+export class SubmitClaimDto {
+  @IsUUID() invoiceId!: string;
+
+  @IsNumber({ maxDecimalPlaces: 2 }) @IsPositive()
+  amount!: number;
+
+  @IsEnum(PaymentMethod)
+  method!: PaymentMethod;
+
+  @IsOptional() @IsString() @MaxLength(120)
+  transactionRef?: string;
+
+  /** The date the payer says they paid — not when they submitted it. */
+  @IsDateString()
+  paidOn!: string;
+
+  @IsOptional() @IsString() @MaxLength(300)
+  proofFileKey?: string;
+
+  @IsOptional() @IsString() @MaxLength(300)
+  note?: string;
+
+  /** Office only: the clerk who took the money is the verifier, so no second review. */
+  @IsOptional() @IsBoolean()
+  autoVerify?: boolean;
+}
+
+export class RejectClaimDto {
+  /** Shown to whoever submitted it, so "no" is actionable rather than mysterious. */
+  @IsString() @MinLength(3) @MaxLength(300)
+  reason!: string;
+}
+
+export class ClaimListQuery extends PaginationQuery {
+  @IsOptional() @IsIn(['PENDING', 'VERIFIED', 'REJECTED']) status?: string;
+  @IsOptional() @IsUUID() studentId?: string;
 }

@@ -13,6 +13,8 @@ import {
   Query,
 } from '@nestjs/common';
 import { Roles } from '@common';
+import { ClaimSource } from '@prisma/client';
+import { ClaimsService } from './claims.service';
 import { FeeSetupService } from './fee-setup.service';
 import { InvoicingService } from './invoicing.service';
 import { PaymentsService } from './payments.service';
@@ -24,7 +26,10 @@ import {
   CreateFeeHeadDto,
   CreateFeeStructureDto,
   UpdateFeeStructureDto,
+  ClaimListQuery,
   CreateInvoiceBatchDto,
+  RejectClaimDto,
+  SubmitClaimDto,
   DefaultersQuery,
   InvoiceListQuery,
   PayInvoiceDto,
@@ -81,6 +86,57 @@ export class DiscountsController {
   @Roles('OWNER_ADMIN') @Post() create(@Body() dto: CreateDiscountDto) { return this.setup.createDiscount(dto); }
   @Get() list(@Query('studentId') studentId?: string) { return this.setup.listDiscounts(studentId); }
   @Roles('OWNER_ADMIN') @Post(':id/revoke') revoke(@Param('id') id: string) { return this.setup.revokeDiscount(id); }
+}
+
+/**
+ * Payment submissions — "somebody says they have paid".
+ *
+ * Separate from `/fees` on purpose: these are CLAIMS, and nothing here moves money until a
+ * human verifies one. The office may record and verify in a single call because the clerk who
+ * took the money is the verifier; anything self-submitted waits.
+ */
+@Controller('fees/claims')
+export class FeeClaimsController {
+  constructor(private readonly claims: ClaimsService) {}
+
+  @Roles('OWNER_ADMIN', 'ACCOUNTANT')
+  @Post()
+  submit(@Body() dto: SubmitClaimDto) {
+    return this.claims.submit(dto, ClaimSource.OFFICE, dto.autoVerify ?? false);
+  }
+
+  @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT')
+  @Get()
+  list(@Query() q: ClaimListQuery) {
+    return this.claims.list(q);
+  }
+
+  /** Powers the dashboard chip — claims arrive and nobody looks without one. */
+  @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT')
+  @Get('pending-count')
+  pendingCount() {
+    return this.claims.pendingCount().then((pending) => ({ pending }));
+  }
+
+  @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT')
+  @Get(':id/proof')
+  proof(@Param('id') id: string) {
+    return this.claims.proofUrl(id);
+  }
+
+  // Confirming money arrived is what creates the receipt, so it is the cashier's call, not a
+  // campus admin's — the same audience that may take a payment in the first place.
+  @Roles('OWNER_ADMIN', 'ACCOUNTANT')
+  @Post(':id/verify')
+  verify(@Param('id') id: string) {
+    return this.claims.verify(id);
+  }
+
+  @Roles('OWNER_ADMIN', 'ACCOUNTANT')
+  @Post(':id/reject')
+  reject(@Param('id') id: string, @Body() dto: RejectClaimDto) {
+    return this.claims.reject(id, dto);
+  }
 }
 
 @Controller('fees')

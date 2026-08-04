@@ -52,6 +52,11 @@ export const AuditActions = {
   /** An admin replaced what a staff member recorded about themselves. It changes their pay,
    *  so the previous claim is preserved in `oldValue` — the row itself forgets. */
   STAFF_ATTENDANCE_OVERRIDDEN: 'STAFF_ATTENDANCE_OVERRIDDEN',
+  /** Somebody claimed a payment, and somebody decided about it. A claim is the evidence trail
+   *  for money the school did not watch arrive — VERIFIED records the receipt it produced. */
+  FEE_CLAIM_SUBMITTED: 'FEE_CLAIM_SUBMITTED',
+  FEE_CLAIM_VERIFIED: 'FEE_CLAIM_VERIFIED',
+  FEE_CLAIM_REJECTED: 'FEE_CLAIM_REJECTED',
   /** A chargeable item was removed from the school's list. Only ever possible while nothing
    *  references it, so the name is all that needs preserving. */
   FEE_HEAD_DELETED: 'FEE_HEAD_DELETED',

@@ -128,8 +128,17 @@ describe('Maintenance runner (e2e, §27)', () => {
     let leaver: string; // left yesterday
 
     const today = new Date(new Date().toISOString().slice(0, 10));
-    /** Weekly off defaults to SUNDAY; force a working week so the day is never skipped. */
-    const workingWeek = { staffAttendance: { autoMarkAbsent: true }, weeklyOffDays: [] as string[] };
+    /**
+     * Weekly off defaults to SUNDAY; force a working week so the day is never skipped.
+     *
+     * `closeAtTime: '00:00'` is deliberate and load-bearing: the close now only runs for a school
+     * whose own local close time has passed, and the default is 20:00 — so without this the whole
+     * describe block would pass or fail depending on what time of day the suite ran.
+     */
+    const workingWeek = {
+      staffAttendance: { autoMarkAbsent: true, closeAtTime: '00:00' },
+      weeklyOffDays: [] as string[],
+    };
 
     const mkStaff = async (code: string, joinedAt: Date, leftAt?: Date) => {
       const user = await platform.user.create({
@@ -179,6 +188,51 @@ describe('Maintenance runner (e2e, §27)', () => {
       // Nobody is invented for a person who was not employed on the day.
       expect(await rowFor(newJoiner)).toBeNull();
       expect(await rowFor(leaver)).toBeNull();
+    });
+
+    /**
+     * G2: the close time is per school. It used to be one fleet-wide cron at 20:00 in the
+     * server's timezone, so a morning school that ends at 13:00 had its register held open for
+     * seven hours — and a teacher who arrived after the fleet close could not check in at all,
+     * because their ABSENT row already existed.
+     *
+     * The job now ticks hourly and settles only the schools whose own time has passed. This is
+     * the assertion that keeps that true: a school whose close time is still ahead is left alone,
+     * even though it has opted in and has unmarked staff sitting there.
+     */
+    it('leaves a school alone until its own close time has passed', async () => {
+      const later = randomUUID();
+      const laterStaff = await (async () => {
+        await platform.school.create({
+          data: {
+            id: later,
+            name: 'Evening School',
+            subdomain: `mnt-late-${later.slice(0, 8)}`,
+            // 23:59 — never reached during a test run, so this school is always "not yet".
+            settings: { staffAttendance: { autoMarkAbsent: true, closeAtTime: '23:59' }, weeklyOffDays: [] },
+          },
+        });
+        const user = await platform.user.create({
+          data: { schoolId: later, email: `late-${later.slice(0, 8)}@close.pk`, roles: ['TEACHER'] as never, status: 'ACTIVE' },
+        });
+        const sp = await platform.staffProfile.create({
+          data: {
+            schoolId: later, userId: user.id, employeeCode: `L-${later.slice(0, 6)}`,
+            staffType: 'TEACHER', designation: 'T', joinedAt: new Date(Date.now() - 400 * 86400000),
+          },
+        });
+        return sp.id;
+      })();
+
+      await maintenance.run('staff-attendance-close');
+
+      // Unmarked, opted in, employed, working day — and still untouched, purely because it is
+      // not this school's hour yet.
+      expect(await platform.staffAttendance.findFirst({ where: { schoolId: later, staffId: laterStaff, date: today } })).toBeNull();
+
+      await platform.staffProfile.deleteMany({ where: { schoolId: later } });
+      await platform.user.deleteMany({ where: { schoolId: later } });
+      await platform.school.delete({ where: { id: later } });
     });
 
     it('is idempotent — a second run writes nothing', async () => {

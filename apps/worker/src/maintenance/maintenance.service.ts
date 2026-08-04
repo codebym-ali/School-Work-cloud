@@ -89,9 +89,23 @@ export class MaintenanceService {
     const schools = await this.platform.school.findMany({ where: { isActive: true }, select: { id: true, settings: true } });
     let marked = 0;
 
+    // Wall-clock HH:MM on the server, compared as a string — both sides are zero-padded 24h, so
+    // lexical order is chronological order.
+    //
+    // ⚠️ "Local" is the SERVER's timezone (prod sets TZ=Asia/Karachi), not the school's: there is
+    // no per-tenant timezone yet. Correct while every tenant is a Pakistani school on one server,
+    // and wrong the moment one is not — that is G4, and this comparison is one of the places it
+    // will bite. Recorded rather than silently assumed.
+    const now = new Date();
+    const nowHhMm = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+
     for (const school of schools) {
       const settings = parseSchoolSettings(school.settings ?? {});
       if (!settings.staffAttendance.autoMarkAbsent) continue;
+      // Each school settles at its own hour. The job ticks hourly, so before a school's close
+      // time this is simply not its turn yet; after it, the pass is a no-op because every row it
+      // would write already exists.
+      if (nowHhMm < settings.staffAttendance.closeAtTime) continue;
 
       await this.cls.run(async () => {
         this.cls.set(CLS_KEYS.schoolId, school.id);

@@ -1,7 +1,7 @@
 ---
 title: Attendance — known gaps & flaws
 type: register
-status: open — running list, added to as flaws surface
+status: open — G1, G2 fixed · G3–G8 open · running list, added to as flaws surface
 created: 2026-08-03
 scope: staff + student attendance, the day-close job, and the timing rules around both
 ---
@@ -48,23 +48,39 @@ freezes everything" fails exactly the new case.
 
 ---
 
-## G2 — Day-close time is hardcoded fleet-wide 🟠 **Med-High · specified, then dropped**
+## G2 — Day-close time was hardcoded fleet-wide ✅ **FIXED 2026-08-04** *(was Med-High)*
 
 The plan (§5.2) specified **`closeAtTime`** as a per-school setting. Building S5 I dropped it and
-did not flag the omission: the job runs `0 20 * * *` for **every tenant, in the server's
-timezone**.
+did not flag the omission: the job ran `0 20 * * *` for **every tenant, in the server's timezone**.
 
-Consequences:
-- A morning school whose day ends at 13:00 has its absences settled at 20:00 — a seven-hour
-  window where the register looks open but is about to be written.
-- **A teacher arriving after close cannot check in at all.** Their `ABSENT` row already exists,
-  so `POST /check-in` 409s. With one fleet-wide time, some school always has this backwards.
-- A two-shift school cannot express its day at all.
+Fixed as specified:
+- `staffAttendance.closeAtTime` (HH:MM, default **20:00** so no school's behaviour changed on
+  upgrade), validated in the Zod schema and the DTO, editable on the settings screen — but only
+  when `autoMarkAbsent` is on, because a time that governs nothing is a decision asked for no
+  reason (the same rule that kept `autoMarkAbsent` itself off the screen while the job was unbuilt).
+- The cron became an **hourly tick** (`0 * * * *`) that settles only schools whose own local close
+  time has passed. Safe by construction: the job never touches an existing row, so every pass
+  after the first writes nothing.
 
-**Fix:** `closeAtTime` per school beside `dayStartTime` on the settings screen; the cron becomes an
-hourly tick that closes only schools whose local close time has passed and which have not closed
-today. Idempotence already holds (existing rows are never touched), so an hourly tick is safe by
-construction.
+**Two defects surfaced while fixing it, both fixed here:**
+1. **A machine-written row accused the person it was about.** Check-in after the close returned
+   *"You are already marked ABSENT today."* — phrased as though they had done it, with no hint
+   that the remedy is the office rather than another press. It now names the author and the hour:
+   *"The register was closed for today at 20:00 and you were recorded ABSENT. Ask the office to
+   correct it."* The same row rendered on `/my-attendance` as a **green `badge ok`** — a success
+   colour on an absence. Now red, and only "ok" when the status actually is.
+2. **The deadline was invisible until it was missed.** `myCheckInState` returns `closeAtTime`
+   (null when the school doesn't run the close), so the screen says *"Check in before 20:00"*
+   while that is still actionable — rather than letting someone discover the rule by hitting it.
+
+**Test that keeps it true:** `maintenance.e2e` — a school whose close time is still ahead is left
+alone though it has opted in, is on a working day, and has unmarked staff. The existing block had
+to pin `closeAtTime: '00:00'`, which is the point: without it those tests would pass or fail
+depending on what time of day the suite ran.
+
+⚠️ **Still fleet-wide: the timezone.** The comparison uses the *server's* wall clock, not the
+school's — see [[#G4]]. Correct while every tenant is a Pakistani school on one server, and the
+code now says so at the comparison rather than leaving it implied.
 
 ---
 
@@ -153,3 +169,33 @@ conversation, not a toggle.
   `undefined` is now stripped at both levels before merging.
 - **`afterEach` deleting payroll runs before payslips** (FK RESTRICT) — a throwing cleanup left
   the next test on dirty state, so one broken teardown read as two unrelated failures.
+
+---
+
+## G9 — CSV import was unusable by the only role allowed to do it ✅ **FIXED 2026-08-04**
+
+Not an attendance gap, but found the same way and worth the entry. `POST /students/import` is
+`ADMISSION_CONTROLLER`-only (segregation of duties, same as admitting). Its button lives on the
+Students screen — and that screen's nav allowed **only** `OWNER_ADMIN` and `CAMPUS_ADMIN`. So the
+one role permitted to bulk-import could not open the page that does it, and the feature was
+reachable by nobody. Meanwhile the button was rendered for *everyone*, so an owner could open the
+form, paste a file and collect a 403 with nothing explaining why.
+
+Fixed both ways round: the officer is added to the `/students` nav entry, and the button is shown
+only to the role that can use it.
+
+**The pattern:** a nav stricter than the API silently deletes a capability, and a button looser
+than the API manufactures a dead end. This is the third instance — the teacher who could be marked
+absent but could not reach `/my-attendance`, the owner who could not find `/admissions-team`, and
+now this. *Whenever a route's `@Roles` and its nav entry disagree, one of them is a bug.*
+
+---
+
+## G10 — The e2e suite accumulates classes in its own campus 🟢 **Low · accepted, watch it**
+
+`seedClassSection` creates a class per run and never removes it. They land in the suite's own
+`E2E Automation` campus (2026-08-04), so the school's real campuses stay clean and the operator
+can ignore or delete the whole campus — but it was already 21 classes after a day. Deliberate
+trade for now: cleanup would have to unpick sections, subjects, enrolments and the admitted
+student. **Revisit if that campus ever needs to be looked at**, or add a teardown that drops
+classes older than a day.

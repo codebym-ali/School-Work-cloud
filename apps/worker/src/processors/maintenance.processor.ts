@@ -33,11 +33,19 @@ export class MaintenanceProcessor implements OnModuleInit, OnModuleDestroy {
     await this.queue.add('idempotency-purge', {}, { repeat: { pattern: '0 * * * *' }, ...opts }); // hourly
     await this.queue.add('sms-log-purge', {}, { repeat: { pattern: '0 2 * * *' }, ...opts }); // nightly 02:00
     await this.queue.add('sms-monthly-credit', {}, { repeat: { pattern: '30 0 1 * *' }, ...opts }); // 1st of month 00:30
-    // Day close, 20:00 — late enough that the office has finished, early enough to still be
-    // "today". No-op for every school that hasn't opted in (`staffAttendance.autoMarkAbsent`),
+    // Day close — an HOURLY TICK, not a fixed hour (G2). The close time is per school
+    // (`staffAttendance.closeAtTime`), so the job wakes every hour and settles only the schools
+    // whose own local close time has passed and which have not been closed today.
+    //
+    // A single fleet-wide 20:00 meant a morning school ending at 13:00 waited seven hours, and a
+    // teacher who arrived after the close could not check in at all — their ABSENT row already
+    // existed. Safe to run hourly because the job is idempotent by construction: it never touches
+    // a row that exists, so the passes after the first write nothing.
+    //
+    // Still a no-op for every school that hasn't opted in (`staffAttendance.autoMarkAbsent`),
     // which is all of them by default: this is the only job that writes payroll-affecting rows
     // with nobody pressing anything.
-    await this.queue.add('staff-attendance-close', {}, { repeat: { pattern: '0 20 * * *' }, ...opts });
+    await this.queue.add('staff-attendance-close', {}, { repeat: { pattern: '0 * * * *' }, ...opts });
 
     this.worker = new Worker(
       QUEUE,

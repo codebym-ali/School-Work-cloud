@@ -141,6 +141,8 @@ class StaffAttendanceSettingsDto {
   @IsOptional() @IsString() @Matches(/^([01]\d|2[0-3]):[0-5]\d$/, { message: 'dayStartTime must be HH:MM' })
   dayStartTime?: string;
   @IsOptional() @IsInt() @Min(0) @Max(120) graceMinutes?: number;
+  @IsOptional() @IsString() @Matches(/^([01]\d|2[0-3]):[0-5]\d$/, { message: 'closeAtTime must be HH:MM' })
+  closeAtTime?: string;
 }
 
 class FeeSubmissionSettingsDto {

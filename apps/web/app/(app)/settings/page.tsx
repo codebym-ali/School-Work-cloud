@@ -113,7 +113,7 @@ export default function SettingsPage() {
         <Toggle label="Mark everyone unmarked as absent at the end of each day"
           checked={attendance.autoMarkAbsent} disabled={!isOwner || busy === 'staffAttendance'}
           onChange={(v) => save('staffAttendance', { staffAttendance: { autoMarkAbsent: v } })}
-          hint="Runs at 20:00. Approved leave is recorded as leave, holidays are skipped, and anything already recorded is left alone." />
+          hint="Approved leave is recorded as leave, holidays are skipped, and anything already recorded is left alone." />
         {/* This is the one switch that creates salary deductions with nobody pressing anything,
             so the consequence is stated where the decision is made — not discovered on a payslip. */}
         <Hint>
@@ -121,6 +121,26 @@ export default function SettingsPage() {
             ? '⚠️ Absences reduce pay. Anyone the office forgets to mark will be recorded absent for that day.'
             : 'Off: a day nobody records stays “not marked”, and the register shows it as a gap to chase.'}
         </Hint>
+
+        {/* Only offered when the close actually runs — a time that governs nothing is a decision
+            the reader has to make for no reason. Same rule that kept `autoMarkAbsent` off this
+            screen while the job was unbuilt. */}
+        {attendance.autoMarkAbsent && (
+          <>
+            <div style={{ maxWidth: 160 }}>
+              <label>Close the register at</label>
+              <input type="time" defaultValue={attendance.closeAtTime} disabled={!isOwner}
+                onBlur={(e) => { if (e.target.value && e.target.value !== attendance.closeAtTime) save('staffAttendance', { staffAttendance: { closeAtTime: e.target.value } }); }} />
+            </div>
+            {/* Was 20:00 for every school on the platform, in the server's timezone — so a school
+                whose day ends at 13:00 waited seven hours, and a teacher arriving after the close
+                found the button refusing them because a machine had already marked them absent. */}
+            <Hint>
+              At <strong>{attendance.closeAtTime}</strong> the day is settled: anyone still unmarked is
+              recorded absent, and staff can no longer check themselves in for that day.
+            </Hint>
+          </>
+        )}
       </Section>
 
       <Section title="Student attendance" blurb="How far back a class register may be filled in or corrected.">

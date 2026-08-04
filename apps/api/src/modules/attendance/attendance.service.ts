@@ -483,7 +483,19 @@ export class AttendanceService {
       // Not an error to retry-proof away: check-in is a claim about a moment, and a second
       // press must never overwrite the first timestamp or silently upgrade an office-recorded
       // ABSENT back to PRESENT.
-      throw new AppError(ErrorCodes.CONFLICT, HttpStatus.CONFLICT, `You are already marked ${existing.status} today.`);
+      //
+      // Say WHO decided, though. A row the day-close job wrote is not something this person did,
+      // and "You are already marked ABSENT today." reads as an accusation for someone who simply
+      // arrived after the register was settled — with no hint that the fix is a word with the
+      // office rather than another press of the button.
+      const machineWrote = existing.source === AttendanceSource.SYSTEM;
+      throw new AppError(
+        ErrorCodes.CONFLICT,
+        HttpStatus.CONFLICT,
+        machineWrote
+          ? `The register was closed for today at ${settings.staffAttendance.closeAtTime} and you were recorded ${existing.status}. Ask the office to correct it.`
+          : `You are already marked ${existing.status} today.`,
+      );
     }
 
     const status = checkInStatus(now, settings.staffAttendance.dayStartTime, settings.staffAttendance.graceMinutes);
@@ -521,6 +533,10 @@ export class AttendanceService {
       /** What pressing the button would record right now — LATE is announced, never sprung. */
       wouldBe: checkInStatus(now, settings.staffAttendance.dayStartTime, settings.staffAttendance.graceMinutes),
       dayStartTime: settings.staffAttendance.dayStartTime,
+      /** When the register is settled, so the screen can say "check in before 20:00" rather than
+       *  letting someone discover the deadline by missing it. Only meaningful where the school
+       *  actually runs the day-close job. */
+      closeAtTime: settings.staffAttendance.autoMarkAbsent ? settings.staffAttendance.closeAtTime : null,
     };
   }
 

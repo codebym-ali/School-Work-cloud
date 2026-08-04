@@ -108,6 +108,19 @@ export const schoolSettingsSchema = z
         dayStartTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).default('08:00'),
         /** Minutes after `dayStartTime` still counted as on time. */
         graceMinutes: z.number().int().min(0).max(120).default(15),
+        /**
+         * Local wall-clock time the register is settled, HH:MM. After this, `autoMarkAbsent`
+         * gives every unmarked staff member a status and the day is closed.
+         *
+         * Was hardcoded fleet-wide at 20:00 in the server's timezone (G2). Two consequences,
+         * both real: a morning school ending at 13:00 had its absences settled seven hours
+         * later, and — worse — **a teacher arriving after the close could not check in at all**,
+         * because their ABSENT row already existed and check-in refuses to overwrite a
+         * recorded status. With one fleet-wide time, some school always has this backwards.
+         *
+         * Kept at the old 20:00 as the default so no school's behaviour changes on upgrade.
+         */
+        closeAtTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).default('20:00'),
       })
       .default({}),
   })

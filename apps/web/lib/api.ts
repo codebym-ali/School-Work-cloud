@@ -375,7 +375,7 @@ export interface SchoolSettings {
     guardianUploadLink: boolean;
     chequeClearingDays: number;
   };
-  staffAttendance: { selfMarking: boolean; autoMarkAbsent: boolean; dayStartTime: string; graceMinutes: number };
+  staffAttendance: { selfMarking: boolean; autoMarkAbsent: boolean; dayStartTime: string; graceMinutes: number; closeAtTime: string };
 }
 type DeepPartial<T> = { [K in keyof T]?: T[K] extends object ? Partial<T[K]> : T[K] };
 
@@ -408,6 +408,8 @@ export interface CheckInState {
   /** What pressing the button would record right now, so "late" is announced, not sprung. */
   wouldBe: 'PRESENT' | 'LATE';
   dayStartTime: string;
+  /** When the register is settled, or null where the school doesn't run the day close. */
+  closeAtTime: string | null;
 }
 export interface Payslip { id: string; runId: string; gross: string; attendanceDeduction: string; otherDeductions: string; netPay: string; status: string; paidAt: string | null }
 /** Admin queue rows carry the person's name so the screen never has to resolve ids itself. */

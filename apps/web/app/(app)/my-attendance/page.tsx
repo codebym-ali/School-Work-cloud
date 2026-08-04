@@ -142,11 +142,19 @@ function CheckInControl({ state, busy, onCheckIn }: { state: CheckInState; busy:
     return <span className="muted" style={{ fontSize: 13 }}>Today is a holiday or weekly off — no attendance is taken.</span>;
   }
   if (state.today) {
+    // A row the day-close job wrote is not something this person did. It used to render as a
+    // green `badge ok` reading "Already marked Absent today" — a success colour on an absence,
+    // phrased as though they had done it, with no hint that the remedy is the office rather than
+    // the button. Name the author, and only call it OK when it actually is.
+    const machineWrote = state.today.source === 'SYSTEM';
+    const good = state.today.status === 'PRESENT' || state.today.status === 'LATE';
     return (
-      <span className="badge ok" style={{ fontSize: 13 }}>
+      <span className={`badge ${good ? 'ok' : 'bad'}`} style={{ fontSize: 13 }}>
         {state.today.checkIn
           ? `Checked in at ${time(state.today.checkIn)}`
-          : `Already marked ${humanizeStatus(state.today.status)} today`}
+          : machineWrote
+            ? `Recorded ${humanizeStatus(state.today.status)} when the register closed${state.closeAtTime ? ` at ${state.closeAtTime}` : ''} — ask the office to correct it`
+            : `Already marked ${humanizeStatus(state.today.status)} today`}
       </span>
     );
   }
@@ -161,6 +169,13 @@ function CheckInControl({ state, busy, onCheckIn }: { state: CheckInState; busy:
       <button type="button" disabled={busy} onClick={onCheckIn}>
         {busy ? 'Checking in…' : late ? "✓ Check in (you're late)" : '✓ Check in'}
       </button>
+      {/* State the deadline while it can still be met. Discovering it by missing it is how the
+          old fleet-wide 20:00 turned into "the button just refuses me". */}
+      {state.closeAtTime && (
+        <span className="muted" style={{ fontSize: 12 }}>
+          Check in before {state.closeAtTime}
+        </span>
+      )}
     </div>
   );
 }

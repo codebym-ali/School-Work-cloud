@@ -7,6 +7,7 @@ import {
   AuditActions,
   checkInStatus,
   ErrorCodes,
+  isPastLocalTime,
   parseSchoolSettings,
   restrictedCampusId,
   TenantContext,
@@ -273,10 +274,10 @@ export class AttendanceService {
     const academicYearId = await this.setup.requireCurrentYearId();
 
     const now = new Date();
-    const nowHhMm = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-    // ⚠️ Server wall clock, not the school's — the same fleet-wide timezone assumption as the
-    // staff day close. See G4; stated here rather than left implied.
-    const due = nowHhMm >= settings.attendanceMarkByTime;
+    // The SCHOOL's clock, not the server's (G4). A 13:00 school in another zone would otherwise
+    // have its registers judged late at the wrong moment, with nothing in the output to hint the
+    // comparison was against the wrong clock.
+    const due = isPastLocalTime(now, settings.attendanceMarkByTime, settings.timezone);
     const date = new Date(startOfDay(now));
 
     const restricted = restrictedCampusId(this.ctx.user);
@@ -570,7 +571,7 @@ export class AttendanceService {
       );
     }
 
-    const status = checkInStatus(now, settings.staffAttendance.dayStartTime, settings.staffAttendance.graceMinutes);
+    const status = checkInStatus(now, settings.staffAttendance.dayStartTime, settings.staffAttendance.graceMinutes, settings.timezone);
     const row = await this.db.staffAttendance.create({
       data: {
         schoolId, staffId: staff.id, date, session, status,
@@ -603,7 +604,7 @@ export class AttendanceService {
       nonWorkingDay: nonWorking,
       today,
       /** What pressing the button would record right now — LATE is announced, never sprung. */
-      wouldBe: checkInStatus(now, settings.staffAttendance.dayStartTime, settings.staffAttendance.graceMinutes),
+      wouldBe: checkInStatus(now, settings.staffAttendance.dayStartTime, settings.staffAttendance.graceMinutes, settings.timezone),
       dayStartTime: settings.staffAttendance.dayStartTime,
       /** When the register is settled, so the screen can say "check in before 20:00" rather than
        *  letting someone discover the deadline by missing it. Only meaningful where the school

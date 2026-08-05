@@ -265,6 +265,13 @@ Blueprint's AWS reference (RDS/ECS/S3/KMS…) is replaced by **Contabo + Coolify
 - **Name the rule, not the field.** Settings screens say *"a teacher may fill in a missed day up to 7 days later"*, not `attendanceBackfillDays`, and state the consequence (*"anyone checking in after 09:45 is marked late"*) rather than leaving the reader to derive it.
 - **Don't expose a switch for behaviour that doesn't exist.** `autoMarkAbsent` is deliberately absent from the settings screen while the day-close job is unbuilt — a toggle that changes nothing is a defect, not a placeholder.
 
+## Clocks (added 2026-08-05)
+- **"What time is it" is a question about the SCHOOL, not the server.** Every timing rule compared a stored `HH:MM` against `Date#getHours()`, which is right only while the whole fleet sits in the server's zone — and wrong *silently* otherwise, with nothing in the output hinting which clock was used. One setting, one helper, four call sites.
+- **Format, never arithmetic on offsets.** `Intl.DateTimeFormat` with a `timeZone` makes DST the runtime's problem. A hand-rolled `+05:00` is wrong half the year in any zone that observes it — pinned by a test that checks Europe/London in both January and August.
+- **`hour12: false` is not `hourCycle: 'h23'`.** The former yields `"24"` at midnight in some locales, which sorts *above* every deadline and makes a just-past-midnight tick look like the end of the day.
+- **Split the migration-shaped half out rather than half-doing it.** The clock comparisons were a helper swap; the *day boundary* (every `@db.Date` built as UTC midnight) touches every date column, every `startOfDay` and every report that groups by day. Fixing it badly would silently re-date existing records, so it is now G4b with its own entry — a partial fix that says what it did not do beats a whole one nobody can review.
+- **Tests that read the wall clock pass or fail by when they run.** Both the timezone unit tests and the day-close block pin a fixed instant or an explicit setting. The integration test proves the *wiring* differently: same moment, same setting, two zones, two answers.
+
 ## Surfacing vs policing (added 2026-08-04)
 - **Some rules are enforced socially, and the software's job is to make the gap visible — not to block or punish.** A class register has no deadline the system should enforce: the head chases the teacher. So the mark-by time changes *when the head is shown the gap* and nothing else. Say so on the settings screen, too — a setting that looks like enforcement but only moves a dashboard is worse than no setting.
 - **Don't complain before the thing is late.** Nagging at 08:05 about a register for a lesson that hasn't happened is how a warning becomes wallpaper and gets ignored on the day it matters.

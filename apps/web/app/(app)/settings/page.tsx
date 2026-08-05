@@ -64,6 +64,25 @@ export default function SettingsPage() {
       )}
       {msg && <div className={`toast ${msg.ok ? 'ok' : 'err'}`}>{msg.text}</div>}
 
+      <Section title="Where the school is" blurb="The clock every timing rule is judged against — lateness, the staff day close, and when a class register counts as overdue.">
+        <div style={{ maxWidth: 260 }}>
+          <label>Time zone</label>
+          <select value={s.timezone} disabled={!isOwner || busy === 'timezone'}
+            onChange={(e) => save('timezone', { timezone: e.target.value })}>
+            {/* A short, honest list rather than all ~600 IANA zones: this product serves Pakistani
+                schools, and a 600-item dropdown is a worse answer than five relevant ones. The API
+                accepts any valid IANA name, so an unusual one is a settings call away. */}
+            {[...new Set(['Asia/Karachi', 'Asia/Dubai', 'Asia/Riyadh', 'Asia/Kolkata', 'Europe/London', 'UTC', s.timezone])].map((tz) => (
+              <option key={tz} value={tz}>{tz}</option>
+            ))}
+          </select>
+        </div>
+        <Hint>
+          Every rule that asks &ldquo;what time is it?&rdquo; uses this — not the server&apos;s clock.
+          Dates on records are unaffected.
+        </Hint>
+      </Section>
+
       <Section title="The working week" blurb="Which days the school is closed. Attendance is not taken on these days, and they are excluded from attendance percentages.">
         <div className="chips">
           {DAYS.map((d) => {

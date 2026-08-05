@@ -391,6 +391,7 @@ export interface SchoolSettings {
     guardianUploadLink: boolean;
     chequeClearingDays: number;
   };
+  timezone: string;
   attendanceMarkByTime: string;
   staffAttendance: { selfMarking: boolean; autoMarkAbsent: boolean; dayStartTime: string; graceMinutes: number; closeAtTime: string };
 }

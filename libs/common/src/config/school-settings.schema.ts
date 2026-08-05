@@ -14,8 +14,40 @@ export const WeekDay = z.enum([
   'SUNDAY',
 ]);
 
+/**
+ * An IANA zone name (`Asia/Karachi`, `Asia/Dubai`). Validated by asking the runtime to use it,
+ * because the list is data that ships with ICU and changes — hardcoding an allowlist here would
+ * be wrong within a year, and a zone the server cannot resolve is worse than a rejected one.
+ */
+const IanaTimeZone = z.string().refine(
+  (tz) => {
+    try {
+      new Intl.DateTimeFormat('en-GB', { timeZone: tz });
+      return true;
+    } catch {
+      return false;
+    }
+  },
+  { message: 'Must be an IANA time zone name, e.g. Asia/Karachi' },
+);
+
 export const schoolSettingsSchema = z
   .object({
+    /**
+     * The school's own wall clock (G4).
+     *
+     * Every "what time is it" question in the product used to read the SERVER's clock, which is
+     * correct only while every tenant is a Pakistani school on one box — and wrong *silently* the
+     * moment one is not. Three rules turn on it: whether a check-in is LATE, whether the staff
+     * day close is due, and whether a class register is overdue. All three now ask the school.
+     *
+     * Defaults to Asia/Karachi, which is what the fleet was implicitly assuming, so no existing
+     * school's behaviour changes.
+     *
+     * ⚠️ Scope: this fixes the **clock comparisons**. Date columns are still UTC-midnight
+     * (`@db.Date`), so "which day a record belongs to" is unchanged — see the note in G4.
+     */
+    timezone: IanaTimeZone.default('Asia/Karachi'),
     attendanceSessions: z
       .array(z.enum(['MORNING', 'EVENING']))
       .min(1)

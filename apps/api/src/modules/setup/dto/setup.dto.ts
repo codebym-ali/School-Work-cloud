@@ -171,6 +171,10 @@ class StaffLeaveQuotasDto {
  * purpose — the DTO rejects nonsense shapes early, Zod rejects invalid combinations.
  */
 export class UpdateSchoolSettingsDto {
+  /** IANA zone name. The Zod schema is the real validator — it asks the runtime to resolve it. */
+  @IsOptional() @IsString() @MaxLength(64)
+  timezone?: string;
+
   @IsOptional() @IsArray() @IsIn(['MORNING', 'EVENING'], { each: true })
   attendanceSessions?: string[];
 

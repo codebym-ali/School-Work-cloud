@@ -1,7 +1,7 @@
 ---
 title: Attendance — known gaps & flaws
 type: register
-status: open — G1, G2, G3, G9 fixed · G4–G8, G10 open · running list, added to as flaws surface
+status: open — G1, G2, G3, G4 (clock rules), G9 fixed · G4b, G5–G8, G10 open
 created: 2026-08-03
 scope: staff + student attendance, the day-close job, and the timing rules around both
 ---
@@ -122,7 +122,42 @@ not "50% attendance" — and hiding it leaves the reassuring one. The tile now r
 
 ---
 
-## G4 — Timezone is an unwritten assumption 🟡 **Med · latent**
+## G4 — Timezone was the server's, not the school's ✅ **FIXED (clock rules) 2026-08-05**
+
+**Fixed for every rule that asks "what time is it".** `timezone` is now a school setting (IANA
+name, validated by asking the runtime to resolve it, default `Asia/Karachi` so nothing changed on
+upgrade), and all four comparisons that read `Date#getHours()` now read the school's clock:
+
+| Where | Rule |
+|---|---|
+| `checkInStatus` | is a staff check-in LATE |
+| `myCheckInState` | what the button *would* record |
+| `unmarkedToday` | is the class register overdue (G3) |
+| `closeStaffAttendance` | is the staff day close due (G2) |
+
+The shared helpers (`localHhMm`, `isPastLocalTime`, `minutesOfDayIn`) **format** through `Intl`
+rather than doing arithmetic on an offset, so DST is the runtime's problem — a hand-rolled `+05:00`
+would be wrong half the year in any zone that observes it, and there is a unit test pinning
+exactly that with Europe/London in January and August. `hourCycle: 'h23'` because `hour12: false`
+yields `"24"` at midnight in some locales, which sorts *above* every deadline and would make a
+just-past-midnight tick look like the end of the day.
+
+**Verified live**: the same instant, one setting, two answers — `Asia/Karachi` → due,
+`Pacific/Midway` → not due; `Mars/Olympus` → 422.
+
+### ⚠️ Still open: the DAY BOUNDARY
+
+Date columns are `@db.Date` and every service builds them as **UTC midnight**
+(`new Date(iso.slice(0,10))`). So *which day* a record belongs to is still UTC's answer, not the
+school's. For UTC+5 that is invisible in practice — a Karachi school's working hours never cross
+the UTC date line — but a school at UTC−5 would find early-morning attendance filed against the
+previous day.
+
+Deliberately **not** changed here: it touches every date column, every `startOfDay`, and every
+report that groups by day, so it is a migration-shaped project rather than a helper swap, and
+doing it badly would silently re-date existing records. Split out rather than half-done.
+
+## G4b — The day boundary is still UTC 🟡 **Med · latent, split from G4 on 2026-08-05**
 
 Three different notions of "when" coexist and none is per-tenant:
 - `checkInStatus` reads the **server's local hours** (`dayStartTime` is wall-clock).

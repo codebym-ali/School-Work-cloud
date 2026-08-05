@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ClsService } from 'nestjs-cls';
 import { AttendanceSource, AttendanceStatus } from '@prisma/client';
-import { captureError, CLS_KEYS, parseSchoolSettings, type SchoolSettings } from '@common';
+import { captureError, CLS_KEYS, isPastLocalTime, parseSchoolSettings, type SchoolSettings } from '@common';
 import { PlatformPrismaService, TenantPrismaService } from '@database';
 import { FeeJobsService } from '../../../api/src/modules/fees/fee-jobs.service';
 import { PLAN_MONTHLY_SMS_CREDITS } from '../../../api/src/modules/comms/sms/sms-plan-credits';
@@ -89,15 +89,11 @@ export class MaintenanceService {
     const schools = await this.platform.school.findMany({ where: { isActive: true }, select: { id: true, settings: true } });
     let marked = 0;
 
-    // Wall-clock HH:MM on the server, compared as a string — both sides are zero-padded 24h, so
-    // lexical order is chronological order.
-    //
-    // ⚠️ "Local" is the SERVER's timezone (prod sets TZ=Asia/Karachi), not the school's: there is
-    // no per-tenant timezone yet. Correct while every tenant is a Pakistani school on one server,
-    // and wrong the moment one is not — that is G4, and this comparison is one of the places it
-    // will bite. Recorded rather than silently assumed.
+    // Each school is asked on ITS OWN clock (G4). This job ticks hourly across the whole fleet,
+    // so a single server-wall-clock comparison would settle every tenant at the same instant
+    // regardless of where they are — the failure would be silent, and it writes payroll-affecting
+    // rows, which is the worst combination.
     const now = new Date();
-    const nowHhMm = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
 
     for (const school of schools) {
       const settings = parseSchoolSettings(school.settings ?? {});
@@ -105,7 +101,7 @@ export class MaintenanceService {
       // Each school settles at its own hour. The job ticks hourly, so before a school's close
       // time this is simply not its turn yet; after it, the pass is a no-op because every row it
       // would write already exists.
-      if (nowHhMm < settings.staffAttendance.closeAtTime) continue;
+      if (!isPastLocalTime(now, settings.staffAttendance.closeAtTime, settings.timezone)) continue;
 
       await this.cls.run(async () => {
         this.cls.set(CLS_KEYS.schoolId, school.id);

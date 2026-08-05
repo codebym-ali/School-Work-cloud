@@ -20,10 +20,51 @@
  * Exactly `dayStart + grace` is ON TIME; a boundary that punished the last legal minute would
  * be argued over every morning.
  */
-export function checkInStatus(now: Date, dayStartTime: string, graceMinutes: number): 'PRESENT' | 'LATE' {
+export function checkInStatus(
+  now: Date,
+  dayStartTime: string,
+  graceMinutes: number,
+  timeZone?: string,
+): 'PRESENT' | 'LATE' {
   const [h, m] = dayStartTime.split(':').map(Number);
-  const minutesNow = now.getHours() * 60 + now.getMinutes();
+  const minutesNow = minutesOfDayIn(now, timeZone);
   return minutesNow <= h * 60 + m + graceMinutes ? 'PRESENT' : 'LATE';
+}
+
+/**
+ * `HH:MM` on a given wall clock — the school's, not the server's (G4).
+ *
+ * Every timing rule in the product compares a stored `HH:MM` setting against "now", and all of
+ * them used to read the server's clock via `Date#getHours()`. That is right only while every
+ * tenant sits in the server's zone, and it fails **silently** otherwise: a 13:00 school in another
+ * country would have its register judged late at the wrong moment, with nothing in the output to
+ * suggest the comparison was against the wrong clock.
+ *
+ * Formatted rather than arithmetic on offsets, so DST is the runtime's problem and not ours.
+ * `hourCycle: 'h23'` because `hour12: false` still yields "24" at midnight in some locales.
+ */
+export function localHhMm(at: Date, timeZone?: string): string {
+  return new Intl.DateTimeFormat('en-GB', {
+    timeZone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  }).format(at);
+}
+
+/** Minutes since local midnight, for comparing against an `HH:MM` setting. */
+export function minutesOfDayIn(at: Date, timeZone?: string): number {
+  const [h, m] = localHhMm(at, timeZone).split(':').map(Number);
+  return h * 60 + m;
+}
+
+/**
+ * Whether a school's `HH:MM` deadline has passed on its own clock.
+ *
+ * Both sides are zero-padded 24h, so a lexical compare is a chronological one — but it is worth
+ * having one function for it: this same comparison is made by the staff day close and by the
+ * class-register deadline, and the two drifting apart is exactly how one school ends up settled
+ * at the wrong hour.
+ */
+export function isPastLocalTime(at: Date, hhmm: string, timeZone?: string): boolean {
+  return localHhMm(at, timeZone) >= hhmm;
 }
 
 /**

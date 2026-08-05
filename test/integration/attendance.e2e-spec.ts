@@ -187,6 +187,42 @@ describe('Attendance + absence SMS (e2e, §9/§14)', () => {
       expect(due.body.count).toBe(due.body.sections.length);
     });
 
+    /**
+     * G4 — the deadline is judged on the SCHOOL's clock, not the server's.
+     *
+     * Proves the wiring end to end (setting → service → response), not just the helper: the same
+     * instant, the same `attendanceMarkByTime`, two time zones, two answers. Before this, every
+     * tenant on the fleet was judged against whatever zone the server happened to run in, and it
+     * would have failed silently — nothing in the response hints at which clock was used.
+     */
+    it("judges the deadline on the school's own clock, not the server's", async () => {
+      const setTz = (timezone: string) =>
+        request(server()).patch('/api/v1/school-settings')
+          .set('Host', host).set('Cookie', cookies).set('X-CSRF-Token', csrf)
+          .send({ timezone });
+
+      // A deadline one minute AHEAD of the current UTC wall clock: not yet due in UTC...
+      const utcNow = new Intl.DateTimeFormat('en-GB', {
+        timeZone: 'UTC', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+      }).format(new Date());
+      const [h, m] = utcNow.split(':').map(Number);
+      const plusOne = new Date(Date.UTC(2000, 0, 1, h, m + 1));
+      const markBy = `${String(plusOne.getUTCHours()).padStart(2, '0')}:${String(plusOne.getUTCMinutes()).padStart(2, '0')}`;
+
+      // Skip the one minute a day where +1 wraps past midnight and the comparison flips meaning.
+      if (markBy === '00:00') return;
+
+      await setMarkBy(markBy);
+      await setTz('UTC');
+      expect((await get('/api/v1/attendance/unmarked-today')).body.due).toBe(false);
+
+      // ...but already past in a zone five hours ahead. Same server, same instant, same setting.
+      await setTz('Asia/Karachi');
+      expect((await get('/api/v1/attendance/unmarked-today')).body.due).toBe(true);
+
+      await setTz('Asia/Karachi');
+    });
+
     it("is the head's view, not a teacher's", async () => {
       // A list of which colleagues are behind is oversight, not self-service. A teacher gets
       // their own coverage strip instead.

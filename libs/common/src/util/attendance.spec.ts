@@ -1,4 +1,4 @@
-import { attendancePercentFromStatuses, checkInStatus, workingDaysBetween } from './attendance';
+import { attendancePercentFromStatuses, checkInStatus, isPastLocalTime, localHhMm, workingDaysBetween } from './attendance';
 
 /** Local wall-clock Date for today at HH:MM — `checkInStatus` reads local hours by design
  *  (`dayStartTime` is a wall-clock setting; prod runs TZ=Asia/Karachi). */
@@ -71,5 +71,49 @@ describe('attendancePercentFromStatuses', () => {
   it('is null when nothing is countable — "no records" is not "attended nothing"', () => {
     expect(attendancePercentFromStatuses([])).toBeNull();
     expect(attendancePercentFromStatuses(['ON_LEAVE'])).toBeNull();
+  });
+});
+
+/**
+ * G4 — the school's clock, not the server's.
+ *
+ * These use a FIXED instant rather than "now", because a test that reads the wall clock passes or
+ * fails depending on when it runs — the same trap the day-close block fell into. A fixed instant
+ * also lets a single moment be checked against several zones at once, which is the whole point.
+ */
+describe('local wall clock (G4)', () => {
+  // 09:30 UTC. Karachi is +05:00 → 14:30. Dubai +04:00 → 13:30. London (in BST) → 10:30.
+  const instant = new Date('2026-08-04T09:30:00Z');
+
+  it('reads the hour in the zone it is given, not the process zone', () => {
+    expect(localHhMm(instant, 'Asia/Karachi')).toBe('14:30');
+    expect(localHhMm(instant, 'Asia/Dubai')).toBe('13:30');
+    expect(localHhMm(instant, 'UTC')).toBe('09:30');
+  });
+
+  it('handles a zone observing DST, so offsets are never done by hand', () => {
+    // 2026-08-04 is British Summer Time (+01:00). Hardcoding +00:00 would be wrong half the year,
+    // which is exactly why this formats rather than arithmetics on an offset.
+    expect(localHhMm(instant, 'Europe/London')).toBe('10:30');
+    expect(localHhMm(new Date('2026-01-04T09:30:00Z'), 'Europe/London')).toBe('09:30');
+  });
+
+  it('midnight is 00:00, never 24:00', () => {
+    // `hour12: false` yields "24" at midnight in some locales, which would sort ABOVE every
+    // deadline and make a just-past-midnight tick look like the end of the day.
+    expect(localHhMm(new Date('2026-08-04T19:00:00Z'), 'Asia/Karachi')).toBe('00:00');
+  });
+
+  it("decides a deadline on the school's clock — the same instant, two answers", () => {
+    // 14:30 in Karachi is past a 13:00 close; 13:30 in Dubai is too; 10:30 in London is not.
+    expect(isPastLocalTime(instant, '13:00', 'Asia/Karachi')).toBe(true);
+    expect(isPastLocalTime(instant, '13:00', 'Asia/Dubai')).toBe(true);
+    expect(isPastLocalTime(instant, '13:00', 'Europe/London')).toBe(false);
+  });
+
+  it('lateness follows the school too', () => {
+    // Same moment: a Karachi school starting 08:00 is long past its grace; a London one is not.
+    expect(checkInStatus(instant, '08:00', 15, 'Asia/Karachi')).toBe('LATE');
+    expect(checkInStatus(instant, '10:00', 45, 'Europe/London')).toBe('PRESENT');
   });
 });

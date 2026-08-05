@@ -198,7 +198,8 @@ export default function FeesPage() {
         <tbody>
           {invoices.map((i) => (
             <tr key={i.id}>
-              <td>{names[i.studentId] ?? i.studentId.slice(0, 8)}</td>
+              {/* From the row. The map fallback below only covers the first page of students. */}
+              <td>{i.student ? `${i.student.fullName} (${i.student.grNumber})` : names[i.studentId] ?? i.studentId.slice(0, 8)}</td>
               <td>{i.month ? `${i.month}/${i.year}` : i.year}</td>
               <td>Rs {Number(i.totalAmount).toLocaleString()}</td>
               <td>Rs {Number(i.paidAmount).toLocaleString()}</td>

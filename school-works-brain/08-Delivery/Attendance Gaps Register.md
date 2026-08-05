@@ -1,7 +1,7 @@
 ---
 title: Attendance — known gaps & flaws
 type: register
-status: open — G1, G2, G3, G4 (clock rules), G9 fixed · G4b, G5–G8, G10 open
+status: open — G1–G4 (clock rules), G9, G10, G11 fixed · G4b, G5–G8 open
 created: 2026-08-03
 scope: staff + student attendance, the day-close job, and the timing rules around both
 ---
@@ -157,6 +157,22 @@ Deliberately **not** changed here: it touches every date column, every `startOfD
 report that groups by day, so it is a migration-shaped project rather than a helper swap, and
 doing it badly would silently re-date existing records. Split out rather than half-done.
 
+## G11 — A child's name became a UUID past 100 students ✅ **FIXED 2026-08-05** *(High)*
+
+Found because the test debris pushed the demo tenant past 100 students — the debris exposed it,
+it did not cause it.
+
+**Marks entry, the results table and the Fees invoice list all resolved a student's name from a
+map built out of `GET /students?pageSize=100`**, with `studentId.slice(0, 8)` as the fallback. So
+for every student outside the *first page* — i.e. most of a real school — a teacher entering marks
+and a clerk taking money saw a truncated UUID where a child's name belongs. Silent, and it scales
+with the school: invisible in a 40-pupil demo, wrong in every school worth having as a customer.
+
+Fixed at the source rather than by raising the page size, which would only move the cliff: the
+`/enrollments`, exam-results and invoice projections now **carry the student's name**, and the
+screens read it off the row. `/enrollments` had been returning it all along and the page ignored
+it. Same rule the teaching-assignment rework landed on — *a list must carry the names it displays*.
+
 ## G4b — The day boundary is still UTC 🟡 **Med · latent, split from G4 on 2026-08-05**
 
 Three different notions of "when" coexist and none is per-tenant:
@@ -251,7 +267,7 @@ now this. *Whenever a route's `@Roles` and its nav entry disagree, one of them i
 
 ---
 
-## G10 — The e2e suite accumulates classes in its own campus 🟢 **Low · accepted, watch it**
+## G10 — The e2e suite accumulated students in its own campus ✅ **FIXED 2026-08-05** *(was Low — it stopped being low)*
 
 `seedClassSection` creates a class per run and never removes it. They land in the suite's own
 `E2E Automation` campus (2026-08-04), so the school's real campuses stay clean and the operator
@@ -259,6 +275,18 @@ can ignore or delete the whole campus — but it was already 21 classes after a 
 trade for now: cleanup would have to unpick sections, subjects, enrolments and the admitted
 student. **Revisit if that campus ever needs to be looked at**, or add a teardown that drops
 classes older than a day.
+
+**It stopped being cosmetic the day G3 shipped.** The unmarked-register count the head is shown
+read **71 — 67 of them test classes**, and `enrollmentCount` counted 90-odd test children. Debris
+is harmless right up until a real metric counts it, and then it is a lie on a dashboard.
+
+Fixed with a Playwright `globalTeardown` that **withdraws** (never deletes) the enrolments in the
+suite's own campus. Withdrawn because the API *correctly refuses* to delete a class that has
+students — a test helper must not reach past a rule the product enforces on purpose — and because
+every polluted metric counts **ACTIVE** enrolments, so withdrawing is exactly the true statement
+"these students left". The classes stay, empty and inert, in a campus nobody looks at.
+Self-limiting: the first run cleared 94, the next cleared 8. Verified after: unmarked back to 5
+(the school's real sections), enrolled back to 17.
 
 Same shape, found the hard way on 2026-08-04: the guardian-link spec submits a **real claim**, and
 three runs left three PENDING rows in *Payment submissions* — a screen the office actually works

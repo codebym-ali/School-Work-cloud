@@ -379,14 +379,17 @@ function MarksEntryPanel({
   onClose: () => void;
 }) {
   const [sectionId, setSectionId] = useState('');
-  const [enrollments, setEnrollments] = useState<Array<{ id: string; studentId: string }>>([]);
+  // Carries the student's name, because the roster endpoint returns it. Deriving it from a
+  // separately-fetched `/students?pageSize=100` map meant every school past 100 students saw a
+  // truncated UUID where a child's name should be.
+  const [enrollments, setEnrollments] = useState<Array<{ id: string; studentId: string; student?: { fullName: string; grNumber: string } }>>([]);
   const [defaultTotal, setDefaultTotal] = useState('100');
   const [rows, setRows] = useState<Record<string, { totalMarks: string; marksObtained: string; isAbsent: boolean }>>({});
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
 
   async function loadRoster() {
     if (!sectionId) return;
-    const enr = await apiGet<{ data: Array<{ id: string; studentId: string }> }>(`/enrollments?sectionId=${sectionId}&status=ACTIVE`);
+    const enr = await apiGet<{ data: Array<{ id: string; studentId: string; student?: { fullName: string; grNumber: string } }> }>(`/enrollments?sectionId=${sectionId}&status=ACTIVE`);
     const existing = await apiGet<ExamResult[]>(`/exams/${exam.id}/results`);
     const next: Record<string, { totalMarks: string; marksObtained: string; isAbsent: boolean }> = {};
     for (const e of enr.data) {
@@ -460,7 +463,10 @@ function MarksEntryPanel({
                 const r = rows[key] ?? { totalMarks: defaultTotal, marksObtained: '', isAbsent: false };
                 return (
                   <tr key={key}>
-                    <td>{students[e.studentId] ?? e.studentId.slice(0, 8)}</td>
+                    {/* From the row itself. The old `students[...] ?? id.slice(0,8)` fallback
+                        fired for every student outside the first page of /students — i.e. most
+                        of a real school — and put a UUID fragment on a marks sheet. */}
+                    <td>{e.student ? `${e.student.fullName} (${e.student.grNumber})` : students[e.studentId] ?? e.studentId.slice(0, 8)}</td>
                     <td>{s.name}</td>
                     <td style={{ maxWidth: 90 }}><input value={r.totalMarks} onChange={(ev) => updateRow(key, { totalMarks: ev.target.value })} /></td>
                     <td style={{ maxWidth: 90 }}><input value={r.marksObtained} disabled={r.isAbsent} onChange={(ev) => updateRow(key, { marksObtained: ev.target.value })} /></td>
@@ -498,7 +504,9 @@ function ResultsPanel({ examId, subjects, students, onClose }: { examId: string;
           <tbody>
             {results.map((r) => (
               <tr key={r.id}>
-                <td>{students[r.enrollment?.studentId ?? ''] ?? r.enrollment?.studentId?.slice(0, 8)}</td>
+                <td>{r.enrollment?.student
+                  ? `${r.enrollment.student.fullName} (${r.enrollment.student.grNumber})`
+                  : students[r.enrollment?.studentId ?? ''] ?? r.enrollment?.studentId?.slice(0, 8)}</td>
                 <td>{r.subject?.name ?? subjectName(r.subjectId)}</td>
                 <td>{r.isAbsent ? '—' : `${r.marksObtained} / ${r.totalMarks}`}</td>
                 <td>{r.isAbsent ? <span className="badge bad">absent</span> : <span className="badge ok">recorded</span>}</td>

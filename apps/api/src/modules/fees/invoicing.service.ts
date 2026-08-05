@@ -177,7 +177,13 @@ export class InvoicingService {
     if (campusId) where.enrollment = { campusId };
     const { skip, take } = toSkipTake(q);
     const [rows, total] = await Promise.all([
-      this.db.feeInvoice.findMany({ where, skip, take, orderBy: { createdAt: 'desc' } }),
+      this.db.feeInvoice.findMany({
+        where, skip, take, orderBy: { createdAt: 'desc' },
+        // Carries the student's NAME. The Fees screen used to resolve it from a map built out of
+        // `/students?pageSize=100`, so in any school past 100 students an invoice row showed a
+        // truncated UUID where a child's name belongs — on the screen where money is collected.
+        include: { student: { select: { fullName: true, grNumber: true } } },
+      }),
       this.db.feeInvoice.count({ where }),
     ]);
     return paginate(rows, total, q);

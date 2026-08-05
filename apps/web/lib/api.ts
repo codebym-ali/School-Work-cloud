@@ -151,7 +151,12 @@ export interface ImportResult {
   students: { row: number; studentId: string; grNumber: string }[];
 }
 export interface Enrollment { id: string; studentId: string; sectionId: string; classId: string; academicYearId: string; status: string; student?: { fullName: string; grNumber: string } }
-export interface Invoice { id: string; studentId: string; totalAmount: string; paidAmount: string; status: string; month: number | null; year: number; dueDate: string }
+export interface Invoice {
+  id: string; studentId: string; totalAmount: string; paidAmount: string; status: string;
+  month: number | null; year: number; dueDate: string;
+  /** Carried on the row — a fee screen must never resolve a child's name from a paginated list. */
+  student?: { fullName: string; grNumber: string };
+}
 export interface FeeHead { id: string; name: string }
 /** One price for one head, for one class, from `effectiveFrom`. Several rows may exist for the
  *  same head — they are a price HISTORY, and invoicing uses whichever is in force for the month
@@ -211,7 +216,9 @@ export interface Exam { id: string; termId: string; classId: string; name: strin
 export interface ExamResult {
   id: string; examId: string; enrollmentId: string; subjectId: string;
   marksObtained: string | null; totalMarks: string; isAbsent: boolean;
-  subject?: { name: string }; enrollment?: { studentId: string; sectionId: string };
+  subject?: { name: string };
+  /** Carries the student's name — the results table must not resolve it from a paginated list. */
+  enrollment?: { studentId: string; sectionId: string; student?: { fullName: string; grNumber: string } };
 }
 export interface ReportCard {
   id: string; termId: string; enrollmentId: string;

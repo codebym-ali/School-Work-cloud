@@ -18,6 +18,11 @@ export default defineConfig({
   fullyParallel: false,
   workers: 1,
   reporter: 'list',
+  // Retires the students this suite admits into its own campus. Without it the test classes
+  // accumulate as ACTIVE enrolments and start showing up in the operator's real metrics — the
+  // G3 unmarked-register count reached 71, 67 of them ours. See the file for why they are
+  // withdrawn rather than deleted.
+  globalTeardown: './test/e2e/global-teardown.ts',
   use: {
     baseURL: 'http://localhost:3001',
     trace: 'on-first-retry',

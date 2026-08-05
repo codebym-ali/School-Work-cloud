@@ -109,7 +109,14 @@ export class ExamsService {
     await this.getExam(examId); // asserts campus access
     return this.db.examResult.findMany({
       where: { examId },
-      include: { subject: { select: { name: true } }, enrollment: { select: { studentId: true, sectionId: true } } },
+      // Carries the student's NAME, not just their id. The results screen used to look the name
+      // up client-side in a map built from `/students?pageSize=100` — so in any school past 100
+      // students it rendered a truncated UUID instead of a child's name. A list must carry the
+      // names it displays; the same rule the teaching-assignment rework landed on.
+      include: {
+        subject: { select: { name: true } },
+        enrollment: { select: { studentId: true, sectionId: true, student: { select: { fullName: true, grNumber: true } } } },
+      },
     });
   }
 

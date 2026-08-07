@@ -1,7 +1,7 @@
 ---
 title: Progress Tracker
 type: status
-updated: 2026-08-03
+updated: 2026-08-05
 current_milestone: M7 in progress — hardening done; only VPS-bound items (deploy/DR-drill/pen-test/pilot) remain
 overall: 6 of 7 milestones (GA) — full v1 domain built; M7 hardening complete
 ---
@@ -11,7 +11,7 @@ overall: 6 of 7 milestones (GA) — full v1 domain built; M7 hardening complete
 > [!info] Living document — update at the **end of every phase**.
 > Procedure at the bottom. Related: [[Roadmap & Milestones]] · [[Testing & Quality]].
 
-**Last updated:** 2026-08-04 · **Stack:** Contabo VPS + Coolify + self-hosted Postgres 16 + Redis + Cloudflare R2 (see [[Deployment & Operations]]) · **Repo:** NestJS monorepo (`apps/api`, `apps/worker`, `libs/common`, `libs/database`).
+**Last updated:** 2026-08-05 · **Stack:** Contabo VPS + Coolify + self-hosted Postgres 16 + Redis + Cloudflare R2 (see [[Deployment & Operations]]) · **Repo:** NestJS monorepo (`apps/api`, `apps/worker`, `libs/common`, `libs/database`).
 
 ## Milestone status
 
@@ -766,6 +766,57 @@ Answering *"how is the fee of a class set, and what is the ideal choice?"* meant
 - **Two fixture bugs found:** mine reused a guardian phone (guardians resolve **by phone**, so the CREATE 409'd), and a **pre-existing** test billed January 2026 against a year starting April 2026 — a month before the year began, which now correctly generates nothing. Moved to May.
 - **New:** **F8 open** — `GET /fee-structures` and `/fee-heads` carry no `@Roles`, so any signed-in account can read what every class is charged. The workbench's owner-only fee line is a display gate over an open endpoint, not a boundary.
 - **Gates:** unit 52 · integration **585/585 across 32 suites** · Playwright fee-plan 1/1 · api+worker build · both lints · web tsc · RLS ✅ · migration safety ✅ (trigram `DROP INDEX` curated out for the **eighth** time; existing rows backfill to their year's start, not today).
+
+## ➕ The school's own clock, its own closures, and its own pay policy (2026-08-04/05)
+Four questions from the operator drove this — *"what is G5?"*, *"how do holidays work?"*, *"who marks an
+unexpected off, and how does anyone hear about it?"*, *"can a student apply for leave?"* — and each one
+turned out to be a gap rather than a documentation request. Registers: [[Attendance Gaps Register]] (G1–G5,
+G9–G12 fixed; G4b closed accepted; G6–G8 Low), [[Fees Gaps Register]] (F1–F9 all closed).
+
+- **G4 — the clock is the school's now, not the server's.** `timezone` (IANA, validated by *asking the
+  runtime to use it* rather than an allowlist that would be stale within a year) drives all three rules that
+  ask "what time is it": is this check-in LATE, is the staff day close due, is a class register overdue.
+  Default `Asia/Karachi`, so no existing school moves. **G4b — the DATE boundary is still UTC and is closed
+  as accepted**, on the operator's own scope: Pakistan-only, UTC+5, no DST, so local midnight is 19:00 UTC
+  and no school day straddles it. The register carries the tripwire to re-open it (any tenant east of UTC+5,
+  or a school working past 05:00 local).
+- **G3 — the register has a deadline that surfaces, not one that polices.** `attendanceMarkByTime` (10:00)
+  decides only *when the head is shown the gap*. Nothing is blocked, nobody is punished, and **no attendance
+  is derived** — "nobody said" is not "absent", and absence SMS goes to real parents. `unmarkedToday()`
+  starts from SECTIONS, not from the attendance table, because a query over what exists can never see what
+  is missing. It surfaced an adjacent lie: `todayAttendancePercent` read 100% over 9 marked registers of 17.
+- **G5 — absence deduction became the school's decision, with a switch the owner can see.** Real schools
+  split on whether an unexplained absence cuts pay; the system had silently always deducted. Now
+  `payrollDeductsAbsence` (default **true**, so a school changes by choosing to, never by upgrading) with an
+  owner-facing toggle. **Approved UNPAID leave is deducted either way** — unpaid leave that doesn't reduce
+  pay is a contradiction with a label. The other half of G5: reaching back into a closed month now writes
+  `STAFF_ATTENDANCE_BACKDATED`, and overriding what a staff member recorded about themselves writes
+  `STAFF_ATTENDANCE_OVERRIDDEN` with the previous claim preserved.
+- **H0–H2 — closures: declare, see, and be told.** G12 was "a table nobody could write": `holidays` existed
+  with no endpoint. H0 added the CRUD (single day + range) and **refuses a declaration that would move an
+  APPROVED payroll month** — a closure changes the working-day divisor, so re-opening a day quietly restates
+  what everyone should have been paid. H1 is the calendar screen (`canEdit` gates writes from TEACHER). H2 is
+  the part that matters to a teacher at 7am: a closure banner in the **app shell**, so it reaches every role
+  on every page, scoped to today and tomorrow. **Weekly offs are never announced** — nobody needs telling
+  it's Sunday.
+- **Notification: the free option, chosen deliberately.** The operator has no SMS budget, so H3 (closure SMS)
+  is **deferred, not dropped**: the banner plus a copyable WhatsApp message costs nothing and reaches the
+  people who actually need it. Recorded so the next session doesn't read the absence as an oversight.
+- **Students do not apply for leave — decided, then pinned.** A parent tells the class teacher and the office
+  writes it down; the child is not the party making the request, and guardians have no logins. Three layers
+  already enforced it and **nothing asserted it** — neither leave controller had a single permission-matrix
+  row, and staff leave feeds payroll. Added four matrix rows plus a real student session in
+  `student-portal.e2e`. **Verifying it was the interesting part:** adding `'STUDENT'` to the decorator left
+  all 461 tests green, because the matrix seeds six roles and STUDENT is not one — the request gets past the
+  guard and is refused by the *service's* guardian check. The comment on that check ("the only thing standing
+  between a non-admin caller and another student's record") is now proven rather than asserted: neuter both
+  layers and the test fails with a 201. See [[Key Decisions]].
+- **Also closed here:** B4–B6 fees (the aggregator seam **throws 501 on purpose** rather than let an
+  unauthenticated webhook body name the actor who collected the money), F8's four unguarded reads, G9 (CSV
+  import unusable by the only role allowed to do it), G10 (the e2e suite was accumulating real students),
+  G11 (a child's name rendered as a UUID past 100 students).
+- **Gates:** integration **752/752 across 32 suites** · isolation 7 · lint · api+worker build · RLS ✅ ·
+  migration safety ✅ (the trigram `DROP INDEX` curated out for the **eleventh** time).
 
 ## 🧾 Cross-cutting backlog (not milestone-blocking)
 - [x] **Fee-setup gaps — ALL CLOSED (F1–F9), 2026-08-03/04.** See [[Fees Gaps Register]]. F8 was the last and was reclassified Low-Med → **High** on inspection: it was filed as two unguarded reads and turned out to be four, one of which returned a named child's fee concessions to any authenticated session.

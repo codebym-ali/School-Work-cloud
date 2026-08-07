@@ -5,6 +5,9 @@ import {
   ClassListQuery,
   CreateAcademicYearDto,
   CreateCampusDto,
+  CreateHolidayDto,
+  CreateHolidayRangeDto,
+  HolidayListQuery,
   CreateClassDto,
   CreateSectionDto,
   CreateSubjectDto,
@@ -61,6 +64,47 @@ export class AcademicYearController {
   @Post(':id/set-current')
   setCurrent(@Param('id') id: string) {
     return this.setup.setCurrentAcademicYear(id);
+  }
+}
+
+/**
+ * School closures — the calendar (G12).
+ *
+ * The `holidays` table has been read in five places since the start and written by nothing, so
+ * every holiday check found nothing and Eid was a working day. This is the write side.
+ *
+ * Reading is open to TEACHER as well: it is their calendar too, and a teacher who cannot see the
+ * closures is a teacher who turns up at a locked school. Declaring one is admin-only, because a
+ * closure changes the month's working-day count and therefore everybody's absence deduction.
+ */
+@Controller('holidays')
+export class HolidayController {
+  constructor(private readonly setup: SetupService) {}
+
+  @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
+  @Post()
+  create(@Body() dto: CreateHolidayDto) {
+    return this.setup.createHoliday(dto);
+  }
+
+  /** Winter break in one action. Days already closed are skipped, not fatal (§25.3). */
+  @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
+  @Post('range')
+  createRange(@Body() dto: CreateHolidayRangeDto) {
+    return this.setup.createHolidayRange(dto);
+  }
+
+  @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN', 'TEACHER')
+  @Get()
+  list(@Query() q: HolidayListQuery) {
+    return this.setup.listHolidays(q);
+  }
+
+  @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
+  @Delete(':id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  remove(@Param('id') id: string) {
+    return this.setup.deleteHoliday(id);
   }
 }
 

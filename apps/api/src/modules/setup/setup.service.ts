@@ -16,8 +16,11 @@ import type {
   CreateAcademicYearDto,
   CreateCampusDto,
   CreateClassDto,
+  CreateHolidayDto,
+  CreateHolidayRangeDto,
   CreateSectionDto,
   CreateSubjectDto,
+  HolidayListQuery,
   UpdateCampusDto,
   UpdateClassDto,
   UpdateSectionDto,
@@ -182,6 +185,190 @@ export class SetupService {
       throw new AppError(ErrorCodes.CONFLICT, HttpStatus.CONFLICT, 'No current academic year set');
     }
     return year.id;
+  }
+
+  // ── Holidays / closures ────────────────────────────────────────────────────
+  /**
+   * School closures (G12). The `holidays` table existed from the start and was **read in five
+   * places** — student marking, the coverage strip, the staff day summary, the day-close job and
+   * payroll's working-day count — while **nothing anywhere could write it**. Every lookup found
+   * nothing, so Eid was a working day: teachers chased for a register on a day the school was
+   * shut, and payroll counting a holiday as a working day, which changes the per-day rate and
+   * therefore every absence deduction that month.
+   *
+   * Two shapes, one row: a holiday planned weeks ahead, and "we are shut tomorrow" declared at
+   * 21:00. The difference is timing, not mechanism.
+   *
+   * ⚠️ A closure NEVER deletes attendance. Declaring today closed after the morning register was
+   * taken leaves those rows exactly as they are — it stops further marking and removes the day
+   * from the payroll working-day count. Deleting would destroy what a teacher observed, and it
+   * still could not un-send an absence SMS that already reached a parent.
+   */
+  async createHoliday(dto: CreateHolidayDto) {
+    const date = new Date(dto.date.slice(0, 10));
+    const campusId = await this.resolveClosureCampus(dto.campusId);
+    await this.assertPayrollOpenForClosure(date, campusId);
+
+    const name = dto.name.trim();
+    const dup = await this.db.holiday.findFirst({ where: { date, campusId }, select: { id: true, name: true } });
+    if (dup) {
+      // A clean 409 rather than a raw unique-violation 500 — the lesson F6 taught on fee
+      // structures. The message names what is already there, so it reads as a fact, not a bug.
+      throw new AppError(
+        ErrorCodes.CONFLICT,
+        HttpStatus.CONFLICT,
+        `${dto.date.slice(0, 10)} is already recorded as "${dup.name}".`,
+      );
+    }
+
+    const holiday = await this.db.holiday.create({ data: { schoolId: this.sid, date, name, campusId } });
+    await this.audit.record({
+      action: AuditActions.HOLIDAY_DECLARED,
+      entityType: 'Holiday',
+      entityId: holiday.id,
+      newValue: { date: dto.date.slice(0, 10), name, campusId },
+    });
+    return holiday;
+  }
+
+  /**
+   * A range, inclusive of both ends — winter break in one action rather than fourteen clicks.
+   *
+   * Days already closed are **skipped, not fatal**: a range crossing a holiday somebody already
+   * recorded is the normal case, and rejecting the whole request would make the feature unusable
+   * exactly when it is most useful. Follows the §25.3 partial-failure contract — the caller is
+   * told what was created and what was skipped, and why.
+   */
+  async createHolidayRange(dto: CreateHolidayRangeDto) {
+    const from = new Date(dto.fromDate.slice(0, 10));
+    const to = new Date(dto.toDate.slice(0, 10));
+    if (to < from) {
+      throw new AppError(ErrorCodes.VALIDATION_FAILED, HttpStatus.UNPROCESSABLE_ENTITY, 'The end date is before the start date');
+    }
+    const days = Math.floor((to.getTime() - from.getTime()) / 86400000) + 1;
+    if (days > 60) {
+      // Guards a mis-typed year turning into 365 rows nobody meant.
+      throw new AppError(ErrorCodes.VALIDATION_FAILED, HttpStatus.UNPROCESSABLE_ENTITY, 'A closure range may not exceed 60 days');
+    }
+
+    const campusId = await this.resolveClosureCampus(dto.campusId);
+    const name = dto.name.trim();
+    const created: string[] = [];
+    const skipped: string[] = [];
+
+    for (let i = 0; i < days; i++) {
+      const date = new Date(from.getTime() + i * 86400000);
+      const iso = date.toISOString().slice(0, 10);
+      // Checked per DAY, not once for the range: a break spanning a month boundary can be half
+      // inside a settled payroll month and half outside it.
+      if (await this.isPayrollApproved(date, campusId)) { skipped.push(`${iso} (payroll approved)`); continue; }
+      const dup = await this.db.holiday.findFirst({ where: { date, campusId }, select: { id: true } });
+      if (dup) { skipped.push(`${iso} (already recorded)`); continue; }
+      await this.db.holiday.create({ data: { schoolId: this.sid, date, name, campusId } });
+      created.push(iso);
+    }
+
+    if (created.length) {
+      await this.audit.record({
+        action: AuditActions.HOLIDAY_DECLARED,
+        entityType: 'Holiday',
+        entityId: this.sid,
+        newValue: { range: [dto.fromDate.slice(0, 10), dto.toDate.slice(0, 10)], name, campusId, created: created.length },
+      });
+    }
+    return { created: created.length, skipped, dates: created };
+  }
+
+  /** The calendar. Campus-scoped — and a campus's calendar includes the school-wide closures. */
+  async listHolidays(q: HolidayListQuery) {
+    const campusId = effectiveCampusFilter(this.ctx.user, q.campusId);
+    const from = q.from ? new Date(q.from.slice(0, 10)) : undefined;
+    const to = q.to ? new Date(q.to.slice(0, 10)) : undefined;
+
+    return this.db.holiday.findMany({
+      where: {
+        ...(from || to ? { date: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } } : {}),
+        // A school-wide closure (null campus) applies everywhere, so it must appear in a
+        // campus-filtered calendar too — otherwise a campus admin finds Eid missing from theirs.
+        ...(campusId ? { OR: [{ campusId }, { campusId: null }] } : {}),
+      },
+      orderBy: { date: 'asc' },
+      include: { campus: { select: { name: true } } },
+    });
+  }
+
+  /**
+   * Remove a closure — which RE-OPENS the day, so it carries the same payroll refusal as
+   * declaring one. Deleting a closure from a settled month moves the working-day count in the
+   * other direction and breaks exactly the same payslips.
+   */
+  async deleteHoliday(id: string): Promise<void> {
+    const holiday = await this.db.holiday.findFirst({ where: { id } });
+    if (!holiday) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'Closure not found');
+    if (holiday.campusId) {
+      assertCampusAccess(this.ctx.user, holiday.campusId);
+    } else if (restrictedCampusId(this.ctx.user) !== null) {
+      throw new AppError(ErrorCodes.FORBIDDEN, HttpStatus.FORBIDDEN, 'Only the school owner can remove a school-wide closure');
+    }
+    await this.assertPayrollOpenForClosure(holiday.date, holiday.campusId);
+
+    await this.db.holiday.delete({ where: { id } });
+    await this.audit.record({
+      action: AuditActions.HOLIDAY_REMOVED,
+      entityType: 'Holiday',
+      entityId: id,
+      oldValue: { date: holiday.date.toISOString().slice(0, 10), name: holiday.name, campusId: holiday.campusId },
+    });
+  }
+
+  /**
+   * Who the closure is for.
+   *
+   * A campus admin is **forced to their own campus** and can never declare school-wide: closing
+   * the whole school would stop another campus's registers and move its payroll. Same §22.8 shape
+   * as everywhere else, and in the service because it reads the caller's own binding.
+   */
+  private async resolveClosureCampus(requested?: string): Promise<string | null> {
+    const restricted = restrictedCampusId(this.ctx.user);
+    if (restricted === null) {
+      if (!requested) return null; // owner, school-wide
+      const campus = await this.db.campus.findFirst({ where: { id: requested }, select: { id: true } });
+      if (!campus) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'Campus not found');
+      return campus.id;
+    }
+    if (requested && requested !== restricted) {
+      throw new AppError(ErrorCodes.FORBIDDEN, HttpStatus.FORBIDDEN, 'You can only declare a closure for your own campus');
+    }
+    return restricted;
+  }
+
+  private async isPayrollApproved(date: Date, campusId: string | null): Promise<boolean> {
+    const run = await this.db.payrollRun.findFirst({
+      where: {
+        month: date.getUTCMonth() + 1,
+        year: date.getUTCFullYear(),
+        status: 'APPROVED',
+        // A school-wide closure touches every campus, so ANY approved run that month blocks it.
+        ...(campusId ? { campusId } : {}),
+      },
+      select: { id: true },
+    });
+    return run !== null;
+  }
+
+  /**
+   * A closure changes the month's working-day count, which is the divisor for every absence
+   * deduction. Once payroll is APPROVED the payslips are out, so the calendar has to stop moving
+   * — the same freeze that already protects staff attendance (G1/G5), applied to the calendar.
+   */
+  private async assertPayrollOpenForClosure(date: Date, campusId: string | null): Promise<void> {
+    if (!(await this.isPayrollApproved(date, campusId))) return;
+    throw new AppError(
+      ErrorCodes.CONFLICT,
+      HttpStatus.CONFLICT,
+      `Payroll for ${date.getUTCMonth() + 1}/${date.getUTCFullYear()} is already approved. `
+        + 'Changing the calendar would change what people were already paid.',
+    );
   }
 
   // ── Campuses ───────────────────────────────────────────────────────────────

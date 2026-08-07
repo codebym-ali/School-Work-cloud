@@ -55,6 +55,14 @@ export const PERMISSION_MATRIX: MatrixRow[] = [
   { label: 'set section subjects', method: 'put', path: '/api/v1/sections/00000000-0000-0000-0000-000000000000/subjects', body: { subjectIds: [] }, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'], scopeGated: true },
   { label: 'rename subject', method: 'patch', path: '/api/v1/subjects/00000000-0000-0000-0000-000000000000', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'], scopeGated: true },
   { label: 'delete subject', method: 'delete', path: '/api/v1/subjects/00000000-0000-0000-0000-000000000000', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'], scopeGated: true },
+  // Closures move money: a holiday changes the month's working-day count, which is the divisor
+  // for every absence deduction. Declaring is admin-only; a campus admin is force-scoped to their
+  // own campus in the service. READING is open to TEACHER as well — it is their calendar, and a
+  // teacher who cannot see the closures is a teacher who turns up at a locked school.
+  { label: 'declare a closure', method: 'post', path: '/api/v1/holidays', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'], scopeGated: true },
+  { label: 'declare a closure range', method: 'post', path: '/api/v1/holidays/range', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'], scopeGated: true },
+  { label: 'read the closure calendar', method: 'get', path: '/api/v1/holidays', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'TEACHER'] },
+  { label: 'remove a closure', method: 'delete', path: '/api/v1/holidays/00000000-0000-0000-0000-000000000000', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'], scopeGated: true },
   { label: 'create academic year', method: 'post', path: '/api/v1/academic-years', body: {}, allow: ['OWNER_ADMIN'] },
   { label: 'list inquiries', method: 'get', path: '/api/v1/inquiries', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ADMISSION_CONTROLLER'], scopeGated: true },
   { label: 'admissions summary', method: 'get', path: '/api/v1/inquiries/summary', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ADMISSION_CONTROLLER'] },

@@ -123,6 +123,43 @@ export class CreateSubjectDto {
   name!: string;
 }
 
+// ── Holidays / closures ──────────────────────────────────────────────────────
+export class CreateHolidayDto {
+  @IsDateString()
+  date!: string;
+
+  /**
+   * Required, and required for a reason: the screens are built to render
+   * "{holidayName} — no register today". "Holiday" tells a teacher nothing about why the gate
+   * is locked, and a closure with no reason is indistinguishable from a mistake.
+   */
+  @IsString() @MinLength(2) @MaxLength(120)
+  name!: string;
+
+  /** Omitted ⇒ the whole school. Only an owner may omit it; a campus admin is forced to theirs. */
+  @IsOptional() @IsUUID()
+  campusId?: string;
+}
+
+/** Winter break in one action rather than fourteen clicks. Inclusive of both ends. */
+export class CreateHolidayRangeDto {
+  @IsDateString() fromDate!: string;
+  @IsDateString() toDate!: string;
+
+  @IsString() @MinLength(2) @MaxLength(120)
+  name!: string;
+
+  @IsOptional() @IsUUID()
+  campusId?: string;
+}
+
+export class HolidayListQuery {
+  /** Defaults to the current academic year in the service — a calendar without a period is noise. */
+  @IsOptional() @IsDateString() from?: string;
+  @IsOptional() @IsDateString() to?: string;
+  @IsOptional() @IsUUID() campusId?: string;
+}
+
 // ── List filters ─────────────────────────────────────────────────────────────
 export class ClassListQuery {
   @IsOptional() @IsUUID()

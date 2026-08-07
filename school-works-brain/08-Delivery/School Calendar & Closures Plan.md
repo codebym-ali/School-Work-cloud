@@ -1,7 +1,7 @@
 ---
 title: School Calendar & Closures Plan
 type: plan
-status: DECIDED 2026-08-05 (§6, all seven) — free/in-app path chosen; H0–H2 ready to build
+status: H0 SHIPPED 2026-08-05 · H1–H2 next · H3 deferred (no SMS by decision, §6 D3)
 created: 2026-08-05
 scope: apps/api setup(holidays) + attendance + hr(payroll) · apps/web settings/calendar, dashboard · comms(SMS)
 ---
@@ -154,7 +154,7 @@ is the answer when a school decides it is worth ~20 credits.
 
 | # | Deliverable | Cost | Why this order |
 |---|---|---|---|
-| **H0** | Holiday CRUD (`POST`/`POST range`/`GET`/`DELETE /holidays`), campus-scoped, payroll-approved refusal, matrix rows | free | The write side that has never existed. Everything else is decoration without it |
+| **H0** | ✅ **SHIPPED 2026-08-05.** Holiday CRUD, campus-scoped, payroll-approved refusal both ways, range with partial-failure skips, 4 matrix rows, audit on declare/remove | free | The write side that has never existed. Everything else is decoration without it |
 | **H2** | `isNonWorkingDay` → returns the **reason and name**; the 4 surfaces that already ask stop saying "holiday or weekly off" and name the closure. **Plus the shell banner** (today/tomorrow) | free | Before H1 deliberately: once closures can exist, the screens must explain them *before* anyone is handed a button that creates them |
 | **H1** | Calendar screen: list by year, add one, add a range, delete behind confirm, **Copy message** | free | A closure nobody can see is a closure nobody trusts |
 | **H3** | `SCHOOL_CLOSED` template + guardian broadcast — **off by default**, cost shown before sending, deduplicated per phone; separate staff toggle | costs credits only when switched on | Last, and inert until chosen |

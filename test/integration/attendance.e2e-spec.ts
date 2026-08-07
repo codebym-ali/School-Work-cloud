@@ -233,6 +233,43 @@ describe('Attendance + absence SMS (e2e, §9/§14)', () => {
     });
   });
 
+  /**
+   * H0 — declaring a closure must never destroy what a teacher observed.
+   *
+   * The emergency shape: the school opened, the register was taken, something happened at 10:30
+   * and everyone went home. Declaring today closed stops FURTHER marking and takes the day out of
+   * the payroll working-day count — it does not rewrite the morning, and it could not un-send the
+   * absence SMS that already reached a parent anyway.
+   */
+  it('a closure declared for an already-marked day keeps the attendance', async () => {
+    const day = recentWorkingDay(1);
+    await post('/api/v1/attendance/bulk', {
+      sectionId, date: day, session: 'MORNING', allowHolidayOverride: true,
+      records: [{ enrollmentId, status: 'PRESENT' }],
+    });
+    // `GET /attendance` returns a plain array, not a paginated envelope.
+    const before = await get(`/api/v1/attendance?sectionId=${sectionId}&date=${day}`);
+    expect(before.body.length).toBeGreaterThan(0);
+
+    const closure = await post('/api/v1/holidays', { date: day, name: 'Emergency closure' });
+    expect(closure.status).toBe(201);
+
+    // The rows survive, unchanged. This is the whole rule.
+    const after = await get(`/api/v1/attendance?sectionId=${sectionId}&date=${day}`);
+    expect(after.body.length).toBe(before.body.length);
+    expect(after.body[0].status).toBe('PRESENT');
+
+    // But the day is now closed, so marking it again needs the admin override — the same
+    // treatment as a weekly off. A teacher gets the closed-day refusal.
+    const blocked = await request(server()).post('/api/v1/attendance/bulk')
+      .set('Host', host).set('Cookie', cookies).set('X-CSRF-Token', csrf)
+      .send({ sectionId, date: day, session: 'MORNING', records: [{ enrollmentId, status: 'ABSENT' }] });
+    expect(blocked.status).toBe(422);
+
+    await request(server()).delete(`/api/v1/holidays/${closure.body.id}`)
+      .set('Host', host).set('Cookie', cookies).set('X-CSRF-Token', csrf);
+  });
+
   it('rejects a future date (422)', async () => {
     const future = new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10);
     const res = await post('/api/v1/attendance/bulk', {

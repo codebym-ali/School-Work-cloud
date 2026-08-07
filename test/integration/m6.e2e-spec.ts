@@ -36,6 +36,8 @@ describe('M6 — HR, payroll, documents, reports, promotion (e2e)', () => {
   const post = (p: string, b: object = {}) =>
     request(server()).post(p).set('Host', host).set('Cookie', cookies).set('X-CSRF-Token', csrf).send(b);
   const get = (p: string) => request(server()).get(p).set('Host', host).set('Cookie', cookies);
+  const del = (p: string) =>
+    request(server()).delete(p).set('Host', host).set('Cookie', cookies).set('X-CSRF-Token', csrf);
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
@@ -170,5 +172,68 @@ describe('M6 — HR, payroll, documents, reports, promotion (e2e)', () => {
     const audit = await get('/api/v1/audit-logs');
     expect(audit.status).toBe(200);
     expect(Array.isArray(audit.body.data)).toBe(true);
+  });
+
+  /**
+   * School closures (G12/H0). The `holidays` table was read in five places and written by
+   * nothing, so every holiday check found nothing and Eid was a working day.
+   *
+   * These run AFTER the payroll test on purpose: it approves a run for 7/2026, which is exactly
+   * what the money rule below needs to be real rather than hypothetical.
+   */
+  describe('school closures', () => {
+    let holidayId: string;
+
+    it('declares a closure, and refuses the same day twice', async () => {
+      const res = await post('/api/v1/holidays', { date: '2026-09-15', name: 'Founders Day' });
+      expect(res.status).toBe(201);
+      expect(res.body).toMatchObject({ name: 'Founders Day', campusId: null }); // owner ⇒ school-wide
+      holidayId = res.body.id;
+
+      // A clean 409 naming what is already there — not a raw unique-violation 500 (the lesson
+      // F6 taught on fee structures).
+      const dup = await post('/api/v1/holidays', { date: '2026-09-15', name: 'Something else' });
+      expect(dup.status).toBe(409);
+      expect(dup.body.error.message).toContain('Founders Day');
+    });
+
+    it('refuses a closure in a month whose payroll is already approved', async () => {
+      // 7/2026 was approved above. A closure there changes the working-day count, which is the
+      // divisor for every absence deduction — so it would change what people were already paid.
+      const res = await post('/api/v1/holidays', { date: '2026-07-20', name: 'Retro holiday' });
+      expect(res.status).toBe(409);
+      expect(res.body.error.message).toMatch(/already approved/i);
+
+      // And the same refusal applies to REMOVING one, because re-opening a day moves the count
+      // in the other direction and breaks exactly the same payslips.
+      const sept = await get('/api/v1/holidays?from=2026-09-01&to=2026-09-30');
+      expect(sept.body.some((h: { id: string }) => h.id === holidayId)).toBe(true);
+    });
+
+    it('creates a range, skipping days that are already closed', async () => {
+      const res = await post('/api/v1/holidays/range', {
+        fromDate: '2026-09-14', toDate: '2026-09-17', name: 'Mid-term break',
+      });
+      expect(res.status).toBe(201);
+      // 14, 16, 17 created; 15 skipped because "Founders Day" is already there. A range crossing
+      // an existing holiday is the normal case, not an error (§25.3 partial failure).
+      expect(res.body.created).toBe(3);
+      expect(res.body.skipped).toEqual([expect.stringContaining('2026-09-15')]);
+    });
+
+    it('refuses a backwards range, a silly-long one, and an unnamed one', async () => {
+      expect((await post('/api/v1/holidays/range', { fromDate: '2026-10-10', toDate: '2026-10-01', name: 'Break' })).status).toBe(422);
+      // A mis-typed year would otherwise become 365 rows nobody meant.
+      expect((await post('/api/v1/holidays/range', { fromDate: '2026-10-01', toDate: '2027-10-01', name: 'Break' })).status).toBe(422);
+      // A name is required, and the DTO rejects it before the service is reached: the screens
+      // render "{holidayName} — no register today", and "X" tells a teacher nothing.
+      expect((await post('/api/v1/holidays', { date: '2026-11-01', name: 'X' })).status).toBe(400);
+    });
+
+    it('removes a closure', async () => {
+      expect((await del(`/api/v1/holidays/${holidayId}`)).status).toBe(204);
+      const after = await get('/api/v1/holidays?from=2026-09-01&to=2026-09-30');
+      expect(after.body.some((h: { id: string }) => h.id === holidayId)).toBe(false);
+    });
   });
 });

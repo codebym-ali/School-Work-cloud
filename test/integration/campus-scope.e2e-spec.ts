@@ -276,6 +276,40 @@ describe('Campus scoping (e2e, §22.8 / P1.7)', () => {
     expect((await authed('post', '/api/v1/sections', adminCookies, adminCsrf()).send({ classId: classB, name: 'Z' })).status).toBe(403);
   });
 
+  /**
+   * A closure stops registers and changes the month's working-day count — the divisor for every
+   * absence deduction. A campus admin who could close the SCHOOL would be reaching into another
+   * campus's payroll, which is exactly the class of thing §22.8 exists to prevent.
+   */
+  it('CAMPUS_ADMIN closes only their own campus, never the school', async () => {
+    // Omitting campusId means "school-wide" for an owner. For a campus admin it must silently
+    // become THEIR campus — not a school-wide closure, and not an error either: the common case
+    // is a campus head declaring their own closure without thinking about scope at all.
+    const own = await authed('post', '/api/v1/holidays', adminCookies, adminCsrf())
+      .send({ date: '2026-12-01', name: 'Campus A maintenance' });
+    expect(own.status).toBe(201);
+    expect(own.body.campusId).toBe(campusA);
+
+    // Naming somebody else's campus is refused outright.
+    const other = await authed('post', '/api/v1/holidays', adminCookies, adminCsrf())
+      .send({ date: '2026-12-02', name: 'Not yours', campusId: campusB });
+    expect(other.status).toBe(403);
+
+    // The owner's school-wide closure appears on a campus admin's calendar, because it applies
+    // to them — a campus admin who could not see Eid would find it missing from their own year.
+    const schoolWide = await ownerPost('/api/v1/holidays', { date: '2026-12-03', name: 'Founders Day' });
+    expect(schoolWide.body.campusId).toBeNull();
+    const calendar = await authed('get', '/api/v1/holidays?from=2026-12-01&to=2026-12-31', adminCookies);
+    const names = (calendar.body as Array<{ name: string }>).map((h) => h.name);
+    expect(names).toContain('Campus A maintenance');
+    expect(names).toContain('Founders Day');
+    expect(names).not.toContain('Not yours');
+
+    // ...and they may not remove it, because it is not theirs to re-open.
+    const wide = (calendar.body as Array<{ id: string; name: string }>).find((h) => h.name === 'Founders Day')!;
+    expect((await authed('delete', `/api/v1/holidays/${wide.id}`, adminCookies, adminCsrf())).status).toBe(403);
+  });
+
   it('CAMPUS_ADMIN cannot create staff in another campus', async () => {
     const res = await authed('post', '/api/v1/staff', adminCookies, adminCsrf()).send({
       email: `t-${randomUUID().slice(0, 8)}@cs.pk`, staffType: 'TEACHER',

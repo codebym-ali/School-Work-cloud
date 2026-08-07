@@ -52,6 +52,11 @@ export const AuditActions = {
   /** An admin replaced what a staff member recorded about themselves. It changes their pay,
    *  so the previous claim is preserved in `oldValue` — the row itself forgets. */
   STAFF_ATTENDANCE_OVERRIDDEN: 'STAFF_ATTENDANCE_OVERRIDDEN',
+  /** A school closure was declared or removed. Audited because it moves money: a closure changes
+   *  the month's working-day count, which is the divisor for every absence deduction — so
+   *  re-opening a day quietly changes what everyone should have been paid. */
+  HOLIDAY_DECLARED: 'HOLIDAY_DECLARED',
+  HOLIDAY_REMOVED: 'HOLIDAY_REMOVED',
   /** Somebody claimed a payment, and somebody decided about it. A claim is the evidence trail
    *  for money the school did not watch arrive — VERIFIED records the receipt it produced. */
   FEE_CLAIM_SUBMITTED: 'FEE_CLAIM_SUBMITTED',

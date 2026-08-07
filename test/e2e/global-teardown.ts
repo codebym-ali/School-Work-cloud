@@ -2,6 +2,16 @@ import { PrismaClient } from '@prisma/client';
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { E2E_CAMPUS_NAME } from './helpers';
+import { destroyTenant } from '../integration/support/tenant';
+
+/**
+ * Exactly what `admin.spec` provisions: `admin-` followed by a `Date.now()` stamp.
+ *
+ * Anchored and digits-only on purpose. A looser `admin%` would also match a real tenant called
+ * `admin` or `administration`, and this deletes a school and everything under it — the blast
+ * radius of a wrong match is the whole tenant.
+ */
+const PROVISIONED_BY_SUITE = '^admin-[0-9]+$';
 
 /**
  * Retire what the suite enrolled, after every run.
@@ -42,6 +52,8 @@ export default async function globalTeardown(): Promise<void> {
     datasourceUrl: process.env.PLATFORM_DATABASE_URL ?? process.env.DATABASE_URL,
   });
   try {
+    await destroyProvisionedTenants(prisma);
+
     const campuses = await prisma.campus.findMany({
       where: { name: E2E_CAMPUS_NAME },
       select: { id: true },
@@ -62,4 +74,40 @@ export default async function globalTeardown(): Promise<void> {
   } finally {
     await prisma.$disconnect();
   }
+}
+
+/**
+ * Remove the tenants the suite provisioned through the vendor console.
+ *
+ * `admin.spec` provisions one `admin-<timestamp>` tenant on **every** full run and never removed
+ * it, so the count grew with how often the suite was run rather than with how much was built —
+ * 19 of them by the time this was written. The integration suite had the same leak and it was
+ * fixed with `destroyTenant`; this is the Playwright half, and it reuses that same function
+ * rather than reimplementing the delete order.
+ *
+ * Deletes **every** match, not just this run's, so one run drains the backlog instead of
+ * resetting a counter that starts climbing again immediately.
+ *
+ * Best-effort like the rest of this file: a teardown failure must not turn a green run red.
+ */
+async function destroyProvisionedTenants(prisma: PrismaClient): Promise<void> {
+  const rows = await prisma.$queryRawUnsafe<{ id: string; subdomain: string }[]>(
+    'SELECT id, subdomain FROM schools WHERE subdomain ~ $1',
+    PROVISIONED_BY_SUITE,
+  );
+  if (!rows.length) return;
+
+  let removed = 0;
+  for (const row of rows) {
+    try {
+      await destroyTenant(prisma, row.id);
+      removed++;
+    } catch (err) {
+      // Named, not swallowed. A silent cleanup failure is what produced the backlog.
+      // eslint-disable-next-line no-console
+      console.warn(`[e2e teardown] could not remove tenant ${row.subdomain}: ${(err as Error).message}`);
+    }
+  }
+  // eslint-disable-next-line no-console
+  if (removed) console.log(`\n[e2e teardown] removed ${removed} suite-provisioned tenant(s).`);
 }

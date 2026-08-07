@@ -1,4 +1,15 @@
-import type { PlatformPrismaService } from '@database';
+/**
+ * Everything this file actually needs from a client: raw SQL.
+ *
+ * Typed structurally rather than as `PlatformPrismaService` so the **Playwright** teardown can
+ * reuse it with a bare `PrismaClient` — it runs outside Nest and cannot construct a Nest service.
+ * The alternative was a second copy of the FK-graph walk, and a second copy is exactly how the
+ * hand-maintained table lists described below rotted apart in the first place.
+ */
+export type RawSqlClient = {
+  $executeRawUnsafe(query: string, ...values: unknown[]): Promise<number>;
+  $queryRawUnsafe<T = unknown>(query: string, ...values: unknown[]): Promise<T>;
+};
 
 /**
  * Delete a test tenant and everything under it.
@@ -13,7 +24,7 @@ import type { PlatformPrismaService } from '@database';
  * is handled without editing 21 specs. It also FAILS LOUDLY if the school survives, because a
  * silent cleanup failure is what created the mess in the first place.
  */
-export async function destroyTenant(platform: PlatformPrismaService, schoolId: string): Promise<void> {
+export async function destroyTenant(platform: RawSqlClient, schoolId: string): Promise<void> {
   const tables = await tenantTablesChildrenFirst(platform);
   for (const t of tables) {
     // Quoted identifier; `t` comes from information_schema, never from user input.
@@ -41,7 +52,7 @@ let cached: string[] | null = null;
  * appending whatever is left (Postgres will still accept those deletes in any order
  * once the rest is gone).
  */
-async function tenantTablesChildrenFirst(platform: PlatformPrismaService): Promise<string[]> {
+async function tenantTablesChildrenFirst(platform: RawSqlClient): Promise<string[]> {
   if (cached) return cached;
 
   const rows = await platform.$queryRawUnsafe<{ table_name: string }[]>(`

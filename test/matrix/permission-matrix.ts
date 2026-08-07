@@ -123,6 +123,28 @@ export const PERMISSION_MATRIX: MatrixRow[] = [
   // (The STUDENT's own receipt is a different route under /portal, self-scoped in the service.)
   { label: 'read a fee receipt', method: 'get', path: '/api/v1/fees/payments/00000000-0000-0000-0000-000000000000/receipt', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT'], scopeGated: true },
   { label: 'reverse payment', method: 'post', path: '/api/v1/fees/payments/00000000-0000-0000-0000-000000000000/reversals', body: { reason: 'x' }, allow: ['OWNER_ADMIN'] },
+  // ── Leaves ────────────────────────────────────────────────────────────────
+  // Had NO matrix rows at all, on either controller — and staff leave feeds payroll (approved
+  // UNPAID leave is deducted whatever the absence setting says), so who may file and who may
+  // approve are both money questions.
+  //
+  // **A student never applies for their own leave** (decision, 2026-08-05). A parent tells the
+  // class teacher and the office writes it down — which is how a Pakistani school actually works,
+  // and the child is not the one making the request. Guardians have no logins either.
+  //
+  // ⚠️ These rows do NOT pin that: STUDENT is not a seeded matrix role, so adding `'STUDENT'` to
+  // the decorator changes nothing here — verified by doing it and watching all 461 tests still
+  // pass. What actually stops a student is the **guardian check in the service**, and
+  // `student-portal.e2e` asserts it with a real student session. These rows cover the seeded
+  // staff/admin roles: they catch an accountant or admission officer being handed leave filing.
+  { label: 'file a student leave', method: 'post', path: '/api/v1/student-leaves', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'TEACHER'], scopeGated: true },
+  // Deciding is the office's, never the teacher's: a teacher who could approve the leave they
+  // filed would be approving their own request, and an approved leave LOCKS the attendance row.
+  { label: 'approve a student leave', method: 'post', path: '/api/v1/student-leaves/00000000-0000-0000-0000-000000000000/approve', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
+  // STAFF is also admitted here (a staff member files their own) but is not a seeded matrix role;
+  // this row asserts the accountant, admission officer and parent are all denied.
+  { label: 'file a staff leave', method: 'post', path: '/api/v1/staff-leaves', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'TEACHER'] },
+  { label: 'approve a staff leave', method: 'post', path: '/api/v1/staff-leaves/00000000-0000-0000-0000-000000000000/approve', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
   { label: 'class-strength report', method: 'get', path: '/api/v1/reports/class-strength', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT'], scopeGated: true },
   { label: 'dashboard', method: 'get', path: '/api/v1/dashboard', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT'] },
   // STUDENT-only. STUDENT isn't one of the seeded matrix roles, so allow:[] asserts every

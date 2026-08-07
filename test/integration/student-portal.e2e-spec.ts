@@ -162,6 +162,51 @@ describe('Student portal (e2e, §28)', () => {
     expect(denied.status).toBe(404);
   });
 
+  /**
+   * A student never applies for their own leave — decision, 2026-08-05.
+   *
+   * A parent tells the class teacher and the office writes it down. That is how a Pakistani
+   * school actually works, and the child is not the one making the request. Guardians have no
+   * logins, so there is no self-service leave path at all — by design, not omission.
+   *
+   * Asserted with a REAL student session because the permission matrix cannot: STUDENT is not one
+   * of its seeded roles, so adding `'STUDENT'` to the `@Roles` list changes nothing there.
+   *
+   * **Proven non-vacuous the hard way**: adding `'STUDENT'` to the decorator and re-running left
+   * all 461 tests green. The request gets past the guard and is then refused by the service's
+   * guardian check — a student is nobody's guardian. So this test pins the BEHAVIOUR (a student
+   * cannot file leave) rather than the decorator, which is the more durable of the two, and it
+   * confirms the guardian check is load-bearing exactly as its own comment claims:
+   *
+   *   "it is the only thing standing between a non-admin caller and another student's record,
+   *    so it must NOT be removed as 'parent code'."
+   *
+   * Neutering BOTH layers — `'STUDENT'` in the decorator and the guardian check removed — makes
+   * this test fail with a 201: the student files a leave. So it guards the end-to-end property,
+   * which is the thing worth guarding; either layer alone still holds the line.
+   */
+  it('cannot apply for leave, and cannot see anyone else\'s', async () => {
+    const res = await request(server()).post('/api/v1/student-leaves')
+      .set('Host', host).set('Cookie', studentCookies).set('X-CSRF-Token', csrfOf(studentCookies))
+      .send({ studentId: myStudentId, fromDate: '2026-09-01', toDate: '2026-09-02', reason: 'Family trip' });
+    expect(res.status).toBe(403);
+    // Assert the CODE, not just the status: a CSRF failure is also 403, and a test that accepts
+    // either would pass while proving nothing about roles. `FORBIDDEN` is the RolesGuard;
+    // `CSRF_INVALID` would mean the request never reached it.
+    expect(res.body.error.code).toBe('FORBIDDEN');
+
+    // The LIST has no `@Roles` at all, so a student reaches it — and must come back empty. The
+    // service scopes a non-admin, non-teacher caller to students they are a guardian OF, and a
+    // student is nobody's guardian. That filter is the only thing between them and every leave
+    // in the school, which is why it survived the parent portal's removal.
+    const list = await get('/api/v1/student-leaves', studentCookies);
+    expect(list.status).toBe(200);
+    expect(list.body.data).toEqual([]);
+
+    // And the portal offers no route to it — there is nothing to click, either.
+    expect((await get('/api/v1/portal/leaves', studentCookies)).status).toBe(404);
+  });
+
   /** The student sees their OWN trend — never a rank or a class average. That is a product
    *  decision (comparison belongs on the staff side), so it is asserted, not left to drift. */
   it('reports class-test performance per subject, excluding absences from the average', async () => {

@@ -81,6 +81,11 @@ export interface Dashboard {
   /** Metric keys this role should see — the UI renders only these cards (role-shaping). */
   visible: string[];
 }
+/** A declared school closure. `campusId: null` ⇒ the whole school. */
+export interface Holiday {
+  id: string; date: string; name: string; campusId: string | null;
+  campus?: { name: string } | null;
+}
 /** Is the school shut today or tomorrow? Drives the banner in the app shell — every role. */
 export interface ClosureNotice {
   closure: { date: string; name: string; when: 'TODAY' | 'TOMORROW' } | null;
@@ -587,6 +592,22 @@ export const api = {
       }
       return apiPost<{ id: string; status: string }>(`/public/fee-link/${token}/claim`, { ...body, proofFileKey, proofMimeType });
     },
+  },
+  /**
+   * The school calendar — closures (H0/H1).
+   *
+   * Separate from `schoolSettings.weeklyOffDays`, which is a recurring rule. These are dated
+   * records: Eid, 14 August, "we are shut tomorrow".
+   */
+  holidays: {
+    list: (from?: string, to?: string) => {
+      const qs = new URLSearchParams({ ...(from ? { from } : {}), ...(to ? { to } : {}) }).toString();
+      return apiGet<Holiday[]>(`/holidays${qs ? `?${qs}` : ''}`);
+    },
+    create: (body: { date: string; name: string; campusId?: string }) => apiPost<Holiday>('/holidays', body),
+    createRange: (body: { fromDate: string; toDate: string; name: string; campusId?: string }) =>
+      apiPost<{ created: number; skipped: string[]; dates: string[] }>('/holidays/range', body),
+    remove: (id: string) => apiDelete<null>(`/holidays/${id}`),
   },
   /** The school's own operating rules. Read by admins, changed only by the owner. */
   schoolSettings: {

@@ -1,7 +1,7 @@
 ---
 title: School Calendar & Closures Plan
 type: plan
-status: H0 + H2 SHIPPED 2026-08-05 · H1 next · H3 deferred (no SMS by decision, §6 D3)
+status: H0–H2 SHIPPED 2026-08-05 — the free path is COMPLETE · H3 deferred (no SMS by decision, §6 D3)
 created: 2026-08-05
 scope: apps/api setup(holidays) + attendance + hr(payroll) · apps/web settings/calendar, dashboard · comms(SMS)
 ---
@@ -156,8 +156,23 @@ is the answer when a school decides it is worth ~20 credits.
 |---|---|---|---|
 | **H0** | ✅ **SHIPPED 2026-08-05.** Holiday CRUD, campus-scoped, payroll-approved refusal both ways, range with partial-failure skips, 4 matrix rows, audit on declare/remove | free | The write side that has never existed. Everything else is decoration without it |
 | **H2** | ✅ **SHIPPED 2026-08-05.** `nonWorkingReason` carries the name; marking refusal, coverage strip, check-in refusal and `/my-attendance` all name the closure; `GET /attendance/closure-notice` (no `@Roles`) drives a shell banner for today/tomorrow | free | Before H1 deliberately: once closures can exist, the screens must explain them *before* anyone is handed a button that creates them |
-| **H1** | Calendar screen: list by year, add one, add a range, delete behind confirm, **Copy message** | free | A closure nobody can see is a closure nobody trusts |
+| **H1** | ✅ **SHIPPED 2026-08-05.** `/calendar` — closures by month, add one, add a range, delete behind confirm, **Copy message**. Its own screen, not a Settings section (see below). | free | A closure nobody can see is a closure nobody trusts |
 | **H3** | `SCHOOL_CLOSED` template + guardian broadcast — **off by default**, cost shown before sending, deduplicated per phone; separate staff toggle | costs credits only when switched on | Last, and inert until chosen |
+
+### 5a. Two things learned building H1
+
+**The calendar got its own screen, not a Settings section** — a deliberate departure from §4/§5 as
+first written. The weekly off is a *setting*: one recurring rule, one control. A closure is a
+*dated record* with its own create and delete. Putting a register inside a settings page makes it
+half configuration and half CRUD, which is the shape the Classes refactor had to undo. Settings
+links across instead, so the two halves of "when is this school open" still find each other.
+
+**"Invalid Date" on every row, and the spec passed.** The API returns a full ISO timestamp and the
+formatter appended `T00:00:00` to it. The browser spec asserted the closure's *name* was present —
+so it was green while every date on screen read `Invalid Date`. Caught by looking at a screenshot,
+not by a test. The spec now asserts the date renders and that the word "Invalid" does not appear.
+**A row nobody can read is not a row**, and asserting a record exists is not asserting it is
+legible.
 
 ## 6. Decisions — all taken 2026-08-05
 

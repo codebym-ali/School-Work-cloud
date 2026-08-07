@@ -88,6 +88,11 @@ export const NAV: NavItem[] = [
   // owner may change them, which the page states rather than hiding.
   { href: '/settings', label: 'School settings', icon: '🎚️', group: 'Administration', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
   { href: '/campuses', label: 'Campus Hub', icon: '🏢', group: 'Administration', roles: ['OWNER_ADMIN'] },
+  // Closures are dated RECORDS, not a setting, so they get their own screen rather than another
+  // section on School settings — the weekly off is one recurring rule; this is a register with
+  // its own create and delete. TEACHER can read it: a teacher who cannot see the closures is a
+  // teacher who turns up at a locked school. The screen hides the write controls from them.
+  { href: '/calendar', label: 'School calendar', icon: '📅', group: 'Administration', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'TEACHER'] },
 
   { href: '/me', label: 'My Dashboard', icon: '🏠', group: 'My Portal', roles: ['STUDENT'] },
   { href: '/me/attendance', label: 'My Attendance', icon: '✅', group: 'My Portal', roles: ['STUDENT'] },

@@ -103,6 +103,12 @@ export default function SettingsPage() {
             ? '⚠️ No days off — attendance will be expected seven days a week.'
             : `Closed on ${s.weeklyOffDays.map(short).join(', ')}.`}
         </Hint>
+        {/* The other half of "when is this school open". This one is a recurring rule; individual
+            closures are dated records and live on their own screen. */}
+        <Hint>
+          Eid, public holidays and one-off closures are dated records —{' '}
+          <a href="/calendar">School calendar</a>.
+        </Hint>
       </Section>
 
       <Section title="Staff attendance" blurb="How your teachers' own attendance is recorded. These feed the payroll attendance deduction, so they are owner-only.">

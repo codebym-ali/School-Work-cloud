@@ -1,7 +1,7 @@
 ---
 title: Attendance — known gaps & flaws
 type: register
-status: open — G1–G5, G9–G12 fixed · G4b, G6–G8 open (all Low)
+status: G1–G5, G9–G12 fixed · G4b closed (accepted, will not fix) · G6–G8 open (all Low)
 created: 2026-08-03
 scope: staff + student attendance, the day-close job, and the timing rules around both
 ---
@@ -145,7 +145,7 @@ just-past-midnight tick look like the end of the day.
 **Verified live**: the same instant, one setting, two answers — `Asia/Karachi` → due,
 `Pacific/Midway` → not due; `Mars/Olympus` → 422.
 
-### ⚠️ Still open: the DAY BOUNDARY
+### The DAY BOUNDARY — split out, then closed as accepted (see [[#G4b]])
 
 Date columns are `@db.Date` and every service builds them as **UTC midnight**
 (`new Date(iso.slice(0,10))`). So *which day* a record belongs to is still UTC's answer, not the
@@ -155,7 +155,9 @@ previous day.
 
 Deliberately **not** changed here: it touches every date column, every `startOfDay`, and every
 report that groups by day, so it is a migration-shaped project rather than a helper swap, and
-doing it badly would silently re-date existing records. Split out rather than half-done.
+doing it badly would silently re-date existing records. Split out rather than half-done — and then
+**closed as accepted**, because at UTC+5 the two calendars only disagree between midnight and 5am,
+when nothing operates.
 
 ## G11 — A child's name became a UUID past 100 students ✅ **FIXED 2026-08-05** *(High)*
 
@@ -173,7 +175,7 @@ Fixed at the source rather than by raising the page size, which would only move 
 screens read it off the row. `/enrollments` had been returning it all along and the page ignored
 it. Same rule the teaching-assignment rework landed on — *a list must carry the names it displays*.
 
-## G12 — Holidays are a table nobody can write 🔴 **High · found 2026-08-05**
+## G12 — Holidays were a table nobody could write ✅ **FIXED 2026-08-05** *(was High)*
 
 `holidays` is **read in five places** — student marking, the coverage strip, the staff day summary,
 the day-close job and payroll's working-day count — and **written in none**. There is no endpoint,
@@ -189,23 +191,56 @@ The read side is complete and waiting — screens already render *"{holidayName}
 today"* — and the `campusId` column that would let one campus close alone has never been reachable.
 The inverse of the recurring *endpoint nobody calls*: **a table nobody can write.**
 
-Planned in [[School Calendar & Closures Plan]]. Ranked above G5: G5 is an unstated decision,
-this is a feature that silently does not exist.
+**Fixed across H0–H2** — see [[School Calendar & Closures Plan]]:
+- **H0** — holiday CRUD (single, range, delete), campus-scoped, refused in a payroll-approved
+  month **both ways** (adding and removing both move the working-day count), and a closure never
+  deletes attendance already recorded.
+- **H2** — `nonWorkingReason` carries the closure's NAME, so four screens say *"School closed:
+  Eid ul Adha"* instead of "holiday or weekly off", plus a banner in the **app shell** — not a
+  dashboard, because teachers do not have one.
+- **H1** — the `/calendar` screen, with **Copy message** for WhatsApp rather than an SMS send.
 
-## G4b — The day boundary is still UTC 🟡 **Med · latent, split from G4 on 2026-08-05**
+Verified live: declaring today closed took the unmarked-register count from 5 to 0, and
+`holidayName` began returning a value for the first time since the field was written.
 
-Three different notions of "when" coexist and none is per-tenant:
-- `checkInStatus` reads the **server's local hours** (`dayStartTime` is wall-clock).
-- `date` columns are **UTC midnight** (`new Date(iso.slice(0,10))`).
-- Cron patterns fire in the **server's timezone** (prod sets `TZ=Asia/Karachi`).
+## G4b — The day boundary is UTC ✅ **CLOSED 2026-08-05 — accepted, will not fix**
 
-Correct today because every tenant is a Pakistani school on one server. **It breaks silently the
-moment a tenant sits in another timezone** — lateness and the day boundary would disagree, and
-the day-close would fire mid-afternoon for someone. Nothing in the code says this is an
-assumption rather than a design.
+**Decision (operator, 2026-08-05): Pakistan only, no plan to expand. Not worth fixing.**
 
-**Fix when it matters:** a `timezone` per school, used for both the clock comparison and the
-day boundary. Until then, write the assumption down where the reader will hit it.
+Every timing rule now asks the school's clock (G4). What still uses UTC is the **day boundary** —
+`@db.Date` columns are built as UTC midnight (`new Date(iso.slice(0,10))`), so *which day* a record
+belongs to is UTC's answer, not the school's.
+
+### Why that is safe here, structurally — not merely "probably fine"
+
+Pakistan is **UTC+5 with no daylight saving**, so the UTC date and the Karachi date disagree only
+between **00:00 and 05:00 local**. Nothing the product does happens in that window:
+
+| Path | When it runs | Same date in UTC? |
+|---|---|---|
+| Marking a class register | school hours | ✅ |
+| Staff self check-in | school hours | ✅ |
+| Staff day close | the school's `closeAtTime` (default 20:00 = 15:00 UTC) | ✅ |
+| Payroll month boundary | last day of month, evening local | ✅ |
+
+**Nor is it reachable by misconfiguration.** The day boundary only slips at a **negative** UTC
+offset, and every zone the settings screen offers — Karachi, Dubai, Riyadh, Kolkata, London, UTC —
+is UTC+0 or later. (The API accepts any IANA name, so this holds for the UI, not for a direct
+API call.)
+
+### ⚠️ The tripwire — read this before ignoring the entry
+
+**Fix this BEFORE onboarding any tenant at a negative UTC offset** (the Americas). Not after: the
+failure is silent. An evening register would file against the following day, the previous day would
+read as unmarked and be chased, and payroll would count absences on the wrong dates — with every
+number looking perfectly reasonable.
+
+### What the fix would involve, if that day comes
+
+Not a helper swap. Every `@db.Date` column means UTC midnight, every `startOfDay()` comparison
+assumes it, every day-grouped report assumes it, and **existing rows are already stored that way** —
+so changing how dates are built without migrating history would silently re-date a school's own
+records. Migration-shaped, with a data-correctness question in the middle.
 
 ---
 

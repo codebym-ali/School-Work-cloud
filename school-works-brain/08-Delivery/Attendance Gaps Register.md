@@ -1,7 +1,7 @@
 ---
 title: Attendance — known gaps & flaws
 type: register
-status: open — G1–G4 (clock rules), G9, G10, G11 fixed · G12 (High), G4b, G5–G8 open
+status: open — G1–G5, G9–G12 fixed · G4b, G6–G8 open (all Low)
 created: 2026-08-03
 scope: staff + student attendance, the day-close job, and the timing rules around both
 ---
@@ -209,16 +209,48 @@ day boundary. Until then, write the assumption down where the reader will hit it
 
 ---
 
-## G5 — Admins have no backfill floor on staff attendance 🟡 **Med**
+## G5 — Backfill on staff attendance ✅ **DECIDED + FIXED 2026-08-05** *(was Med)*
 
-Student attendance bounds a **teacher** to `attendanceBackfillDays` and leaves admins unlimited
-(deliberate, and their post-window edits are audited). Staff attendance has **no floor for
-anyone** — an admin may mark staff attendance for any past date, limited only by the payroll lock
-on approved months.
+**Decided: the time limit was never the hole — the silence was.**
 
-An unapproved month therefore remains fully rewritable, and staff attendance feeds payroll.
-Not obviously wrong (a school genuinely corrects last month's register), but it is an
-*unstated* asymmetry rather than a decision. Decide and record it either way.
+Staff attendance has no backfill floor for anyone, and it stays that way: schools genuinely
+correct last month's register, and blocking that is worse than the risk. The payroll-approval
+freeze remains the real guard.
+
+What was actually wrong: the audit fired **only** when overwriting a row somebody had recorded
+about *themselves* (`source !== ADMIN`). So an admin changing **another admin's** row from eight
+months ago left **no trace at all** — and staff attendance feeds payroll.
+
+Fixed: a second audit action, `STAFF_ATTENDANCE_BACKDATED`, fires whenever an edit lands in a
+month that has already closed, whoever entered the original. Deliberately coarse — the MONTH, not
+"more than N days" — because payroll is monthly: an edit inside the current month is ordinary
+register-keeping, one reaching into a closed month is the act worth recording. The current month
+stays quiet, or the log fills with routine corrections and buries the entries that matter.
+
+### The other half: absence deduction is now the school's decision
+
+Payroll **always** deducted for an absence, and nobody could see that decision, let alone change
+it. Real schools split — some dock a day's basic, others treat teacher absence as a management
+matter. `payrollDeductsAbsence` (default **true**, so nothing changes on upgrade) is on the
+settings screen under Payroll.
+
+Two things stated where the decision is made, because both are got wrong otherwise:
+- it governs **absence**, not unpaid leave. Approved unpaid leave is deducted either way —
+  "unpaid leave" that does not reduce pay is a contradiction with a label;
+- it applies to payroll **generated from now on**. A run already generated keeps its figures and
+  an approved one never changes, so "I flipped it and nothing happened" is answered in advance.
+
+`deductForAbsence` is recorded in the payslip breakdown, not merely applied: a payslip showing
+3 absent days and no deduction is otherwise indistinguishable from a bug, six months later, to
+whoever is asked why.
+
+**Test note:** proved across two CAMPUSES, not two months. Staff attendance cannot be marked for a
+future month, and a payroll run is idempotent per (campus, month, year) — so re-running the same
+month after flipping the setting returns the cached run and proves nothing.
+
+**Build note:** the setting is a flat key, not a `payroll: {}` group. A third nested group pushed
+the Prisma client's type instantiation past its depth limit and broke `tenant-prisma.service` — a
+file none of this touches. Confirmed by `git stash`: the baseline was clean.
 
 ---
 

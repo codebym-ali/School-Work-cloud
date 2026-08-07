@@ -65,7 +65,16 @@ export class PayrollService {
       const unpaidLeaveDays = await this.unpaidLeaveDays(s.id, monthStart, monthEnd);
       const absentDays = await this.absentDays(s.id, monthStart, monthEnd);
       const perDay = workingDays > 0 ? basic / workingDays : 0;
-      const attendanceDeduction = money((unpaidLeaveDays + absentDays) * perDay);
+
+      // Whether an absence costs money is the school's decision (G5), not this service's. Some
+      // schools dock a day's basic; others treat teacher absence as a management matter and never
+      // touch salary. Until now the code simply always deducted, and nobody could see that.
+      //
+      // Unpaid leave is deducted EITHER WAY: approved unpaid leave that does not reduce pay is
+      // not unpaid leave. The switch governs unexplained absence only.
+      const deductForAbsence = settings.payrollDeductsAbsence;
+      const deductedDays = unpaidLeaveDays + (deductForAbsence ? absentDays : 0);
+      const attendanceDeduction = money(deductedDays * perDay);
       const netPay = money(gross - fixedDeductions - attendanceDeduction);
 
       await this.db.payslip.create({
@@ -77,7 +86,13 @@ export class PayrollService {
           attendanceDeduction,
           otherDeductions: fixedDeductions,
           netPay,
-          breakdown: { basic, allowances, fixedDeductions, workingDays, unpaidLeaveDays, absentDays, attendanceDeduction, netPay } as Prisma.InputJsonValue,
+          // `deductForAbsence` is recorded on the payslip, not just applied: a payslip showing
+          // 3 absent days and no deduction is otherwise indistinguishable from a bug, six months
+          // later, to whoever is asked why.
+          breakdown: {
+            basic, allowances, fixedDeductions, workingDays,
+            unpaidLeaveDays, absentDays, deductForAbsence, attendanceDeduction, netPay,
+          } as Prisma.InputJsonValue,
         },
       });
       count++;

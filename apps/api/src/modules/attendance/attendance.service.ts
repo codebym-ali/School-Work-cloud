@@ -478,16 +478,24 @@ export class AttendanceService {
         where: { id: existing.id },
         data: { status: rec.status, source: AttendanceSource.ADMIN, markedById: user.userId, note: dto.note },
       });
-      // Overriding what somebody said about themselves is a different act from filling in a
-      // blank, and it changes their pay. Audited with the previous value, because after the
-      // update the row no longer remembers what it claimed.
-      if (existing.source !== AttendanceSource.ADMIN) {
+      // Two different acts, both audited — and until G5 only the first was.
+      //
+      //  1. Overriding what somebody said about THEMSELVES. Audited with the previous value,
+      //     because after the update the row no longer remembers what it claimed.
+      //  2. Editing a month that is already CLOSED. There is deliberately no backfill floor on
+      //     staff attendance — a school genuinely corrects last month's register, and blocking
+      //     that would be worse than the risk. But an admin changing another admin's row from
+      //     eight months ago left **no trace at all**, and staff attendance feeds payroll. The
+      //     time limit was never the hole; the silence was.
+      const overrodeAPerson = existing.source !== AttendanceSource.ADMIN;
+      const backdated = isPastMonth(date);
+      if (overrodeAPerson || backdated) {
         await this.audit.record({
-          action: AuditActions.STAFF_ATTENDANCE_OVERRIDDEN,
+          action: overrodeAPerson ? AuditActions.STAFF_ATTENDANCE_OVERRIDDEN : AuditActions.STAFF_ATTENDANCE_BACKDATED,
           entityType: 'StaffAttendance',
           entityId: existing.id,
           oldValue: { status: existing.status, source: existing.source, checkIn: existing.checkIn },
-          newValue: { status: rec.status, source: AttendanceSource.ADMIN },
+          newValue: { status: rec.status, source: AttendanceSource.ADMIN, date: dto.date, backdated },
           reason: dto.note,
         });
       }
@@ -983,6 +991,19 @@ export class AttendanceService {
 function isAdmin(user: RequestUser): boolean {
   return user.roles.includes('OWNER_ADMIN') || user.roles.includes('CAMPUS_ADMIN');
 }
+/**
+ * Is this date in a month that has already closed? (G5)
+ *
+ * Deliberately coarse — the MONTH, not "more than N days ago" — because payroll is monthly. An
+ * edit inside the current month is ordinary register-keeping; one reaching back into a month the
+ * office has already worked through is the act worth recording.
+ */
+function isPastMonth(d: Date): boolean {
+  const now = new Date();
+  return d.getUTCFullYear() < now.getUTCFullYear()
+    || (d.getUTCFullYear() === now.getUTCFullYear() && d.getUTCMonth() < now.getUTCMonth());
+}
+
 function startOfDay(d: Date): number {
   return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
 }

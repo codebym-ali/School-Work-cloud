@@ -52,6 +52,10 @@ export const AuditActions = {
   /** An admin replaced what a staff member recorded about themselves. It changes their pay,
    *  so the previous claim is preserved in `oldValue` — the row itself forgets. */
   STAFF_ATTENDANCE_OVERRIDDEN: 'STAFF_ATTENDANCE_OVERRIDDEN',
+  /** An admin changed staff attendance for a month that had already closed (G5). There is no
+   *  backfill floor here on purpose — schools do correct last month's register — but staff
+   *  attendance feeds payroll, and reaching back a month with no trace was the actual hole. */
+  STAFF_ATTENDANCE_BACKDATED: 'STAFF_ATTENDANCE_BACKDATED',
   /** A school closure was declared or removed. Audited because it moves money: a closure changes
    *  the month's working-day count, which is the divisor for every absence deduction — so
    *  re-opening a day quietly changes what everyone should have been paid. */

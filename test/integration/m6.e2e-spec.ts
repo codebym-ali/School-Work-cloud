@@ -38,6 +38,8 @@ describe('M6 — HR, payroll, documents, reports, promotion (e2e)', () => {
   const get = (p: string) => request(server()).get(p).set('Host', host).set('Cookie', cookies);
   const del = (p: string) =>
     request(server()).delete(p).set('Host', host).set('Cookie', cookies).set('X-CSRF-Token', csrf);
+  const patch = (p: string, b: object) =>
+    request(server()).patch(p).set('Host', host).set('Cookie', cookies).set('X-CSRF-Token', csrf).send(b);
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
@@ -181,6 +183,78 @@ describe('M6 — HR, payroll, documents, reports, promotion (e2e)', () => {
    * These run AFTER the payroll test on purpose: it approves a run for 7/2026, which is exactly
    * what the money rule below needs to be real rather than hypothetical.
    */
+  /**
+   * G5 — whether an absence costs money is the SCHOOL's decision, not this service's.
+   *
+   * Payroll always deducted for absence and nobody could see that, let alone change it. Real
+   * schools split: some dock a day's basic, others treat teacher absence as a management matter.
+   *
+   * Proved across two CAMPUSES rather than two months, because the alternatives do not work:
+   * staff attendance cannot be marked for a future month, and a payroll run is idempotent per
+   * (campus, month, year) — so re-running the same month after flipping the setting would return
+   * the cached run and prove nothing. Two campuses, same month, one flip between them.
+   */
+  describe('absence deduction is a school decision', () => {
+    const now = new Date();
+    const month = now.getUTCMonth() + 1;
+    const year = now.getUTCFullYear();
+    /** Two past working days inside the CURRENT month — the only month that is both markable
+     *  (not future) and free of an approved payroll run. */
+    const absenceDays = (() => {
+      const days: string[] = [];
+      for (let d = now.getUTCDate() - 1; d >= 1 && days.length < 2; d--) {
+        const day = new Date(Date.UTC(year, now.getUTCMonth(), d));
+        if (day.getUTCDay() !== 0) days.push(day.toISOString().slice(0, 10));
+      }
+      return days;
+    })();
+
+    const setupStaff = async (campus: string, code: string) => {
+      const staff = await post('/api/v1/staff', {
+        email: `${code.toLowerCase()}@m6.pk`, staffType: 'TEACHER', employeeCode: code,
+        designation: 'Teacher', joinedAt: '2026-04-01', campusId: campus,
+      });
+      await post(`/api/v1/staff/${staff.body.staffId}/salary-structures`, { basic: 30000, effectiveFrom: '2026-04-01' });
+      for (const d of absenceDays) {
+        await post('/api/v1/staff-attendance/bulk', {
+          date: d, session: 'MORNING', records: [{ staffId: staff.body.staffId, status: 'ABSENT' }],
+        });
+      }
+      return staff.body.staffId as string;
+    };
+
+    afterAll(async () => { await patch('/api/v1/school-settings', { payrollDeductsAbsence: true }); });
+
+    it('deducts when the school says it should, and not when it says it should not', async () => {
+      // Skip only if the month is too young to contain two past working days — a 1st-of-month
+      // run has nothing to mark, and inventing future absences is exactly what the API refuses.
+      if (absenceDays.length < 2) return;
+
+      // ── ON (the default, and what every existing school already gets) ──
+      await patch('/api/v1/school-settings', { payrollDeductsAbsence: true });
+      const campusOn = (await post('/api/v1/campuses', { name: `Deduct-On ${Date.now()}` })).body.id;
+      const staffOn = await setupStaff(campusOn, `T-ON${Date.now() % 10000}`);
+      const runOn = await post('/api/v1/payroll-runs', { campusId: campusOn, month, year });
+      const withDeduction = (await get(`/api/v1/payroll-runs/${runOn.body.runId}`)).body.payslips
+        .find((p: { staffId: string }) => p.staffId === staffOn);
+      expect(withDeduction.breakdown).toMatchObject({ absentDays: 2, deductForAbsence: true });
+      expect(Number(withDeduction.attendanceDeduction)).toBeGreaterThan(0);
+
+      // ── OFF ──
+      await patch('/api/v1/school-settings', { payrollDeductsAbsence: false });
+      const campusOff = (await post('/api/v1/campuses', { name: `Deduct-Off ${Date.now()}` })).body.id;
+      const staffOff = await setupStaff(campusOff, `T-OFF${Date.now() % 10000}`);
+      const runOff = await post('/api/v1/payroll-runs', { campusId: campusOff, month, year });
+      const noDeduction = (await get(`/api/v1/payroll-runs/${runOff.body.runId}`)).body.payslips
+        .find((p: { staffId: string }) => p.staffId === staffOff);
+
+      // The absences are still RECORDED — they simply do not cost anything.
+      expect(noDeduction.breakdown).toMatchObject({ absentDays: 2, deductForAbsence: false });
+      expect(Number(noDeduction.attendanceDeduction)).toBe(0);
+      expect(Number(noDeduction.netPay)).toBe(Number(noDeduction.gross));
+    });
+  });
+
   describe('school closures', () => {
     let holidayId: string;
 

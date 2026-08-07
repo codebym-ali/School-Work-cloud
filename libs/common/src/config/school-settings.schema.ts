@@ -90,6 +90,24 @@ export const schoolSettingsSchema = z
     admissionsMode: z.enum(['DIRECT', 'PIPELINE']).default('DIRECT'),
     promotionRequiresFeeClearance: z.boolean().default(true),
     smsOverdraftSegments: z.number().int().min(0).default(100),
+    /**
+     * Does an unexplained absence reduce pay? (G5)
+     *
+     * Real schools split on this. Some dock a day's basic per absence; others treat teacher
+     * absence as a management matter and never touch salary. The system had no opinion to offer —
+     * it simply always deducted, and nobody could see that decision or change it.
+     *
+     * **Default true**: that is what every existing school is already getting, so a school
+     * switches it off by choosing to, never by upgrading.
+     *
+     * Governs ABSENCES only. Approved **unpaid** leave is deducted either way — "unpaid leave"
+     * that does not reduce pay is not unpaid leave, it is a contradiction with a label.
+     *
+     * Flat rather than a `payroll: {}` group on purpose: a third nested group pushed the Prisma
+     * client's type instantiation past its depth limit and broke `tenant-prisma.service` — a file
+     * nothing here touches. Sits beside `promotionRequiresFeeClearance`, which is the same shape.
+     */
+    payrollDeductsAbsence: z.boolean().default(true),
     staffLeaveQuotas: z
       .object({
         CASUAL: z.number().int().min(0),

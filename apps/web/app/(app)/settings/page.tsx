@@ -168,6 +168,28 @@ export default function SettingsPage() {
         )}
       </Section>
 
+      <Section title="Payroll" blurb="How attendance turns into money. Owner-only, because it decides what people are paid.">
+        <Toggle label="Deduct pay for an unexplained absence"
+          checked={s.payrollDeductsAbsence} disabled={!isOwner || busy === 'payrollDeductsAbsence'}
+          onChange={(v) => save('payrollDeductsAbsence', { payrollDeductsAbsence: v })}
+          hint="A day marked ABSENT costs one day of basic pay (basic ÷ working days in the month). Allowances are never docked." />
+        {/* The distinction people get wrong: this governs ABSENCE, not unpaid leave. Approved
+            unpaid leave is deducted either way — unpaid leave that does not reduce pay is a
+            contradiction with a label. State it here rather than let a payslip raise it. */}
+        <Hint>
+          {s.payrollDeductsAbsence
+            ? '⚠️ Absences reduce pay. Approved unpaid leave is deducted as well — that is what "unpaid" means.'
+            : 'Off: absences are recorded in the register but never touch salary. Approved UNPAID leave is still deducted.'}
+        </Hint>
+        {/* Payroll stores its figures when the run is generated, so a change now cannot move a
+            payslip that already exists. Said plainly, because "I changed the setting and nothing
+            happened" is otherwise a support call. */}
+        <Hint>
+          Applies to payroll generated from now on. A run already generated keeps the figures it
+          was computed with, and an approved run never changes.
+        </Hint>
+      </Section>
+
       <Section title="Student attendance" blurb="When registers are expected, and how far back one may be filled in or corrected.">
         <div style={{ maxWidth: 160 }}>
           <label>Registers marked by</label>

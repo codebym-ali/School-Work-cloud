@@ -229,6 +229,57 @@ describe('Staff attendance marking (e2e)', () => {
     expect(after).toBe(before);
   });
 
+  /**
+   * G5 — reaching back into a month that has already closed.
+   *
+   * There is deliberately **no backfill floor** on staff attendance: schools genuinely correct
+   * last month's register, and blocking that would be worse than the risk. The hole was never
+   * the time limit — it was the SILENCE. An admin changing another admin's row from months ago
+   * left no trace at all, and staff attendance feeds payroll.
+   */
+  describe('backdated edits (G5)', () => {
+    /** A working day in the previous month — the month the office has already worked through. */
+    const lastMonthDay = () => {
+      const d = new Date();
+      d.setUTCDate(1);
+      d.setUTCDate(0); // last day of the previous month
+      while (d.getUTCDay() === 0) d.setUTCDate(d.getUTCDate() - 1); // skip the weekly off
+      return d.toISOString().slice(0, 10);
+    };
+
+    it('audits an admin editing an admin-marked row in a closed month', async () => {
+      const day = lastMonthDay();
+      const before = await platform.auditLog.count({ where: { schoolId, action: 'STAFF_ATTENDANCE_BACKDATED' } });
+
+      // Both writes are by the owner, so the OVERRIDDEN rule (which only fires over a SELF or
+      // SYSTEM row) does not apply — this is precisely the case that used to vanish.
+      await mark(staffA, 'PRESENT', day);
+      const res = await mark(staffA, 'ABSENT', day, { note: 'Was actually away' });
+      expect(res.body).toMatchObject({ succeeded: 1, failed: 0 });
+
+      const after = await platform.auditLog.count({ where: { schoolId, action: 'STAFF_ATTENDANCE_BACKDATED' } });
+      expect(after).toBe(before + 1);
+
+      const row = await platform.auditLog.findFirst({
+        where: { schoolId, action: 'STAFF_ATTENDANCE_BACKDATED' },
+        orderBy: { createdAt: 'desc' },
+      });
+      expect(row!.oldValue).toMatchObject({ status: 'PRESENT' });
+      expect(row!.newValue).toMatchObject({ status: 'ABSENT', backdated: true });
+      expect(row!.reason).toBe('Was actually away');
+    });
+
+    it('does not audit an ordinary correction inside the current month', async () => {
+      // The signal only means something if the current month stays quiet — otherwise the log
+      // fills with routine register-keeping and the backdated entries are buried in it.
+      const before = await platform.auditLog.count({ where: { schoolId, action: 'STAFF_ATTENDANCE_BACKDATED' } });
+      await mark(staffA, 'PRESENT');
+      await mark(staffA, 'ABSENT');
+      const after = await platform.auditLog.count({ where: { schoolId, action: 'STAFF_ATTENDANCE_BACKDATED' } });
+      expect(after).toBe(before);
+    });
+  });
+
   // ── Self check-in (S2) ─────────────────────────────────────────────────────
   describe('self check-in', () => {
     /** A real, signed-in teacher — the rules under test only apply to a non-admin. */

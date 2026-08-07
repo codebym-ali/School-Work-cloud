@@ -409,6 +409,8 @@ export interface SchoolSettings {
   };
   timezone: string;
   attendanceMarkByTime: string;
+  /** Whether an unexplained absence reduces pay. Unpaid leave is deducted either way. */
+  payrollDeductsAbsence: boolean;
   staffAttendance: { selfMarking: boolean; autoMarkAbsent: boolean; dayStartTime: string; graceMinutes: number; closeAtTime: string };
 }
 type DeepPartial<T> = { [K in keyof T]?: T[K] extends object ? Partial<T[K]> : T[K] };

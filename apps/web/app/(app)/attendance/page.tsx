@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { api, apiGet, apiPost, ApiError, type Campus, type Enrollment, type Klass, type Section, type UnmarkedRegisters } from '@/lib/api';
 import { sectionLabeller } from '@/lib/labels';
 
-interface DayCoverage { date: string; working: boolean; marked: number; expected: number }
+interface DayCoverage { date: string; working: boolean; marked: number; expected: number; closedFor: string | null }
 
 const STATUSES = ['PRESENT', 'ABSENT', 'LATE', 'HALF_DAY'];
 const today = () => new Date().toISOString().slice(0, 10);
@@ -48,7 +48,8 @@ function CoverageStrip({ days, selected, onPick }: {
           const complete = d.marked >= d.expected && d.expected > 0;
           const partial = d.marked > 0 && d.marked < d.expected;
           const state = !d.working ? 'off' : complete ? 'done' : partial ? 'partial' : 'missing';
-          const tip = !d.working ? 'Holiday or weekly off'
+          // Name the closure. "Holiday or weekly off" made a teacher wonder which, and why.
+          const tip = !d.working ? (d.closedFor ?? 'Weekly off')
             : complete ? `All ${d.expected} marked`
             : partial ? `Only ${d.marked} of ${d.expected} marked`
             : `Not marked (${d.expected} students)`;

@@ -234,6 +234,50 @@ describe('Attendance + absence SMS (e2e, §9/§14)', () => {
   });
 
   /**
+   * H2 — the closure notice the app shell shows on every page.
+   *
+   * The audience is the whole point: **teachers have no dashboard** (`/dashboard` is
+   * owner/campus-admin/accountant only), so a notice hung on one would miss exactly the people
+   * who need to know the gate is locked. This asserts a TEACHER can read it.
+   */
+  describe('closure notice (app shell)', () => {
+    const todayIso = new Date().toISOString().slice(0, 10);
+
+    it('says nothing when the school is open', async () => {
+      const res = await get('/api/v1/attendance/closure-notice');
+      expect(res.status).toBe(200);
+      expect(res.body.closure).toBeNull();
+    });
+
+    it('names the closure, and a TEACHER can see it', async () => {
+      const closure = await post('/api/v1/holidays', { date: todayIso, name: 'Emergency closure' });
+      expect(closure.status).toBe(201);
+      try {
+        const admin = await get('/api/v1/attendance/closure-notice');
+        expect(admin.body.closure).toMatchObject({ name: 'Emergency closure', when: 'TODAY', date: todayIso });
+
+        // The one that matters: a teacher has no dashboard, so if the shell could not read this
+        // they would learn about the closure by arriving at a locked school.
+        const teacher = await teacherSession();
+        const asTeacher = await request(server()).get('/api/v1/attendance/closure-notice')
+          .set('Host', host).set('Cookie', teacher);
+        expect(asTeacher.status).toBe(200);
+        expect(asTeacher.body.closure).toMatchObject({ name: 'Emergency closure', when: 'TODAY' });
+      } finally {
+        await request(server()).delete(`/api/v1/holidays/${closure.body.id}`)
+          .set('Host', host).set('Cookie', cookies).set('X-CSRF-Token', csrf);
+      }
+    });
+
+    it('stays quiet about a weekly off', async () => {
+      // Everybody already knows the school is shut on Sunday. Announcing it every week is how a
+      // notice becomes wallpaper and gets ignored on the day it actually matters.
+      const res = await get('/api/v1/attendance/closure-notice');
+      expect(res.body.closure).toBeNull();
+    });
+  });
+
+  /**
    * H0 — declaring a closure must never destroy what a teacher observed.
    *
    * The emergency shape: the school opened, the register was taken, something happened at 10:30

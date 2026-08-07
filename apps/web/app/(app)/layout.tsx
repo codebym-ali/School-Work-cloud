@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { api, ApiError, type Me } from '@/lib/api';
+import { api, ApiError, type ClosureNotice, type Me } from '@/lib/api';
 import { MeContext } from '@/lib/me-context';
 import { groupedNav, hasAnyRole, navItemFor, panelLabel, MFA_REQUIRED_ROLES } from '@/lib/roles';
 
@@ -11,6 +11,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const [me, setMe] = useState<Me | null>(null);
+  const [closure, setClosure] = useState<ClosureNotice['closure']>(null);
   const [ready, setReady] = useState(false);
   // Below 720px the sidebar becomes a slide-over drawer (CSS drives the breakpoint; this
   // only tracks open/closed, so desktop is unaffected).
@@ -31,6 +32,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       .then(setMe)
       .catch((e) => { if (e instanceof ApiError && e.status === 401) router.replace('/login'); })
       .finally(() => setReady(true));
+    // Fails silently: a closure notice is worth showing, never worth blocking the app for.
+    api.staff.closureNotice().then((r) => setClosure(r.closure)).catch(() => {});
   }, [router]);
 
   if (!ready) return <main className="container"><p className="muted">Loading…</p></main>;
@@ -82,6 +85,22 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               </button>
             </div>
           </div>
+          {/*
+            * The closure notice lives HERE, in the shell, and not on a dashboard — because
+            * teachers do not have one. `/dashboard` is owner/campus-admin/accountant only; a
+            * teacher lands on /attendance, staff on /my-attendance, a student on /me. A banner
+            * hung on a dashboard would miss exactly the people who need to know the gate is
+            * locked. The shell wraps every page for every role, so one place reaches all of them.
+            *
+            * Shown only for today or tomorrow (the API decides). A closure three weeks out
+            * belongs on the calendar; a banner that is always there stops being read.
+            */}
+          {closure && (
+            <div className="toast warn" role="status">
+              🔴 <strong>School {closure.when === 'TODAY' ? 'is closed today' : 'is closed tomorrow'} — {closure.name}.</strong>{' '}
+              No classes, and no attendance is taken.
+            </div>
+          )}
           {needsMfa && pathname !== '/security' && (
             <div className="toast err">
               Two-factor authentication is required for your role and isn&apos;t set up yet.{' '}

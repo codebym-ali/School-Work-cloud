@@ -139,7 +139,15 @@ export default function MyAttendance() {
  */
 function CheckInControl({ state, busy, onCheckIn }: { state: CheckInState; busy: boolean; onCheckIn: () => void }) {
   if (state.nonWorkingDay) {
-    return <span className="muted" style={{ fontSize: 13 }}>Today is a holiday or weekly off — no attendance is taken.</span>;
+    // Say WHICH. "A holiday or weekly off" leaves a teacher unsure whether the button is broken
+    // or the school is shut — and those need very different reactions.
+    return (
+      <span className="muted" style={{ fontSize: 13 }}>
+        {state.closedFor
+          ? `School is closed today — ${state.closedFor}. No attendance is taken.`
+          : 'Today is a weekly off — no attendance is taken.'}
+      </span>
+    );
   }
   if (state.today) {
     // A row the day-close job wrote is not something this person did. It used to render as a

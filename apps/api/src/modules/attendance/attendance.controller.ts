@@ -26,6 +26,18 @@ export class AttendanceController {
   }
 
   /**
+   * Is the school shut today or tomorrow? Drives the banner in the app shell (H2).
+   *
+   * **No `@Roles`** — deliberately every authenticated user. A closure notice that only admins
+   * could see would miss teachers entirely (they have no dashboard), and students and staff need
+   * it just as much. It reveals nothing but a date and the school's own closure name.
+   */
+  @Get('closure-notice')
+  closureNotice() {
+    return this.attendance.closureNotice();
+  }
+
+  /**
    * Which registers are still unmarked today (G3) — the head's view, so admins only.
    *
    * Deliberately NOT open to TEACHER: this is a list of colleagues who are behind, and a teacher

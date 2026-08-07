@@ -91,11 +91,19 @@ export class AttendanceService {
     // Campus scoping (§22.8, P1.7): a campus-bound admin may only mark their own campus.
     assertCampusAccess(user, section.class.campusId);
 
-    const off = await this.isNonWorkingDay(date, section.class.campusId, settings.weeklyOffDays);
-    if (off && !dto.allowHolidayOverride) {
-      throw new AppError(ErrorCodes.VALIDATION_FAILED, HttpStatus.UNPROCESSABLE_ENTITY, 'Holiday/weekly-off day; admin override required');
+    const reason = await this.nonWorkingReason(date, section.class.campusId, settings.weeklyOffDays);
+    if (reason && !dto.allowHolidayOverride) {
+      // Name the closure. "Holiday/weekly-off day" reads as a broken button; "School closed:
+      // Eid ul Adha" is a fact the teacher can act on — and if it is wrong, argue with.
+      throw new AppError(
+        ErrorCodes.VALIDATION_FAILED,
+        HttpStatus.UNPROCESSABLE_ENTITY,
+        reason.kind === 'HOLIDAY'
+          ? `School closed: ${reason.name}. An admin can override if the register really was taken.`
+          : 'This is a weekly off. An admin can override if the register really was taken.',
+      );
     }
-    if (off && dto.allowHolidayOverride && !isAdmin(user)) {
+    if (reason && dto.allowHolidayOverride && !isAdmin(user)) {
       throw new AppError(ErrorCodes.FORBIDDEN, HttpStatus.FORBIDDEN, 'Only an admin may override holiday marking');
     }
 
@@ -237,13 +245,17 @@ export class AttendanceService {
 
     return Promise.all(
       dates.map(async (d) => {
-        const working = !(await this.isNonWorkingDay(d, section.class.campusId, settings.weeklyOffDays));
+        const reason = await this.nonWorkingReason(d, section.class.campusId, settings.weeklyOffDays);
+        const working = reason === null;
         // Expected head-count is per-day: a student who joined on Thursday was never owed a
         // Monday mark, so counting them would leave the day permanently "incomplete".
         const expected = working ? enrolments.filter((e) => startOfDay(e.startedAt) <= startOfDay(d)).length : 0;
         return {
           date: d.toISOString().slice(0, 10),
           working,
+          // The strip greys a day out either way; naming it is the difference between "why can't
+          // I mark this?" and "of course, that was Eid".
+          closedFor: reason?.kind === 'HOLIDAY' ? reason.name : null,
           marked: markedBy.get(startOfDay(d)) ?? 0,
           expected,
         };
@@ -545,8 +557,15 @@ export class AttendanceService {
       throw new AppError(ErrorCodes.FORBIDDEN, HttpStatus.FORBIDDEN, 'You are not employed on this date');
     }
     const campusId = staff.user.campusId;
-    if (campusId && (await this.isNonWorkingDay(date, campusId, settings.weeklyOffDays))) {
-      throw new AppError(ErrorCodes.VALIDATION_FAILED, HttpStatus.UNPROCESSABLE_ENTITY, 'Today is a holiday or weekly off — no attendance is taken.');
+    const closed = campusId ? await this.nonWorkingReason(date, campusId, settings.weeklyOffDays) : null;
+    if (closed) {
+      throw new AppError(
+        ErrorCodes.VALIDATION_FAILED,
+        HttpStatus.UNPROCESSABLE_ENTITY,
+        closed.kind === 'HOLIDAY'
+          ? `School is closed today — ${closed.name}. No attendance is taken.`
+          : 'Today is a weekly off — no attendance is taken.',
+      );
     }
     await this.assertPayrollOpen(date, campusId);
 
@@ -594,7 +613,8 @@ export class AttendanceService {
 
     const enabled = settings.staffAttendance.selfMarking;
     const campusId = staff.user.campusId;
-    const nonWorking = campusId ? await this.isNonWorkingDay(date, campusId, settings.weeklyOffDays) : false;
+    const closedReason = campusId ? await this.nonWorkingReason(date, campusId, settings.weeklyOffDays) : null;
+    const nonWorking = closedReason !== null;
     const today = await this.db.staffAttendance.findFirst({
       where: { staffId: staff.id, date, session: settings.attendanceSessions[0] },
       select: { status: true, checkIn: true, source: true },
@@ -602,6 +622,8 @@ export class AttendanceService {
     return {
       enabled,
       nonWorkingDay: nonWorking,
+      /** Named, so /my-attendance can say WHY the button is refusing rather than just that it is. */
+      closedFor: closedReason?.kind === 'HOLIDAY' ? closedReason.name : null,
       today,
       /** What pressing the button would record right now — LATE is announced, never sprung. */
       wouldBe: checkInStatus(now, settings.staffAttendance.dayStartTime, settings.staffAttendance.graceMinutes, settings.timezone),
@@ -877,12 +899,84 @@ export class AttendanceService {
     }
   }
 
-  private async isNonWorkingDay(date: Date, campusId: string, weeklyOff: string[]): Promise<boolean> {
-    if (weeklyOff.includes(WEEKDAYS[date.getUTCDay()])) return true;
+  /**
+   * Is the school shut today or tomorrow? — what the app shell asks on every page (H2).
+   *
+   * **Every authenticated role**, because the audience is the point: teachers have no dashboard
+   * (`/dashboard` is owner/campus-admin/accountant only — a teacher lands on `/attendance`), so a
+   * notice hung on a dashboard would miss exactly the people who need to know the gate is locked.
+   * The shell wraps every page for every role, so one call reaches all of them.
+   *
+   * **Only today and tomorrow.** A closure three weeks out belongs on the calendar; a banner that
+   * is always there stops being read, which is the failure mode that makes the banner worthless
+   * on the day it matters.
+   *
+   * Weekly offs are deliberately NOT returned. Everybody already knows the school is shut on
+   * Sunday; announcing it every week is how a notice becomes wallpaper.
+   */
+  async closureNotice() {
+    const schoolId = this.ctx.requireSchoolId();
+    const school = await this.db.school.findFirst({ where: { id: schoolId }, select: { settings: true } });
+    const settings = parseSchoolSettings(school?.settings ?? {});
+
+    // The school's own clock (G4) — "today" for a school in another zone is not the server's.
+    const now = new Date();
+    const localToday = new Date(
+      new Intl.DateTimeFormat('en-CA', { timeZone: settings.timezone }).format(now),
+    );
+    const localTomorrow = new Date(localToday.getTime() + 86400000);
+
+    // A teacher/staff member is bound to their campus; a student is not campus-bound in the
+    // session, so they see school-wide closures plus their own campus's via the enrolment.
+    const campusId = this.ctx.user?.campusId ?? null;
+    const holidays = await this.db.holiday.findMany({
+      where: {
+        date: { in: [localToday, localTomorrow] },
+        ...(campusId ? { OR: [{ campusId }, { campusId: null }] } : {}),
+      },
+      orderBy: { date: 'asc' },
+      select: { date: true, name: true },
+    });
+    if (!holidays.length) return { closure: null };
+
+    const first = holidays[0];
+    const isToday = first.date.getTime() === localToday.getTime();
+    return {
+      closure: {
+        date: first.date.toISOString().slice(0, 10),
+        name: first.name,
+        when: isToday ? ('TODAY' as const) : ('TOMORROW' as const),
+      },
+    };
+  }
+
+  /**
+   * WHY a day is not a working one — not merely whether (H2).
+   *
+   * This returned a boolean, so every screen downstream could only say "holiday or weekly off",
+   * which reads as *the button is broken* rather than *the school is shut*. The `holidayName`
+   * the dashboard has always rendered was fed by nothing, because nothing carried the name this
+   * far. A refusal that cannot say why is a refusal the reader argues with.
+   *
+   * Weekly off wins the tie: if a school is closed on Sundays and someone also records Eid on a
+   * Sunday, "weekly off" is the truer answer and avoids a closure that looks like it did work.
+   */
+  private async nonWorkingReason(
+    date: Date,
+    campusId: string,
+    weeklyOff: string[],
+  ): Promise<{ kind: 'WEEKLY_OFF' } | { kind: 'HOLIDAY'; name: string } | null> {
+    if (weeklyOff.includes(WEEKDAYS[date.getUTCDay()])) return { kind: 'WEEKLY_OFF' };
     const holiday = await this.db.holiday.findFirst({
       where: { date, OR: [{ campusId }, { campusId: null }] },
+      select: { name: true },
     });
-    return !!holiday;
+    return holiday ? { kind: 'HOLIDAY', name: holiday.name } : null;
+  }
+
+  /** Boolean shorthand for the callers that only branch on it. */
+  private async isNonWorkingDay(date: Date, campusId: string, weeklyOff: string[]): Promise<boolean> {
+    return (await this.nonWorkingReason(date, campusId, weeklyOff)) !== null;
   }
 }
 

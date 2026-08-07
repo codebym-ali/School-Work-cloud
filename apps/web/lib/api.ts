@@ -81,6 +81,10 @@ export interface Dashboard {
   /** Metric keys this role should see — the UI renders only these cards (role-shaping). */
   visible: string[];
 }
+/** Is the school shut today or tomorrow? Drives the banner in the app shell — every role. */
+export interface ClosureNotice {
+  closure: { date: string; name: string; when: 'TODAY' | 'TOMORROW' } | null;
+}
 /** Registers still unmarked today (G3) — surfaced to the head, never enforced on the teacher. */
 export interface UnmarkedRegisters {
   /** False before the school's own mark-by time: the UI stays quiet until the deadline passes. */
@@ -435,6 +439,8 @@ export interface CheckInState {
   dayStartTime: string;
   /** When the register is settled, or null where the school doesn't run the day close. */
   closeAtTime: string | null;
+  /** The closure's name when today is a declared holiday — so the screen says WHY, not just no. */
+  closedFor: string | null;
 }
 export interface FeeLinkView {
   studentFirstName: string;
@@ -527,6 +533,9 @@ export const api = {
     /** Which class registers are still unmarked today. Admins only — a teacher gets their own
      *  coverage strip, not a list of which colleagues are behind. */
     unmarkedRegisters: () => apiGet<UnmarkedRegisters>('/attendance/unmarked-today'),
+    /** Any authenticated role — teachers have no dashboard, so the shell is the only place
+     *  a closure notice reaches everybody. */
+    closureNotice: () => apiGet<ClosureNotice>('/attendance/closure-notice'),
     checkIn: () => apiPost<{ date: string; status: string; checkIn: string }>('/staff-attendance/check-in', {}),
   },
   /**

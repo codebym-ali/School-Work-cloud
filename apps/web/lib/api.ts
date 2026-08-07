@@ -473,6 +473,15 @@ export interface StaffLeaveRow extends StaffLeave { staffId: string; staff?: { f
 export interface StudentLeaveRow extends StudentLeave { student?: { fullName: string; grNumber: string } }
 export interface StaffLeave { id: string; leaveType: string; fromDate: string; toDate: string; reason: string; status: string; isUnpaid: boolean; rejectionReason: string | null; createdAt: string }
 export interface StudentLeave { id: string; studentId: string; fromDate: string; toDate: string; reason: string; status: string; rejectionReason: string | null; createdAt: string }
+/** `entitlementDays`/`remainingDays` are null when the school has set no quota for that type —
+ *  which means "no limit", NOT "none left". Render the two states differently. */
+export interface LeaveBalanceRow { leaveType: string; entitlementDays: number | null; usedDays: number; pendingDays: number; remainingDays: number | null }
+export interface LeaveBalance {
+  staffId: string; windowStart: string; windowEnd: string; balances: LeaveBalanceRow[];
+  /** Present only when the caller priced a specific range. Costed by the same server function
+   *  that stamps paid/unpaid for real, so the warning cannot drift from the outcome. */
+  proposed: { workingDays: number; wouldBeUnpaid: boolean } | null;
+}
 
 export const api = {
   login: (email: string, password: string) => apiPost<LoginResult>('/auth/login', { email, password }),
@@ -638,14 +647,24 @@ export const api = {
     staff: (status = 'PENDING') => apiGet<{ data: StaffLeaveRow[]; total: number }>(`/staff-leaves?status=${status}`),
     approveStudent: (id: string) => apiPost<StudentLeave>(`/student-leaves/${id}/approve`, {}),
     rejectStudent: (id: string, reason: string) => apiPost<StudentLeave>(`/student-leaves/${id}/reject`, { reason }),
-    approveStaff: (id: string) => apiPost<StaffLeave>(`/staff-leaves/${id}/approve`, {}),
+    // Returns how many ABSENT rows the approval corrected, so the office can be told the register
+    // was put right rather than having to go and look.
+    approveStaff: (id: string) => apiPost<StaffLeave & { attendanceCorrected: number }>(`/staff-leaves/${id}/approve`, {}),
     rejectStaff: (id: string, reason: string) => apiPost<StaffLeave>(`/staff-leaves/${id}/reject`, { reason }),
+    /** Whoever is deciding needs the applicant's entitlement, not just their dates — and priced
+     *  over THIS request's range, so "approve" is a decision about a known number of paid days. */
+    staffBalance: (staffId: string, l: { leaveType: string; fromDate: string; toDate: string }) =>
+      apiGet<LeaveBalance>(`/staff-leaves/balance?staffId=${staffId}&leaveType=${l.leaveType}&fromDate=${l.fromDate.slice(0, 10)}&toDate=${l.toDate.slice(0, 10)}`),
   },
   staffLeaves: {
     // Self-scoped on the server for non-admins → the caller's own leaves only.
     mine: () => apiGet<{ data: StaffLeave[]; total: number }>('/staff-leaves'),
     apply: (body: { leaveType: string; fromDate: string; toDate: string; reason: string }) => apiPost<StaffLeave>('/staff-leaves', body),
     cancel: (id: string) => apiPost<StaffLeave>(`/staff-leaves/${id}/cancel`, {}),
+    /** No staffId → the server resolves the caller's own profile. Passing a range asks what it
+     *  would cost, priced by the server rather than by a copy of the calendar in the browser. */
+    balance: (proposed?: { leaveType: string; fromDate: string; toDate: string }) =>
+      apiGet<LeaveBalance>(`/staff-leaves/balance${proposed ? `?leaveType=${proposed.leaveType}&fromDate=${proposed.fromDate}&toDate=${proposed.toDate}` : ''}`),
   },
   payslips: {
     mine: () => apiGet<Payslip[]>('/payslips/mine'),
@@ -768,15 +787,9 @@ export const api = {
       apiPost<{ saved: number; failed: number; errors: Array<{ index: number; message: string }> }>(`/class-tests/${id}/scores`, { rows }),
     remove: (id: string) => apiDelete<{ deleted: boolean }>(`/class-tests/${id}`),
   },
-  studentLeaves: {
-    // NO CALLER since the parent portal was removed (2026-07-28). Kept on purpose: the server
-    // endpoints still admit OWNER_ADMIN/CAMPUS_ADMIN/TEACHER and the dashboard shows a
-    // "Pending leaves" metric, so this is the client for the admin leave screen that does not
-    // exist yet. Delete it if that screen is never built.
-    list: (studentId: string) => apiGet<{ data: StudentLeave[] }>(`/student-leaves?studentId=${studentId}`),
-    apply: (body: { studentId: string; fromDate: string; toDate: string; reason: string }) => apiPost<StudentLeave>('/student-leaves', body),
-    cancel: (id: string) => apiPost<StudentLeave>(`/student-leaves/${id}/cancel`, {}),
-  },
+  // `studentLeaves` was removed 2026-08-07. It was kept after the parent portal went (2026-07-28)
+  // on the explicit condition "delete it if the admin leave screen is never built" — that screen
+  // was built, and it reads `leaveQueue` above, so the condition resolved the other way.
   portal: {
     overview: () => apiGet<PortalOverview>('/portal/overview'),
     attendance: () => apiGet<PortalAttendance[]>('/portal/attendance'),

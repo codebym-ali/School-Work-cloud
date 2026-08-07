@@ -4,6 +4,7 @@ import { LeavesService } from './leaves.service';
 import {
   CreateStaffLeaveDto,
   CreateStudentLeaveDto,
+  LeaveBalanceQuery,
   LeaveListQuery,
   RejectLeaveDto,
 } from './dto/leaves.dto';
@@ -55,6 +56,19 @@ export class StaffLeavesController {
   @Get()
   list(@Query() q: LeaveListQuery) {
     return this.leaves.listStaffLeaves(q);
+  }
+
+  /**
+   * No `@Roles` — self-service, like `/staff-attendance/mine` and `/payslips/mine`. The service
+   * forces a non-admin to their own profile, so the gate is ownership, not role: anyone with a
+   * staff profile may read their own entitlement, and nobody may read someone else's.
+   *
+   * Declared BEFORE `:id/...` routes would be an issue if any GET took an id — none does, but
+   * keep it above them if that changes, or `balance` starts looking like a uuid.
+   */
+  @Get('balance')
+  balance(@Query() q: LeaveBalanceQuery) {
+    return this.leaves.staffLeaveBalance(q);
   }
 
   @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')

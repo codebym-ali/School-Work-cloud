@@ -1,7 +1,7 @@
 ---
 title: Progress Tracker
 type: status
-updated: 2026-08-05
+updated: 2026-08-07
 current_milestone: M7 in progress — hardening done; only VPS-bound items (deploy/DR-drill/pen-test/pilot) remain
 overall: 6 of 7 milestones (GA) — full v1 domain built; M7 hardening complete
 ---
@@ -11,7 +11,7 @@ overall: 6 of 7 milestones (GA) — full v1 domain built; M7 hardening complete
 > [!info] Living document — update at the **end of every phase**.
 > Procedure at the bottom. Related: [[Roadmap & Milestones]] · [[Testing & Quality]].
 
-**Last updated:** 2026-08-05 · **Stack:** Contabo VPS + Coolify + self-hosted Postgres 16 + Redis + Cloudflare R2 (see [[Deployment & Operations]]) · **Repo:** NestJS monorepo (`apps/api`, `apps/worker`, `libs/common`, `libs/database`).
+**Last updated:** 2026-08-07 · **Stack:** Contabo VPS + Coolify + self-hosted Postgres 16 + Redis + Cloudflare R2 (see [[Deployment & Operations]]) · **Repo:** NestJS monorepo (`apps/api`, `apps/worker`, `libs/common`, `libs/database`).
 
 ## Milestone status
 
@@ -268,7 +268,7 @@ Live-tested the STAFF actor (provisioned `principal.main@demo.pk` — the only S
 - [x] **Architecture audit of the sibling self-service endpoints** (prompted by the leaves hole): `GET /staff-attendance/mine`, `GET /payslips/mine`, and `GET /payslips/:id/pdf` (the last has no `@Roles`) are all **correctly** self-scoped in-service — `payslipPdf` has an explicit `!isAdmin && payslip.staff.userId !== caller.userId → 403 "Not your payslip"`. So `staff-leaves` was the lone divergence from the §22.8 pattern (now fixed). *(Note: STAFF has no dashboard by design — lands on `/my-attendance`.)*
 - [x] **S3 — payslip list order (minor correctness).** `payroll.myPayslips()` used `orderBy: { id: 'desc' }` — `Payslip.id` is a random UUID and the model has no `createdAt`, so payslips showed in arbitrary order. Now `orderBy: [{ run: { year: 'desc' } }, { run: { month: 'desc' } }]` (newest pay period first). **Verified:** two runs (Jun/Mar 2026) → API returns `['6/2026','3/2026']`.
 - [x] **Attendance % correctness (nit).** My Attendance "% (recent)" counted LATE and HALF_DAY as full-present and ON_LEAVE as absent. Now PRESENT/LATE = 1, HALF_DAY = 0.5, and ON_LEAVE is excluded from the denominator. **Verified:** {ON_LEAVE, ABSENT, HALF_DAY, LATE, PRESENT} → 2.5/4 = **63%** (was 60%).
-- [ ] **S2 — parked.** Dashboard "Pending leaves" alert links to `/attendance` (no leave-approval screen exists). Admin-side leaves UI not built.
+- [x] **S2 — DONE.** Built 2026-08-01 (`/leaves`, both queues, approve/reject with a required reason); this entry sat stale for six days and was still being read as open on 2026-08-07. Staff-side self-service completed 2026-08-07 — see the increment above.
 
 ## ➕ Parent actor — portal review + child-name header fix (2026-07-24)
 Live-tested the PARENT actor (linked `parent@demo.pk` to a data-rich child + seeded attendance). **Works:** landing `/parent`, brand "Parent", My Children card (class/roll/att%/outstanding), Overview (details + both guardians + report-card count), Attendance, Results (empty state), Fees (invoices + outstanding). **Security verified:** a parent fetching a non-child's overview/attendance/results/fees → **403 FORBIDDEN** on all four (`assertGuardian`). T5 modules `[]`.
@@ -817,6 +817,60 @@ G9–G12 fixed; G4b closed accepted; G6–G8 Low), [[Fees Gaps Register]] (F1–
   G11 (a child's name rendered as a UUID past 100 students).
 - **Gates:** integration **752/752 across 32 suites** · isolation 7 · lint · api+worker build · RLS ✅ ·
   migration safety ✅ (the trigram `DROP INDEX` curated out for the **eleventh** time).
+
+## ➕ Staff & teacher leave — the module the pay rules were missing (2026-08-07)
+Two asks: delete `api.studentLeaves`, and build the teacher/staff leave module. The first was a
+one-line deletion whose own comment named the condition — *"delete it if the admin leave screen is
+never built"* — and that screen **had** been built (2026-08-01) against `api.leaveQueue`, so the
+condition had resolved the other way. The second turned out not to be a new feature: the module
+existed and four of its rules were wrong, each of them about money.
+
+- **S2 was already done** — worth saying, because the tracker said "parked" and I repeated that to
+  the operator before checking. `/leaves` approves both kinds of leave and has since 2026-08-01.
+- **A teacher could not file leave at all.** `staff-leaves` has always permitted TEACHER; the nav
+  did not. So a teacher could be marked absent but had no way to reach ON_LEAVE, and an authorised
+  absence landed as a plain absence that payroll deducted. The nav file was already carrying a ⚠️
+  about it. **Third time this shape has appeared** (CSV import, `/my-attendance`, now this): a nav
+  stricter than the API does not restrict a capability, it deletes one.
+- **Leave of type UNPAID was PAID.** The quota map has no `UNPAID` key, the lookup returned
+  undefined, and "no quota configured" short-circuited to paid — so the one type whose name says it
+  cuts pay was the only one that never did.
+- **The quota counted requests, not days, over no window at all.** Ten one-day casual leaves hit a
+  10-day limit while a single 15-day leave sailed under it; and with no year window it counted every
+  approved leave since the school opened, so a school's third year would flip everything to unpaid.
+- **A weekly off inside a leave was charged as a leave day** — and deducted at `basic / workingDays`,
+  a rate whose divisor already excludes it. A Sat–Mon leave cost three days' pay for two days away.
+  Fixed by one `workingDaysBetween` from `@common` serving the quota, the balance **and** payroll;
+  payroll's private month-calendar is deleted. Two calendars is two answers.
+- **"Unset" is not "zero".** A type with no configured quota stays paid and unlimited and the UI
+  says *No limit set*. Reading unset as none-left would have turned every OTHER leave unpaid on
+  deploy — a pay cut delivered by an upgrade, which is the line G5 already drew.
+- **The quota is now visible before it applies.** `GET /staff-leaves/balance` (no `@Roles`;
+  ownership-gated like `/payslips/mine`) reports entitlement/used/pending/remaining, and prices a
+  *proposed* range with the same function that stamps the real request — so the applicant's warning
+  and the payslip cannot disagree. The browser owns no copy of the school calendar on purpose.
+- **Approving now settles the register.** It used to change nothing a payslip could see: a day
+  already marked ABSENT stayed ABSENT, and `absentDays()` counts exactly those rows — so the medical
+  certificate arriving next morning still cost a day's pay. Approval converts ABSENT → ON_LEAVE and
+  refuses three things: it never fabricates a row for a day nobody recorded, never overwrites
+  PRESENT/LATE/HALF_DAY, and never touches a month whose payroll is APPROVED.
+- **Both new specs were proved non-vacuous by reverting the code under them.** Restoring the old
+  quota rule fails 3 of the 12 new cases; restoring calendar-day counting fails the payroll case
+  with `unpaidLeaveDays: 3` where it should be 2. The pre-existing payroll assertion was
+  `attendanceDeduction > 0`, which is equally true of the right answer and the wrong one — the
+  working-day bug had been living under it.
+- **No matrix row for `/staff-leaves/balance`, deliberately.** It is ownership-gated, not
+  role-gated; a row would state "these roles may, those may not", which is the wrong question and
+  would read as coverage of a boundary it cannot see. Same lesson as the STUDENT rows on 2026-08-05.
+- **Verified in a browser** on a throwaway tenant (provisioned, driven, destroyed — nothing written
+  to the operator's demo data): teacher sees My Leaves in the nav, balance cards read *1 of 3 days
+  left* / *No limit set* / *Always unpaid*, a Fri→Mon range quotes **3 working days (4 calendar
+  days)** and *Will be UNPAID*, and the admin queue shows *Unpaid if approved · 3 working days · 1
+  of 3 casual days left*. ⚠️ Found while doing it: `apps/web/next.config` hardcodes the dev API
+  proxy to `demo.localhost:4000`, so the browser reaches the demo tenant whatever subdomain the URL
+  carries — any other tenant needs a second web instance with `NEXT_API_ORIGIN` set.
+- **Gates:** unit 57 · integration **765/765 across 33 suites** · isolation 7 · both lints · api+worker
+  build · web tsc + lint.
 
 ## 🧾 Cross-cutting backlog (not milestone-blocking)
 - [x] **Fee-setup gaps — ALL CLOSED (F1–F9), 2026-08-03/04.** See [[Fees Gaps Register]]. F8 was the last and was reclassified Low-Med → **High** on inspection: it was filed as two unguarded reads and turned out to be four, one of which returned a named child's fee concessions to any authenticated session.

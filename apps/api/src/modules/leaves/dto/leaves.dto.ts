@@ -40,6 +40,30 @@ export class RejectLeaveDto {
   reason!: string;
 }
 
+export class LeaveBalanceQuery {
+  /** Admins may ask about anyone; staff and teachers are forced to their own profile. */
+  @IsOptional() @IsUUID()
+  staffId?: string;
+
+  /**
+   * Optional "what would this cost me?" — supply all three and the response carries a `proposed`
+   * block priced by the same function that stamps the real thing at create and approve.
+   *
+   * The alternative was reimplementing the school's calendar in the browser to count working
+   * days. That is the drift this codebase has been bitten by before (three copies of the
+   * attendance percentage gave three different answers), and here the two copies would disagree
+   * about somebody's salary.
+   */
+  @IsOptional() @IsDateString()
+  fromDate?: string;
+
+  @IsOptional() @IsDateString()
+  toDate?: string;
+
+  @IsOptional() @IsEnum(StaffLeaveType)
+  leaveType?: StaffLeaveType;
+}
+
 export class LeaveListQuery extends PaginationQuery {
   @IsOptional() @IsEnum(LeaveStatus)
   status?: LeaveStatus;

@@ -104,10 +104,12 @@ export const NAV: NavItem[] = [
   // but the nav did not — so a teacher had no way to reach their own attendance at all, which
   // is the surface a teacher most needs now that they can check themselves in.
   { href: '/my-attendance', label: 'My Attendance', icon: '✅', group: 'My Portal', roles: ['STAFF', 'TEACHER'] },
-  // ⚠️ Still STAFF-only by an earlier explicit request. Worth revisiting: `staff-leaves` permits
-  // TEACHER too, and a teacher who can be marked absent but cannot file leave has no way to
-  // reach ON_LEAVE — so an authorised absence lands as a plain absence, and that feeds payroll.
-  { href: '/my-leaves', label: 'My Leaves', icon: '🗓️', group: 'My Portal', roles: ['STAFF'] },
+  // TEACHER added 2026-08-07, closing the gap this comment used to describe: `staff-leaves` has
+  // always permitted teachers, but the nav did not — so a teacher who could be marked absent had
+  // no way to file the leave that would have made it ON_LEAVE, and an authorised absence landed
+  // as a plain absence that payroll then deducted. Same shape as `/my-attendance` above: a nav
+  // stricter than the API does not restrict a capability, it deletes it.
+  { href: '/my-leaves', label: 'My Leaves', icon: '🗓️', group: 'My Portal', roles: ['STAFF', 'TEACHER'] },
   { href: '/my-payslips', label: 'My Payslips', icon: '💵', group: 'My Portal', roles: ['STAFF', 'TEACHER'] },
 
   // HR reads the register but never marks it — attendance feeds pay, and the same boundary

@@ -253,6 +253,51 @@ describe('M6 — HR, payroll, documents, reports, promotion (e2e)', () => {
       expect(Number(noDeduction.attendanceDeduction)).toBe(0);
       expect(Number(noDeduction.netPay)).toBe(Number(noDeduction.gross));
     });
+
+    /**
+     * Unpaid leave is deducted in WORKING days, and is deducted even with absence deduction off.
+     *
+     * Two rules in one payslip, because they meet there:
+     *  - a Sunday inside a leave range was charged as a leave day, at `basic / workingDays` — a
+     *    rate whose divisor already excludes Sundays. A Sat–Mon leave cost three days' pay for
+     *    two days of absence. The existing test above could not see this: `attendanceDeduction
+     *    > 0` is equally true of the right answer and the wrong one.
+     *  - `payrollDeductsAbsence: false` governs ABSENCES only. Approved unpaid leave is deducted
+     *    either way — "unpaid leave" that does not reduce pay is a contradiction with a label
+     *    (G5). Running this with the setting OFF is what makes that assertion mean something.
+     */
+    it('charges unpaid leave in working days, and charges it even when absences are free', async () => {
+      // Sat → Mon around a Sunday inside this month: 3 calendar days, 2 working ones. Anchored on
+      // a real Sunday rather than fixed dates so it holds whenever the suite runs.
+      const firstOfMonth = new Date(Date.UTC(year, month - 1, 1));
+      let sunday = 1 + ((7 - firstOfMonth.getUTCDay()) % 7); // first Sunday's date-of-month
+      if (sunday === 1) sunday = 8; // need a day before it that is still in this month
+      const iso = (d: number) => new Date(Date.UTC(year, month - 1, d)).toISOString().slice(0, 10);
+
+      await patch('/api/v1/school-settings', { payrollDeductsAbsence: false });
+      const campus = (await post('/api/v1/campuses', { name: `Unpaid-Leave ${Date.now()}` })).body.id;
+      const staff = await post('/api/v1/staff', {
+        email: `ul${Date.now() % 100000}@m6.pk`, staffType: 'TEACHER', employeeCode: `T-UL${Date.now() % 10000}`,
+        designation: 'Teacher', joinedAt: '2026-04-01', campusId: campus,
+      });
+      const staffId = staff.body.staffId;
+      await post(`/api/v1/staff/${staffId}/salary-structures`, { basic: 30000, effectiveFrom: '2026-04-01' });
+
+      const leave = await post('/api/v1/staff-leaves', {
+        staffId, leaveType: 'UNPAID', fromDate: iso(sunday - 1), toDate: iso(sunday + 1), reason: 'Family matter',
+      });
+      expect(leave.body.isUnpaid).toBe(true); // the type decides this, not the quota
+      expect((await post(`/api/v1/staff-leaves/${leave.body.id}/approve`)).status).toBe(201);
+
+      const run = await post('/api/v1/payroll-runs', { campusId: campus, month, year });
+      const slip = (await get(`/api/v1/payroll-runs/${run.body.runId}`)).body.payslips
+        .find((p: { staffId: string }) => p.staffId === staffId);
+
+      // 2, not 3 — the Sunday was already not a working day, so it was never theirs to take.
+      expect(slip.breakdown).toMatchObject({ unpaidLeaveDays: 2, absentDays: 0, deductForAbsence: false });
+      const perDay = 30000 / slip.breakdown.workingDays;
+      expect(Number(slip.attendanceDeduction)).toBeCloseTo(2 * perDay, 1);
+    });
   });
 
   describe('school closures', () => {

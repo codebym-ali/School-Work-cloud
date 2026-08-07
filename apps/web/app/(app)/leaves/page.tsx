@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { api, ApiError, type StaffLeaveRow, type StudentLeaveRow } from '@/lib/api';
+import { api, ApiError, type LeaveBalance, type StaffLeaveRow, type StudentLeaveRow } from '@/lib/api';
 
 /**
  * Leave approvals — the screen the dashboard has been advertising.
@@ -33,6 +33,8 @@ export default function LeavesPage() {
   const [students, setStudents] = useState<StudentLeaveRow[]>([]);
   const [staff, setStaff] = useState<StaffLeaveRow[]>([]);
   const [pendingCounts, setPendingCounts] = useState({ students: 0, staff: 0 });
+  // Keyed by leave id, not staff id: the figure shown is priced over THAT request's range.
+  const [cost, setCost] = useState<Record<string, LeaveBalance>>({});
   const [rejecting, setRejecting] = useState<string | null>(null);
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState('');
@@ -57,6 +59,29 @@ export default function LeavesPage() {
 
   useEffect(() => { load(); }, [load]);
 
+  /**
+   * Price every PENDING staff request that is on screen.
+   *
+   * Approving a staff leave is a decision about money — it can consume paid entitlement or be
+   * deducted from salary — and the queue used to show only a name, a date range and a reason.
+   * One request per pending row, which is what a morning's queue actually is; approved and
+   * rejected rows are skipped because re-pricing a settled decision would show a hypothetical.
+   */
+  useEffect(() => {
+    const pending = staff.filter((l) => l.status === 'PENDING' && !cost[l.id]);
+    if (!pending.length) return;
+    let live = true;
+    (async () => {
+      const priced = await Promise.all(pending.map(async (l) => {
+        try { return [l.id, await api.leaveQueue.staffBalance(l.staffId, l)] as const; }
+        catch { return null; } // a missing figure must not blank the queue you came here to clear
+      }));
+      if (!live) return;
+      setCost((prev) => ({ ...prev, ...Object.fromEntries(priced.filter(Boolean) as Array<readonly [string, LeaveBalance]>) }));
+    })();
+    return () => { live = false; };
+  }, [staff, cost]);
+
   async function act(id: string, fn: () => Promise<unknown>, ok: string) {
     setBusy(id);
     setMsg(null);
@@ -73,7 +98,7 @@ export default function LeavesPage() {
     }
   }
 
-  const rows: Array<{ id: string; who: string; sub: string; range: string; reason: string; status: string; extra?: string }> =
+  const rows: Array<{ id: string; who: string; sub: string; range: string; reason: string; status: string; extra?: string; cost?: LeaveBalance; leaveType?: string }> =
     kind === 'students'
       ? students.map((l) => ({
           id: l.id,
@@ -92,10 +117,35 @@ export default function LeavesPage() {
           reason: l.reason,
           status: l.status,
           extra: l.rejectionReason ? `Rejected: ${l.rejectionReason}` : undefined,
+          cost: cost[l.id],
+          leaveType: l.leaveType,
         }));
 
-  const approve = (id: string) =>
-    act(id, () => (kind === 'students' ? api.leaveQueue.approveStudent(id) : api.leaveQueue.approveStaff(id)), 'Leave approved');
+  async function approve(id: string) {
+    if (kind === 'students') return act(id, () => api.leaveQueue.approveStudent(id), 'Leave approved');
+    // Approving staff leave also corrects days already marked ABSENT — otherwise the approval
+    // changes nothing payroll can see. Say so, because a silent write to the attendance register
+    // is exactly the kind of thing an office should be told about rather than discover.
+    setBusy(id);
+    setMsg(null);
+    try {
+      const res = await api.leaveQueue.approveStaff(id);
+      setRejecting(null);
+      setReason('');
+      setCost((prev) => { const next = { ...prev }; delete next[id]; return next; });
+      await load();
+      setMsg({
+        ok: true,
+        text: res.attendanceCorrected > 0
+          ? `Leave approved — ${res.attendanceCorrected} day${res.attendanceCorrected === 1 ? '' : 's'} already marked absent ${res.attendanceCorrected === 1 ? 'was' : 'were'} corrected to on-leave.`
+          : 'Leave approved',
+      });
+    } catch (e) {
+      setMsg({ ok: false, text: e instanceof ApiError ? e.message : 'Failed' });
+    } finally {
+      setBusy('');
+    }
+  }
   const reject = (id: string) =>
     act(id, () => (kind === 'students' ? api.leaveQueue.rejectStudent(id, reason.trim()) : api.leaveQueue.rejectStaff(id, reason.trim())), 'Leave rejected');
 
@@ -147,6 +197,26 @@ export default function LeavesPage() {
 
               <p style={{ margin: 0, fontSize: 14 }}>{r.reason}</p>
               {r.extra && <p className="muted" style={{ margin: 0, fontSize: 12 }}>{r.extra}</p>}
+
+              {/* What approving this actually costs. Weekly offs and closures are already out of
+                  the day count, so it is the number payroll will use, not a calendar span. */}
+              {r.cost?.proposed && (() => {
+                const p = r.cost!.proposed!;
+                const bal = r.cost!.balances.find((b) => b.leaveType === r.leaveType);
+                return (
+                  <div className="chips" style={{ fontSize: 13 }}>
+                    <span className={`badge ${p.wouldBeUnpaid ? 'warn' : 'ok'}`}>
+                      {p.wouldBeUnpaid ? 'Unpaid if approved' : 'Paid leave'}
+                    </span>
+                    <span><strong>{p.workingDays}</strong> working day{p.workingDays === 1 ? '' : 's'}</span>
+                    {bal && bal.entitlementDays != null && (
+                      <span className="muted">
+                        {bal.remainingDays} of {bal.entitlementDays} {bal.leaveType.toLowerCase()} days left this year
+                      </span>
+                    )}
+                  </div>
+                );
+              })()}
 
               {r.status === 'PENDING' && (
                 rejecting === r.id ? (

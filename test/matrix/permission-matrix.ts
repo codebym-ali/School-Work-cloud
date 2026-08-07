@@ -145,6 +145,13 @@ export const PERMISSION_MATRIX: MatrixRow[] = [
   // this row asserts the accountant, admission officer and parent are all denied.
   { label: 'file a staff leave', method: 'post', path: '/api/v1/staff-leaves', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'TEACHER'] },
   { label: 'approve a staff leave', method: 'post', path: '/api/v1/staff-leaves/00000000-0000-0000-0000-000000000000/approve', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
+  // ⚠️ `GET /staff-leaves/balance` has NO row on purpose, and it is not an omission. It carries no
+  // `@Roles` — like `/staff-attendance/mine` and `/payslips/mine`, the gate is OWNERSHIP: the
+  // service forces a non-admin to their own staff profile and 403s an account with no profile at
+  // all. A matrix row states "these roles may, those may not", which is the wrong question here
+  // and would read as coverage of a boundary it cannot see. What it should say is proved in
+  // `staff-leaves.e2e` with a real TEACHER session: asked about a colleague, answered about
+  // themselves. Same lesson as the STUDENT note above — a row that cannot fail is worse than none.
   { label: 'class-strength report', method: 'get', path: '/api/v1/reports/class-strength', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT'], scopeGated: true },
   { label: 'dashboard', method: 'get', path: '/api/v1/dashboard', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT'] },
   // STUDENT-only. STUDENT isn't one of the seeded matrix roles, so allow:[] asserts every

@@ -1,6 +1,6 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { AttendanceStatus, LeaveStatus, PayrollRunStatus, Prisma } from '@prisma/client';
-import { AppError, ErrorCodes, parseSchoolSettings, PdfService, StorageService, TenantContext } from '@common';
+import { AppError, ErrorCodes, parseSchoolSettings, PdfService, StorageService, TenantContext, workingDaysBetween } from '@common';
 import { TenantPrismaService } from '@database';
 import type { MarkPaidDto, RunPayrollDto } from './dto/hr.dto';
 
@@ -8,7 +8,6 @@ const money = (n: number): number => Math.round(n * 100) / 100;
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const sumValues = (o: unknown): number =>
   o && typeof o === 'object' ? Object.values(o as Record<string, number>).reduce((s, v) => s + Number(v), 0) : 0;
-const WEEKDAYS = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'];
 
 /**
  * Payroll (blueprint §13). Per staff: gross = basic + Σ allowances; attendance-linked
@@ -39,7 +38,14 @@ export class PayrollService {
     const monthStart = new Date(Date.UTC(dto.year, dto.month - 1, 1));
     const monthEnd = new Date(Date.UTC(dto.year, dto.month, 0));
     const settings = parseSchoolSettings((await this.db.school.findFirst({ where: { id: this.sid } }))?.settings ?? {});
-    const workingDays = await this.workingDays(dto.year, dto.month, dto.campusId, settings.weeklyOffDays);
+    // Resolved once and shared with the leave count below, so the month's divisor and the days
+    // charged against it are derived from the same calendar. Two calendars is how a leave day
+    // gets deducted at a rate that never counted it.
+    const holidayISODates = (await this.db.holiday.findMany({
+      where: { date: { gte: monthStart, lte: monthEnd }, OR: [{ campusId: dto.campusId }, { campusId: null }] },
+      select: { date: true },
+    })).map((h) => new Date(h.date).toISOString().slice(0, 10));
+    const workingDays = workingDaysBetween(monthStart, monthEnd, settings.weeklyOffDays, holidayISODates).length;
 
     const run = await this.db.payrollRun.create({
       data: { schoolId: this.sid, campusId: dto.campusId, month: dto.month, year: dto.year, status: PayrollRunStatus.DRAFT, createdById: this.ctx.user!.userId },
@@ -62,7 +68,7 @@ export class PayrollService {
       const fixedDeductions = sumValues(salary.fixedDeductions);
       const gross = money(basic + allowances);
 
-      const unpaidLeaveDays = await this.unpaidLeaveDays(s.id, monthStart, monthEnd);
+      const unpaidLeaveDays = await this.unpaidLeaveDays(s.id, monthStart, monthEnd, settings.weeklyOffDays, holidayISODates);
       const absentDays = await this.absentDays(s.id, monthStart, monthEnd);
       const perDay = workingDays > 0 ? basic / workingDays : 0;
 
@@ -176,21 +182,26 @@ export class PayrollService {
   }
 
   // ── helpers ──────────────────────────────────────────────────────────────────
-  private async workingDays(year: number, month: number, campusId: string, weeklyOff: string[]): Promise<number> {
-    const days = new Date(Date.UTC(year, month, 0)).getUTCDate();
-    const holidays = await this.db.holiday.findMany({
-      where: { date: { gte: new Date(Date.UTC(year, month - 1, 1)), lte: new Date(Date.UTC(year, month, 0)) }, OR: [{ campusId }, { campusId: null }] },
-    });
-    const holidaySet = new Set(holidays.map((h) => new Date(h.date).getUTCDate()));
-    let count = 0;
-    for (let d = 1; d <= days; d++) {
-      const dow = new Date(Date.UTC(year, month - 1, d)).getUTCDay();
-      if (!weeklyOff.includes(WEEKDAYS[dow]) && !holidaySet.has(d)) count++;
-    }
-    return count;
-  }
+  // The month's working-day count used to be computed here from a local weekday table. It is now
+  // `workingDaysBetween` from @common — the same function the leave count and the attendance
+  // deadline use, because a second implementation of "which days does this school work" is a
+  // second answer waiting to disagree with the first.
 
-  private async unpaidLeaveDays(staffId: string, monthStart: Date, monthEnd: Date): Promise<number> {
+  /**
+   * Unpaid-leave days falling in this month — counted as WORKING days, not calendar days.
+   *
+   * It used to be calendar days, which over-deducted every time: the rate applied to them is
+   * `basic / workingDays`, a denominator that already excludes weekly offs and closures, so a
+   * seven-day leave across a six-working-day week was charged as seven sixths of a week. The
+   * weekly off is not a day the person took off — it was already not a working day.
+   */
+  private async unpaidLeaveDays(
+    staffId: string,
+    monthStart: Date,
+    monthEnd: Date,
+    weeklyOff: string[],
+    holidayISODates: string[],
+  ): Promise<number> {
     const leaves = await this.db.staffLeave.findMany({
       where: { staffId, status: LeaveStatus.APPROVED, isUnpaid: true, fromDate: { lte: monthEnd }, toDate: { gte: monthStart } },
     });
@@ -198,7 +209,7 @@ export class PayrollService {
     for (const l of leaves) {
       const from = new Date(Math.max(new Date(l.fromDate).getTime(), monthStart.getTime()));
       const to = new Date(Math.min(new Date(l.toDate).getTime(), monthEnd.getTime()));
-      days += Math.floor((to.getTime() - from.getTime()) / 86400000) + 1;
+      days += workingDaysBetween(from, to, weeklyOff, holidayISODates).length;
     }
     return days;
   }

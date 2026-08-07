@@ -1,7 +1,7 @@
 ---
 title: Attendance — known gaps & flaws
 type: register
-status: open — G1–G4 (clock rules), G9, G10, G11 fixed · G4b, G5–G8 open
+status: open — G1–G4 (clock rules), G9, G10, G11 fixed · G12 (High), G4b, G5–G8 open
 created: 2026-08-03
 scope: staff + student attendance, the day-close job, and the timing rules around both
 ---
@@ -172,6 +172,25 @@ Fixed at the source rather than by raising the page size, which would only move 
 `/enrollments`, exam-results and invoice projections now **carry the student's name**, and the
 screens read it off the row. `/enrollments` had been returning it all along and the page ignored
 it. Same rule the teaching-assignment rework landed on — *a list must carry the names it displays*.
+
+## G12 — Holidays are a table nobody can write 🔴 **High · found 2026-08-05**
+
+`holidays` is **read in five places** — student marking, the coverage strip, the staff day summary,
+the day-close job and payroll's working-day count — and **written in none**. There is no endpoint,
+no service method, no screen, not even a seed row. Every lookup finds nothing and concludes the
+day is a normal working day.
+
+So Eid is a school day: teachers are chased for not marking a register on a day the school was
+shut, the day-close job would mark staff absent on a public holiday, and **payroll counts the
+holiday as a working day**, which changes the per-day rate and therefore every absence deduction
+that month.
+
+The read side is complete and waiting — screens already render *"{holidayName} — no register
+today"* — and the `campusId` column that would let one campus close alone has never been reachable.
+The inverse of the recurring *endpoint nobody calls*: **a table nobody can write.**
+
+Planned in [[School Calendar & Closures Plan]]. Ranked above G5: G5 is an unstated decision,
+this is a feature that silently does not exist.
 
 ## G4b — The day boundary is still UTC 🟡 **Med · latent, split from G4 on 2026-08-05**
 

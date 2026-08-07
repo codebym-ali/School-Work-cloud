@@ -317,6 +317,38 @@ correctness rule, not a preference, and offering it as a switch invites a school
 one control that stops a forged screenshot becoming a receipt. A settings screen should not offer
 a toggle whose "off" position is a defect.
 
+### Implementation status (2026-08-07) — **shipped, except the online switch**
+
+**Done and live.** *School settings → Fee collection → "We accept"* is a row of chips the owner
+toggles; a campus admin sees them read-only. Both rules above hold in the shipped code:
+`payments.service` refuses a method the school has not enabled and names the accepted ones in the
+error (not a display gate — rule 1), and disabling governs new payments only (rule 2). The UI adds
+one guard this section did not call for: **the last enabled method cannot be switched off**, since
+a school accepting nothing would have every payment refused by its own setting. `proofPolicy`,
+`guardianUploadLink` and `chequeClearingDays` all shipped with it.
+
+**Not done: the `online` block above was never implemented.** The shipped `feeSubmission` group has
+`methods`, `proofPolicy`, `guardianUploadLink`, `chequeClearingDays` — there is no
+`online: { enabled, provider, companyCode }`, and **`ONLINE` is missing from the `methods` enum**
+even though `PaymentMethod.ONLINE` exists in the database and `aggregator.service` writes it.
+
+⚠️ **That gap is correct for now, and adding it early would be a mistake.** An owner who ticked
+"Online" today would enable a route that returns **501** — the aggregator refuses to record
+anything until a service account exists to attribute a machine-made payment to (§5.3a). That is a
+toggle whose *on* position does nothing, which is the same defect as rule 3 in the other direction:
+**a settings screen must not offer a switch that cannot do what its label says.**
+
+So the online switch is part of **B6 wiring**, not part of the settings work, and it lands in this
+order:
+1. merchant agreement signed → company code + sandbox + HMAC secret exist;
+2. the per-school **service account** decision is made (§5.3a's blocker);
+3. `settle()` writes the `FeePayment`;
+4. **then** `ONLINE` joins the `methods` enum and the `online` block appears on the settings
+   screen — visible only once a company code is saved, exactly as designed above.
+
+Doing 4 before 1–3 gives a school a button that quietly fails. Doing 1–3 without 4 gives every
+school online payments whether they signed up or not. They ship together.
+
 ---
 
 ## 7. Decisions needed

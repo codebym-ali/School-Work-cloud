@@ -1,10 +1,12 @@
-# Multi-Tenant School Management System — Master Blueprint (v2.0)
+# Multi-Tenant School Management System — Master Blueprint (v2.1)
 
-**Status:** AUTHORITATIVE. This document supersedes `school-management-saas-architecture.md` (Part 1) and `school-management-detailed-design.md` (Part 2). It is the single source of truth. Where this document conflicts with any earlier artifact, this document wins.
+**Status:** AUTHORITATIVE. **v2.1 (2026-08-08)** — see Appendix E. This document supersedes `school-management-saas-architecture.md` (Part 1) and `school-management-detailed-design.md` (Part 2). It is the single source of truth. Where this document conflicts with any earlier artifact, this document wins.
 
 **Purpose:** A senior engineering team — or an AI coding agent — must be able to build, test, deploy, and operate the complete system from this document alone, without asking fundamental architectural or business questions.
 
-**Change control:** This document is versioned in the repository at `/docs/blueprint.md`. Changes require a PR approved by the Tech Lead and Product Manager. Every change updates the changelog in Appendix E.
+**Change control:** This document is versioned in the repository at `/school-management-master-blueprint.md` (repository root). Changes require a PR approved by the Tech Lead and Product Manager. Every change updates the changelog in **Appendix E**.
+
+> **Note on the path (2026-08-08).** The path above used to read `/docs/blueprint.md`. The document has never lived there, and `docs/` holds the frozen numbered briefs this document supersedes — so anyone following the pointer would have found the superseded material instead of the authoritative copy. Appendix E exists and now carries a dated entry per change; before today it held a single line for v2.0 and nothing since, so four weeks of decisions had gone unrecorded.
 
 ---
 
@@ -15,7 +17,9 @@
 A multi-tenant SaaS platform for private schools in Pakistan (v1 market), covering the full daily operations of a school: admissions, enrollment across academic years, attendance, examinations and report cards, fee management with fines and discounts, staff HR and payroll, parent communication (SMS-first), and document issuance. Sold per-school on subscription tiers. English UI in v1; Urdu SMS content supported; full i18n deferred (see §4).
 
 **Primary buyers:** school owners/principals of 200–3,000-student private schools, often multi-campus.
-**Primary daily users:** front-desk/admissions staff, accountants at fee counters, teachers (attendance + marks), campus admins, parents (read-mostly portal).
+**Primary daily users:** front-desk/admissions staff, accountants at fee counters, teachers (attendance + marks), campus admins, students (read-mostly portal).
+
+> **Parents are reached by SMS, not by a login (2026-07-28).** They were a primary user of a read-mostly portal here; that portal was removed and guardians became contact records rather than accounts. Everything a family needs — absence, fee receipt, result-ready, leave decision — goes to the phone they already carry, and a fee-proof upload works from a signed link with no account at all. In this market a parent will open an SMS and will not maintain a password.
 
 ## 2. Tenancy Model (decision)
 
@@ -84,10 +88,18 @@ Application roles (a User holds **one or more** roles — stored as a Postgres e
 | `ACCOUNTANT` | School or campus | Fees, payments, financial reports |
 | `TEACHER` | Own assignments | Attendance, marks, homework for assigned sections/subjects |
 | `STAFF` | Self | Non-teaching employee: sees own payslips, files own leaves |
-| `PARENT` | Own children | Read portal + leave requests for their children |
+| `ADMISSION_CONTROLLER` | One campus's admissions | Runs the admission desk: inquiries, entry tests, admitting, CSV import. **One seat per campus** — a change of holder is a single audited handover, not two unrelated grants. |
+| `HR_MANAGER` | Staff records | Owns the campus staff register; **reads** staff attendance but never marks it, because attendance feeds pay. |
+| `PARENT` | — (legacy) | **No login. Retained in the enum for rows created before 2026-07-28 and never issued to new accounts.** A guardian is a contact record (`ParentProfile`, `userId` nullable since 2026-07-29), reached by SMS. See the note below. |
 | `STUDENT` | Self | Read portal (own attendance, results, invoices, timetable) |
 
-**Multi-role rule:** one person = one User row per school; `roles` is an array (e.g. a teacher-parent is `[TEACHER, PARENT]` with both a StaffProfile and a ParentProfile). Effective permission = union of role grants; scope checks still apply per role (a TEACHER+PARENT sees marks-entry only for assigned subjects, children only for linked students).
+> **The parent portal was removed on 2026-07-28.** It is the one role in this table that no longer signs in, and the change was product-led, not technical: guardians in this market do not maintain passwords, and a portal nobody opens is a surface to secure for no return. What replaced it costs the family nothing to use — SMS for every event, and a signed link for uploading proof of a bank transfer.
+>
+> **The enum value stays.** Deleting it would orphan historic rows and rewrite audit history; it is simply never granted now. `ParentProfile` also stays — it is how a school records who to call about a child, which it always was.
+>
+> **Two consequences worth naming, because both look like dead code and are not:** the guardian check in `leaves.service` and the one in `report-cards.service` carry no `@Roles` above them, so they are the *only* thing standing between a signed-in non-admin and another student's record. Removing them as "parent leftovers" would widen access, not tidy it.
+
+**Multi-role rule:** one person = one User row per school; `roles` is an array (e.g. an owner who also teaches is `[OWNER_ADMIN, TEACHER]` with a StaffProfile). Effective permission = union of role grants; scope checks still apply per role (a TEACHER+HR_MANAGER sees marks-entry only for assigned subjects, and reads the staff register without being able to mark it).
 
 Full permission matrix: §23. Ownership-scope enforcement design: §22.8.
 
@@ -130,7 +142,8 @@ INQUIRY ──schedule test──▶ ENTRY_TEST_SCHEDULED ──record result─
 Allowed transitions are exactly the arrows above; anything else → 409 `INVALID_STATE_TRANSITION`. Rejection/withdrawal require a `reason`.
 
 **Admit action (`POST /admissions` — transactional):**
-1. Guardian resolution: request carries guardian details incl. phone. Server searches existing `ParentProfile` by normalized phone within the school; UI shows match ("Link to existing parent Ali Khan? Their children: …") — explicit choice: link or create new. **Never silently auto-merges.** New parent ⇒ create User (`roles=[PARENT]`) + ParentProfile; account starts `INVITED` — no password; an SMS with a one-time set-password link (30-min token) is sent. Existing parent ⇒ link only.
+1. Guardian resolution: request carries guardian details incl. phone. Server searches existing `ParentProfile` by normalized phone within the school; UI shows match ("Link to existing parent Ali Khan? Their children: …") — explicit choice: link or create new. **Never silently auto-merges.** New guardian ⇒ create a `ParentProfile` only: name, phone, optional email. **No `User` row, no account, no invite SMS.** Existing guardian ⇒ link only, which is what makes siblings share one guardian record.
+   - *Changed 2026-07-28/29.* This step used to mint a `User(roles=[PARENT])` in `INVITED` state and text a 30-minute set-password link. With the portal gone there is nothing to log into, and creating login-less accounts left placeholder emails colliding in the unique index — a real 500 on admission when a guardian's email already belonged to someone. `ParentProfile.userId` is nullable; legacy rows keep their link.
 2. Create `Student` (GR number: auto-sequenced per school from `School.nextGrNumber` with configurable prefix, or manual entry when `Setting.grNumberMode=MANUAL`; uniqueness `[schoolId, grNumber]` either way).
 3. Create `StudentGuardian` link(s) with `relation` enum and exactly one `isPrimary=true` per student (primary receives SMS; §26.4).
 4. Create ACTIVE `StudentEnrollment` in the current academic year.
@@ -157,7 +170,7 @@ Allowed transitions are exactly the arrows above; anything else → 409 `INVALID
 - `Term` per academic year (e.g., Term 1, Term 2). Each `ExamDefinition` belongs to a term and has `weightagePercent`. **Validation:** the sum of weightages of a class's exams within a term must equal 100 before that term's report cards can be generated (checked at generation, error `WEIGHTAGE_SUM_INVALID` listing the sum).
 - **Term result formula (authoritative):** for each subject, `termPercent = Σ over exams (marksObtained/totalMarks × weightagePercent)`; absent-in-exam ⇒ `isAbsent=true`, `marksObtained=null`, contributes 0 to that exam's weighted share and the report card prints "ABS" for that exam. Overall = mean of subject termPercents (equal subject weighting v1; per-subject credit weighting is v2). Rank = dense rank by overall percent within the section (ties share rank; next rank skips: 1,1,3); students absent from **all** exams are unranked.
 - **Marks entry:** teachers enter marks only for assigned (section, subject) pairs (§22.8); `marksObtained ≤ totalMarks` (422 otherwise); bulk endpoint is upsert with per-row error reporting (§25 partial-failure contract).
-- **Publication & locking:** `ExamDefinition.status: DRAFT → MARKS_ENTRY → PUBLISHED` (admin action). Parents/students see results **only when PUBLISHED**. After PUBLISHED, a mark change requires OWNER_ADMIN, a reason, writes AuditLog (old→new), regenerates the affected report-card PDF (old S3 object version retained), and re-sends the result SMS flagged "Corrected". Completeness gate for publishing: every (enrolled student × subject assigned to the class) has a mark or `isAbsent` — the publish endpoint returns the missing list otherwise (422 `RESULTS_INCOMPLETE`).
+- **Publication & locking:** `ExamDefinition.status: DRAFT → MARKS_ENTRY → PUBLISHED` (admin action). Students see results **only when PUBLISHED**, and guardians learn of them by the result-ready SMS rather than in a portal (§5). After PUBLISHED, a mark change requires OWNER_ADMIN, a reason, writes AuditLog (old→new), regenerates the affected report-card PDF (old S3 object version retained), and re-sends the result SMS flagged "Corrected". Completeness gate for publishing: every (enrolled student × subject assigned to the class) has a mark or `isAbsent` — the publish endpoint returns the missing list otherwise (422 `RESULTS_INCOMPLETE`).
 - **Report cards:** generated per term by a queued job; PDFs to S3; a `Document` row (type `REPORT_CARD`) per student; parents access via short-lived pre-signed URLs (§22.6). SMS "result ready" to primary guardian after PDF upload succeeds.
 
 ## 12. Fee Management (complete rules)
@@ -215,7 +228,8 @@ generator client { provider = "prisma-client-js" }
 datasource db { provider = "postgresql"; url = env("DATABASE_URL") }
 
 // ── Enums ────────────────────────────────────────────────
-enum Role { PLATFORM_ADMIN OWNER_ADMIN CAMPUS_ADMIN ACCOUNTANT TEACHER STAFF PARENT STUDENT }
+// PARENT is retained for pre-2026-07-28 rows and never granted to new accounts (§5).
+enum Role { PLATFORM_ADMIN OWNER_ADMIN CAMPUS_ADMIN ADMISSION_CONTROLLER HR_MANAGER ACCOUNTANT TEACHER STAFF PARENT STUDENT }
 enum PlanTier { BASIC PLUS PRO }
 enum Gender { MALE FEMALE OTHER }
 enum InquiryStatus { INQUIRY ENTRY_TEST_SCHEDULED ENTRY_TEST_PASSED ENTRY_TEST_FAILED ADMITTED REJECTED WITHDRAWN }
@@ -411,9 +425,13 @@ model ParentProfile {
   id              String   @id @default(uuid()) @db.Uuid
   schoolId        String   @map("school_id") @db.Uuid
   school          School   @relation(fields: [schoolId], references: [id])
-  userId          String   @map("user_id") @db.Uuid
-  user            User     @relation(fields: [userId, schoolId], references: [id, schoolId])
+  // Nullable since 2026-07-29: a guardian is a contact record, not an account. New rows are null;
+  // rows created before the parent portal was removed keep their link.
+  userId          String?  @map("user_id") @db.Uuid
+  user            User?    @relation(fields: [userId, schoolId], references: [id, schoolId])
   fullName        String   @map("full_name")
+  // The guardian's own contact email. Not a login: no uniqueness, and no auth path reads it.
+  email           String?
   phone           String                              // normalized E.164
   phoneVerifiedAt DateTime? @map("phone_verified_at")
   smsOptOut       Boolean  @default(false) @map("sms_opt_out")
@@ -1172,7 +1190,8 @@ Role checks alone are insufficient; these guards run after RolesGuard, each a sm
 - **CampusScopeGuard** — for CAMPUS_ADMIN (and campus-bound ACCOUNTANT): every route touching a campus-owned resource resolves the resource's `campusId` and asserts it equals `req.user.cid`. List endpoints force-inject `campusId` filter.
 - **SectionOwnershipGuard** — TEACHER writes to attendance/homework: asserts a `TeacherAssignment` row exists for (staffId, current year, sectionId) — homeroom (`subjectId=null`) or any subject assignment qualifies for attendance.
 - **SubjectOwnershipGuard** — TEACHER marks entry: asserts assignment for (staffId, year, sectionId, subjectId) exactly.
-- **GuardianOfStudentGuard** — PARENT reads: asserts a `StudentGuardian` link between the requester's ParentProfile and the target student. Applied to every `(own child)` cell in §23.
+- **Guardian-of-student check** — asserts a `StudentGuardian` link between the caller and the target student. **Now a deny-by-default check inside the service, not a guard, and no longer about parents.** Two endpoints (`GET /student-leaves`, `GET /students/:id/report-cards`) carry no `@Roles`, so any signed-in caller reaches them and this check is the *only* protection: a non-admin who is not a guardian is refused. With the portal gone nobody can satisfy it, which means it now denies rather than scopes — and that is exactly why it must not be deleted as "parent leftovers". Removing it would let a STUDENT read every leave and every report card in the school.
+  - It lives in the service and not in a guard for a structural reason (§22.8): guards run **before** the `withTenant` transaction, so a guard that reads tenant data sees zero rows under RLS and would pass everything.
 - **SelfGuard** — STUDENT/STAFF reads: target resource must belong to the requester's own Student/StaffProfile.
 Every guard failure returns 403 with a stable error code and writes a structured log line (no AuditLog row — too noisy — but counted as a metric; a spike alerts).
 
@@ -1187,37 +1206,43 @@ PLATFORM_ADMIN read access to a tenant requires an explicit "support session": c
 
 `C/R/U/D` = create/read/update/delete, `A`=approve, `T`=trigger job, `—`=403. Scopes in parentheses are enforced by §22.8 guards.
 
-| Module | OWNER_ADMIN | CAMPUS_ADMIN | ACCOUNTANT | TEACHER | STAFF | PARENT | STUDENT |
-|---|---|---|---|---|---|---|---|
-| School settings, academic years, terms, holidays, grade scales | CRUD | R | R | R | R | R | R |
-| Campuses / classes / sections / subjects | CRUD | CRUD (own campus; not campuses) | R | R | — | — | — |
-| Inquiries & admissions | CRUD | CRUD (own campus) | — | — | — | — | — |
-| Students & guardians | CRUD | CRUD (own campus) | R | R (assigned sections) | — | R (own child) | R (self) |
-| Enrollments & promotion | CRUD, T | CRUD, T (own campus) | R | R (assigned) | — | R (own child) | R (self) |
-| Teacher assignments & timetable | CRUD | CRUD (own campus) | — | R (own) | — | R (own child) | R (self) |
-| Fee heads / structures / late-fee policy | CRUD | R | R | — | — | — | — |
-| Invoice batches (generate) | C,R,T | R | C,R,T | — | — | — | — |
-| Invoices | R,U(waive) | R (own campus) | R | — | — | R (own child) | R (self) |
-| Payments & receipts | R | R (own campus) | C,R | — | — | R (own child) | R (self) |
-| Payment reversals | C(A),R | R | request only | — | — | — | — |
-| Discounts | CRUD,A | R | R | — | — | — | — |
-| Guardian credits (advances) | R | R | C,R | — | — | R (own) | — |
-| Student attendance | R,U(post-window) | R,U (own campus) | — | C,R,U (assigned, in-window) | — | R (own child) | R (self) |
-| Staff attendance | CRUD | CRU (own campus) | — | R (self) | R (self) | — | — |
-| Student leaves | R,A | R,A (own campus) | — | C(own section),R | — | C,R (own child) | R (self) |
-| Staff leaves | R,A | R,A (own campus) | — | C,R (self) | C,R (self) | — | — |
-| Exams (definitions, publish) | CRUD,T | CRUD,T (own campus) | — | R | — | R (published) | R (published) |
-| Exam results | R,U(post-publish, audited) | R | — | C,R,U (assigned subject, pre-publish) | — | R (published, own child) | R (published, self) |
-| Report cards | R,T | R,T (own campus) | — | R (assigned) | — | R (own child) | R (self) |
-| Payroll (structures, runs, payslips) | CRUD,A | R (own campus) | R | R (own payslips) | R (own payslips) | — | — |
-| SMS: templates, manual send, logs, credits | CRUD | C(send),R (own campus) | R (fee-related) | — | — | — | — |
-| Documents/certificates | C,R | C,R (own campus) | R | — | R (own) | R (own child) | R (self) |
-| Users & roles | CRUD | C,R (own campus; roles ≤ TEACHER/STAFF/ACCOUNTANT) | — | — | — | — | — |
-| Audit log | R | R (own campus) | — | — | — | — | — |
-| Dashboards | R (all) | R (own campus) | R (financial) | R (own sections) | — | R (own children) | R (self) |
-| Reports (§28) | R | R (own campus) | R (financial) | R (assigned) | — | — | — |
+| Module | OWNER_ADMIN | CAMPUS_ADMIN | ACCOUNTANT | TEACHER | STAFF | STUDENT |
+|---|---|---|---|---|---|---|
+| School settings, academic years, terms, holidays, grade scales | CRUD | R | R | R | R | R |
+| Campuses / classes / sections / subjects | CRUD | CRUD (own campus; not campuses) | R | R | — | — |
+| Inquiries & admissions | CRUD | CRUD (own campus) | — | — | — | — |
+| Students & guardians | CRUD | CRUD (own campus) | R | R (assigned sections) | — | R (self) |
+| Enrollments & promotion | CRUD, T | CRUD, T (own campus) | R | R (assigned) | — | R (self) |
+| Teacher assignments & timetable | CRUD | CRUD (own campus) | — | R (own) | — | R (self) |
+| Fee heads / structures / late-fee policy | CRUD | R | R | — | — | — |
+| Invoice batches (generate) | C,R,T | R | C,R,T | — | — | — |
+| Invoices | R,U(waive) | R (own campus) | R | — | — | R (self) |
+| Payments & receipts | R | R (own campus) | C,R | — | — | R (self) |
+| Payment reversals | C(A),R | R | request only | — | — | — |
+| Discounts | CRUD,A | R | R | — | — | — |
+| Guardian credits (advances) | R | R | C,R | — | — | — |
+| Student attendance | R,U(post-window) | R,U (own campus) | — | C,R,U (assigned, in-window) | — | R (self) |
+| Staff attendance | CRUD | CRU (own campus) | — | R (self) | R (self) | — |
+| Student leaves | R,A | R,A (own campus) | — | C(own section),R | — | R (self) |
+| Staff leaves | R,A | R,A (own campus) | — | C,R (self) | C,R (self) | — |
+| Exams (definitions, publish) | CRUD,T | CRUD,T (own campus) | — | R | — | R (published) |
+| Exam results | R,U(post-publish, audited) | R | — | C,R,U (assigned subject, pre-publish) | — | R (published, self) |
+| Report cards | R,T | R,T (own campus) | — | R (assigned) | — | R (self) |
+| Payroll (structures, runs, payslips) | CRUD,A | R (own campus) | R | R (own payslips) | R (own payslips) | — |
+| SMS: templates, manual send, logs, credits | CRUD | C(send),R (own campus) | R (fee-related) | — | — | — |
+| Documents/certificates | C,R | C,R (own campus) | R | — | R (own) | R (self) |
+| Users & roles | CRUD | C,R (own campus; roles ≤ TEACHER/STAFF/ACCOUNTANT) | — | — | — | — |
+| Audit log | R | R (own campus) | — | — | — | — |
+| Dashboards | R (all) | R (own campus) | R (financial) | R (own sections) | — | R (self) |
+| Reports (§28) | R | R (own campus) | R (financial) | R (assigned) | — | — |
 
-Rule: **every non-`—` cell has at least one endpoint in §24; CI includes a checklist test mapping cells → routes** so matrix and API can't drift (fixes audit H-5's root cause).
+**`PARENT` column removed 2026-08-08** — guardians have no logins (§5). Every cell that read `R (own child)` is now unreachable by anybody; where the underlying endpoint has no `@Roles`, the in-service guardian check refuses non-admins outright (§22.8).
+
+**`ADMISSION_CONTROLLER` and `HR_MANAGER` are missing from this table.** Both are real, shipped roles (§5) and neither has ever had a column here. They are deliberately **not** invented into 27 rows each: the authoritative statement of what they may reach is the executable matrix in `test/matrix/permission-matrix.ts`, which asserts both denial and positive reachability per route and fails the build on a regression. Broadly — an ADMISSION_CONTROLLER has CRUD on inquiries/admissions and students for their own campus and nothing else; an HR_MANAGER has CRUD on the staff register and **R** on staff attendance, never marking it. Filling these columns in properly is tracked work, not a documentation nicety.
+
+Rule: **every non-`—` cell should have at least one endpoint in §24, and `test/matrix/permission-matrix.ts` maps rows → routes in CI.**
+
+> ⚠️ That rule used to end "so matrix and API can't drift". They did drift, which is how two whole roles came to be missing from this table — so the claim has been softened to what is actually true. The executable matrix covers the six roles it seeds (OWNER_ADMIN, CAMPUS_ADMIN, ADMISSION_CONTROLLER, ACCOUNTANT, TEACHER, PARENT); **STUDENT and STAFF are not seeded**, so no row here can speak for them and anything that must be denied to a student is proved with a real student session in `test/integration/student-portal.e2e-spec.ts` instead. (fixes audit H-5's root cause).
 
 ## 24. Endpoint Inventory
 
@@ -1348,7 +1373,7 @@ All jobs: BullMQ, `attempts:3` default, dead-letter queue monitored (§31), ever
 
 Global UX rules: every list has loading skeleton, empty state with primary action, error state with retry; every destructive/irreversible action (waive, reverse, publish, promote, withdraw, delete) has a confirmation dialog stating consequences and requiring the reason where the API requires one; every form disables submit while pending and surfaces field-level 422 details inline; mobile-first responsive (teachers/parents are phone users); WCAG 2.1 AA (semantic HTML, keyboard nav, 4.5:1 contrast, form labels); all times Asia/Karachi.
 
-**Auth:** login (+MFA step), forgot/reset password, first-time set-password (invite link), locked-account screen. **Owner/Campus Admin:** dashboard (enrollment count, today's attendance %, month collections vs target, defaulter count, pending leaves, failed SMS count — each card links through); school setup wizard (year → campuses → classes/sections → subjects → fee heads/structures → grade scale → templates); academic-year & promotion screen (section-by-section grid with per-student overrides, precondition warnings, progress of the batch job); admissions pipeline (kanban by status; inquiry detail with test scheduling/scoring, reject/withdraw with reason; admit form with guardian-match step §8); student directory (search, filters) + student profile (tabs: info, guardians, enrollment history, attendance, results, fee ledger, documents); attendance overview & post-window edit (reason-required); leave approval queues (student/staff, approve/reject with reason); exams (definitions per term with weightage-sum indicator, publish screen showing completeness gaps, post-publish correction flow); reports hub (the seven §24 reports with export buttons); users & roles; teacher assignments & timetable editor (clash warnings); SMS center (templates with placeholder preview + segment counter, manual send with recipient query builder, credit balance, failed-messages queue with retry); audit log browser (filter by user/action/entity, old→new diff view); settings. **Accountant:** fee counter (student lookup by GR/name/phone → open invoices → collect with method/ref → print receipt), invoice batch generation (duplicate-safe messaging), defaulters list with bulk-reminder SMS, advances/credits, reversal request, daily collection report, financial dashboard. **Teacher:** my sections/timetable, attendance marking grid (whole-section single screen, ON_LEAVE cells locked, conflict banner), marks entry grid per (exam, subject) with absent toggle and per-row validation, my students, homework (v1.5), own leaves, own payslips. **Parent:** children switcher; per child: attendance calendar, published results & report-card downloads, fee invoices with paid/pending state (v1 shows "pay at counter/bank" info; online pay v2), leave request, documents; profile with phone verification. **Student:** read-only mirror of the parent child-view for self. **Staff:** own attendance, leaves, payslips. **Vendor console:** tenant list/provisioning wizard, plan & SMS credit management, suspend/reactivate, support sessions, platform analytics, export trigger. **System pages:** 403 tenant-suspended page (school-facing, truthful), maintenance-mode page, generic error page with requestId displayed for support.
+**Auth:** login (+MFA step), forgot/reset password, first-time set-password (invite link), locked-account screen. **Owner/Campus Admin:** dashboard (enrollment count, today's attendance %, month collections vs target, defaulter count, pending leaves, failed SMS count — each card links through); school setup wizard (year → campuses → classes/sections → subjects → fee heads/structures → grade scale → templates); academic-year & promotion screen (section-by-section grid with per-student overrides, precondition warnings, progress of the batch job); admissions pipeline (kanban by status; inquiry detail with test scheduling/scoring, reject/withdraw with reason; admit form with guardian-match step §8); student directory (search, filters) + student profile (tabs: info, guardians, enrollment history, attendance, results, fee ledger, documents); attendance overview & post-window edit (reason-required); leave approval queues (student/staff, approve/reject with reason); exams (definitions per term with weightage-sum indicator, publish screen showing completeness gaps, post-publish correction flow); reports hub (the seven §24 reports with export buttons); users & roles; teacher assignments & timetable editor (clash warnings); SMS center (templates with placeholder preview + segment counter, manual send with recipient query builder, credit balance, failed-messages queue with retry); audit log browser (filter by user/action/entity, old→new diff view); settings. **Accountant:** fee counter (student lookup by GR/name/phone → open invoices → collect with method/ref → print receipt), invoice batch generation (duplicate-safe messaging), defaulters list with bulk-reminder SMS, advances/credits, reversal request, daily collection report, financial dashboard. **Teacher:** my sections/timetable, attendance marking grid (whole-section single screen, ON_LEAVE cells locked, conflict banner), marks entry grid per (exam, subject) with absent toggle and per-row validation, my students, homework (v1.5), own leaves, own payslips. **Student:** own portal — attendance calendar, published results & report-card downloads, fee invoices with paid/pending state ("pay at counter/bank"; online pay is the aggregator seam, §12). **No leave request:** leave is filed by the office or the class teacher, never by the child (decision 2026-08-05). *(The **Parent** portal described here was removed 2026-07-28 — guardians are reached by SMS and by a signed fee-proof upload link, with no account: §5.)* **Staff:** own attendance, leaves, payslips. **Vendor console:** tenant list/provisioning wizard, plan & SMS credit management, suspend/reactivate, support sessions, platform analytics, export trigger. **System pages:** 403 tenant-suspended page (school-facing, truthful), maintenance-mode page, generic error page with requestId displayed for support.
 
 ---
 
@@ -1387,4 +1412,11 @@ Redis eviction tuning, SMS aggregator contract specifics (adapter interface fixe
 **B. Audit-action catalog** — `audit-actions.ts`: FEE_WAIVED, FINE_WAIVED, PAYMENT_REVERSED, GRADE_CHANGED_POST_PUBLISH, ROLE_CHANGED, ATTENDANCE_EDITED_POST_WINDOW, DISCOUNT_APPROVED/REVOKED, PROMOTION_OVERRIDE, WITHDRAWAL_FEE_OVERRIDE, PII_ANONYMIZED, DATA_EXPORTED, SUPPORT_SESSION_STARTED, USER_DISABLED, MFA_RESET.
 **C. Worked examples** (test fixtures): term-result computation incl. an absent exam; payroll deduction month; fee invoice with sibling discount + fine + partial payments + reversal — each with expected numbers, used verbatim in unit tests.
 **D. Traceability** — every audit finding (C-1…C-8, H-1…H-12, M-1…M-15, L-1…L-10) maps to the section resolving it; table maintained in `/docs/audit-traceability.md`.
-**E. Changelog** — v2.0 (this document): full rebuild; supersedes Parts 1 & 2.
+**E. Changelog** — one entry per approved change, newest first, per the change-control rule at the top of this document.
+
+| Date | Version | Change | Sections |
+|---|---|---|---|
+| 2026-08-08 | v2.1 | **The parent portal is removed from the specification.** It was removed from the product on 2026-07-28 and this document went on describing it for six weeks — long enough that an engineer or agent building from the spec alone would have faithfully rebuilt a feature the operator had deliberately deleted. Guardians are contact records reached by SMS; the `PARENT` role is retained in the enum for pre-existing rows and never granted. Also records **`ADMISSION_CONTROLLER`** and **`HR_MANAGER`**, two shipped roles this document had never mentioned, and corrects the change-control path. | §1, §5, §8, §17, §22.8, §23, §33, header |
+| — | v2.0 | Full rebuild; supersedes Parts 1 & 2. | all |
+
+> **Why this changelog was empty until 2026-08-08.** The header has required an entry per change since v2.0, and none was ever written — so the drift corrected in v2.1 accumulated silently, and the procedure meant to catch it was itself the thing nobody was following. Anything that changes this document from here adds a row **in the same commit**, not afterwards.

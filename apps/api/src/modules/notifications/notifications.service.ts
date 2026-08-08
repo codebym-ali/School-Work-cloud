@@ -2,6 +2,10 @@ import { Injectable } from '@nestjs/common';
 import { AttendanceStatus, LeaveStatus } from '@prisma/client';
 import { isPastLocalTime, parseSchoolSettings, TenantContext } from '@common';
 import { TenantPrismaService } from '@database';
+import { DashboardService } from '../reports/insights.service';
+import { AttendanceService } from '../attendance/attendance.service';
+import { ClaimsService } from '../fees/claims.service';
+import { AdmissionsService } from '../admissions/admissions.service';
 
 /**
  * "What changed for me" (Notifications Plan, N0).
@@ -30,12 +34,38 @@ import { TenantPrismaService } from '@database';
 export type NotificationItem = {
   /** Stable across calls, so a still-unread item is not mistaken for a new one. */
   id: string;
-  kind: 'LEAVE_DECIDED' | 'REGISTER_UNMARKED' | 'MARKED_ABSENT' | 'SALARY_PAID';
+  kind:
+    | 'LEAVE_DECIDED' | 'REGISTER_UNMARKED' | 'MARKED_ABSENT' | 'SALARY_PAID'
+    // "What the school needs from you" (N2) — previously derived in `dashboard/page.tsx`.
+    | 'DEFAULTERS' | 'LEAVES_PENDING' | 'SMS_FAILED' | 'CLAIMS_PENDING'
+    | 'REGISTERS_UNMARKED' | 'STAFF_UNMARKED' | 'STAFF_ABSENT'
+    | 'READY_TO_ADMIT' | 'TESTS_TODAY';
   severity: 'info' | 'warn';
   text: string;
   href: string;
   at: string;
 };
+
+/**
+ * ⚠️ **Role gates, restated.**
+ *
+ * The services composed below are called DIRECTLY, so the `@Roles` decorators that normally
+ * protect them — which live on their controllers — do not run. Every gate here is copied from the
+ * controller that owns the data, and getting one wrong hands a teacher the whole school's figures.
+ * If a gate changes there, it must change here; the e2e asserts a TEACHER receives none of these.
+ */
+const NEEDS = {
+  /** `GET /attendance/unmarked-today` */
+  unmarkedRegisters: ['OWNER_ADMIN', 'CAMPUS_ADMIN'],
+  /** `GET /staff-attendance/summary` */
+  staffDay: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'HR_MANAGER'],
+  /** `GET /fees/claims/pending-count` */
+  claims: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT'],
+  /** `GET /inquiries/summary` */
+  admissions: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ADMISSION_CONTROLLER'],
+  /** `GET /dashboard` — self-shaping: it returns `visible` and nulls what a role may not see. */
+  dashboard: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT'],
+} as const;
 
 /** How far back an event is still worth mentioning. Beyond this it is history, not news. */
 const RECENT_DAYS = { leave: 14, absence: 7, salary: 30 } as const;
@@ -49,6 +79,13 @@ export class NotificationsService {
   constructor(
     private readonly tenantPrisma: TenantPrismaService,
     private readonly ctx: TenantContext,
+    // Composed, not reimplemented. These own the derivations; this service's job is to decide
+    // whose business each figure is and to turn it into a sentence — which is precisely the part
+    // that was duplicated between the dashboard strip and the bell.
+    private readonly insights: DashboardService,
+    private readonly attendance: AttendanceService,
+    private readonly claims: ClaimsService,
+    private readonly admissions: AdmissionsService,
   ) {}
 
   private get db() {
@@ -59,21 +96,28 @@ export class NotificationsService {
     const user = this.ctx.user;
     if (!user) return { items: [], unread: 0 };
 
-    // Everything here hangs off a staff profile. No profile ⇒ nothing to say ⇒ empty, quietly.
     const [staff, account] = await Promise.all([
       this.db.staffProfile.findFirst({ where: { userId: user.userId }, select: { id: true } }),
       this.db.user.findFirst({ where: { id: user.userId }, select: { notificationsSeenAt: true } }),
     ]);
-    if (!staff) return { items: [], unread: 0 };
 
-    const raw = (
-      await Promise.all([
-        this.leaveDecided(staff.id),
-        this.markedAbsent(staff.id),
-        this.salaryPaid(staff.id),
-        user.roles.includes('TEACHER') ? this.registerUnmarked(staff.id) : Promise.resolve([]),
-      ])
-    ).flat();
+    // Two halves, and a person can have either, both or neither. **Personal** items hang off a
+    // staff profile — an owner who is not also staff has none, and that is not an error. **School**
+    // items hang off role, and they used to live only on `/dashboard`, which ADMISSION_CONTROLLER
+    // and HR_MANAGER cannot open either: both land elsewhere, so neither had ever seen them.
+    const personal = staff
+      ? (
+          await Promise.all([
+            this.leaveDecided(staff.id),
+            this.markedAbsent(staff.id),
+            this.salaryPaid(staff.id),
+            user.roles.includes('TEACHER') ? this.registerUnmarked(staff.id) : Promise.resolve([]),
+          ])
+        ).flat()
+      : [];
+
+    const raw = [...personal, ...(await this.needsAttention(user.roles))];
+    if (!raw.length) return { items: [], unread: 0 };
 
     // Newest first — and `at` is the record's own timestamp, so this is the order things actually
     // happened in, not the order the queries returned.
@@ -87,6 +131,101 @@ export class NotificationsService {
     // that opens onto two items is worse than no bell, and two round trips is exactly how the
     // count and the list start disagreeing.
     return { items, unread: items.filter((i) => i.isNew).length };
+  }
+
+  /**
+   * "What the school needs from you" — the chips that used to be assembled in `dashboard/page.tsx`
+   * (N2).
+   *
+   * Moved here for two reasons, and the second is the one that mattered on inspection:
+   *  - the phrasing and the thresholds were about to exist twice, once for the strip and once for
+   *    the bell, and two of those drift;
+   *  - **the strip only ever appeared on `/dashboard`**, which is OWNER_ADMIN / CAMPUS_ADMIN /
+   *    ACCOUNTANT. An ADMISSION_CONTROLLER lands on `/admissions` and an HR_MANAGER on `/staff`,
+   *    so neither had ever been shown "5 students ready to admit" or "3 staff not marked today" —
+   *    the very things their job is. Deriving by role rather than by page fixes that outright.
+   *
+   * Every source is wrapped: a role denial or a missing academic year must produce silence, not a
+   * broken bell in the corner of every page.
+   */
+  private async needsAttention(roles: readonly string[]): Promise<NotificationItem[]> {
+    const can = (allowed: readonly string[]) => roles.some((r) => allowed.includes(r));
+    const at = new Date().toISOString();
+    const out: NotificationItem[] = [];
+    const plural = (n: number, one: string, many: string) => (n === 1 ? one : many);
+    const attempt = async (allowed: readonly string[], fn: () => Promise<void>) => {
+      if (!can(allowed)) return;
+      try { await fn(); } catch { /* denied or unavailable — say nothing */ }
+    };
+
+    await Promise.all([
+      attempt(NEEDS.dashboard, async () => {
+        // Self-shaping: `visible` says which figures this role is allowed, and the rest come back
+        // null. Trusting that is what keeps an accountant from being told the attendance figures.
+        const d = await this.insights.get();
+        const v = d.visible as string[];
+        if (v.includes('defaulterCount') && d.defaulterCount > 0) {
+          out.push({ id: `defaulters:${d.defaulterCount}`, kind: 'DEFAULTERS', severity: 'warn', at,
+            text: `${d.defaulterCount} fee ${plural(d.defaulterCount, 'defaulter', 'defaulters')}.`, href: '/reports' });
+        }
+        if (v.includes('pendingLeaves') && (d.pendingLeaves ?? 0) > 0) {
+          out.push({ id: `leaves-pending:${d.pendingLeaves}`, kind: 'LEAVES_PENDING', severity: 'warn', at,
+            text: `${d.pendingLeaves} leave ${plural(d.pendingLeaves!, 'request', 'requests')} waiting for a decision.`, href: '/leaves' });
+        }
+        if (v.includes('failedSmsCount') && (d.failedSmsCount ?? 0) > 0) {
+          out.push({ id: `sms-failed:${d.failedSmsCount}`, kind: 'SMS_FAILED', severity: 'warn', at,
+            text: `${d.failedSmsCount} failed SMS.`, href: '/reports' });
+        }
+      }),
+
+      attempt(NEEDS.unmarkedRegisters, async () => {
+        const u = await this.attendance.unmarkedToday();
+        // Only once the school's own deadline has passed — before it, an unmarked register is a
+        // lesson that has not happened yet, and nagging then is how a warning becomes wallpaper.
+        if (!u.due || u.count === 0) return;
+        out.push({ id: `registers-unmarked:${u.count}`, kind: 'REGISTERS_UNMARKED', severity: 'warn', at,
+          text: `${u.count} ${plural(u.count, 'register', 'registers')} not marked today.`, href: '/attendance?unmarked=1' });
+      }),
+
+      attempt(NEEDS.staffDay, async () => {
+        const s = await this.attendance.staffDaySummary();
+        if (!s.workingDay) return; // a holiday cannot be behind on anything
+        if (s.absent > 0) {
+          out.push({ id: `staff-absent:${s.date}:${s.absent}`, kind: 'STAFF_ABSENT', severity: 'warn', at,
+            text: `${s.absent} staff absent today.`, href: `/staff-attendance?date=${s.date}&status=ABSENT` });
+        }
+        // Deliberately chased instead of an absent count over a half-kept register: nothing writes
+        // an ABSENT row on its own unless the school turned that on, so "not marked" is the honest
+        // gap and "0 absent" from an empty register would be a reassuring lie.
+        if (s.unmarked > 0) {
+          out.push({ id: `staff-unmarked:${s.date}:${s.unmarked}`, kind: 'STAFF_UNMARKED', severity: 'warn', at,
+            text: `${s.unmarked} staff not marked today.`, href: `/staff-attendance?date=${s.date}&status=UNMARKED` });
+        }
+      }),
+
+      attempt(NEEDS.claims, async () => {
+        const pending = await this.claims.pendingCount();
+        if (pending === 0) return;
+        out.push({ id: `claims:${pending}`, kind: 'CLAIMS_PENDING', severity: 'warn', at,
+          text: `${pending} ${plural(pending, 'payment', 'payments')} awaiting verification.`, href: '/fee-claims' });
+      }),
+
+      attempt(NEEDS.admissions, async () => {
+        // Every figure counts Inquiry rows, so a DIRECT school reads 0 for ever by design. Asking
+        // is harmless — zero produces no item — and it saves this service knowing the mode.
+        const a = await this.admissions.summary();
+        if (a.totals.readyToAdmit > 0) {
+          out.push({ id: `ready-to-admit:${a.totals.readyToAdmit}`, kind: 'READY_TO_ADMIT', severity: 'info', at,
+            text: `${a.totals.readyToAdmit} ${plural(a.totals.readyToAdmit, 'student', 'students')} ready to admit.`, href: '/admissions' });
+        }
+        if (a.testsToday > 0) {
+          out.push({ id: `tests-today:${a.testsToday}`, kind: 'TESTS_TODAY', severity: 'info', at,
+            text: `${a.testsToday} entry ${plural(a.testsToday, 'test', 'tests')} today.`, href: '/admissions' });
+        }
+      }),
+    ]);
+
+    return out;
   }
 
   /**

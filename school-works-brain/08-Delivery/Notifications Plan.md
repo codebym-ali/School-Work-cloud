@@ -1,7 +1,7 @@
 ---
 title: Notifications Plan
 type: plan
-status: N0 + N1 shipped — N2 next
+status: N0–N2 shipped — N3 deferred by design
 updated: 2026-08-08
 ---
 
@@ -135,8 +135,31 @@ places that answer "what needs me" and they will eventually disagree.
     a glance cannot answer "what was that about?" ten minutes later.
   - Covered by 13 cases; probed non-vacuous by making `markSeen` a no-op (one case fails) and, for
     N0, by removing the `staffId` filter and unbounding the recency window.
-- **N2 — one source of truth.** Repoint the dashboard attention strip at `/notifications` and
-  delete the duplicated derivation in `dashboard/page.tsx`.
+- **N2 — one source of truth. ✅ DONE 2026-08-08.** The strip is now **rendered, not derived**:
+  `dashboard/page.tsx` assembled nine chips from five fetches, restating every threshold and every
+  sentence; it now lays out whatever `/notifications` returns. Two of those fetches
+  (`pendingClaims`, `unmarkedRegisters`) are gone entirely.
+  - **Composed, not reimplemented.** `NotificationsService` injects `DashboardService`,
+    `AttendanceService`, `ClaimsService` and `AdmissionsService` — they keep owning the
+    derivations; this service decides *whose business each figure is* and turns it into a
+    sentence, which was the duplicated part.
+  - ⚠️ **The security consequence, and the reason this needed care.** Those services are called
+    DIRECTLY, so the `@Roles` decorators on their controllers **do not run**. Every gate is
+    restated by hand in a `NEEDS` table copied from the owning controller, and a mistake there
+    hands one teacher the whole school's defaulters, failed SMS and payment queue with no error
+    anywhere. Pinned by a test asserting a TEACHER receives none of the nine school kinds —
+    probed by removing the gates, which leaks *"2 staff not marked today"* into a teacher's bell.
+  - **It closed a gap the dashboard could not.** The chips only ever existed on `/dashboard`
+    (OWNER_ADMIN / CAMPUS_ADMIN / ACCOUNTANT). An **ADMISSION_CONTROLLER lands on `/admissions`
+    and an HR_MANAGER on `/staff`** — neither had ever been shown "5 students ready to admit" or
+    "3 staff not marked today", the very things their job is. Deriving by role rather than by page
+    fixes that outright, and they get the items in the bell.
+  - **Verified live:** on one screen the strip reads *"1 staff not marked today"* and *"1 leave
+    request waiting for a decision"* while the bell reads 🔔2 — same items, same words, one call.
+  - One test had to change its claim rather than its expectation: "an account with no staff
+    profile gets an empty list" became "…gets no *personal* items", because an owner now
+    legitimately receives the school's own. The old assertion would have passed only while the
+    feature was half-built.
 - **N3 — stored rows, only if something demands it.** Deferred on purpose. Revisit only when a
   real item **cannot** be derived — the honest candidate is "the office changed your attendance
   and the old value is gone". Do not build the table speculatively.

@@ -282,11 +282,51 @@ describe('Notifications — derived, self-scoped (e2e, N0)', () => {
     expect(other.user?.notificationsSeenAt).toBeNull();
   });
 
-  it('answers an account with no staff profile with an empty list, not a 403', async () => {
-    // The app shell calls this on every page for every signed-in user. An owner who is not also
-    // staff must get silence, not an error that breaks the page around it.
+  // ── "what the school needs from you" (N2) ─────────────────────────────────
+  /** Every kind that is about the SCHOOL rather than about you. */
+  const SCHOOL_KINDS = [
+    'DEFAULTERS', 'LEAVES_PENDING', 'SMS_FAILED', 'CLAIMS_PENDING',
+    'REGISTERS_UNMARKED', 'STAFF_UNMARKED', 'STAFF_ABSENT', 'READY_TO_ADMIT', 'TESTS_TODAY',
+  ];
+
+  it('tells an admin what the school needs from them', async () => {
+    // A pending leave is the cheapest school-wide fact to create, and it is one an owner acts on.
+    await post('/api/v1/staff-leaves', {
+      staffId, leaveType: 'CASUAL', fromDate: `${PAST}-06`, toDate: `${PAST}-06`, reason: 'Waiting',
+    });
     const res = await request(server()).get('/api/v1/notifications').set('Host', host).set('Cookie', ownerCookies);
     expect(res.status).toBe(200);
-    expect(res.body.items).toEqual([]);
+    // The owner has no staff profile, so this cannot be a personal item — it is the school's.
+    const kinds = res.body.items.map((i: { kind: string }) => i.kind);
+    expect(kinds).toContain('LEAVES_PENDING');
+  });
+
+  it('gives a TEACHER none of the school-wide figures', async () => {
+    // ⚠️ The load-bearing test for N2. The services behind those items are called DIRECTLY, so
+    // the `@Roles` decorators on their controllers never run — the gates are restated by hand in
+    // `NEEDS`, and a mistake there hands one teacher the whole school's defaulters, failed SMS
+    // and payment queue. Appearing in the bell would be a silent leak with no error anywhere.
+    await post('/api/v1/staff-leaves', {
+      staffId, leaveType: 'CASUAL', fromDate: `${PAST}-06`, toDate: `${PAST}-06`, reason: 'Waiting',
+    });
+    const items = await notify(teacherCookies);
+    for (const kind of SCHOOL_KINDS) {
+      expect(items.map((i) => i.kind)).not.toContain(kind);
+    }
+  });
+
+  it('answers an account with no staff profile without a 403, and gives it no personal items', async () => {
+    // The app shell calls this on every page for every signed-in user, so an account with no
+    // staff profile must get an answer rather than an error that breaks the page around it.
+    //
+    // Note this asserts NO PERSONAL ITEMS rather than an empty list: since N2 the owner
+    // legitimately receives the school's own items, and demanding `[]` here would have been a
+    // test that only passed while the feature was half-built.
+    const res = await request(server()).get('/api/v1/notifications').set('Host', host).set('Cookie', ownerCookies);
+    expect(res.status).toBe(200);
+    const personal = ['LEAVE_DECIDED', 'MARKED_ABSENT', 'SALARY_PAID', 'REGISTER_UNMARKED'];
+    for (const kind of personal) {
+      expect(res.body.items.map((i: { kind: string }) => i.kind)).not.toContain(kind);
+    }
   });
 });

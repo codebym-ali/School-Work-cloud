@@ -10,6 +10,6 @@ import { AuditController, DashboardController } from './insights.controller';
 @Module({
   controllers: [PerformanceController, ReportsController, DashboardController, AuditController],
   providers: [PerformanceService, ReportsService, DashboardService, AuditQueryService],
-  exports: [ReportsService],
+  exports: [ReportsService, DashboardService],
 })
 export class ReportsModule {}

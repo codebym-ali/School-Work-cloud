@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { api, type AdmissionsSummary, type Dashboard, type StaffDaySummary, type UnmarkedRegisters } from '@/lib/api';
+import { api, type AdmissionsSummary, type Dashboard, type NotificationItem, type StaffDaySummary } from '@/lib/api';
 import { useMe } from '@/lib/me-context';
 import { canReach } from '@/lib/roles';
 
@@ -49,8 +49,10 @@ export default function DashboardPage() {
   const [data, setData] = useState<Dashboard | null>(null);
   const [adm, setAdm] = useState<AdmissionsSummary | null>(null);
   const [staff, setStaff] = useState<StaffDaySummary | null>(null);
-  const [pendingClaims, setPendingClaims] = useState(0);
-  const [unmarked, setUnmarked] = useState<UnmarkedRegisters | null>(null);
+  // The "needs attention" strip. Derived server-side (N2) so the bell in the shell and this
+  // strip cannot phrase the same fact two ways — and so the roles that never see this page still
+  // get the items, in the bell.
+  const [attention, setAttention] = useState<NotificationItem[]>([]);
   const [err, setErr] = useState(false);
 
   useEffect(() => {
@@ -59,11 +61,10 @@ export default function DashboardPage() {
     // same pattern the other rollups use rather than showing an error to someone who was
     // never meant to see the card.
     api.staffAttendance.daySummary().then(setStaff).catch(() => {});
-    // Claims arrive and nobody looks without this — the plan called that failure mode out
-    // before the queue was built, so the chip ships with it, not after.
-    api.feeSetup.pendingClaims().then((r) => setPendingClaims(r.pending)).catch(() => {});
-    // Fails silently for a role the API denies, like the other rollups.
-    api.staff.unmarkedRegisters().then(setUnmarked).catch(() => {});
+    // One call replaces four: pending claims, unmarked registers, the staff-day chips and the
+    // dashboard counters were each fetched here and phrased here. The server decides what needs
+    // this role and how to say it; this page only lays it out.
+    api.notifications.list().then((r) => setAttention(r.items)).catch(() => {});
     // Every figure in this summary counts Inquiry rows, so in a DIRECT school (no enquiry
     // pipeline) the card would advertise "0 open inquiries · 0% conversion" for ever — a
     // metric that can never move is worse than no metric. Skip the fetch entirely.
@@ -87,36 +88,18 @@ export default function DashboardPage() {
     return v != null && !!t.alert?.(v);
   };
 
-  const attention: Array<{ text: string; href: string }> = [];
-  if ((data.defaulterCount ?? 0) > 0 && data.visible.includes('defaulterCount')) attention.push({ text: `${data.defaulterCount} fee defaulter${data.defaulterCount === 1 ? '' : 's'}`, href: '/reports' });
-  if ((data.pendingLeaves ?? 0) > 0 && data.visible.includes('pendingLeaves')) attention.push({ text: `${data.pendingLeaves} leave request${data.pendingLeaves === 1 ? '' : 's'} pending`, href: '/leaves' });
-  if ((data.failedSmsCount ?? 0) > 0 && data.visible.includes('failedSmsCount')) attention.push({ text: `${data.failedSmsCount} failed SMS`, href: '/reports' });
-  if (adm && adm.totals.readyToAdmit > 0) attention.push({ text: `${adm.totals.readyToAdmit} student${adm.totals.readyToAdmit === 1 ? '' : 's'} ready to admit`, href: '/admissions' });
-  if (adm && adm.testsToday > 0) attention.push({ text: `${adm.testsToday} entry test${adm.testsToday === 1 ? '' : 's'} today`, href: '/admissions' });
-  // Only on a working day, and only what is actually known. Nothing writes an ABSENT row on
-  // its own yet, so an unmarked register is the honest thing to chase — surfacing "0 absent"
-  // from a register nobody filled in would be a reassuring lie.
-  if (staff?.workingDay && staff.absent > 0) {
-    attention.push({ text: `${staff.absent} staff absent today`, href: `/staff-attendance?date=${staff.date}&status=ABSENT` });
-  }
-  // Only once the school's own deadline has passed. Before it, an unmarked register is a lesson
-  // that hasn't happened yet — nagging then is how a warning becomes wallpaper.
-  if (unmarked?.due && unmarked.count > 0) {
-    attention.push({
-      text: `${unmarked.count} register${unmarked.count === 1 ? '' : 's'} not marked today`,
-      href: '/attendance?unmarked=1',
-    });
-  }
-  if (pendingClaims > 0) {
-    attention.push({
-      text: `${pendingClaims} payment${pendingClaims === 1 ? '' : 's'} awaiting verification`,
-      href: '/fee-claims',
-    });
-  }
-  if (staff?.workingDay && staff.unmarked > 0) {
-    attention.push({ text: `${staff.unmarked} staff not marked today`, href: `/staff-attendance?date=${staff.date}&status=UNMARKED` });
-  }
-
+  /**
+   * The strip is now **rendered, not derived** (Notifications Plan, N2).
+   *
+   * It used to assemble nine chips here from five separate fetches, restating each threshold and
+   * each sentence. `/notifications` does that once, server-side, and the bell in the shell renders
+   * the same list — so the two cannot phrase the same fact differently, and a rule like "stay
+   * quiet until the school's own attendance deadline" exists in one place.
+   *
+   * It also fixed a gap this page could not: the chips only ever appeared here, and an
+   * ADMISSION_CONTROLLER lands on `/admissions` while an HR_MANAGER lands on `/staff`. Neither had
+   * ever seen "5 students ready to admit" or "3 staff not marked today". They get them in the bell.
+   */
   const reachableAttention = attention.filter((a) => canReach(me?.roles, a.href, me?.admissionsMode));
 
   const empty = (data.enrollmentCount ?? 0) === 0;

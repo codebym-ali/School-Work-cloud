@@ -494,6 +494,16 @@ model User {
   mfaEnabled        Boolean    @default(false) @map("mfa_enabled")
   passwordChangedAt DateTime?  @map("password_changed_at")
   lastLoginAt       DateTime?  @map("last_login_at")
+  /// When this user last opened their notifications (Notifications Plan, N1).
+  ///
+  /// The whole of "unread", in one column. Notifications are DERIVED, not stored — an item is
+  /// computed from the record it describes — so there is no row to carry a read flag, and
+  /// anything whose record changed after this timestamp renders as new. A notifications table
+  /// would have bought the same behaviour at the price of a copy of state that can disagree with
+  /// the thing it copied.
+  ///
+  /// Null means "never opened", which correctly makes everything new on first sight.
+  notificationsSeenAt DateTime? @map("notifications_seen_at")
   deletedAt         DateTime?  @map("deleted_at")
   createdAt         DateTime   @default(now()) @map("created_at")
   updatedAt         DateTime   @updatedAt @map("updated_at")

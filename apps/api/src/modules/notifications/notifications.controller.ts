@@ -1,4 +1,4 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, Post } from '@nestjs/common';
 import { NotificationsService } from './notifications.service';
 
 @Controller('notifications')
@@ -20,5 +20,17 @@ export class NotificationsController {
   @Get()
   list() {
     return this.notifications.forCaller();
+  }
+
+  /**
+   * "I have looked." Records the visit against the caller's own account and nobody else's — there
+   * is no id in the path or body, so this cannot be pointed at another user.
+   *
+   * A POST rather than a GET because it writes, which also means it carries the CSRF token like
+   * every other mutation.
+   */
+  @Post('seen')
+  seen() {
+    return this.notifications.markSeen();
   }
 }

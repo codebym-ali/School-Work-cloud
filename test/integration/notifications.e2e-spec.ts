@@ -118,6 +118,10 @@ describe('Notifications — derived, self-scoped (e2e, N0)', () => {
   afterEach(async () => {
     await platform.staffLeave.deleteMany({ where: { schoolId } });
     await platform.staffAttendance.deleteMany({ where: { schoolId } });
+    // Unread is per-user state that outlives a test. Reset it, so no case depends on running
+    // after the one that happened to stamp it — order-dependent tests pass until someone
+    // reorders them and then fail for a reason that has nothing to do with the change.
+    await platform.user.updateMany({ where: { schoolId }, data: { notificationsSeenAt: null } });
   });
 
   it('says nothing when nothing has happened', async () => {
@@ -216,6 +220,66 @@ describe('Notifications — derived, self-scoped (e2e, N0)', () => {
     expect(items).toHaveLength(1);
     expect(items[0].id).toContain(mine.body.id);
     expect(items.some((i) => i.id.includes(theirs.body.id))).toBe(false);
+  });
+
+  // ── unread, from one column rather than a table (N1) ──────────────────────
+  it('counts everything as new until the person has looked', async () => {
+    const leave = await post('/api/v1/staff-leaves', {
+      staffId, leaveType: 'CASUAL', fromDate: `${PAST}-06`, toDate: `${PAST}-06`, reason: 'Personal',
+    });
+    await post(`/api/v1/staff-leaves/${leave.body.id}/approve`);
+
+    const res = await request(server()).get('/api/v1/notifications').set('Host', host).set('Cookie', teacherCookies);
+    // `notificationsSeenAt` is null — never opened — which correctly makes everything new.
+    expect(res.body.unread).toBe(1);
+    expect(res.body.items[0].isNew).toBe(true);
+  });
+
+  it('stops counting them once they have been seen, and the count matches the list', async () => {
+    const leave = await post('/api/v1/staff-leaves', {
+      staffId, leaveType: 'CASUAL', fromDate: `${PAST}-06`, toDate: `${PAST}-06`, reason: 'Personal',
+    });
+    await post(`/api/v1/staff-leaves/${leave.body.id}/approve`);
+
+    const csrf = csrfOf(teacherCookies);
+    const seen = await request(server()).post('/api/v1/notifications/seen')
+      .set('Host', host).set('Cookie', teacherCookies).set('X-CSRF-Token', csrf).send({});
+    expect(seen.status).toBe(201);
+
+    const after = await request(server()).get('/api/v1/notifications').set('Host', host).set('Cookie', teacherCookies);
+    expect(after.body.unread).toBe(0);
+    // The item is still THERE — it is read, not deleted. A feed that empties itself on a glance
+    // cannot answer "what was that about?" ten minutes later.
+    expect(after.body.items).toHaveLength(1);
+    expect(after.body.items[0].isNew).toBe(false);
+    // A bell reading 3 that opens onto 2 items is worse than no bell.
+    expect(after.body.unread).toBe(after.body.items.filter((i: { isNew: boolean }) => i.isNew).length);
+  });
+
+  it('makes something that happens AFTER the visit new again', async () => {
+    const csrf = csrfOf(teacherCookies);
+    await request(server()).post('/api/v1/notifications/seen')
+      .set('Host', host).set('Cookie', teacherCookies).set('X-CSRF-Token', csrf).send({});
+
+    const leave = await post('/api/v1/staff-leaves', {
+      staffId, leaveType: 'CASUAL', fromDate: `${PAST}-06`, toDate: `${PAST}-06`, reason: 'After the visit',
+    });
+    await post(`/api/v1/staff-leaves/${leave.body.id}/approve`);
+
+    const res = await request(server()).get('/api/v1/notifications').set('Host', host).set('Cookie', teacherCookies);
+    // Decided after the stamp — so marking seen must not have silenced future notices too.
+    expect(res.body.unread).toBe(1);
+  });
+
+  it('records the visit against the caller and nobody else', async () => {
+    const csrf = csrfOf(teacherCookies);
+    await request(server()).post('/api/v1/notifications/seen')
+      .set('Host', host).set('Cookie', teacherCookies).set('X-CSRF-Token', csrf).send({});
+
+    // There is no id in the path or body, so there is nothing to point at another account — and
+    // the other staff member's stamp is untouched.
+    const other = await platform.staffProfile.findFirstOrThrow({ where: { id: otherStaffId }, select: { user: { select: { notificationsSeenAt: true } } } });
+    expect(other.user?.notificationsSeenAt).toBeNull();
   });
 
   it('answers an account with no staff profile with an empty list, not a 403', async () => {

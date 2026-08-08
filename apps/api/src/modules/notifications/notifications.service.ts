@@ -22,12 +22,13 @@ import { TenantPrismaService } from '@database';
  * account with no staff profile (a student, an owner who is not also staff) gets an empty list,
  * not a 403. A notification bell is not worth breaking a page over.
  *
- * `at` on each item is when the underlying record last changed. Nothing reads it yet — N1 adds
- * `User.notificationsSeenAt` and compares against it to render "new". It is populated now so that
- * N1 is a UI change rather than a second pass over this file.
+ * `at` on each item is when the underlying record last changed; `isNew` compares it against the
+ * caller's `User.notificationsSeenAt`. That one column is the whole of "unread" — a notifications
+ * table would have bought the same behaviour at the price of a copy of state that can disagree
+ * with the thing it copied.
  */
 export type NotificationItem = {
-  /** Stable across calls, so N1 can tell a still-unread item from a new one. */
+  /** Stable across calls, so a still-unread item is not mistaken for a new one. */
   id: string;
   kind: 'LEAVE_DECIDED' | 'REGISTER_UNMARKED' | 'MARKED_ABSENT' | 'SALARY_PAID';
   severity: 'info' | 'warn';
@@ -54,18 +55,18 @@ export class NotificationsService {
     return this.tenantPrisma.client;
   }
 
-  async forCaller(): Promise<{ items: NotificationItem[] }> {
+  async forCaller(): Promise<{ items: NotificationItem[]; unread: number }> {
     const user = this.ctx.user;
-    if (!user) return { items: [] };
+    if (!user) return { items: [], unread: 0 };
 
-    // Everything in N0 hangs off a staff profile. No profile ⇒ nothing to say ⇒ empty, quietly.
-    const staff = await this.db.staffProfile.findFirst({
-      where: { userId: user.userId },
-      select: { id: true },
-    });
-    if (!staff) return { items: [] };
+    // Everything here hangs off a staff profile. No profile ⇒ nothing to say ⇒ empty, quietly.
+    const [staff, account] = await Promise.all([
+      this.db.staffProfile.findFirst({ where: { userId: user.userId }, select: { id: true } }),
+      this.db.user.findFirst({ where: { id: user.userId }, select: { notificationsSeenAt: true } }),
+    ]);
+    if (!staff) return { items: [], unread: 0 };
 
-    const items = (
+    const raw = (
       await Promise.all([
         this.leaveDecided(staff.id),
         this.markedAbsent(staff.id),
@@ -76,7 +77,35 @@ export class NotificationsService {
 
     // Newest first — and `at` is the record's own timestamp, so this is the order things actually
     // happened in, not the order the queries returned.
-    return { items: items.sort((a, b) => b.at.localeCompare(a.at)) };
+    const seenAt = account?.notificationsSeenAt;
+    const items = raw
+      .sort((a, b) => b.at.localeCompare(a.at))
+      // Null `seenAt` means never opened, which correctly makes everything new the first time.
+      .map((i) => ({ ...i, isNew: !seenAt || new Date(i.at) > seenAt }));
+
+    // Counted from the SAME list that is returned, never queried separately. A bell reading "3"
+    // that opens onto two items is worse than no bell, and two round trips is exactly how the
+    // count and the list start disagreeing.
+    return { items, unread: items.filter((i) => i.isNew).length };
+  }
+
+  /**
+   * Mark everything currently visible as seen.
+   *
+   * Stamped with **now**, not with the newest item's `at`: the question this answers is "when did
+   * you last look", and the person looked now. Using the newest item's timestamp would leave a
+   * notice created a second later looking older than the visit that missed it.
+   *
+   * Idempotent, and safe for an account with no staff profile — it simply records a visit nobody
+   * will ever compare anything against.
+   */
+  async markSeen(): Promise<{ seenAt: string }> {
+    const user = this.ctx.user;
+    const seenAt = new Date();
+    if (user) {
+      await this.db.user.update({ where: { id: user.userId }, data: { notificationsSeenAt: seenAt } });
+    }
+    return { seenAt: seenAt.toISOString() };
   }
 
   /**

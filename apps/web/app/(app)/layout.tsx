@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { api, ApiError, type ClosureNotice, type Me } from '@/lib/api';
 import { MeContext } from '@/lib/me-context';
+import { NotificationBell } from '@/components/notification-bell';
 import { groupedNav, hasAnyRole, navItemFor, panelLabel, MFA_REQUIRED_ROLES } from '@/lib/roles';
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
@@ -79,6 +80,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             </button>
             <div className="who">{me.email} · {me.roles.join(', ')}</div>
             <div className="row" style={{ gap: 8 }}>
+              {/* Beside Security, not on a dashboard — see the note on the closure banner below.
+                  Renders nothing at all when there is nothing to say. */}
+              <NotificationBell />
               <Link className="ghost small" href="/security" style={{ textDecoration: 'none' }}>🔒 Security</Link>
               <button className="ghost small" onClick={async () => { await api.logout().catch(() => {}); router.replace('/login'); }}>
                 Sign out

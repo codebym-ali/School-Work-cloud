@@ -90,6 +90,21 @@ export interface Holiday {
 export interface ClosureNotice {
   closure: { date: string; name: string; when: 'TODAY' | 'TOMORROW' } | null;
 }
+/**
+ * "What changed for me" — derived server-side from the records themselves, never stored, so an
+ * item vanishes when its cause does. `unread` is counted from THIS list, never fetched separately:
+ * a bell reading 3 that opens onto 2 items is worse than no bell.
+ */
+export interface NotificationItem {
+  id: string;
+  kind: 'LEAVE_DECIDED' | 'REGISTER_UNMARKED' | 'MARKED_ABSENT' | 'SALARY_PAID';
+  severity: 'info' | 'warn';
+  text: string;
+  href: string;
+  at: string;
+  isNew: boolean;
+}
+export interface Notifications { items: NotificationItem[]; unread: number }
 /** Registers still unmarked today (G3) — surfaced to the head, never enforced on the teacher. */
 export interface UnmarkedRegisters {
   /** False before the school's own mark-by time: the UI stays quiet until the deadline passes. */
@@ -553,6 +568,12 @@ export const api = {
      *  a closure notice reaches everybody. */
     closureNotice: () => apiGet<ClosureNotice>('/attendance/closure-notice'),
     checkIn: () => apiPost<{ date: string; status: string; checkIn: string }>('/staff-attendance/check-in', {}),
+  },
+  notifications: {
+    /** Safe for every role: an account with no staff profile gets an empty list, not a 403. */
+    list: () => apiGet<Notifications>('/notifications'),
+    /** "I have looked." No id anywhere — it can only ever stamp the caller's own account. */
+    seen: () => apiPost<{ seenAt: string }>('/notifications/seen', {}),
   },
   /**
    * Private file upload (§22.6): ask for a presigned PUT, send the bytes straight to storage,

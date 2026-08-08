@@ -1,7 +1,7 @@
 ---
 title: Notifications Plan
 type: plan
-status: N0 shipped — N1 awaiting the §7 decisions
+status: N0 + N1 shipped — N2 next
 updated: 2026-08-08
 ---
 
@@ -119,9 +119,22 @@ places that answer "what needs me" and they will eventually disagree.
     but **no `approvedAt`**, so the event cannot be dated honestly — only the DRAFT's `createdAt`
     exists, which is a different moment. `SALARY_PAID` uses `paidAt`, which is real. Adding
     `approvedAt` is the fix if that notice is wanted.
-- **N1 — the bell.** In the **topbar** of the app shell, beside 🔒 Security — the shell is the only
-  surface every role sees, which is exactly why the closure banner lives there. Adds
-  `User.notificationsSeenAt` and the new/seen count. This is the phase that closes the gap in §2.
+- **N1 — the bell. ✅ DONE 2026-08-08.** In the **topbar** of the app shell beside 🔒 Security, so
+  it reaches the roles without a dashboard — the gap in §2 is closed. `User.notificationsSeenAt`
+  added (migration `20260808120000`; the trigram `DROP INDEX` curated out for the **twelfth** time).
+  - **Silent when there is nothing to say.** The button does not render at all on an empty list
+    rather than sitting there as a permanent grey zero — a control that is always present and
+    always says nothing trains people not to look at it. Verified live: a teacher with three
+    events sees `Notifications, 3 new`; the owner, who has no staff profile, sees no bell at all.
+  - **`unread` is counted from the returned list, never a second query.** A bell reading 3 that
+    opens onto 2 items is worse than no bell, and two round trips is how they start disagreeing.
+  - **Marking seen stamps `now()`, not the newest item's `at`.** The question is "when did you
+    last look", and they looked now; using the newest timestamp would leave a notice created a
+    second later looking older than the visit that missed it.
+  - **Read is not deleted.** The item stays in the panel unbolded — a feed that empties itself on
+    a glance cannot answer "what was that about?" ten minutes later.
+  - Covered by 13 cases; probed non-vacuous by making `markSeen` a no-op (one case fails) and, for
+    N0, by removing the `staffId` filter and unbounding the recency window.
 - **N2 — one source of truth.** Repoint the dashboard attention strip at `/notifications` and
   delete the duplicated derivation in `dashboard/page.tsx`.
 - **N3 — stored rows, only if something demands it.** Deferred on purpose. Revisit only when a
@@ -139,7 +152,7 @@ places that answer "what needs me" and they will eventually disagree.
 - **Notifying people about things they cannot act on.** A teacher does not need to know a fee was
   collected.
 
-## 7. Decisions needed before N1
+## 7. Decisions taken before N1 (operator, 2026-08-08 — all three as recommended)
 
 1. **Bell, or a banner strip under the topbar?** A bell is compact and familiar but hides its
    contents behind a click; the closure banner works precisely *because* it is unmissable.

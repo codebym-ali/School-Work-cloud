@@ -193,6 +193,23 @@ describe('Timetable (e2e, §23)', () => {
     expect(mine.body.slots[0].staff.employeeCode).toBe('EMP-001');
   });
 
+  it('gives an account that is neither staff nor enrolled an empty week, not a 403', async () => {
+    await setSlot({ sectionId: sectionA, dayOfWeek: 1, periodNo: 1, subjectId: mathId, staffId: teacherId });
+    // The owner has no staff profile and no enrolment. This is read by a portal page, where a 403
+    // reads as a fault rather than as "not yours" — so the branch returns an empty week.
+    const res = await get('/api/v1/timetable/mine');
+    expect(res.status).toBe(200);
+    expect(res.body.as).toBe('NONE');
+    expect(res.body.slots).toEqual([]);
+  });
+
+  // ⚠️ The STUDENT branch of `mine()` — resolving an active enrolment to that section's week — is
+  // NOT covered here. It needs a student session, which uses the registration-number/CNIC auth
+  // path rather than a password, and that harness lives in `student-portal.e2e-spec`. The branch
+  // is exercised by the page in the browser but not by a test; worth closing when the two specs
+  // next need a shared student fixture. Saying so beats a comment claiming coverage that is not
+  // there.
+
   it('reports which sections have no timetable yet', async () => {
     await setSlot({ sectionId: sectionA, dayOfWeek: 1, periodNo: 1, subjectId: mathId, staffId: teacherId });
     const cov = await get('/api/v1/timetable/coverage');

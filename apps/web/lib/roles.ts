@@ -68,6 +68,9 @@ export const NAV: NavItem[] = [
   { href: '/attendance', label: 'Attendance', icon: '✅', group: 'Academics', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'TEACHER'] },
   { href: '/leaves', label: 'Leave requests', icon: '🗓️', group: 'Academics', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
   { href: '/my-classes', label: 'My Classes', icon: '📚', group: 'Academics', roles: ['TEACHER'] },
+  // The editor is admin-only (§23: CRUD for owner, own-campus for a campus admin). A teacher gets
+  // `/my-timetable` below rather than this screen — they read their week, they do not build it.
+  { href: '/timetable', label: 'Timetable', icon: '🕘', group: 'Academics', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
   { href: '/exams', label: 'Exams & Results', icon: '📄', group: 'Academics', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'TEACHER'] },
   { href: '/reports', label: 'Reports', icon: '📈', group: 'Academics', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT'] },
   // Academic performance, not money — the accountant is deliberately excluded.
@@ -96,6 +99,7 @@ export const NAV: NavItem[] = [
 
   { href: '/me', label: 'My Dashboard', icon: '🏠', group: 'My Portal', roles: ['STUDENT'] },
   { href: '/me/attendance', label: 'My Attendance', icon: '✅', group: 'My Portal', roles: ['STUDENT'] },
+  { href: '/me/timetable', label: 'My Timetable', icon: '🕘', group: 'My Portal', roles: ['STUDENT'] },
   { href: '/me/results', label: 'My Results', icon: '📄', group: 'My Portal', roles: ['STUDENT'] },
   { href: '/me/fees', label: 'My Fees', icon: '💳', group: 'My Portal', roles: ['STUDENT'] },
 
@@ -104,6 +108,9 @@ export const NAV: NavItem[] = [
   // but the nav did not — so a teacher had no way to reach their own attendance at all, which
   // is the surface a teacher most needs now that they can check themselves in.
   { href: '/my-attendance', label: 'My Attendance', icon: '✅', group: 'My Portal', roles: ['STAFF', 'TEACHER'] },
+  // TEACHER only: `/timetable/mine` resolves a staff profile OR a student enrolment, and a
+  // non-teaching staff member has neither periods nor a reason to look for them.
+  { href: '/my-timetable', label: 'My Timetable', icon: '🕘', group: 'My Portal', roles: ['TEACHER'] },
   // TEACHER added 2026-08-07, closing the gap this comment used to describe: `staff-leaves` has
   // always permitted teachers, but the nav did not — so a teacher who could be marked absent had
   // no way to file the leave that would have made it ON_LEAVE, and an authorised absence landed

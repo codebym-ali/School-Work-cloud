@@ -152,6 +152,20 @@ export const PERMISSION_MATRIX: MatrixRow[] = [
   // and would read as coverage of a boundary it cannot see. What it should say is proved in
   // `staff-leaves.e2e` with a real TEACHER session: asked about a colleague, answered about
   // themselves. Same lesson as the STUDENT note above — a row that cannot fail is worse than none.
+  // ── Timetable ─────────────────────────────────────────────────────────────
+  // Building the week is the office's job; a teacher reads theirs and does not author it (§23).
+  // These rows would have been impossible to write until 2026-08-08 — `timetable_slots` had no
+  // endpoint at all, so there was no route for a matrix row to point at.
+  { label: 'set a timetable period', method: 'post', path: '/api/v1/timetable/slots', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
+  { label: 'clear a timetable period', method: 'delete', path: '/api/v1/timetable/slots/00000000-0000-0000-0000-000000000000', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
+  // TEACHER included: they need the class's whole shape, not only the periods they personally
+  // teach — "who has 9-B before me" is a real question. Campus scope still applies in-service.
+  { label: 'read a section timetable', method: 'get', path: '/api/v1/timetable/section/00000000-0000-0000-0000-000000000000', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'TEACHER'], scopeGated: true },
+  { label: 'timetable coverage', method: 'get', path: '/api/v1/timetable/coverage', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
+  // ⚠️ `GET /timetable/mine` has no row, for the same reason as `/staff-leaves/balance`: it is
+  // ownership-gated, not role-gated. It takes no id and resolves the caller's own staff profile or
+  // enrolment, so a role list would be the wrong question. Proved in `timetable.e2e` with a real
+  // TEACHER session seeing only their own periods.
   { label: 'class-strength report', method: 'get', path: '/api/v1/reports/class-strength', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT'], scopeGated: true },
   { label: 'dashboard', method: 'get', path: '/api/v1/dashboard', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT'] },
   // STUDENT-only. STUDENT isn't one of the seeded matrix roles, so allow:[] asserts every

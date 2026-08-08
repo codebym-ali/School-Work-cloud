@@ -286,6 +286,23 @@ export interface SetOfficerResult {
 }
 
 // ── Staff / Teachers (HR, §13) ───────────────────────────────────────────────
+export interface TimetableSlot {
+  id: string; dayOfWeek: number; periodNo: number; room: string | null;
+  subject: { id: string; name: string };
+  staff: { id: string; fullName: string | null; employeeCode: string };
+  section: { id: string; name: string; class: { id: string; name: string; campusId: string } };
+}
+export interface SectionTimetable {
+  sectionId: string; academicYearId: string;
+  section: { id: string; name: string; class: { id: string; name: string; campusId: string } };
+  slots: TimetableSlot[];
+}
+/** `as` says which week you were given — a teacher's, a student's, or neither. */
+export interface MyTimetable { as: 'TEACHER' | 'STUDENT' | 'NONE'; academicYearId: string; slots: TimetableSlot[] }
+export interface TimetableCoverage {
+  academicYearId: string;
+  sections: Array<{ sectionId: string; className: string; sectionName: string; slots: number }>;
+}
 export interface ManagedTeacher {
   id: string; staffType: string; employeeCode: string; fullName: string | null; designation: string;
   employmentStatus: string; joinedAt: string;
@@ -718,6 +735,21 @@ export const api = {
     setSubjects: (id: string, subjectIds: string[]) => apiPut<{ sectionId: string; subjectIds: string[] }>(`/sections/${id}/subjects`, { subjectIds }),
     update: (id: string, body: { name?: string; capacity?: number }) => apiPatch<Section>(`/sections/${id}`, body),
     remove: (id: string) => apiDelete<null>(`/sections/${id}`),
+  },
+  /**
+   * The weekly grid (§23). `timetable_slots` existed from the first schema with no endpoint at
+   * all — this is its first client.
+   */
+  timetable: {
+    /** The caller's own week: a teacher's periods or a student's. No id — the server resolves it. */
+    mine: () => apiGet<MyTimetable>('/timetable/mine'),
+    forSection: (sectionId: string) => apiGet<SectionTimetable>(`/timetable/section/${sectionId}`),
+    /** Which sections have no timetable yet — "not built" is a different problem from "empty". */
+    coverage: () => apiGet<TimetableCoverage>('/timetable/coverage'),
+    /** Create-or-replace one cell. Clash detection is the server's; the UI shows what it says. */
+    setSlot: (body: { sectionId: string; dayOfWeek: number; periodNo: number; subjectId: string; staffId: string; room?: string }) =>
+      apiPost<TimetableSlot>('/timetable/slots', body),
+    clearSlot: (id: string) => apiDelete<{ deleted: boolean }>(`/timetable/slots/${id}`),
   },
   subjects: {
     list: (classId: string) => apiGet<Subject[]>(`/subjects?classId=${classId}`),

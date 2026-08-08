@@ -1,0 +1,35 @@
+import { IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Min } from 'class-validator';
+import { Type } from 'class-transformer';
+
+export class TimetableQuery {
+  /** Defaults to the school's current academic year. */
+  @IsOptional() @IsUUID()
+  academicYearId?: string;
+}
+
+export class SetSlotDto {
+  @IsUUID()
+  sectionId!: string;
+
+  @IsOptional() @IsUUID()
+  academicYearId?: string;
+
+  /** 1 = Monday … 7 = Sunday, matching the stored column. A school that works Saturdays simply
+   *  fills day 6; nothing here decides which days a school teaches on. */
+  @Type(() => Number) @IsInt() @Min(1) @Max(7)
+  dayOfWeek!: number;
+
+  /** Bounded at 12 to catch a typo, not to express a rule — no school runs 40 periods, and an
+   *  unbounded integer here would let one bad keystroke create a grid nobody can render. */
+  @Type(() => Number) @IsInt() @Min(1) @Max(12)
+  periodNo!: number;
+
+  @IsUUID()
+  subjectId!: string;
+
+  @IsUUID()
+  staffId!: string;
+
+  @IsOptional() @IsString() @MaxLength(40)
+  room?: string;
+}

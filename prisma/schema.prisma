@@ -264,6 +264,7 @@ model School {
   enrollments         StudentEnrollment[]
   staffProfiles       StaffProfile[]
   teacherAssignments  TeacherAssignment[]
+  timetableSlots     TimetableSlot[]
   inquiries           Inquiry[]
   feeHeads            FeeHead[]
   feeStructures       FeeStructure[]
@@ -359,6 +360,7 @@ model AcademicYear {
   enrollments        StudentEnrollment[]
   terms              Term[]
   teacherAssignments TeacherAssignment[]
+  timetableSlots     TimetableSlot[]
   feeStructures      FeeStructure[]
   invoiceBatches     FeeInvoiceBatch[]
 
@@ -411,6 +413,7 @@ model Section {
   enrollments        StudentEnrollment[]
   subjects           SectionSubject[]
   teacherAssignments TeacherAssignment[]
+  timetableSlots     TimetableSlot[]
   classTests         ClassTest[]
 
   @@unique([id, schoolId])
@@ -433,6 +436,7 @@ model Subject {
   examResults        ExamResult[]
   sections           SectionSubject[]
   teacherAssignments TeacherAssignment[]
+  timetableSlots     TimetableSlot[]
   classTests    ClassTest[]
 
   @@unique([id, schoolId])
@@ -742,6 +746,7 @@ model StaffProfile {
   updatedAt        DateTime         @updatedAt @map("updated_at")
 
   assignments      TeacherAssignment[]
+  timetableSlots   TimetableSlot[]
   attendance       StaffAttendance[]
   leaves           StaffLeave[]
   salaryStructures SalaryStructure[]
@@ -1345,18 +1350,42 @@ model ReportCard {
 }
 
 // ── Timetable (v1: assignments feed it; visual grid v1.5) ────────────────────
+/// One period of one section's week.
+///
+/// Until 2026-08-08 this model carried **raw ids and no relations at all**, which made it a table
+/// nothing could write and nothing could read usefully: no endpoint existed, no join was possible,
+/// and the only code touching it anywhere was two `count()` calls in delete-guards asking whether
+/// a section or subject had slots — a number that was structurally always zero. Relations added so
+/// a grid can be rendered, and **foreign keys** so a slot cannot outlive the subject it teaches or
+/// the teacher who left.
 model TimetableSlot {
-  id             String @id @default(uuid()) @db.Uuid
-  schoolId       String @map("school_id") @db.Uuid
-  academicYearId String @map("academic_year_id") @db.Uuid
-  sectionId      String @map("section_id") @db.Uuid
-  dayOfWeek      Int    @map("day_of_week") // 1=Mon … 7=Sun
-  periodNo       Int    @map("period_no")
-  subjectId      String @map("subject_id") @db.Uuid
-  staffId        String @map("staff_id") @db.Uuid
+  id             String       @id @default(uuid()) @db.Uuid
+  schoolId       String       @map("school_id") @db.Uuid
+  school         School       @relation(fields: [schoolId], references: [id])
+  academicYearId String       @map("academic_year_id") @db.Uuid
+  academicYear   AcademicYear @relation(fields: [academicYearId, schoolId], references: [id, schoolId])
+  sectionId      String       @map("section_id") @db.Uuid
+  section        Section      @relation(fields: [sectionId, schoolId], references: [id, schoolId])
+  dayOfWeek      Int          @map("day_of_week") // 1=Mon … 7=Sun
+  periodNo       Int          @map("period_no")
+  subjectId      String       @map("subject_id") @db.Uuid
+  subject        Subject      @relation(fields: [subjectId, schoolId], references: [id, schoolId])
+  staffId        String       @map("staff_id") @db.Uuid
+  staff          StaffProfile @relation(fields: [staffId, schoolId], references: [id, schoolId])
+  /// Optional free text — "Lab 2", "Ground". Schools that do not track rooms leave it null rather
+  /// than being made to invent one.
+  room           String?      @db.VarChar(40)
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
 
+  /// One section cannot be taught two things at once — enforced by the database, not by a check
+  /// the API could forget. The teacher-side clash has no equivalent constraint because a teacher
+  /// legitimately appears in many sections; it is asserted in the service (§10 of the plan).
   @@unique([sectionId, academicYearId, dayOfWeek, periodNo])
   @@index([schoolId, staffId, dayOfWeek]) // teacher clash check
+  @@index([schoolId, academicYearId, sectionId])
+  @@index([subjectId, schoolId])
+  @@index([staffId, schoolId])
   @@map("timetable_slots")
 }
 

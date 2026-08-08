@@ -1,7 +1,7 @@
 ---
 title: Notifications Plan
 type: plan
-status: draft — awaiting operator decisions in §7
+status: N0 shipped — N1 awaiting the §7 decisions
 updated: 2026-08-08
 ---
 
@@ -100,9 +100,25 @@ places that answer "what needs me" and they will eventually disagree.
 
 ## 5. Phases
 
-- **N0 — the endpoint.** `GET /notifications` → a role-shaped list, derived per request. One
-  service. Mirrors the dashboard's existing `visible` pattern so a role is never handed an item it
-  cannot open. **No UI, no schema change.** Testable on its own.
+- **N0 — the endpoint. ✅ DONE 2026-08-08.** `GET /notifications`, derived per request, no `@Roles`
+  (ownership-gated like `/payslips/mine`) and **never throws** — an account with no staff profile
+  gets `{ items: [] }`, because the shell will call this on every page for every user. Four kinds:
+  `LEAVE_DECIDED` (carrying the rejection reason, which is the point of requiring one),
+  `MARKED_ABSENT` (the dispute path — staff attendance feeds the payroll deduction),
+  `SALARY_PAID`, and `REGISTER_UNMARKED` (teachers only, one line a day, silent until
+  `attendanceMarkByTime`). Each item carries `at`, unused until N1. No UI, no schema change.
+  - **Proved derived, not merely present.** `notifications.e2e` (9 cases) asserts a notice
+    *disappears* when its cause does — the leave is deleted, and the item goes with it; an absence
+    corrected to ON_LEAVE stops being mentioned. A suite that only checked appearance would pass
+    against the stored design this rejects. Non-vacuity probed: removing the `staffId` filter and
+    unbounding the recency window each fail a case.
+  - **Recency limits are part of the design, not tuning:** leave 14 days, absence 7, salary 30. An
+    absence older than a week cannot still be disputed before payday, and a feed that never forgets
+    is a feed nobody opens.
+  - ⚠️ **"Your payslip is ready" was left out and this is why:** `PayrollRun` records `approvedById`
+    but **no `approvedAt`**, so the event cannot be dated honestly — only the DRAFT's `createdAt`
+    exists, which is a different moment. `SALARY_PAID` uses `paidAt`, which is real. Adding
+    `approvedAt` is the fix if that notice is wanted.
 - **N1 — the bell.** In the **topbar** of the app shell, beside 🔒 Security — the shell is the only
   surface every role sees, which is exactly why the closure banner lives there. Adds
   `User.notificationsSeenAt` and the new/seen count. This is the phase that closes the gap in §2.

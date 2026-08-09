@@ -1,7 +1,7 @@
 ---
 title: Teacher Mobile Home Plan
 type: plan
-status: M0 + M1 shipped — M2–M4 pending
+status: M0–M2 shipped — M3/M4 pending
 updated: 2026-08-08
 ---
 
@@ -133,9 +133,27 @@ paths to the same data.
   - ⚠️ **"Now" is not a clock.** There are no period times in the model, so the card shows the
     earliest period of today. Real bell times would need a schema change; the comment says so in
     place, because "now" invites the next reader to go looking for a clock that is not there.
-- **M2 — the register on a phone.** The attendance marking grid is a wide table; on a phone it
-  becomes a list of students with present/absent as a segmented control, and a sticky "Save" at
-  thumb height. Pre-scoped when arrived at from the "now" card.
+- **M2 — the register on a phone. ✅ DONE 2026-08-09.** Status was a `<select>` per student — two
+  taps and a modal wheel on a phone, for the single most repeated action a teacher performs. Now
+  four buttons: **P / A / L / ½**, one tap, current mark visible without opening anything.
+  - **Short codes, not words.** Four full labels do not fit across 375px, and a paper register in a
+    Pakistani school is already marked in exactly these letters — so a teacher is transcribing a
+    vocabulary they have, not learning one. Each button carries the full word as `aria-label`, and
+    the pressed state is `aria-pressed` plus a filled shape, so it never depends on colour alone.
+  - **One markup, two presentations.** CSS stacks the same table into cards below 720px rather than
+    a phone-only list, which would be two things to keep in step. `data-label` supplies the column
+    head a stacked row loses — a bare GR number is a mystery without it. Verified at 1280px that
+    the table header, table rows, inline save bar and sidebar all return unchanged.
+  - **A live tally beside Save.** Everyone starts PRESENT, so a teacher who has flipped three names
+    wants to see *"3 present · 2 absent"* before committing; it is the only check available that
+    the register says what they meant. Counted from what is on screen, so it cannot disagree with
+    what Save sends.
+  - The save bar sits **above** the tab bar on a phone, not behind it — a Save that scrolls away is
+    a Save that gets forgotten halfway down a class of thirty.
+  - **Verified end to end:** home → "Mark this register" → roster pre-loaded → two students marked
+    absent → tally read 3/2 → *"Saved 5, failed 0, absence SMS queued 2"*.
+  - The browser caught one bug a test would not have: a zero absent count is absent from the tally
+    object, so it rendered **"5 present · absent"**. Zero is the number a teacher most wants stated.
 - **M3 — the rest, made narrow.** My Timetable → day-at-a-time on small screens with a day
   switcher; My Leaves, My Payslips, My Attendance → cards instead of tables.
 - **M4 — installable (PWA), only if wanted.** Manifest + icons so "Add to home screen" gives a

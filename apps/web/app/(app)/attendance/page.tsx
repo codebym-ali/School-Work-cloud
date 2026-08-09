@@ -7,6 +7,10 @@ import { sectionLabeller } from '@/lib/labels';
 interface DayCoverage { date: string; working: boolean; marked: number; expected: number; closedFor: string | null }
 
 const STATUSES = ['PRESENT', 'ABSENT', 'LATE', 'HALF_DAY'];
+/** Short codes for the register. A paper register in a Pakistani school already reads P / A / L,
+ *  so these are the marks a teacher is transcribing rather than a new vocabulary to learn. */
+const STATUS_SHORT: Record<string, string> = { PRESENT: 'P', ABSENT: 'A', LATE: 'L', HALF_DAY: '½' };
+const STATUS_LABEL: Record<string, string> = { PRESENT: 'Present', ABSENT: 'Absent', LATE: 'Late', HALF_DAY: 'Half day' };
 const today = () => new Date().toISOString().slice(0, 10);
 /** Mirrors the server's `attendanceBackfillDays` (default 7). Bounding the picker means the
  *  rule is visible as a disabled date rather than discovered as a rejected save. */
@@ -160,6 +164,11 @@ export default function AttendancePage() {
   }
 
   const sectionLabel = sectionLabeller(classes, campuses);
+  // Counted from what is on screen, so it cannot disagree with what Save is about to send.
+  const tally = rows.reduce((acc, r) => {
+    const m = marks[r.id] ?? 'PRESENT';
+    return { ...acc, [m]: (acc[m] ?? 0) + 1 };
+  }, {} as Record<string, number>);
 
   return (
     <div className="stack">
@@ -214,23 +223,66 @@ export default function AttendancePage() {
 
       {rows.length > 0 && (
         <>
-          <table>
-            <thead><tr><th>GR</th><th>Student</th><th>Status</th></tr></thead>
-            <tbody>
-              {rows.map((r) => (
-                <tr key={r.id}>
-                  <td>{r.student?.grNumber}</td>
-                  <td>{r.student?.fullName}</td>
-                  <td>
-                    <select value={marks[r.id] ?? 'PRESENT'} onChange={(e) => setMarks((prev) => ({ ...prev, [r.id]: e.target.value }))}>
-                      {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
-                    </select>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <div><button onClick={save}>Save attendance</button></div>
+          {/*
+            * The register (M2). Status was a `<select>` per student: two taps and a modal wheel on
+            * a phone, for the single most repeated action a teacher performs. It is now four
+            * buttons — one tap, and the current mark is visible without opening anything.
+            *
+            * P / A / L / ½ rather than words because four full labels do not fit across 375px, and
+            * because a paper register in a Pakistani school is already marked in exactly these
+            * letters. Each carries an `aria-label` with the full word.
+            *
+            * One markup for both sizes: CSS stacks the rows into cards below 720px rather than a
+            * second phone-only list, which would be two things to keep in step.
+            */}
+          <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+            <table className="register">
+              <thead><tr><th>GR</th><th>Student</th><th>Status</th></tr></thead>
+              <tbody>
+                {rows.map((r) => {
+                  const mark = marks[r.id] ?? 'PRESENT';
+                  return (
+                    <tr key={r.id}>
+                      <td data-label="GR">{r.student?.grNumber}</td>
+                      <td data-label="Student"><span className="who-name">{r.student?.fullName}</span></td>
+                      <td>
+                        <div className="marks" role="group" aria-label={`Attendance for ${r.student?.fullName ?? 'student'}`}>
+                          {STATUSES.map((sTatus) => (
+                            <button
+                              key={sTatus}
+                              type="button"
+                              className={`mark${mark === sTatus ? ' on' : ''} ${sTatus.toLowerCase()}`}
+                              aria-label={STATUS_LABEL[sTatus]}
+                              aria-pressed={mark === sTatus}
+                              onClick={() => setMarks((prev) => ({ ...prev, [r.id]: sTatus }))}
+                            >
+                              {STATUS_SHORT[sTatus]}
+                            </button>
+                          ))}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {/*
+            * Sticky on a phone, inline on desktop. The count is not decoration: everyone starts
+            * PRESENT, so a teacher who has flipped three names wants to see "3 absent" before
+            * committing — it is the only check available that the register says what they meant.
+            */}
+          <div className="save-bar">
+            {/* `?? 0`: an absent count of zero is absent from the tally object, and rendering it
+                raw produced "5 present · absent". Zero is the answer a teacher most wants stated. */}
+            <span className="tally">
+              {tally.PRESENT ?? 0} present · {tally.ABSENT ?? 0} absent
+              {tally.LATE ? ` · ${tally.LATE} late` : ''}
+              {tally.HALF_DAY ? ` · ${tally.HALF_DAY} half-day` : ''}
+            </span>
+            <button onClick={save}>Save attendance</button>
+          </div>
         </>
       )}
       {sectionId && rows.length === 0 && <p className="muted">No active students in this section — add students first.</p>}

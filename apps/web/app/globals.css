@@ -292,3 +292,58 @@ input.invalid, select.invalid { border-color: var(--danger); }
      repeating them here costs vertical space on the screen with least of it. The bell stays. */
   .has-tabbar .topbar-desktop { display: none; }
 }
+
+/* ── The register (Teacher Mobile Home Plan, M2) ─────────────────────────────
+   One markup for both sizes. Desktop keeps a table because a table is the right
+   shape for scanning 30 names; below the phone breakpoint the same rows stack
+   into cards, so nothing scrolls sideways and nothing shrinks past reading. */
+.marks { display: flex; gap: 6px; }
+.marks .mark {
+  flex: 1 1 0; min-width: 44px; min-height: 44px;   /* 44px: the smallest reliable thumb target */
+  background: #fff; color: var(--muted);
+  border: 1px solid var(--border); border-radius: 8px;
+  font-size: 15px; font-weight: 600; padding: 0;
+}
+.marks .mark.on { color: #fff; border-color: transparent; }
+/* Colour carries the same meaning as the badges elsewhere, so a register reads the same way as
+   every other status in the product. Never colour alone: the pressed state is also `aria-pressed`
+   and a filled shape, so it survives colour-blindness and a bright playground. */
+.marks .mark.present.on  { background: #15803d; }
+.marks .mark.absent.on   { background: #b91c1c; }
+.marks .mark.late.on     { background: #b45309; }
+.marks .mark.half_day.on { background: #6b7280; }
+.marks .mark:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+
+.save-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.save-bar .tally { color: var(--muted); font-size: 13px; }
+
+@media (max-width: 720px) {
+  /* Stack each row into a card. `data-label` on the cells supplies the header a stacked row
+     loses — otherwise a bare GR number is a mystery once the column head is gone. */
+  .register, .register tbody, .register tr, .register td { display: block; width: 100%; }
+  .register thead { display: none; }
+  .register tr {
+    border-bottom: 1px solid var(--border); padding: 12px 14px;
+    display: grid; grid-template-columns: 1fr auto; gap: 6px 10px; align-items: center;
+  }
+  .register tr:last-child { border-bottom: 0; }
+  .register td { border: 0; padding: 0; }
+  .register td[data-label='GR'] { grid-row: 2; color: var(--muted); font-size: 12px; }
+  .register td[data-label='GR']::before { content: 'GR '; }
+  .register td[data-label='Student'] { grid-row: 1; font-weight: 600; }
+  /* The marks take the full width beneath the name — four 44px targets need the room, and a
+     name squeezed next to them is how you tap the wrong student's register. */
+  .register td:last-child { grid-column: 1 / -1; grid-row: 3; margin-top: 4px; }
+
+  /* Above the tab bar, not behind it. A Save that scrolls away is a Save that gets forgotten
+     halfway down a class of thirty. */
+  .has-tabbar .save-bar {
+    position: fixed; left: 0; right: 0;
+    bottom: calc(57px + env(safe-area-inset-bottom, 0px));
+    background: var(--card); border-top: 1px solid var(--border);
+    padding: 10px 16px; z-index: 44;
+  }
+  .has-tabbar .save-bar button { min-height: 44px; }
+  /* Room for both bars, so the last student is reachable. */
+  .has-tabbar .content:has(.save-bar) { padding-bottom: calc(140px + env(safe-area-inset-bottom, 0px)); }
+}

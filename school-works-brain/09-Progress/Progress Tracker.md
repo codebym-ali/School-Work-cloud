@@ -868,7 +868,7 @@ existed and four of its rules were wrong, each of them about money.
   days)** and *Will be UNPAID*, and the admin queue shows *Unpaid if approved · 3 working days · 1
   of 3 casual days left*. ⚠️ Found while doing it: `apps/web/next.config` hardcodes the dev API
   proxy to `demo.localhost:4000`, so the browser reaches the demo tenant whatever subdomain the URL
-  carries — any other tenant needs a second web instance with `NEXT_API_ORIGIN` set.
+  carries — any other tenant needs a second web instance with `NEXT_API_ORIGIN` set. **Fixed 2026-08-09** — the proxy now follows the browser's subdomain; see the entry below.
 - **Gates:** unit 57 · integration **765/765 across 33 suites** · isolation 7 · both lints · api+worker
   build · web tsc + lint.
 
@@ -902,6 +902,9 @@ existed and four of its rules were wrong, each of them about money.
   - **The only real symptom:** on **Windows**, `next build` dies at the very last step — `writeStandaloneDirectory` → `copyTracedFiles` → `EPERM: symlink`. `output: 'standalone'` recreates symlinks, and Windows needs Developer Mode or an elevated shell to make them. Turn on Developer Mode, or accept that the standalone step is verified in CI and Docker instead. **Nothing about the repo is wrong.**
   - **My own error worth remembering:** I built the image with the repo root as context, so `pnpm build` resolved to the *root* script (`nest build api && nest build worker`) and produced 274 webpack errors inside the web image. The Dockerfile's own header says the context is `apps/web`; `docker build -t school-web apps/web` succeeds. Read the header before concluding the file is broken.
 
+- [x] **Dev proxy followed one tenant, not the URL — FIXED 2026-08-09.** `next.config.mjs` pinned `/api/*` to a single origin decided at server start (`demo.localhost:4000`), so **every API call went to `demo` whatever subdomain the browser was on**. Signing in as another school's teacher returned *"Invalid credentials"* — the password was right, it was being checked against a school that had never heard of them, and nothing in the error said so. It cost me two separate debugging sessions in one day, and the only workaround was a second Next server per tenant. Now a `has: [{ type: 'host' }]` rewrite captures the subdomain and interpolates it into the destination, so `falcon.localhost:3001` reaches `falcon` — same as production. An explicit `NEXT_API_ORIGIN` still wins (CI, e2e and remote-API work depend on pinning it); bare `localhost` falls back to `demo`.
+  - **Proved with one server and two tenants:** `demo` host + demo's owner → 200; the other tenant's host + demo's owner → **401**; that tenant's host + its own owner → 200; bare `localhost` → 200 via the fallback. Before the fix the middle two were 200 and 401 — exactly inverted.
+  - ⚠️ **The config was only half the cause.** `apps/web/.env.local` (untracked, so invisible to git) also set `NEXT_API_ORIGIN=http://demo.localhost:4000`, and since an explicit value wins, the fix looked like it had done nothing until that was found. The line is now commented out **with the reason written above it**, and the README warns anyone with an older `.env.local` to do the same — a fix defeated by a file git cannot see is one the next person will re-report as a bug.
 - [ ] Phone OTP verification flow (§14) — deferred from M3
 - [ ] Swagger/OpenAPI explorer + generated typed client
 - [x] Frontend (Next.js) — scaffold + role-based screens + Playwright E2E done (see M7 in-flight above); UI/UX in [[05-ui-ux-specification]]. Remaining: OpenAPI-generated typed client (kept hand-written types in `lib/api.ts` for now).

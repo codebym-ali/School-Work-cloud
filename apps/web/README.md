@@ -21,9 +21,21 @@ Open **http://localhost:3001** and sign in with the seeded owner. The pre-filled
 credentials match `pnpm db:seed`.
 
 ## How tenant routing works in dev
-`next.config.mjs` proxies `/api/*` → `NEXT_API_ORIGIN` (default `http://demo.localhost:4000`).
-The destination host carries the **tenant subdomain**, so the API resolves the `demo`
-school. For another tenant, set `NEXT_API_ORIGIN=http://<slug>.localhost:4000`.
+`next.config.mjs` proxies `/api/*` to the API, and **the destination follows the subdomain you are
+browsing**: `demo.localhost:3001` → the `demo` school, `falcon.localhost:3001` → `falcon`. Same as
+production. Open a different subdomain and you are in a different school; no restart.
+
+> **Changed 2026-08-09.** The proxy used to be pinned to one origin, decided at server start, so
+> every API call went to `demo` whatever the URL said — and signing in as another school's teacher
+> returned *"Invalid credentials"*, because the password was being checked against a school that
+> had never heard of them. If you have an `apps/web/.env.local` from before then, delete the
+> `NEXT_API_ORIGIN` line in it: **an explicit value still wins**, so a stale one re-pins everything
+> to `demo` and this fix will look like it did nothing.
+
+`NEXT_API_ORIGIN` is still honoured when set, deliberately — CI, the e2e suite and anyone pointing
+the UI at a remote API rely on pinning it. Bare `localhost` (no subdomain) falls back to `demo`,
+since there is no subdomain to resolve a tenant from. `API_PORT` overrides the API's port (4000).
+
 In production the frontend and API sit behind the same tenant domain (Traefik routes
 `/api` → API, `/` → this app), so requests are naturally same-origin.
 

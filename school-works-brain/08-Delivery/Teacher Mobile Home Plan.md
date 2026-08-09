@@ -1,7 +1,7 @@
 ---
 title: Teacher Mobile Home Plan
 type: plan
-status: M0–M2 shipped — M3/M4 pending
+status: M0–M3 shipped — M4 (PWA) open
 updated: 2026-08-08
 ---
 
@@ -154,8 +154,27 @@ paths to the same data.
     absent → tally read 3/2 → *"Saved 5, failed 0, absence SMS queued 2"*.
   - The browser caught one bug a test would not have: a zero absent count is absent from the tally
     object, so it rendered **"5 present · absent"**. Zero is the number a teacher most wants stated.
-- **M3 — the rest, made narrow.** My Timetable → day-at-a-time on small screens with a day
-  switcher; My Leaves, My Payslips, My Attendance → cards instead of tables.
+- **M3 — the rest, made narrow. ✅ DONE 2026-08-09.**
+  - **One generic treatment, not three bespoke ones.** `className="stacked"` plus a `data-label`
+    on every cell turns any label/value table into cards below the breakpoint; the label comes
+    back through `::before`, so no column head is lost. My Leaves, My Payslips and My Attendance
+    are the same shape of problem, and three hand-built phone layouts would be three things to
+    keep working. `.register` stays separate — its row is a purpose-built grid, not label/value.
+  - **My Timetable is the one place needing different markup, not different CSS.** A week *is* a
+    grid, so the desktop keeps one; on a phone six columns either scroll sideways or shrink past
+    reading, so the day becomes a chooser and the grid a list. That needs `useIsPhone()` — a
+    `matchMedia` hook — used **only** here, because anything CSS can do alone should stay in CSS.
+    ⚠️ Its `PHONE_MAX_WIDTH` and the `720px` in `globals.css` must agree; a breakpoint that
+    disagrees between CSS and JS is correct at every width except a narrow band.
+  - **The browser caught a default that reads as a bug.** The day chooser defaulted to *today* —
+    but today was a Sunday with no periods, and the chip row only lists days that have any, so it
+    showed "Nothing scheduled on Sunday" with no Sunday chip to explain it. It now falls to the
+    first day that has periods.
+  - **Overflow audit, measured rather than assumed:** all ten teacher-reachable pages
+    (`/home`, `/my-timetable`, `/my-leaves`, `/my-payslips`, `/my-attendance`, `/me-more`,
+    `/attendance`, `/my-classes`, `/calendar`, `/exams`) rendered at 375px with **zero horizontal
+    overflow**. Desktop re-checked at 1280px: table headers, table rows and `::before` labels all
+    behave as before.
 - **M4 — installable (PWA), only if wanted.** Manifest + icons so "Add to home screen" gives a
   real app icon and no browser chrome. **No offline** — see §8.
 

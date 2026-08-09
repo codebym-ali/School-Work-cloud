@@ -30,19 +30,19 @@ export default function MyPayslips() {
       <h1>My Payslips</h1>
       {msg && <div className="toast err">{msg}</div>}
       <div className="card stack">
-        <table>
+        <table className="stacked">
           <thead><tr><th>Gross</th><th>Deductions</th><th>Net pay</th><th>Status</th><th>Paid on</th><th></th></tr></thead>
           <tbody>
             {rows.map((p) => {
               const deductions = Number(p.attendanceDeduction) + Number(p.otherDeductions);
               return (
                 <tr key={p.id}>
-                  <td>Rs {Number(p.gross).toLocaleString()}</td>
-                  <td>Rs {deductions.toLocaleString()}</td>
-                  <td>Rs {Number(p.netPay).toLocaleString()}</td>
-                  <td><span className={`badge ${badge(p.status)}`}>{p.status}</span></td>
-                  <td className="muted">{p.paidAt ? new Date(p.paidAt).toLocaleDateString() : '—'}</td>
-                  <td style={{ textAlign: 'right' }}><button className="ghost small" onClick={() => openPdf(p.id)}>PDF</button></td>
+                  <td data-label="Gross">Rs {Number(p.gross).toLocaleString()}</td>
+                  <td data-label="Deductions">Rs {deductions.toLocaleString()}</td>
+                  <td data-label="Net pay">Rs {Number(p.netPay).toLocaleString()}</td>
+                  <td data-label="Status"><span className={`badge ${badge(p.status)}`}>{p.status}</span></td>
+                  <td data-label="Paid on" className="muted">{p.paidAt ? new Date(p.paidAt).toLocaleDateString() : '—'}</td>
+                  <td data-label="" style={{ textAlign: 'right' }}><button className="ghost small" onClick={() => openPdf(p.id)}>PDF</button></td>
                 </tr>
               );
             })}

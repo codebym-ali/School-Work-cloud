@@ -173,17 +173,17 @@ export default function MyLeaves() {
       <div className="card stack">
         <h2 style={{ margin: 0, fontSize: 17 }}>My requests</h2>
         {!rows ? <p className="muted">Loading…</p> : (
-          <table>
+          <table className="stacked">
             <thead><tr><th>Type</th><th>From</th><th>To</th><th>Reason</th><th>Status</th><th></th></tr></thead>
             <tbody>
               {rows.map((r) => (
                 <tr key={r.id}>
-                  <td>{title(r.leaveType)}{r.isUnpaid && <span className="badge warn" style={{ marginLeft: 6 }}>unpaid</span>}</td>
-                  <td>{fmt(r.fromDate)}</td>
-                  <td>{fmt(r.toDate)}</td>
-                  <td>{r.reason}{r.status === 'REJECTED' && r.rejectionReason && <span className="muted"> — {r.rejectionReason}</span>}</td>
-                  <td><span className={`badge ${badge(r.status)}`}>{r.status}</span></td>
-                  <td style={{ textAlign: 'right' }}>
+                  <td data-label="Type">{title(r.leaveType)}{r.isUnpaid && <span className="badge warn" style={{ marginLeft: 6 }}>unpaid</span>}</td>
+                  <td data-label="From">{fmt(r.fromDate)}</td>
+                  <td data-label="To">{fmt(r.toDate)}</td>
+                  <td data-label="">{r.reason}{r.status === 'REJECTED' && r.rejectionReason && <span className="muted"> — {r.rejectionReason}</span>}</td>
+                  <td data-label="Status"><span className={`badge ${badge(r.status)}`}>{r.status}</span></td>
+                  <td data-label="" style={{ textAlign: 'right' }}>
                     {r.status === 'PENDING' && <button className="ghost small" onClick={() => cancel(r.id)}>Cancel</button>}
                   </td>
                 </tr>

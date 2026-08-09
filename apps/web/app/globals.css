@@ -347,3 +347,39 @@ input.invalid, select.invalid { border-color: var(--danger); }
   /* Room for both bars, so the last student is reachable. */
   .has-tabbar .content:has(.save-bar) { padding-bottom: calc(140px + env(safe-area-inset-bottom, 0px)); }
 }
+
+/* ── Tables that become cards on a phone (M3) ────────────────────────────────
+   Add `className="stacked"` and give every `<td>` a `data-label`. Below the phone
+   breakpoint each row becomes a card and each cell a label/value line — nothing
+   scrolls sideways, and no column head is lost, because `data-label` carries it.
+
+   Deliberately generic: My Leaves, My Payslips and My Attendance are the same
+   shape of problem, and three bespoke phone layouts would be three things to keep
+   working. `.register` stays separate — its row is a purpose-built grid, not a
+   label/value list. */
+@media (max-width: 720px) {
+  .stacked, .stacked tbody, .stacked tr, .stacked td { display: block; width: 100%; }
+  .stacked thead { display: none; }
+  .stacked tr {
+    border: 1px solid var(--border); border-radius: 10px;
+    padding: 10px 12px; margin-bottom: 10px; background: var(--card);
+  }
+  .stacked td {
+    border: 0; padding: 4px 0;
+    display: flex; justify-content: space-between; align-items: baseline; gap: 12px;
+  }
+  .stacked td::before {
+    content: attr(data-label);
+    color: var(--muted); font-size: 12px; flex: 0 0 auto;
+  }
+  /* A cell with no label is a full-width row — actions, or a reason that needs the space. */
+  .stacked td[data-label='']::before { content: none; }
+  .stacked td[data-label=''] { justify-content: flex-start; }
+}
+
+/* ── My Timetable, day at a time (M3) ────────────────────────────────────────
+   A week IS a grid, so the desktop keeps one. On a phone six columns either scroll
+   sideways or shrink past reading, and a teacher looking at their phone wants one
+   day — so the day becomes a chooser and the grid becomes a list. */
+.day-chips { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; }
+.day-chips .chip { min-height: 40px; min-width: 44px; justify-content: center; }

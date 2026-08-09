@@ -109,15 +109,15 @@ export default function MyAttendance() {
         {!rows ? (
           <p className="muted" style={{ margin: 0 }}>Loading…</p>
         ) : (
-          <table>
+          <table className="stacked">
             <thead><tr><th>Date</th><th>Status</th><th>Check-in</th><th>Marked by</th></tr></thead>
             <tbody>
               {rows.map((r, i) => (
                 <tr key={i}>
-                  <td>{new Date(r.date).toLocaleDateString()}</td>
-                  <td><span className={`badge ${attendanceBadge(r.status)}`}>{humanizeStatus(r.status)}</span></td>
-                  <td>{time(r.checkIn)}</td>
-                  <td className="muted">{MARKED_BY[r.source] ?? r.source}</td>
+                  <td data-label="Date">{new Date(r.date).toLocaleDateString()}</td>
+                  <td data-label="Status"><span className={`badge ${attendanceBadge(r.status)}`}>{humanizeStatus(r.status)}</span></td>
+                  <td data-label="Check-in">{time(r.checkIn)}</td>
+                  <td data-label="Marked by" className="muted">{MARKED_BY[r.source] ?? r.source}</td>
                 </tr>
               ))}
               {rows.length === 0 && (

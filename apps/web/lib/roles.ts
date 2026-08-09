@@ -97,6 +97,13 @@ export const NAV: NavItem[] = [
   // teacher who turns up at a locked school. The screen hides the write controls from them.
   { href: '/calendar', label: 'School calendar', icon: '📅', group: 'Administration', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'TEACHER'] },
 
+  // Teacher phone shell (Teacher Mobile Home Plan M0/M1). `hidden` keeps them out of the sidebar
+  // - they are tab-bar destinations - while still being IN `NAV`, which is what makes
+  // `navItemFor` role-gate them. Leaving them out entirely would have made both routes reachable
+  // by every signed-in role, since the shell treats an unknown path as unrestricted.
+  { href: '/home', label: 'Home', icon: '🏠', group: 'My Portal', roles: ['TEACHER'], hidden: true },
+  { href: '/me-more', label: 'Me', icon: '👤', group: 'My Portal', roles: ['TEACHER'], hidden: true },
+
   { href: '/me', label: 'My Dashboard', icon: '🏠', group: 'My Portal', roles: ['STUDENT'] },
   { href: '/me/attendance', label: 'My Attendance', icon: '✅', group: 'My Portal', roles: ['STUDENT'] },
   { href: '/me/timetable', label: 'My Timetable', icon: '🕘', group: 'My Portal', roles: ['STUDENT'] },
@@ -144,7 +151,9 @@ const ROLE_INFO: { role: Role; label: string; landing: string }[] = [
   { role: 'ACCOUNTANT', label: 'Accountant', landing: '/dashboard' },
   { role: 'ADMISSION_CONTROLLER', label: 'Admission Portal', landing: '/admissions' },
   { role: 'HR_MANAGER', label: 'HR Manager', landing: '/staff' },
-  { role: 'TEACHER', label: 'Teacher', landing: '/attendance' },
+  // Landing moved from `/attendance` to `/home` 2026-08-08 (Teacher Mobile Home Plan 7.2).
+  // `/attendance` is a work screen - it opened cold, with no idea which section was wanted.
+  { role: 'TEACHER', label: 'Teacher', landing: '/home' },
   { role: 'STAFF', label: 'Staff', landing: '/my-attendance' },
   // Parent portal removed 2026-07-28 (see Key Decisions). Parents have no logins and no
   // screens; landing on the admin-gated dashboard yields the shell's "Not authorized" card,
@@ -154,7 +163,7 @@ const ROLE_INFO: { role: Role; label: string; landing: string }[] = [
 ];
 
 /** The highest-priority role the user holds, or undefined. */
-function primaryRole(roles: string[] | undefined) {
+export function primaryRole(roles: string[] | undefined) {
   const r = roles ?? [];
   return ROLE_INFO.find((x) => r.includes(x.role));
 }
@@ -224,4 +233,37 @@ export function groupedNav(
     group,
     items: visible.filter((n) => n.group === group),
   })).filter((g) => g.items.length > 0);
+}
+
+/**
+ * The teacher's bottom tab bar (Teacher Mobile Home Plan 7.1).
+ *
+ * **A projection of `NAV`, never a second list.** With only one role using the tab bar, hardcoding
+ * four links here would be the obvious shortcut - and a nav that stops agreeing with the
+ * permissions behind it is how this codebase has silently *deleted* capability three times: CSV
+ * import, `/my-attendance`, and `/my-leaves` each became unreachable because the nav was stricter
+ * than the API. Every entry below is checked against `NAV`, so an item a teacher may not reach
+ * simply does not appear rather than becoming a dead tab.
+ *
+ * **Four, deliberately.** A phone tab bar past four items becomes unreadable at thumb size, and
+ * the fifth is always the one nobody taps. Everything visited monthly rather than hourly - leaves,
+ * payslips, exams, calendar, my attendance - lives behind **Me**.
+ */
+const TEACHER_TABS: { href: string; label: string; icon: string }[] = [
+  { href: '/home', label: 'Home', icon: '🏠' },
+  { href: '/attendance', label: 'Attendance', icon: '✅' },
+  { href: '/my-timetable', label: 'Week', icon: '🕘' },
+  { href: '/me-more', label: 'Me', icon: '👤' },
+];
+
+/** True when this user should get the phone shell. TEACHER only, by operator decision. */
+export function usesMobileShell(roles: string[] | undefined): boolean {
+  return primaryRole(roles)?.role === 'TEACHER';
+}
+
+/** Tabs this user can actually open. `/home` and `/me-more` are teacher-only routes with no NAV
+ *  entry of their own, so they pass through; the rest face the same gate as the sidebar. */
+export function tabsFor(roles: string[] | undefined, admissionsMode?: AdmissionsMode) {
+  return TEACHER_TABS.filter((t) =>
+    t.href === '/home' || t.href === '/me-more' || canReach(roles, t.href, admissionsMode));
 }

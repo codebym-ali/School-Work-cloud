@@ -288,10 +288,21 @@ describe('Staff attendance marking (e2e)', () => {
     let teacherStaffId: string;
     const teacherPw = 'Teach!Secret12';
 
+    /**
+     * Turn self check-in on — **and make every day a working day**.
+     *
+     * `weeklyOffDays: []` is not incidental. Check-in is refused with 422 on a weekly off, and the
+     * school's default off day is SUNDAY, so these cases were date-dependent: two of them carried
+     * an `if (422) return` escape hatch and the third did not, which meant the suite went red
+     * every Sunday. The hatch was not much better — it made those two assert *nothing* one day in
+     * seven, which is a test that reports success for not having run.
+     *
+     * Removing the weekly off removes the dependence outright: all three run the same on any day.
+     */
     const setSelfMarking = (on: boolean, extra: object = {}) =>
       platform.school.update({
         where: { id: schoolId },
-        data: { settings: { staffAttendance: { selfMarking: on, ...extra } } },
+        data: { settings: { weeklyOffDays: [], staffAttendance: { selfMarking: on, ...extra } } },
       });
 
     beforeAll(async () => {
@@ -305,7 +316,15 @@ describe('Staff attendance marking (e2e)', () => {
       teacherCsrf = csrfOf(teacherCookies);
     });
 
-    afterEach(async () => { await setSelfMarking(false); });
+    afterEach(async () => {
+      // Restores the weekly off as well as the switch. `settings` is written whole, so leaving
+      // `weeklyOffDays: []` behind leaked into the oversight block below — whose entire subject is
+      // that a Sunday is not a working day.
+      await platform.school.update({
+        where: { id: schoolId },
+        data: { settings: { weeklyOffDays: ['SUNDAY'], staffAttendance: { selfMarking: false } } },
+      });
+    });
 
     const checkIn = () => authed('post', '/api/v1/staff-attendance/check-in', teacherCookies, teacherCsrf).send({});
 
@@ -319,7 +338,6 @@ describe('Staff attendance marking (e2e)', () => {
     it('records PRESENT or LATE from the CLOCK, with SELF provenance and a timestamp', async () => {
       await setSelfMarking(true);
       const res = await checkIn();
-      if (res.status === 422) return; // today is a weekly off — covered by its own case below
       expect(res.status).toBe(201);
 
       const row = await platform.staffAttendance.findFirstOrThrow({ where: { staffId: teacherStaffId } });
@@ -332,7 +350,7 @@ describe('Staff attendance marking (e2e)', () => {
     it('cannot be pressed twice — the second attempt does not overwrite the first timestamp', async () => {
       await setSelfMarking(true);
       const first = await checkIn();
-      if (first.status === 422) return;
+      expect(first.status).toBe(201);
       const firstRow = await platform.staffAttendance.findFirstOrThrow({ where: { staffId: teacherStaffId } });
 
       const second = await checkIn();
@@ -344,7 +362,10 @@ describe('Staff attendance marking (e2e)', () => {
     it('cannot resurrect a day the office already marked ABSENT', async () => {
       // The exploit this endpoint exists to not have: pressing a button to undo a deduction.
       await setSelfMarking(true);
-      await mark(teacherStaffId, 'ABSENT');
+      // TODAY explicitly: `mark()` defaults to `workingDay()`, which steps back past a Sunday — so
+      // on a Sunday the office marked one day and check-in targeted another, and the collision
+      // this case exists to prove simply did not happen.
+      await mark(teacherStaffId, 'ABSENT', iso(new Date()));
       const res = await checkIn();
       expect(res.status).toBe(409);
       const row = await platform.staffAttendance.findFirstOrThrow({ where: { staffId: teacherStaffId } });

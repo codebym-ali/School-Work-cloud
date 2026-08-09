@@ -214,3 +214,81 @@ input.invalid, select.invalid { border-color: var(--danger); }
   .form-actions { padding: 12px 14px; margin: 8px -14px 0; }
   .form-actions button { flex: 1 1 auto; }
 }
+
+/* ── Teacher phone shell (Teacher Mobile Home Plan, M0) ──────────────────────
+   TEACHER only, by operator decision: every other role keeps the sidebar-and-drawer
+   at every width. The tab bar is hidden by default and revealed at the phone
+   breakpoint, so the breakpoint lives in ONE place — the component decides *who*
+   sees a tab bar, CSS decides *when*. */
+.tabbar { display: none; }
+
+@media (max-width: 720px) {
+  .tabbar {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: 1fr;
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 45;
+    background: var(--card);
+    border-top: 1px solid var(--border);
+    /* Notched phones: the home-indicator strip would otherwise sit on top of the labels. */
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  .tabbar .tab {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 2px; padding: 8px 4px;
+    /* 44px is the smallest target a thumb hits reliably; below it people miss and blame the app. */
+    min-height: 56px;
+    text-decoration: none; color: var(--muted); font-size: 11px;
+  }
+  .tabbar .tab.active { color: var(--brand); font-weight: 600; }
+  .tabbar .tab-icon { font-size: 20px; line-height: 1; }
+  /* The bar is fixed, so the last thing on every page would sit underneath it. */
+  .has-tabbar .content { padding-bottom: calc(76px + env(safe-area-inset-bottom, 0px)); }
+  /* With a tab bar there is nothing left for the drawer to do, and two navigations on one
+     screen is how a user learns to trust neither. */
+  .has-tabbar .sidebar, .has-tabbar .nav-toggle, .has-tabbar .nav-overlay { display: none; }
+}
+
+/* ── The "now" card ──────────────────────────────────────────────────────────
+   The one loud element on the teacher's home, and the only inverted surface in the
+   product. Everything around it is a white card on grey; making this dark is what
+   makes "what am I doing right now" findable at arm's length without inventing a
+   second palette for one screen. */
+.now {
+  background: var(--ink); color: #fff; border-radius: 14px; padding: 18px 18px 16px;
+  border: 1px solid var(--ink);
+}
+.now .eyebrow {
+  font-size: 11px; letter-spacing: .10em; text-transform: uppercase;
+  color: #9aa3b2; margin: 0 0 6px;
+}
+.now .headline { font-size: 26px; font-weight: 650; line-height: 1.15; margin: 0; }
+.now .detail { color: #c3cad6; font-size: 14px; margin: 4px 0 0; }
+.now .cta {
+  display: block; width: 100%; text-align: center; margin-top: 14px;
+  background: #fff; color: var(--ink); font-weight: 600; font-size: 15px;
+  border-radius: 10px; padding: 13px 16px; text-decoration: none; min-height: 48px;
+}
+.now .cta:active { transform: translateY(1px); }
+
+/* The rest of the day as a rail: the period number IS the ordering, so it earns its
+   place as structure rather than decoration. */
+.day-rail { list-style: none; margin: 0; padding: 0; }
+.day-rail li {
+  display: grid; grid-template-columns: 34px 1fr; gap: 12px; align-items: baseline;
+  padding: 10px 0; border-top: 1px solid var(--border);
+}
+.day-rail li:first-child { border-top: 0; }
+.day-rail .p { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.day-rail .what { font-size: 14px; }
+.day-rail .where { color: var(--muted); font-size: 12px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .now .cta:active { transform: none; }
+}
+
+@media (max-width: 720px) {
+  /* Phone shell only: identity, Security and Sign out are all one tap away under the Me tab, and
+     repeating them here costs vertical space on the screen with least of it. The bell stays. */
+  .has-tabbar .topbar-desktop { display: none; }
+}

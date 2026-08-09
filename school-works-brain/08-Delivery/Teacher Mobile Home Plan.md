@@ -1,7 +1,7 @@
 ---
 title: Teacher Mobile Home Plan
 type: plan
-status: draft — awaiting operator decisions in §7
+status: M0 + M1 shipped — M2–M4 pending
 updated: 2026-08-08
 ---
 
@@ -115,11 +115,24 @@ paths to the same data.
 
 ## 6. Phases
 
-- **M0 — the shell learns about phones, for teachers.** Bottom tab bar under 720px **when the
+- **M0 — the shell learns about phones, for teachers. ✅ DONE 2026-08-08.** Bottom tab bar under 720px **when the
   primary role is TEACHER** (§7.1), safe-area insets for notched screens, 44px targets, and an
   `overflow-x` audit of the tables a teacher actually meets. Every other role is untouched.
-- **M1 — the teacher home.** New route `/home`, teacher landing changes from `/attendance`. The
-  "now" card, next-up list, and needs-you list. This is the phase that delivers the value.
+- **M1 — the teacher home. ✅ DONE 2026-08-08.** `/home`, and `TEACHER.landing` moved off
+  `/attendance`. Verified live at 375×812: *"Good morning, Nadia"*, **NOW · PERIOD 1 / Grade 9-A /
+  Mathematics · Room 3** with one button, *Later today* listing P3 and P5, and the tab bar. The
+  button carries `?sectionId=`, which the attendance page already honoured (built for My Classes),
+  so it lands on the right register — confirmed by the section select reading *Grade 9 — A*.
+  - **Two things the browser caught that a test would not have.** `textTransform: capitalize` on
+    the whole heading rendered *"Good Morning"*; it belongs on the name alone. And the topbar was
+    still carrying the email, Security and Sign out on a phone — all one tap away under **Me**, and
+    worth ~50px of an 812px screen. The bell stays: it is the only time-sensitive thing there.
+  - **Checked what should NOT have changed:** desktop still has the sidebar and no tab bar, and an
+    **owner on a phone still gets the drawer** — which is the operator's teacher-only decision
+    behaving as chosen rather than as a bug.
+  - ⚠️ **"Now" is not a clock.** There are no period times in the model, so the card shows the
+    earliest period of today. Real bell times would need a schema change; the comment says so in
+    place, because "now" invites the next reader to go looking for a clock that is not there.
 - **M2 — the register on a phone.** The attendance marking grid is a wide table; on a phone it
   becomes a list of students with present/absent as a segmented control, and a sticky "Save" at
   thumb height. Pre-scoped when arrived at from the "now" card.

@@ -6,7 +6,8 @@ import { usePathname, useRouter } from 'next/navigation';
 import { api, ApiError, type ClosureNotice, type Me } from '@/lib/api';
 import { MeContext } from '@/lib/me-context';
 import { NotificationBell } from '@/components/notification-bell';
-import { groupedNav, hasAnyRole, navItemFor, panelLabel, MFA_REQUIRED_ROLES } from '@/lib/roles';
+import { groupedNav, hasAnyRole, navItemFor, panelLabel, usesMobileShell, MFA_REQUIRED_ROLES } from '@/lib/roles';
+import { TeacherTabs } from '@/components/teacher-tabs';
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -46,10 +47,13 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const current = navItemFor(pathname);
   const authorized = !current || hasAnyRole(me.roles, current.roles);
   const needsMfa = !me.mfaEnabled && me.roles.some((r) => (MFA_REQUIRED_ROLES as readonly string[]).includes(r));
+  // TEACHER only (Teacher Mobile Home Plan 7.1). `has-tabbar` lets CSS swap the drawer for the
+  // tab bar at the phone breakpoint without this component knowing what that breakpoint is.
+  const mobileShell = usesMobileShell(me.roles);
 
   return (
     <MeContext.Provider value={me}>
-      <div className="shell">
+      <div className={`shell${mobileShell ? ' has-tabbar' : ''}`}>
         {navOpen && (
           <button className="nav-overlay" aria-label="Close menu" onClick={() => setNavOpen(false)} />
         )}
@@ -78,13 +82,16 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             >
               ☰
             </button>
-            <div className="who">{me.email} · {me.roles.join(', ')}</div>
+            <div className="who topbar-desktop">{me.email} · {me.roles.join(', ')}</div>
             <div className="row" style={{ gap: 8 }}>
               {/* Beside Security, not on a dashboard — see the note on the closure banner below.
                   Renders nothing at all when there is nothing to say. */}
               <NotificationBell />
-              <Link className="ghost small" href="/security" style={{ textDecoration: 'none' }}>🔒 Security</Link>
-              <button className="ghost small" onClick={async () => { await api.logout().catch(() => {}); router.replace('/login'); }}>
+              {/* Hidden in the phone shell: identity, Security and Sign out all live under the
+                  Me tab there, and repeating them costs ~50px of an 812px screen. The bell stays —
+                  it is the one thing in this bar that is time-sensitive. */}
+              <Link className="ghost small topbar-desktop" href="/security" style={{ textDecoration: 'none' }}>🔒 Security</Link>
+              <button className="ghost small topbar-desktop" onClick={async () => { await api.logout().catch(() => {}); router.replace('/login'); }}>
                 Sign out
               </button>
             </div>
@@ -118,6 +125,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             </div>
           )}
         </div>
+        {/* Outside `.content` so it is fixed to the viewport rather than to a scrolling column. */}
+        {mobileShell && <TeacherTabs roles={me.roles} admissionsMode={me.admissionsMode} />}
       </div>
     </MeContext.Provider>
   );

@@ -8,6 +8,7 @@ import { PlatformPrismaService } from '@database';
 import { AppModule } from '../../apps/api/src/app.module';
 import { ProvisioningService } from '../../apps/api/src/modules/platform/provisioning.service';
 import { destroyTenant } from './support/tenant';
+import { admissionController } from './support/admission';
 
 /**
  * Timetable (§23) — the grid, and the rules that stop it lying.
@@ -26,6 +27,7 @@ describe('Timetable (e2e, §23)', () => {
   let ownerCookies: string[];
   let ownerCsrf: string;
   let teacherCookies: string[];
+  let studentCookies: string[];
   let classId: string;
   let sectionA: string;
   let sectionB: string;
@@ -39,6 +41,7 @@ describe('Timetable (e2e, §23)', () => {
   const sub = `tt-${randomUUID().slice(0, 8)}`;
   const host = `${sub}.localhost`;
   const owner = { email: 'owner@tt.pk', password: 'Owner!Secret12' };
+  const studentLogin = { email: 'ayesha@tt.local', password: 'Student!Secret12' };
   const teacher = { email: 'teacher@tt.pk', password: 'Teach!Secret12' };
 
   const server = () => app.getHttpServer();
@@ -81,6 +84,34 @@ describe('Timetable (e2e, §23)', () => {
     otherClassId = (await post('/api/v1/classes', { campusId, name: 'Grade 2', order: 2 })).body.id;
     otherSection = (await post('/api/v1/sections', { classId: otherClassId, name: 'A' })).body.id;
     otherSubjectId = (await post('/api/v1/subjects', { classId: otherClassId, name: 'Nazra' })).body.id;
+
+    // A STUDENT session, so the student half of `/timetable/mine` is exercised by a real student
+    // rather than inferred from the teacher path. Admitting needs the admission-officer seat
+    // (§8), hence the shared helper; the login itself is an ordinary email/password user with
+    // `roles: ['STUDENT']` linked to the Student record through `Student.userId`.
+    const { admit } = await admissionController(app, platform, schoolId, host, campusId);
+    const student = await admit({
+      fullName: 'Ayesha Malik', gender: 'FEMALE', dateOfBirth: '2011-05-10',
+      campusId, classId, sectionId: sectionA,
+      guardian: { mode: 'CREATE', fullName: 'Asif Malik', phone: '03001234567', relation: 'FATHER' },
+    });
+    const studentUser = await platform.user.create({
+      data: {
+        schoolId, email: studentLogin.email, roles: ['STUDENT'] as never, status: 'ACTIVE',
+        passwordHash: await argon2.hash(studentLogin.password, { type: argon2.argon2id }),
+      },
+    });
+    await platform.student.update({ where: { id: student.body.studentId }, data: { userId: studentUser.id } });
+    studentCookies = await login(studentLogin.email, studentLogin.password);
+
+    // A classmate in section B, with no login. Purely so the scoping test can FAIL: with one
+    // enrolment in the school, a `findFirst` that ignored the caller entirely would still land on
+    // the right row, and the test would pass while proving nothing. Probed exactly that way.
+    await admit({
+      fullName: 'Bilal Ahmed', gender: 'MALE', dateOfBirth: '2011-06-12',
+      campusId, classId, sectionId: sectionB,
+      guardian: { mode: 'CREATE', fullName: 'Rashid Ahmed', phone: '03009876543', relation: 'FATHER' },
+    });
 
     const mkStaff = async (email: string, code: string, password?: string) => {
       const res = await post('/api/v1/staff', {
@@ -203,12 +234,56 @@ describe('Timetable (e2e, §23)', () => {
     expect(res.body.slots).toEqual([]);
   });
 
-  // ⚠️ The STUDENT branch of `mine()` — resolving an active enrolment to that section's week — is
-  // NOT covered here. It needs a student session, which uses the registration-number/CNIC auth
-  // path rather than a password, and that harness lives in `student-portal.e2e-spec`. The branch
-  // is exercised by the page in the browser but not by a test; worth closing when the two specs
-  // next need a shared student fixture. Saying so beats a comment claiming coverage that is not
-  // there.
+  // ── the STUDENT half of `mine()` ──────────────────────────────────────────
+  // Covered 2026-08-09. This block used to carry a note saying it could not be tested without the
+  // registration-number/CNIC auth path — **that was wrong**. A student login is an ordinary
+  // email/password `User` with `roles: ['STUDENT']` joined to the Student row through
+  // `Student.userId`, exactly as `student-portal.e2e-spec` builds it. The note had turned an hour
+  // of fixture work into a permanent excuse; checking cost ten minutes.
+
+  it("gives a student their own section's week", async () => {
+    await setSlot({ sectionId: sectionA, dayOfWeek: 1, periodNo: 1, subjectId: mathId, staffId: teacherId, room: 'Lab 2' });
+    await setSlot({ sectionId: sectionA, dayOfWeek: 3, periodNo: 2, subjectId: mathId, staffId: teacherId });
+
+    const res = await get('/api/v1/timetable/mine', studentCookies);
+    expect(res.status).toBe(200);
+    // The branch is chosen by what the caller IS, not by anything they send — no staff profile,
+    // one active enrolment, so the enrolment's section is the answer.
+    expect(res.body.as).toBe('STUDENT');
+    expect(res.body.slots).toHaveLength(2);
+    expect(res.body.slots.map((x: { periodNo: number }) => x.periodNo)).toEqual([1, 2]);
+    expect(res.body.slots[0].subject.name).toBe('Mathematics');
+    expect(res.body.slots[0].room).toBe('Lab 2');
+  });
+
+  it("never shows a student another section's week", async () => {
+    // BOTH sections get a lesson, and they are told apart only by period number. Asserting the
+    // student sees *their* slot rather than *no* slot is what makes this able to fail: an earlier
+    // version populated only section B and expected `[]`, which passed even with the caller
+    // ignored entirely — proved by probing it. A test that cannot fail is not coverage.
+    await setSlot({ sectionId: sectionA, dayOfWeek: 2, periodNo: 1, subjectId: mathId, staffId: teacherId });
+    await setSlot({ sectionId: sectionB, dayOfWeek: 2, periodNo: 4, subjectId: mathId, staffId: secondTeacherId });
+
+    const res = await get('/api/v1/timetable/mine', studentCookies);
+    expect(res.body.as).toBe('STUDENT');
+    expect(res.body.slots).toHaveLength(1);
+    expect(res.body.slots[0].periodNo).toBe(1);          // section A's, not section B's
+    expect(res.body.slots[0].section.id).toBe(sectionA);
+  });
+
+  it('stops showing a week once the enrolment is no longer active', async () => {
+    await setSlot({ sectionId: sectionA, dayOfWeek: 1, periodNo: 1, subjectId: mathId, staffId: teacherId });
+    expect((await get('/api/v1/timetable/mine', studentCookies)).body.slots).toHaveLength(1);
+
+    // A withdrawn student is not in that class any more, and a timetable that kept showing them
+    // its week would be telling them to turn up. `status: 'ACTIVE'` in the lookup is what stops it.
+    await platform.studentEnrollment.updateMany({ where: { schoolId }, data: { status: 'WITHDRAWN' } });
+    const after = await get('/api/v1/timetable/mine', studentCookies);
+    expect(after.body.as).toBe('NONE');
+    expect(after.body.slots).toEqual([]);
+    await platform.studentEnrollment.updateMany({ where: { schoolId }, data: { status: 'ACTIVE' } });
+  });
+
 
   it('reports which sections have no timetable yet', async () => {
     await setSlot({ sectionId: sectionA, dayOfWeek: 1, periodNo: 1, subjectId: mathId, staffId: teacherId });

@@ -115,9 +115,9 @@ paths to the same data.
 
 ## 6. Phases
 
-- **M0 — the shell learns about phones.** Bottom tab bar under 720px (sidebar stays on desktop),
-  safe-area insets for notched screens, 44px targets, `overflow-x` audit on every table.
-  **Applies to all roles** — see §7.1.
+- **M0 — the shell learns about phones, for teachers.** Bottom tab bar under 720px **when the
+  primary role is TEACHER** (§7.1), safe-area insets for notched screens, 44px targets, and an
+  `overflow-x` audit of the tables a teacher actually meets. Every other role is untouched.
 - **M1 — the teacher home.** New route `/home`, teacher landing changes from `/attendance`. The
   "now" card, next-up list, and needs-you list. This is the phase that delivers the value.
 - **M2 — the register on a phone.** The attendance marking grid is a wide table; on a phone it
@@ -130,18 +130,26 @@ paths to the same data.
 
 ## 7. Decisions needed
 
-**7.1 — Does the mobile shell apply to every role, or only teachers?**
-Recommendation: **every role.** An owner checks the school from a phone at the weekend, and an
-accountant at a fee counter is on a desktop either way. Two shells means two places to fix every
-layout bug, and the sidebar can simply remain the desktop presentation of the same nav.
+**7.1 — Which roles get the mobile shell? → DECIDED 2026-08-08: TEACHER ONLY.**
+Operator's call, against my recommendation of all roles, and it is a defensible one: the teacher is
+the role that is actually mobile, and the others sit at desks. Recorded with what it costs, so the
+next person does not read it as an oversight:
+- the bottom tab bar renders **only when the signed-in user's primary role is TEACHER**; every
+  other role keeps the sidebar-and-drawer exactly as today, on every screen size;
+- an owner or accountant on a phone therefore still gets the drawer. That is accepted, not missed;
+- ⚠️ **the tab bar must be a projection of the same `NAV` array in `lib/roles.ts`, never a second
+  list.** With one role using it the temptation to hardcode four links is strongest, and that is
+  precisely how a nav starts disagreeing with the permissions behind it — the failure that has
+  already deleted capability three times in this codebase (CSV import, `/my-attendance`,
+  `/my-leaves`).
 
-**7.2 — Does the teacher's landing move from `/attendance` to `/home`?**
-Recommendation: **yes**, and that is most of the point. Attendance stays one tap away in the tab
-bar. Without this the home is a page nobody visits.
+**7.2 — Does the teacher's landing move from `/attendance` to `/home`? → DECIDED: YES.**
+`ROLE_INFO` in `lib/roles.ts` changes `TEACHER.landing` to `/home`. Attendance stays one tap away
+in the tab bar. Without this the home is a page nobody visits.
 
-**7.3 — Installable app (PWA) now or later?**
-Recommendation: **later, M4, and as a separate decision.** It changes how updates reach people —
-a cached shell can serve a stale app after a deploy, which needs a version check and a "reload"
+**7.3 — Installable app (PWA) now or later? → OPEN.**
+Recommendation: **later, M4, and as its own decision.** It changes how updates reach people — a
+cached shell can serve a stale app after a deploy, which needs a version check and a "reload"
 prompt to do safely. Worth having; not worth bundling into a UI change.
 
 ## 8. Out of scope, deliberately

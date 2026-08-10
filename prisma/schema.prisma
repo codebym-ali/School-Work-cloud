@@ -265,6 +265,7 @@ model School {
   staffProfiles       StaffProfile[]
   teacherAssignments  TeacherAssignment[]
   timetableSlots     TimetableSlot[]
+  coverAssignments   CoverAssignment[]
   inquiries           Inquiry[]
   feeHeads            FeeHead[]
   feeStructures       FeeStructure[]
@@ -414,6 +415,7 @@ model Section {
   subjects           SectionSubject[]
   teacherAssignments TeacherAssignment[]
   timetableSlots     TimetableSlot[]
+  coverAssignments   CoverAssignment[]
   classTests         ClassTest[]
 
   @@unique([id, schoolId])
@@ -520,6 +522,7 @@ model User {
   approvedDiscounts          Discount[]
   markedAttendance           AttendanceRecord[]
   markedStaffAttendance      StaffAttendance[]    @relation("StaffAttendanceMarkedBy")
+  arrangedCovers             CoverAssignment[]    @relation("CoverArrangedBy")
   submittedFeeClaims         FeePaymentClaim[]    @relation("ClaimSubmittedBy")
   reviewedFeeClaims          FeePaymentClaim[]    @relation("ClaimReviewedBy")
   moduleAccess               ModuleAccess[]
@@ -747,6 +750,8 @@ model StaffProfile {
 
   assignments      TeacherAssignment[]
   timetableSlots   TimetableSlot[]
+  coveringFor      CoverAssignment[] @relation("CoverCovering")
+  coveredWhileAway CoverAssignment[] @relation("CoverAbsent")
   attendance       StaffAttendance[]
   leaves           StaffLeave[]
   salaryStructures SalaryStructure[]
@@ -1387,6 +1392,57 @@ model TimetableSlot {
   @@index([subjectId, schoolId])
   @@index([staffId, schoolId])
   @@map("timetable_slots")
+}
+
+/// Who is taking a class today, when the teacher who normally does is not there (Cover Plan).
+///
+/// Before this, a substitute standing in the room could not mark the register at all —
+/// `assertCanMark` requires a `TeacherAssignment`, so they got "You are not assigned to this
+/// section" and only an admin could close it. This row is what makes them able to.
+///
+/// ⚠️ **It is a permission grant, not a note.** It gives one person write access to another
+/// class's register, on data that feeds pay and defaulter reporting, and it can be backdated —
+/// so creating and removing it are both audited, and it is refused into a month whose payroll is
+/// APPROVED.
+model CoverAssignment {
+  id       String   @id @default(uuid()) @db.Uuid
+  schoolId String   @map("school_id") @db.Uuid
+  school   School   @relation(fields: [schoolId], references: [id])
+  /// One day. Cover is not a contract — a fortnight of absence is fourteen rows, so the model
+  /// stays simple and the UI does the repetition.
+  date     DateTime @db.Date
+  sectionId String  @map("section_id") @db.Uuid
+  section   Section @relation(fields: [sectionId, schoolId], references: [id, schoolId])
+  /// NULL when the school runs no timetable — then it means "cover 9-A all day", which is how a
+  /// school without a published grid actually works. `timetable_slots` shipped with zero rows in
+  /// every school, so requiring a period would have made this unusable where it is needed most.
+  periodNo Int?     @map("period_no")
+
+  coveringStaffId String       @map("covering_staff_id") @db.Uuid
+  coveringStaff   StaffProfile @relation("CoverCovering", fields: [coveringStaffId, schoolId], references: [id, schoolId])
+  /// Who is away. Nullable on purpose: a class can need someone for reasons the register does not
+  /// know — a teacher pulled into a meeting — and refusing to record cover without a matching
+  /// absence would make the office lie to the system in order to use it.
+  absentStaffId   String?       @map("absent_staff_id") @db.Uuid
+  absentStaff     StaffProfile? @relation("CoverAbsent", fields: [absentStaffId, schoolId], references: [id, schoolId])
+
+  reason       String? @db.VarChar(200)
+  /// The admin who decided. This is who granted the access, so it is never nullable.
+  arrangedById String  @map("arranged_by_id") @db.Uuid
+  arrangedBy   User    @relation("CoverArrangedBy", fields: [arrangedById, schoolId], references: [id, schoolId])
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  /// ⚠️ No `@@unique` here on purpose. "One cover per section per period" cannot be expressed as a
+  /// plain unique index while `periodNo` is nullable — Postgres treats NULLs as DISTINCT, so two
+  /// whole-day covers for the same section on the same date would both be accepted, which is
+  /// exactly what the constraint would exist to stop. Two PARTIAL unique indexes do it instead,
+  /// in `prisma/sql/02_partial_uniques.sql`.
+  @@index([schoolId, coveringStaffId, date])
+  @@index([schoolId, sectionId, date])
+  @@index([absentStaffId, schoolId])
+  @@index([arrangedById, schoolId])
+  @@map("cover_assignments")
 }
 
 // ── HR / payroll ─────────────────────────────────────────────────────────────

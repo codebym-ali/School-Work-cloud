@@ -61,6 +61,12 @@ export const AuditActions = {
    *  re-opening a day quietly changes what everyone should have been paid. */
   HOLIDAY_DECLARED: 'HOLIDAY_DECLARED',
   HOLIDAY_REMOVED: 'HOLIDAY_REMOVED',
+  /** Someone was given the right to mark another class's register for a day (Cover Plan).
+   *  Audited because it **is a permission grant, not a note**: it lets one person write to a
+   *  register that feeds pay and defaulter reporting, and it can be created for a past date. The
+   *  row names both teachers, so "who took my class, and who decided" survives the cover itself. */
+  COVER_ASSIGNED: 'COVER_ASSIGNED',
+  COVER_REMOVED: 'COVER_REMOVED',
   /** Somebody claimed a payment, and somebody decided about it. A claim is the evidence trail
    *  for money the school did not watch arrive — VERIFIED records the receipt it produced. */
   FEE_CLAIM_SUBMITTED: 'FEE_CLAIM_SUBMITTED',

@@ -15,6 +15,7 @@ import {
   type RequestUser,
 } from '@common';
 import { AuditService, TenantPrismaService } from '@database';
+import { CoverService } from '../cover/cover.service';
 import { SetupService } from '../setup/setup.service';
 import { SmsProducer } from '../comms/sms/sms-producer.service';
 import type {
@@ -50,6 +51,8 @@ export class AttendanceService {
     private readonly audit: AuditService,
     private readonly setup: SetupService,
     private readonly sms: SmsProducer,
+    // Cover is the second way a teacher may mark a section (Cover Plan, C0).
+    private readonly cover: CoverService,
   ) {}
 
   private get db() {
@@ -107,7 +110,7 @@ export class AttendanceService {
       throw new AppError(ErrorCodes.FORBIDDEN, HttpStatus.FORBIDDEN, 'Only an admin may override holiday marking');
     }
 
-    await this.assertCanMark(dto.sectionId, user);
+    await this.assertCanMark(dto.sectionId, user, date);
     const currentYearId = await this.setup.requireCurrentYearId();
 
     const errors: BulkResult['errors'] = [];
@@ -892,19 +895,36 @@ export class AttendanceService {
   }
 
   // ── helpers ──────────────────────────────────────────────────────────────────
-  private async assertCanMark(sectionId: string, user: RequestUser): Promise<void> {
+  private async assertCanMark(sectionId: string, user: RequestUser, date: Date): Promise<void> {
     if (isAdmin(user)) return;
     if (!user.roles.includes('TEACHER')) {
       throw new AppError(ErrorCodes.FORBIDDEN, HttpStatus.FORBIDDEN, 'Not permitted to mark attendance');
     }
     const staff = await this.db.staffProfile.findFirst({ where: { userId: user.userId } });
-    const yearId = await this.setup.requireCurrentYearId();
-    const assignment = staff
-      ? await this.db.teacherAssignment.findFirst({ where: { staffId: staff.id, academicYearId: yearId, sectionId } })
-      : null;
-    if (!assignment) {
+    if (!staff) {
       throw new AppError(ErrorCodes.FORBIDDEN, HttpStatus.FORBIDDEN, 'You are not assigned to this section');
     }
+    const yearId = await this.setup.requireCurrentYearId();
+    const assignment = await this.db.teacherAssignment.findFirst({
+      where: { staffId: staff.id, academicYearId: yearId, sectionId },
+    });
+    if (assignment) return;
+
+    /**
+     * Second way to qualify: **cover** (Cover Plan, C0).
+     *
+     * Until this existed, a substitute physically standing in front of the class was refused — the
+     * register could only be closed by an admin, so someone had to walk to the office while thirty
+     * children waited. Cover is deliberately the narrowest possible grant: **this section, on this
+     * date**, and attendance only — never exam marks, which are subject-scoped and belong to
+     * whoever teaches the subject across a term.
+     *
+     * `date` is the date being MARKED, not today: backfilling yesterday's register is only allowed
+     * to someone who covered it yesterday.
+     */
+    if (await this.cover.coversSectionOn(staff.id, sectionId, date)) return;
+
+    throw new AppError(ErrorCodes.FORBIDDEN, HttpStatus.FORBIDDEN, 'You are not assigned to this section');
   }
 
   /**

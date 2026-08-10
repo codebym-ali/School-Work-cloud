@@ -1,8 +1,8 @@
 ---
 title: Cover Plan (teacher absent → who takes the class)
 type: plan
-status: draft (revised after self-critique) — awaiting operator decisions in §8
-updated: 2026-08-09
+status: C0 SHIPPED 2026-08-10 · C1–C4 planned
+updated: 2026-08-10
 ---
 
 # 🔁 Cover — when a teacher is away
@@ -212,12 +212,12 @@ without being told is how staff learn to distrust a system.
 
 ## 6. Phases
 
-- **C0 — the grant, and the three-field screen (§4.1).** Model, the two partial unique indexes,
-  `assertCanMark` extended, audit actions, plus the record-cover form. **C0 ships a complete
-  feature**: no timetable, no staff register, no prerequisites — the office records cover and the
-  right person can mark. Everything after this is speed. *(An earlier draft made C0 backend-only
-  and put the screen in C1, which would have left the first shippable increment unusable by the
-  person who needs it.)*
+- **C0 — the grant, and the three-field screen (§4.1). ✅ SHIPPED 2026-08-10.** Model, the two
+  partial unique indexes, `assertCanMark` extended, audit actions, plus the record-cover form.
+  **C0 ships a complete feature**: no timetable, no staff register, no prerequisites — the office
+  records cover and the right person can mark. Everything after this is speed. *(An earlier draft
+  made C0 backend-only and put the screen in C1, which would have left the first shippable
+  increment unusable by the person who needs it.)* See §10 for what shipped and what it cost.
 - **C1 — start from who is away.** Reads staff attendance to list absent/on-leave teachers and
   their sections, so the office picks from a list rather than memory. Plus "repeat for a date
   range" for a known multi-day absence.
@@ -298,3 +298,69 @@ which is worse than a recorded, audited backdate.
   reassignment are timetable edits and stay out.
 - **Cover as a back door.** Mitigated by §3.3: audited, narrow, date-bound, payroll-frozen-aware —
   and by C4 proving each of those can fail.
+
+---
+
+## 10. C0 as built — 2026-08-10
+
+**Shipped:** `cover_assignments` + two partial unique indexes, `CoverService`/`CoverController`
+(`POST` / `DELETE` / `GET ?date=`), `assertCanMark` extended with the cover branch, two audit
+actions, `/cover` (the §4.1 three-field screen), three permission-matrix rows,
+`cover.e2e-spec.ts` (**18 cases**). No timetable and no staff register are involved anywhere.
+
+### What the design decided, and why
+
+- **`assertCanMark` gained a `date` parameter.** It never had one — an assignment is not dated, so
+  the question "may this person mark 9-A?" used to have a date-free answer. Cover is dated by its
+  whole nature, so the authorization question changed shape: *may this person mark 9-A **on the 10th***.
+  Two tests exist purely because of this (a cover on Monday may not mark Tuesday).
+- **No `@@unique` on the model — two partial indexes instead.** The obvious
+  `@@unique([sectionId, date, periodNo])` **cannot work**: `period_no` is NULL for whole-day cover
+  and **Postgres treats NULLs as distinct**, so two whole-day covers on the same class would both
+  insert. So: `cover_one_per_section_period` (`WHERE period_no IS NOT NULL`) and
+  `cover_one_per_section_day` (`WHERE period_no IS NULL`). This is the same NULL-distinctness the
+  fee module *relies on* for `fee_invoices.psid` — the same behaviour is a feature there and a bug
+  here, which is why it is written down in both places. The duplicate test says so in a comment,
+  because a later reader "simplifying" it back to one unique key would reopen the hole silently.
+- **`GET /cover` is campus-scoped in the service, not a guard** (§22.8). A guard runs before
+  `withTenant`, so it would read zero rows and refuse everyone.
+- **The error names the person.** *"Ayesha Khan is already covering 9th-A that day"*, not
+  "conflict" — the office's next move is to find out who, and a status code doesn't tell them.
+- **Refused into an APPROVED payroll month.** Cover grants the right to *change* attendance, and
+  attendance drives the deduction; granting it into a settled month is the same hole as editing the
+  register directly. A paid payslip must keep agreeing with its register.
+- **The `/cover` nav entry is OWNER_ADMIN + CAMPUS_ADMIN, deliberately excluding TEACHER.**
+  Arranging cover is a permission grant; if the person who benefits could issue it, the boundary
+  would not exist. A test asserts a teacher arranging their own cover gets 403.
+
+### Proven non-vacuous, twice
+
+The two tests that carry the feature were probed by breaking the code under them:
+
+| Probe | Result |
+|---|---|
+| Cover grant ignores the date | **1 failed** — "does not let the cover mark a DIFFERENT date" |
+| Cover branch removed from `assertCanMark` | **2 failed** — "lets that same teacher mark it once cover is recorded", "takes the right back when cover is removed" |
+
+The list test was added last and is date-probing by construction: it asserts the other day is empty,
+so a `list` that ignored its `date` fails.
+
+### Verified live (demo tenant, owner session)
+
+Recorded *9th-A · all day — Ayesha Khan · instead of Haris Ali · Sick leave* → the row rendered as
+written and the toast read *"Cover recorded — they can mark that register now."* A second cover for
+the same class returned **"Ayesha Khan is already covering 9th-A that day"**. Switching the day to
+the 11th emptied the list; switching back and pressing Remove emptied it again and the substitute's
+right went with it. Demo left clean.
+
+⚠️ **Found while doing it, out of scope:** the demo tenant's class dropdown carries ~110 leftover
+`Cls<epoch-ms>` classes from Playwright runs, which now swamp the five real ones on every screen
+with a class picker. Same leak as the `admin-<timestamp>` tenants fixed on 2026-08-07, one level
+down — the teardown removes leaked *tenants* but not fixtures created inside the shared `demo`
+tenant. Filed separately.
+
+### Deliberately still open (C1–C4)
+
+`REGISTER_UNMARKED` still chases the absent teacher, and the head's unmarked count still names
+them, rather than the cover (§6a). Both are one filter each and both belong with C2's surfaces;
+until then the office knows about the cover and the notification feed does not.

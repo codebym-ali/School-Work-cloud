@@ -61,3 +61,18 @@ CREATE UNIQUE INDEX IF NOT EXISTS users_one_campus_admin_per_campus
 CREATE UNIQUE INDEX IF NOT EXISTS users_one_admission_controller_per_campus
   ON users (campus_id)
   WHERE 'ADMISSION_CONTROLLER' = ANY (roles) AND deleted_at IS NULL AND campus_id IS NOT NULL;
+
+-- Cover: one owner per class, per period — or per day when the school runs no timetable.
+--
+-- Two PARTIAL indexes rather than one `UNIQUE (section_id, date, period_no)`, because
+-- `period_no` is nullable and **Postgres treats NULLs as DISTINCT**: a plain unique index
+-- would happily accept two whole-day covers for the same section on the same date, which is
+-- precisely what it would exist to prevent. (Same behaviour `fee_invoices.psid` relies on
+-- deliberately, a few lines from here — it is a tool, and it cuts both ways.)
+CREATE UNIQUE INDEX IF NOT EXISTS cover_one_per_section_period
+  ON cover_assignments (school_id, section_id, date, period_no)
+  WHERE period_no IS NOT NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS cover_one_per_section_day
+  ON cover_assignments (school_id, section_id, date)
+  WHERE period_no IS NULL;

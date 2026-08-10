@@ -23,4 +23,4 @@ updated: 2026-07-06
 - **On approval of a student leave:** a job writes/overwrites `ON_LEAVE` across the range and **locks** those cells against teacher edits.
 
 **Source:** [[03-database-schema-erd]], blueprint §9–§10.
-**Implementation status:** ✅ built and green (M3). Absence SMS verified end-to-end via the [[HR, Payroll, Comms & Documents|SMS pipeline]]; ON_LEAVE writing on approve works → [[Progress Tracker]]. *Note: §22.8 section-ownership is enforced in the service (guards run before the tenant tx).*
+**Implementation status:** ✅ built and green (M3). Absence SMS verified end-to-end via the [[HR, Payroll, Comms & Documents|SMS pipeline]]; ON_LEAVE writing on approve works → [[Progress Tracker]]. *Note: §22.8 section-ownership is enforced in the service (guards run before the tenant tx).* **Cover added 2026-08-10** — `assertCanMark` now also admits a teacher who holds a `CoverAssignment` for that section **on that date**, which is why the check takes a `date`. Recording cover is an admin act, not a teacher one → [[Cover Plan]].

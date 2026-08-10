@@ -71,6 +71,9 @@ export const NAV: NavItem[] = [
   // The editor is admin-only (§23: CRUD for owner, own-campus for a campus admin). A teacher gets
   // `/my-timetable` below rather than this screen — they read their week, they do not build it.
   { href: '/timetable', label: 'Timetable', icon: '🕘', group: 'Academics', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
+  // Arranging cover is a permission grant — it lets one teacher write to another class's
+  // register — so it sits with the people who approve leave, not with teachers.
+  { href: '/cover', label: 'Cover', icon: '🔁', group: 'Academics', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
   { href: '/exams', label: 'Exams & Results', icon: '📄', group: 'Academics', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'TEACHER'] },
   { href: '/reports', label: 'Reports', icon: '📈', group: 'Academics', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT'] },
   // Academic performance, not money — the accountant is deliberately excluded.

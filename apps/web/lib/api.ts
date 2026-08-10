@@ -303,6 +303,12 @@ export interface TimetableCoverage {
   academicYearId: string;
   sections: Array<{ sectionId: string; className: string; sectionName: string; slots: number }>;
 }
+export interface CoverRow {
+  id: string; date: string; periodNo: number | null; reason: string | null;
+  section: { id: string; name: string; class: { id: string; name: string; campusId: string } };
+  coveringStaff: { id: string; fullName: string | null; employeeCode: string };
+  absentStaff: { id: string; fullName: string | null; employeeCode: string } | null;
+}
 export interface ManagedTeacher {
   id: string; staffType: string; employeeCode: string; fullName: string | null; designation: string;
   employmentStatus: string; joinedAt: string;
@@ -750,6 +756,18 @@ export const api = {
     setSlot: (body: { sectionId: string; dayOfWeek: number; periodNo: number; subjectId: string; staffId: string; room?: string }) =>
       apiPost<TimetableSlot>('/timetable/slots', body),
     clearSlot: (id: string) => apiDelete<{ deleted: boolean }>(`/timetable/slots/${id}`),
+  },
+  /**
+   * Cover — who is taking a class when its teacher is away.
+   *
+   * Recording it is what lets the substitute mark the register; without it they are refused with
+   * "You are not assigned to this section". Needs no timetable and no staff attendance.
+   */
+  cover: {
+    list: (date: string) => apiGet<{ date: string; cover: CoverRow[] }>(`/cover?date=${date}`),
+    create: (body: { sectionId: string; date: string; coveringStaffId: string; periodNo?: number; absentStaffId?: string; reason?: string }) =>
+      apiPost<CoverRow>('/cover', body),
+    remove: (id: string) => apiDelete<{ deleted: boolean }>(`/cover/${id}`),
   },
   subjects: {
     list: (classId: string) => apiGet<Subject[]>(`/subjects?classId=${classId}`),

@@ -152,6 +152,14 @@ export const PERMISSION_MATRIX: MatrixRow[] = [
   // and would read as coverage of a boundary it cannot see. What it should say is proved in
   // `staff-leaves.e2e` with a real TEACHER session: asked about a colleague, answered about
   // themselves. Same lesson as the STUDENT note above — a row that cannot fail is worse than none.
+  // ── Cover ─────────────────────────────────────────────────────────────────
+  // Arranging cover is a PERMISSION GRANT — it lets one teacher write to another class's
+  // register, on data that feeds pay — so it belongs with the people who approve leave. A TEACHER
+  // being able to arrange their own cover would make the boundary meaningless, and `cover.e2e`
+  // asserts exactly that with a real teacher session.
+  { label: 'arrange cover', method: 'post', path: '/api/v1/cover', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
+  { label: 'remove cover', method: 'delete', path: '/api/v1/cover/00000000-0000-0000-0000-000000000000', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
+  { label: 'read the cover list', method: 'get', path: '/api/v1/cover', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'], scopeGated: true },
   // ── Timetable ─────────────────────────────────────────────────────────────
   // Building the week is the office's job; a teacher reads theirs and does not author it (§23).
   // These rows would have been impossible to write until 2026-08-08 — `timetable_slots` had no

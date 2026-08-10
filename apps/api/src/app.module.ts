@@ -36,6 +36,7 @@ import { AttendanceModule } from './modules/attendance/attendance.module';
 import { LeavesModule } from './modules/leaves/leaves.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { TimetableModule } from './modules/timetable/timetable.module';
+import { CoverModule } from './modules/cover/cover.module';
 import { FeesModule } from './modules/fees/fees.module';
 import { ExamsModule } from './modules/exams/exams.module';
 import { HrModule } from './modules/hr/hr.module';
@@ -85,6 +86,7 @@ import { UploadsModule } from './modules/uploads/uploads.module';
     LeavesModule,
     NotificationsModule,
     TimetableModule,
+    CoverModule,
     FeesModule,
     ExamsModule,
     HrModule,

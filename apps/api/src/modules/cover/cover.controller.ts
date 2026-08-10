@@ -1,7 +1,7 @@
-import { Body, Controller, Delete, Get, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Post, Query } from '@nestjs/common';
 import { Roles } from '@common';
 import { CoverService } from './cover.service';
-import { CoverQuery, CreateCoverDto } from './dto/cover.dto';
+import { CoverQuery, CreateCoverDto, CreateCoverRangeDto } from './dto/cover.dto';
 
 /**
  * Cover (Cover Plan, C0).
@@ -23,9 +23,26 @@ export class CoverController {
     return this.cover.list(q);
   }
 
+  /** Who is away and which of their classes still needs somebody — the morning worklist. */
+  @Get('away')
+  away(@Query() q: CoverQuery) {
+    return this.cover.away(q);
+  }
+
   @Post()
   create(@Body() dto: CreateCoverDto) {
     return this.cover.create(dto);
+  }
+
+  /**
+   * A known multi-day absence. **200, not 201**: some days in a range are legitimately skipped
+   * (closed, or already covered), so the answer is a summary of what happened rather than a
+   * created row — the same partial-outcome shape as `POST /attendance/bulk` (§25.3).
+   */
+  @Post('range')
+  @HttpCode(HttpStatus.OK)
+  createRange(@Body() dto: CreateCoverRangeDto) {
+    return this.cover.createRange(dto);
   }
 
   @Delete(':id')

@@ -1,7 +1,7 @@
 ---
 title: Cover Plan (teacher absent → who takes the class)
 type: plan
-status: C0 SHIPPED 2026-08-10 · C1–C4 planned
+status: C0 + C1 SHIPPED 2026-08-10 · C2–C4 planned
 updated: 2026-08-10
 ---
 
@@ -218,9 +218,9 @@ without being told is how staff learn to distrust a system.
   records cover and the right person can mark. Everything after this is speed. *(An earlier draft
   made C0 backend-only and put the screen in C1, which would have left the first shippable
   increment unusable by the person who needs it.)* See §10 for what shipped and what it cost.
-- **C1 — start from who is away.** Reads staff attendance to list absent/on-leave teachers and
-  their sections, so the office picks from a list rather than memory. Plus "repeat for a date
-  range" for a known multi-day absence.
+- **C1 — start from who is away. ✅ SHIPPED 2026-08-10.** Reads staff attendance **and approved
+  leave** to list absent/on-leave teachers and their sections, so the office picks from a list
+  rather than memory. Plus "repeat for a date range" for a known multi-day absence. See §11.
 - **C2 — the covering teacher's surfaces.** Now card, My Timetable badge, both notifications.
 - **C3 — free-teacher suggestions.** Only meaningful once a school has a timetable; ships behind
   the same endpoint so the dropdown simply gets better rather than the screen changing.
@@ -364,3 +364,68 @@ tenant. Filed separately.
 `REGISTER_UNMARKED` still chases the absent teacher, and the head's unmarked count still names
 them, rather than the cover (§6a). Both are one filter each and both belong with C2's surfaces;
 until then the office knows about the cover and the notification feed does not.
+
+---
+
+## 11. C1 as built — 2026-08-10
+
+**Shipped:** `GET /cover/away?date=` (who is away, and which of their classes still needs somebody),
+`POST /cover/range` (a whole absence at once), the *Away today* panel on `/cover` with click-to-fill,
+an optional **Until** field on the form, two more permission-matrix rows, and **9 more e2e cases**
+(19 in the file).
+
+### What the design decided, and why
+
+- **Approved leave is read alongside the staff register, and that is the difference between this
+  being useful and being empty.** Leave is approved days in advance; the register is marked at 08:00;
+  and a school that keeps no staff register at all still approves leave. A list built only from the
+  register is blank every time the office looks *before* school starts — which is precisely when
+  they look.
+- **The register overrules the leave where both speak.** Someone with approved leave who came in
+  anyway is not away, and listing them would send the office hunting for cover for classes they are
+  standing in front of. A test asserts exactly this.
+- **`staffRegisterMarked` travels with the answer.** An empty list means two very different things
+  — *nobody is away* and *we have not been told yet* — and the screen says which. A bare "nobody is
+  away" on an unmarked morning is a guess dressed as a fact, and the office would trust it and stop
+  looking. Same principle as attendance coverage travelling with the percentage.
+- **Classes, not assignment rows.** A teacher with two subjects in 9-A appears twice in
+  `TeacherAssignment`; the office arranges cover for the class, once. Deduped by section id.
+- **Campus scoping goes through the SECTIONS, not the staff member.** `StaffProfile` has no campus —
+  a teacher's campus is decided by what they teach — so a campus admin sees an away colleague only
+  when one of the classes at stake is theirs to arrange. An away non-teaching staff member has no
+  classes and no row.
+- **A range skips rather than fails.** It crosses weekly offs and closures, and a day in the middle
+  may already be covered by someone else. Refusing the whole range over day three sends the office
+  back to entering five days by hand — so it answers `{ created, skipped }`, each skip with a
+  reason, the partial-outcome shape §25.3 already uses for bulk attendance.
+- **Capped at 31 days.** A date picker held down produces a year, and a year of cover is a
+  reassignment — standing write access to another class's register. The cap turns a slip into a
+  sentence. It also means `from` and `to` between them name every month the grant touches, which is
+  why the payroll-freeze check on those two endpoints is complete.
+- **The range uses the same calendar as the register and payroll** (`workingDaysBetween`, weekly
+  off + campus closures). Cover on a day the school was shut would put a teacher's name against a
+  day nobody came in.
+
+### Proven non-vacuous, three ways
+
+| Probe | Result |
+|---|---|
+| `away()` reads only the register, ignoring approved leave | **1 failed** — "finds approved leave even when the staff register was never marked" |
+| The range ignores the school calendar (every date, not working days) | **1 failed** — "skips a closure instead of refusing the whole range" |
+| The away list stops deduping (one row per assignment) | **1 failed** — "names the away teacher and the classes that are hers" |
+
+### Verified live (demo tenant, owner session)
+
+Marked *Haris Ali* absent → **AWAY ON MONDAY, AUGUST 10 · 1 · Haris Ali — Marked absent**, his five
+classes each *needs cover*, and *"5 classes still need someone."* Clicking **9th-A** filled Class and
+*Instead of*, leaving one name to choose — which is the only decision the office actually has to
+make. Saving flipped that chip to **9th-A · Ayesha Khan**, dropped the count to 4, and the class
+appeared in *Covered*. A range 10th→12th answered **"3 days covered."**, and switching the day
+chooser to the 12th showed the row really there. On a day whose register is unmarked the panel says
+so instead of claiming nobody is away. Demo left clean, including the staff-attendance rows.
+
+### Still open (C2–C4)
+
+`REGISTER_UNMARKED` and the head's unmarked count still name the *absent* teacher rather than the
+cover (§6a). The covering teacher's own surfaces — the now card, the My Timetable badge, both
+notifications (§5) — are C2. Free-teacher suggestions need a timetable and are C3.

@@ -165,6 +165,8 @@ export const PERMISSION_MATRIX: MatrixRow[] = [
   { label: 'arrange cover', method: 'post', path: '/api/v1/cover', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
   { label: 'remove cover', method: 'delete', path: '/api/v1/cover/00000000-0000-0000-0000-000000000000', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
   { label: 'read the cover list', method: 'get', path: '/api/v1/cover', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'], scopeGated: true },
+  { label: 'read who is away', method: 'get', path: '/api/v1/cover/away', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'], scopeGated: true },
+  { label: 'arrange cover for a range', method: 'post', path: '/api/v1/cover/range', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
   // ── Timetable ─────────────────────────────────────────────────────────────
   // Building the week is the office's job; a teacher reads theirs and does not author it (§23).
   // These rows would have been impossible to write until 2026-08-08 — `timetable_slots` had no

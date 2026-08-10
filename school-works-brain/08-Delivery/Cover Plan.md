@@ -1,7 +1,7 @@
 ---
 title: Cover Plan (teacher absent → who takes the class)
 type: plan
-status: draft — awaiting operator decisions in §8
+status: draft (revised after self-critique) — awaiting operator decisions in §8
 updated: 2026-08-09
 ---
 
@@ -30,15 +30,30 @@ turned up.
 
 ## 2. The design thesis
 
-> **The school already told the system everything it needs. Nobody should have to type "who is away
-> and what were they teaching".**
+> **Recording cover must work with nothing else filled in. Everything the school does maintain
+> makes it faster.**
 
-Staff attendance knows who is absent. The timetable knows what they were teaching, and when. So
-**"what needs cover today" is derived, not entered** — the office is handed a list and only makes
-the decision a human has to make: *who takes it*.
+An earlier draft of this plan led with the opposite: *"nobody should have to type who is away and
+what they were teaching — it is all derived."* That is a better sentence than it is a design,
+because the derivation needs **two** datasets:
 
-That is the whole product. A cover feature that asks an administrator to re-enter facts the
-database already holds is a form, not a tool.
+- **staff attendance**, marked daily — many small schools will not;
+- **a timetable**, which today has **zero rows in every school**.
+
+Build on both and the flagship screen is blank for most schools on day one, and the feature looks
+broken rather than unused. That is exactly the trap the timetable's "now" card had to be rescued
+from, and this would have repeated it with *two* dependencies instead of one.
+
+So the order is:
+
+| | |
+|---|---|
+| **Always works** | The office records: *section, date, who is covering.* Three fields, no prerequisites. |
+| **Better with staff attendance** | "Away today: Nadia, Imran" — so the office starts from a list instead of memory. |
+| **Better with a timetable** | Per-period rather than per-day, plus *which* periods need someone, plus who is free to take them. |
+
+Derivation is an accelerant, never the premise. A school with neither dataset still gets the thing
+they asked for: the person in the room can mark the register.
 
 ## 3. Architecture
 
@@ -62,9 +77,29 @@ model CoverAssignment {
   arrangedById   String                   // the admin who decided — this is a permission grant
   createdAt      DateTime @default(now())
 
-  @@unique([sectionId, date, periodNo])   // one owner per class per period
   @@index([schoolId, coveringStaffId, date])
+  @@index([schoolId, sectionId, date])
 }
+```
+
+⚠️ **The obvious constraint is wrong.** A first draft wrote `@@unique([sectionId, date, periodNo])`
+to mean "one owner per class per period". **Postgres treats NULLs as distinct in a unique index**,
+so two whole-day covers for the same section on the same date would both be accepted — precisely
+what the constraint exists to stop. This repo already relies on that behaviour deliberately
+elsewhere (`fee_invoices.psid`, nullable and unique per school, so un-issued invoices coexist), so
+the mistake was the opposite of a subtlety.
+
+It needs **two partial unique indexes**, added to `prisma/sql/02_partial_uniques.sql` beside the
+existing ones — which also means `db:check-migrations` protects them from a future `migrate diff`:
+
+```sql
+-- One cover per section per period, when the school runs periods.
+CREATE UNIQUE INDEX IF NOT EXISTS cover_one_per_section_period
+  ON cover_assignments (school_id, section_id, date, period_no) WHERE period_no IS NOT NULL;
+
+-- One whole-day cover per section, when it does not.
+CREATE UNIQUE INDEX IF NOT EXISTS cover_one_per_section_day
+  ON cover_assignments (school_id, section_id, date) WHERE period_no IS NULL;
 ```
 
 **It must work with no timetable.** `timetable_slots` shipped with zero rows in every school, and
@@ -107,8 +142,32 @@ trap already documented for the guardian check.
 
 ## 4. The office's screen — the morning ritual
 
-A head teacher does this at 07:45 with a mug in one hand. It should be one screen and mostly
-reading.
+A head teacher does this at 07:45 with a mug in one hand.
+
+### 4.1 What it looks like on day one — no timetable, no staff register
+
+This is the version most schools will actually meet, so it is the one that has to be good.
+
+```
+Cover — Monday 10 August
+
+  [ + Record cover ]
+
+  Class      9-A  ▾        Covering   Fatima Noor ▾        Because  (optional)
+                                                            [ Save ]
+
+  COVERED TODAY  1
+  9-A   all day   Fatima Noor        arranged by you, 07:42      [ undo ]
+```
+
+Three fields, nothing to set up first, and the covering teacher can mark the register the moment
+it saves. **If the plan shipped only this, the reported problem is solved.**
+
+### 4.2 What it grows into, once the school keeps the other two registers
+
+⚠️ Everything below is an **accelerant on top of §4.1**, not the design — the `✓ free` marker in
+particular is **C3** and needs a timetable. An earlier draft used this picture as the headline,
+which promised something the first three phases cannot deliver.
 
 ```
 Cover — Monday 10 August
@@ -134,9 +193,9 @@ from the timetable. The only thing the office types is a name in a dropdown.
 first, marked *free*, then everyone else. Both facts are already in the database; making the
 administrator hold them in their head is the difference between a tool and a form.
 
-**Without a timetable** the screen degrades honestly: no period rows, and instead *"Nadia Iqbal is
-away — which of her classes needs someone?"* with her sections listed from `TeacherAssignment`.
-It says why it cannot be more precise rather than showing an empty list.
+**Between the two**, with staff attendance but no timetable: *"Nadia Iqbal is away — which of her
+classes needs someone?"*, her sections listed from `TeacherAssignment`. Each step says why it
+cannot be more precise rather than showing an empty list.
 
 ## 5. The covering teacher's experience
 
@@ -153,17 +212,54 @@ without being told is how staff learn to distrust a system.
 
 ## 6. Phases
 
-- **C0 — the grant.** Model, migration, `assertCanMark` extended, audit actions. **No UI.** This
-  alone fixes the reported problem: the office can create cover and the right person can mark. A
-  thin admin endpoint is enough to use it.
-- **C1 — "what needs cover today".** The derived endpoint + the office screen in §4, including
-  "fill a date range" for a known multi-day absence.
+- **C0 — the grant, and the three-field screen (§4.1).** Model, the two partial unique indexes,
+  `assertCanMark` extended, audit actions, plus the record-cover form. **C0 ships a complete
+  feature**: no timetable, no staff register, no prerequisites — the office records cover and the
+  right person can mark. Everything after this is speed. *(An earlier draft made C0 backend-only
+  and put the screen in C1, which would have left the first shippable increment unusable by the
+  person who needs it.)*
+- **C1 — start from who is away.** Reads staff attendance to list absent/on-leave teachers and
+  their sections, so the office picks from a list rather than memory. Plus "repeat for a date
+  range" for a known multi-day absence.
 - **C2 — the covering teacher's surfaces.** Now card, My Timetable badge, both notifications.
 - **C3 — free-teacher suggestions.** Only meaningful once a school has a timetable; ships behind
   the same endpoint so the dropdown simply gets better rather than the screen changing.
 - **C4 — tests, gates, brain.** Cases that must be able to fail: a covering teacher can mark **only**
   the covered section, **only** on that date; cover into an APPROVED payroll month is refused; the
   grant does not leak into exam marks; removing cover removes the ability.
+
+## 6a. Two consequences the first draft left out
+
+Cover changes who *owns* a register for a day, so two existing surfaces have to move with it or
+they will contradict it:
+
+- **The absent teacher stops being chased.** `REGISTER_UNMARKED` in the bell is scoped to a
+  teacher's own sections; once 9-A is covered it is no longer Nadia's problem that day, and
+  nagging someone about a class they were away from is how a notification feed loses its
+  credibility. It should move to **Fatima**.
+- **The head's count re-attributes.** `unmarkedToday()` drives *"3 registers not marked today"*.
+  A covered-but-unmarked register is still worth chasing — but the person to chase is the cover,
+  so the row should name Fatima, not Nadia.
+
+Both are one filter each, and both are the kind of thing that looks obvious afterwards and is
+invisible beforehand.
+
+## 6b. The cheaper option, and why it is not the recommendation
+
+**Let any teacher at the same campus mark any register, and record who did it.** No table, no
+screen, no admin step — the substitute simply marks it, and `markedById` says who.
+
+It genuinely solves the reported problem, and it is perhaps two hours of work against several
+days. It is rejected because:
+
+- it removes a real boundary for everyone, permanently, to solve one Tuesday — a teacher can
+  currently only touch sections they teach, and that is deliberate;
+- nothing records that Nadia was covered, so the school cannot answer "who took my class" later;
+- the head's unmarked list still cannot attribute anything, because nobody was ever made
+  responsible.
+
+Worth revisiting **only** if the office step proves to be the friction that stops schools using it
+— in which case the honest fix is making §4.1 faster, not widening access.
 
 ## 7. What this deliberately does not change
 
@@ -190,8 +286,14 @@ which is worse than a recorded, audited backdate.
 
 ## 9. Risks
 
-- **The suggestion is only as good as the timetable**, and today every school has zero slots. C1
-  must be useful without it (§4), or the feature launches looking broken.
+- ~~**Does a Pakistani school actually substitute, or merge classes?**~~ **Asked and answered by
+  the operator, 2026-08-09: someone actually takes the class.** Recorded because it was the single
+  assumption the whole model rests on, and the first draft asserted it without asking. Had the
+  answer been "the students get put in with another class", the primitive would have been
+  *"9-A is with 9-B today"* — one teacher, one room, **two** registers to mark — and this model
+  would have been a form the office had to lie to.
+- **The suggestion is only as good as the timetable**, and today every school has zero slots. §4.1
+  is the answer: the always-works screen needs neither timetable nor staff register.
 - **Scope creep toward timetabling.** Cover is a day's patch. Swaps, room changes and permanent
   reassignment are timetable edits and stay out.
 - **Cover as a back door.** Mitigated by §3.3: audited, narrow, date-bound, payroll-frozen-aware —

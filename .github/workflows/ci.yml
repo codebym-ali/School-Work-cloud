@@ -115,6 +115,11 @@ jobs:
       - name: Typecheck
         run: npx tsc -p tsconfig.json --noEmit
 
+      # Playwright specs are excluded from the root project (they need the DOM lib the API
+      # deliberately lacks), so they get their own step. Without it they would be unchecked.
+      - name: Typecheck Playwright specs
+        run: npx tsc -p test/e2e/tsconfig.json --noEmit
+
       - name: Unit tests
         run: pnpm test:unit
 

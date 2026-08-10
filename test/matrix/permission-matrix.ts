@@ -7,7 +7,12 @@
  * the live Nest routes, so a change to any `@Roles` decorator that diverges from this
  * table fails CI (merge-blocking).
  */
-export type MatrixRole = 'OWNER_ADMIN' | 'CAMPUS_ADMIN' | 'ADMISSION_CONTROLLER' | 'ACCOUNTANT' | 'TEACHER' | 'PARENT';
+// HR_MANAGER is in the union but NOT in `MATRIX_ROLES` below: three rows already name it as an
+// admitted role, so the type has to allow it, but nothing here has ever exercised an
+// HR_MANAGER session. Listing it without seeding it would be the drift §23 was softened for.
+// Adding it to MATRIX_ROLES is real work — every row's deny side would then have to be true
+// of it — and is worth doing; it is not worth *claiming* to have done.
+export type MatrixRole = 'OWNER_ADMIN' | 'CAMPUS_ADMIN' | 'ADMISSION_CONTROLLER' | 'ACCOUNTANT' | 'TEACHER' | 'PARENT' | 'HR_MANAGER';
 
 // PARENT is retained even though its portal was removed (2026-07-28): the role still exists,
 // and every row's deny-side asserts a PARENT-bearing session reaches NOTHING. That is a

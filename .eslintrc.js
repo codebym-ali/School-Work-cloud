@@ -9,7 +9,10 @@ module.exports = {
   root: true,
   parser: '@typescript-eslint/parser',
   parserOptions: {
-    project: 'tsconfig.json',
+    // Both projects: `test/e2e` was split out of the root tsconfig (Playwright specs need the
+    // DOM lib the API deliberately lacks), and a file in no project is a file eslint refuses
+    // to parse — which is a silent hole, not a smaller lint run.
+    project: ['tsconfig.json', 'test/e2e/tsconfig.json'],
     sourceType: 'module',
   },
   plugins: ['@typescript-eslint', 'boundaries'],

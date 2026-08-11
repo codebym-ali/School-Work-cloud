@@ -1,7 +1,7 @@
 ---
 title: Teacher App Shell Plan (one navigation, both widths)
 type: plan
-status: T0 SHIPPED 2026-08-11 · T1–T4 planned
+status: T0 + T1 SHIPPED 2026-08-11 · T2–T4 planned
 updated: 2026-08-11
 ---
 
@@ -104,7 +104,7 @@ because there were spare pixels.*
   both. A `TeacherNav` component renders it as the bottom bar ≤720px and as the teacher sidebar
   above; the admin sidebar stops rendering for a teacher at any width. `/home` and `/me-more` stop
   being orphans. **Fixes 1.1 and 1.2.**
-- **T1 — the teacher shell follows the person, not the role table.** A user holding TEACHER gets
+- **T1 — the teacher shell follows the person, not the role table. ✅ SHIPPED 2026-08-11.** A user holding TEACHER gets
   the teacher shell even when they also hold another role, with the second role's screens reachable
   from the last tab. **All three decisions taken — see §5 and §5a.** **Fixes 1.3.**
 - **T2 — the home screen earns the top of the screen with no timetable.** When there is no
@@ -241,3 +241,65 @@ production behaviour worth testing against.
 
 T1 (role precedence — decision taken, §5), T2 (the home screen with no timetable), T3 (desktop
 layout for the teacher's cards), T4 (browser pass at 375/768/1440 and the brain).
+
+---
+
+## 8. T1 as built — 2026-08-11
+
+**Shipped:** `usesMobileShell` → **`usesTeacherShell`** with the rule stated directly;
+`landingPath` and `panelLabel` now follow it rather than `primaryRole`; the last tab renamed
+**Me → More**; a third e2e case for the dual-role person.
+
+### The rule, stated instead of inherited
+
+```ts
+const ADMIN_SHELL_ROLES = ['PLATFORM_ADMIN', 'OWNER_ADMIN', 'CAMPUS_ADMIN'];
+usesTeacherShell = holds TEACHER && holds none of ADMIN_SHELL_ROLES
+```
+
+It used to be `primaryRole(roles)?.role === 'TEACHER'` — i.e. the answer fell out of the **ordering
+of a list written for a different purpose**, in which TEACHER sits 7th. Anyone teaching *and*
+keeping the books, running admissions or doing HR was silently excluded from the app built for
+them, on a phone as well as a laptop. **A rule that matters should be written down, not implied by
+an array's order.**
+
+**`landingPath` and `panelLabel` follow the same function**, so the shell you see, the screen you
+land on and the name in the corner cannot disagree about who you are. ⚠️ This is a **behaviour
+change for existing accounts**: an accountant-who-teaches who opens on `/dashboard` today opens on
+`/home` after this. That was the decision (§5a.2), not an accident.
+
+### Me → More
+
+The last tab is about to hold *Dashboard, Fees, Payment submissions, Reports* for a dual-role
+teacher — a whole second job under a person icon. It was already slightly wrong for a plain
+teacher, whose *Exams & Results* and *School calendar* are not personal either.
+
+### Proven non-vacuous
+
+Reverting `usesTeacherShell` to the old `primaryRole` rule fails
+**"a teacher who also keeps the books still gets the teacher app"** — the case that could not have
+existed before, because the behaviour it describes did not.
+
+The dual-role case also asserts that **the accounting job is still reachable** under More
+(Dashboard · Fees · Payment submissions · Reports). Without that, "give the teacher an app" could
+quietly have meant "take the other half of their work away", and no test would have noticed.
+
+### ⚠️ Two test-quality fixes made along the way
+
+Both surfaced while probing, and both are about failures that lie:
+
+1. **`waitForURL('**/home')` burned the full 30-second budget and then reported only "timeout".**
+   Replaced with *wait for any redirect off `/login`*, then `toHaveURL(/\/home$/)` — which fails in
+   ~5s with **"Expected /home, Received http://localhost:3001/dashboard"**. When this test breaks,
+   the landing page *is* the question, so the failure has to name it.
+2. **`apiSetupDelete` and `ctx.close()` threw during teardown after a failed test**, and Playwright
+   reported *those* instead of the assertion that actually failed
+   (`browserContext.cookies: Target page... has been closed`). Both are now best-effort.
+   **Cleanup must never be the loudest thing in a failure** — chasing a teardown error while the
+   real cause sits one line above is how an afternoon disappears.
+
+### Still open (T2–T4)
+
+T2 (the home screen naming the actual registers when there is no timetable), T3 (the teacher's
+cards at desktop width — now including the finance and admission screens a dual-role person will
+open inside the teacher shell), T4 (browser pass at 375/768/1440 and the brain).

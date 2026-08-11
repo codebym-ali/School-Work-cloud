@@ -102,11 +102,19 @@ export async function apiSetupPost<T = unknown>(page: Page, path: string, body: 
  * must not fail an otherwise-passing test, but it must be *attempted*.
  */
 export async function apiSetupDelete(page: Page, path: string): Promise<void> {
-  const cookies = await page.context().cookies();
-  const csrf = cookies.find((c) => c.name === 'csrf')?.value ?? '';
-  await page.request.delete(`http://localhost:3001/api/v1${path}`, {
-    headers: { 'X-CSRF-Token': csrf },
-  }).catch(() => undefined);
+  // ⚠️ The WHOLE body is best-effort, not just the request. This runs from a `finally`, so when the
+  // test has already failed the context may be closing — and `page.context().cookies()` then throws
+  // `Target page, context or browser has been closed`, which Playwright reports **instead of** the
+  // assertion that actually failed. Cleanup must never be the loudest thing in a failure.
+  try {
+    const cookies = await page.context().cookies();
+    const csrf = cookies.find((c) => c.name === 'csrf')?.value ?? '';
+    await page.request.delete(`http://localhost:3001/api/v1${path}`, {
+      headers: { 'X-CSRF-Token': csrf },
+    });
+  } catch {
+    // The tenant teardown sweeps anything left behind.
+  }
 }
 
 /** Authenticated same-origin GET for test setup (reads seed ids like the current year). */

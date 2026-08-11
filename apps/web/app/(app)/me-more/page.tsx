@@ -7,7 +7,8 @@ import { useMe } from '@/lib/me-context';
 import { groupedNav } from '@/lib/roles';
 
 /**
- * The "Me" tab (Teacher Mobile Home Plan, M0).
+ * The "More" tab (Teacher Mobile Home Plan M0; renamed from "Me" in Teacher App Shell Plan T1,
+ * because for a teacher who also keeps the books it holds Dashboard, Fees and Reports).
  *
  * The tab bar holds four things; this is where the rest lives. Leaves, payslips, exams, the school
  * calendar and my own attendance are visited monthly, not hourly, so they do not deserve a
@@ -31,7 +32,7 @@ export default function MePage() {
   return (
     <div className="stack">
       <div>
-        <h1 style={{ marginBottom: 2 }}>Me</h1>
+        <h1 style={{ marginBottom: 2 }}>More</h1>
         <p className="muted" style={{ margin: 0, fontSize: 13 }}>{me?.email}</p>
       </div>
 

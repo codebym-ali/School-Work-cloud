@@ -20,7 +20,7 @@ test.describe('teacher shell', () => {
   // Keeps the shared OWNER session: `page` is what creates and removes the throwaway teacher.
   // The teacher gets `browser.newContext()`, which is already clean — clearing storageState here
   // instead would log the owner out and take the setup with it.
-  const TABS = ['Home', 'Attendance', 'Week', 'Me'];
+  const TABS = ['Home', 'Attendance', 'Week', 'More'];
 
   test('a teacher gets the same four destinations on a phone and on a laptop', async ({ page, browser }) => {
     // Owner session, only to create the throwaway teacher.
@@ -75,6 +75,72 @@ test.describe('teacher shell', () => {
       }
     } finally {
       await apiSetupDelete(page, `/users/${created.userId}`);
+    }
+  });
+
+  /**
+   * T1: the shell follows the person, not the role table.
+   *
+   * ⚠️ **This is the case the old rule silently excluded.** `usesTeacherShell` used to be
+   * `primaryRole(roles)?.role === 'TEACHER'`, and `primaryRole` returns the first match in
+   * `ROLE_INFO` order where TEACHER sits **7th** — so a teacher who also kept the books got the
+   * Accountant shell with no tab bar and no Home, **on a phone as well as a laptop**. In a small
+   * school one person wearing two hats is normal staffing, so this is the common case, not an edge.
+   *
+   * ACCOUNTANT rather than ADMISSION_CONTROLLER because the API refuses a second admission officer
+   * per campus, which would make this spec fight the seed data for demo's existing one.
+   */
+  test('a teacher who also keeps the books still gets the teacher app', async ({ page, browser }) => {
+    await gotoApp(page);
+    const ts = Date.now();
+    const email = `dual-${ts}@e2e.local`;
+    const password = 'Dual!Secret12';
+    const campuses = await apiSetupGet<{ id: string }[]>(page, '/campuses');
+    const created = await apiSetupPost<{ id: string }>(page, '/users', {
+      email, password, roles: ['TEACHER', 'ACCOUNTANT'], campusId: campuses[0].id,
+    });
+
+    try {
+      const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+      const dual = await ctx.newPage();
+      try {
+        await dual.goto('/login');
+        await dual.getByLabel('Email').fill(email);
+        await dual.getByLabel('Password').fill(password);
+        await dual.getByRole('button', { name: /sign in/i }).click();
+
+        // Lands on the teacher home, not the accountant's dashboard — they are being handed the
+        // teacher app, so starting them on the other job contradicts it.
+        //
+        // Two steps rather than `waitForURL('**/home')`: that spends the full 30s test budget and
+        // then reports only "timeout", while this settles as soon as login redirects anywhere and
+        // then says **"expected /home, received /dashboard"**. When this breaks, the landing page
+        // is the whole question, so the failure should name it.
+        await dual.waitForURL((u) => !u.pathname.startsWith('/login'));
+        await expect(dual).toHaveURL(/\/home$/);
+        await expect(dual.locator('.sidebar')).toContainText('Teacher');
+
+        const sidebar = dual.locator('.sidebar');
+        for (const label of TABS) {
+          await expect(sidebar.getByRole('link', { name: label, exact: true })).toBeVisible();
+        }
+
+        // **The accounting job is not lost — it moved.** `/me-more` is built from the person's
+        // roles, so it still carries every screen the accountant shell used to show in its sidebar.
+        // Asserting this is what stops "give the teacher an app" from quietly meaning "take the
+        // other half of their work away".
+        await dual.getByRole('link', { name: 'More', exact: true }).click();
+        await dual.waitForURL('**/me-more');
+        for (const label of ['Dashboard', 'Fees', 'Payment submissions', 'Reports']) {
+          await expect(dual.getByRole('link', { name: label, exact: true })).toBeVisible();
+        }
+      } finally {
+        // Best-effort: after a timeout the context may already be tearing down, and a throw here
+        // would be reported instead of the assertion that actually failed.
+        await ctx.close().catch(() => undefined);
+      }
+    } finally {
+      await apiSetupDelete(page, `/users/${created.id}`);
     }
   });
 

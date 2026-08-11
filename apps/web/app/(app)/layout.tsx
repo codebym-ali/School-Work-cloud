@@ -6,7 +6,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { api, ApiError, type ClosureNotice, type Me } from '@/lib/api';
 import { MeContext } from '@/lib/me-context';
 import { NotificationBell } from '@/components/notification-bell';
-import { groupedNav, hasAnyRole, navItemFor, panelLabel, usesMobileShell, MFA_REQUIRED_ROLES } from '@/lib/roles';
+import { groupedNav, hasAnyRole, navItemFor, panelLabel, usesTeacherShell, MFA_REQUIRED_ROLES } from '@/lib/roles';
 import { TeacherSidebarNav, TeacherTabs } from '@/components/teacher-tabs';
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
@@ -56,7 +56,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
    * used to swap only the phone half, so a teacher on a laptop got the administrator's eight-link
    * menu **with no `/home` in it at all**, and could not navigate back to the screen they land on.
    */
-  const teacherShell = usesMobileShell(me.roles);
+  const teacherShell = usesTeacherShell(me.roles);
 
   return (
     <MeContext.Provider value={me}>

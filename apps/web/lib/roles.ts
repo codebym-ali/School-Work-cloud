@@ -105,7 +105,7 @@ export const NAV: NavItem[] = [
   // `navItemFor` role-gate them. Leaving them out entirely would have made both routes reachable
   // by every signed-in role, since the shell treats an unknown path as unrestricted.
   { href: '/home', label: 'Home', icon: '🏠', group: 'My Portal', roles: ['TEACHER'], hidden: true },
-  { href: '/me-more', label: 'Me', icon: '👤', group: 'My Portal', roles: ['TEACHER'], hidden: true },
+  { href: '/me-more', label: 'More', icon: '👤', group: 'My Portal', roles: ['TEACHER'], hidden: true },
 
   { href: '/me', label: 'My Dashboard', icon: '🏠', group: 'My Portal', roles: ['STUDENT'] },
   { href: '/me/attendance', label: 'My Attendance', icon: '✅', group: 'My Portal', roles: ['STUDENT'] },
@@ -172,10 +172,21 @@ export function primaryRole(roles: string[] | undefined) {
 }
 
 export function panelLabel(roles: string[] | undefined): string {
+  // The teacher shell says "Teacher" even for someone who also keeps the books — the shell they
+  // are looking at IS the teacher app, and naming it after their other job would describe a
+  // navigation that is not on the screen.
+  if (usesTeacherShell(roles)) return 'Teacher';
   return primaryRole(roles)?.label ?? 'School Admin';
 }
 
+/**
+ * ⚠️ **Changed for T1, and it changes where existing people land.** Anyone on the teacher shell
+ * opens on `/home`: they are being handed the teacher app, so starting them on another job's
+ * dashboard contradicts it — and Home is one tap from everything else. An accountant-who-teaches
+ * who opens on `/dashboard` today will open on Home after this.
+ */
 export function landingPath(roles: string[] | undefined): string {
+  if (usesTeacherShell(roles)) return '/home';
   return primaryRole(roles)?.landing ?? '/dashboard';
 }
 
@@ -256,12 +267,43 @@ const TEACHER_TABS: { href: string; label: string; icon: string }[] = [
   { href: '/home', label: 'Home', icon: '🏠' },
   { href: '/attendance', label: 'Attendance', icon: '✅' },
   { href: '/my-timetable', label: 'Week', icon: '🕘' },
-  { href: '/me-more', label: 'Me', icon: '👤' },
+  // "More", not "Me": for a teacher who also keeps the books this tab holds Dashboard, Fees,
+  // Payment submissions and Reports — a whole second job under a person icon. It was already
+  // slightly wrong for a plain teacher, whose Exams & Results and School calendar are not
+  // personal either.
+  { href: '/me-more', label: 'More', icon: '👤' },
 ];
 
-/** True when this user should get the phone shell. TEACHER only, by operator decision. */
-export function usesMobileShell(roles: string[] | undefined): boolean {
-  return primaryRole(roles)?.role === 'TEACHER';
+/**
+ * Roles that keep the administrator's shell even when the person also teaches.
+ *
+ * An owner or campus admin who happens to take a class still runs the school, and a four-item rail
+ * cannot carry that job. PLATFORM_ADMIN is included for the same reason — it is an administrator,
+ * of the platform rather than of one school — although the combination should not occur.
+ */
+const ADMIN_SHELL_ROLES: readonly Role[] = ['PLATFORM_ADMIN', 'OWNER_ADMIN', 'CAMPUS_ADMIN'];
+
+/**
+ * True when this person should get the teacher app — at **every** width (Teacher App Shell Plan,
+ * T0/T1).
+ *
+ * ⚠️ **It used to be `primaryRole(roles)?.role === 'TEACHER'`, and that silently excluded most
+ * teachers who wear a second hat.** `primaryRole` returns the first match in `ROLE_INFO` order and
+ * TEACHER sits **7th**, behind ACCOUNTANT, ADMISSION_CONTROLLER and HR_MANAGER — so a teacher who
+ * also handled admissions got the Admission Portal shell with no tab bar and no Home, *on a phone
+ * as well as a laptop*. In a small Pakistani private school the teacher who also does one
+ * administrative job is normal staffing, not an edge case.
+ *
+ * The rule is now stated directly rather than falling out of a list's ordering: **hold TEACHER and
+ * you get the teacher app, unless you also administer the school.** Their other job is not lost —
+ * it is one tap away under **More**, which is built from the person's roles.
+ *
+ * @see landingPath and panelLabel, which follow this rather than `primaryRole`, so the shell, the
+ *      screen you land on and the name in the corner cannot disagree about who you are.
+ */
+export function usesTeacherShell(roles: string[] | undefined): boolean {
+  const r = roles ?? [];
+  return r.includes('TEACHER') && !r.some((x) => (ADMIN_SHELL_ROLES as readonly string[]).includes(x));
 }
 
 /** Tabs this user can actually open. `/home` and `/me-more` are teacher-only routes with no NAV

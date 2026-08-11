@@ -1,7 +1,7 @@
 ---
 title: Teacher App Shell Plan (one navigation, both widths)
 type: plan
-status: T0–T3 SHIPPED 2026-08-11 · T4 planned
+status: COMPLETE — T0–T4 SHIPPED 2026-08-11
 updated: 2026-08-11
 ---
 
@@ -114,7 +114,7 @@ because there were spare pixels.*
 - **T3 — the teacher's surfaces at desktop width. ✅ SHIPPED 2026-08-11.** Cap the now card's measure so it reads as a
   card rather than a banner; two-column above 1024px so the screen is not three-quarters empty.
   **Fixes 1.5.**
-- **T4 — tests, browser pass at 375 / 768 / 1440, brain.** A Playwright case that a teacher can
+- **T4 — tests, browser pass at 375 / 768 / 1440, brain. ✅ SHIPPED 2026-08-11.** A Playwright case that a teacher can
   reach Home from every teacher screen **at desktop width** — the regression that started this.
 
 ## 4. What this deliberately does not change
@@ -436,3 +436,55 @@ Received 1**.
 ### Still open (T4)
 
 Browser pass at 768px (375 and 1440 are done), and the brain — most of which this section is.
+
+---
+
+## 11. T4 — the browser pass, and the plan is complete
+
+Every teacher surface, at all three widths, on `demo` with a throwaway teacher (deleted after).
+
+### 768px — the width nobody had looked at
+
+It is the awkward one: **above** the 720px shell breakpoint, so there is a sidebar and no tab bar,
+but **below** the 1024px home breakpoint, so the home is a single column inside 578px of content.
+
+| Screen | Result at 768×1024 |
+|---|---|
+| `/home` | sidebar 190px · content 578 · now card 542 · one column · **no horizontal overflow** |
+| `/attendance` | register table 540 · mark buttons **67×44** (44px is the smallest reliable thumb target) · save bar present |
+| `/me-more` | heading **"More"** · Academics / Administration / My Portal / Account |
+| `/my-timetable` | honest empty state, no timetable in this school |
+
+**Nothing needed fixing at 768.** Recorded because "we never looked at that width" is how the
+1164px card survived four phases — and a checked width with nothing wrong is worth as much in the
+record as a broken one.
+
+### The three widths together
+
+| | 375 | 768 | 1440 |
+|---|---|---|---|
+| Navigation | bottom tab bar | sidebar | sidebar |
+| Destinations | Home · Attendance · Week · More | same | same |
+| Home layout | 1 column | 1 column | 2 columns |
+| Horizontal overflow | 0 | 0 | 0 |
+
+### What the whole plan cost, and what it bought
+
+Five phases in one afternoon, off one screenshot and the observation *"there are tabs, not menus"*.
+
+**The reported problem was not the real one.** The tab bar worked; the screenshot was cropped above
+it. Checking before planning is what turned a two-minute non-bug into four real ones:
+
+1. `/home` was **unreachable on a laptop** after the first click.
+2. A teacher who also kept the books, ran admissions or did HR **never saw the teacher app at all**,
+   on any device, because the rule was implied by an array's ordering.
+3. The home screen **contradicted itself** in the state every school is in.
+4. The cards had **never been looked at above 720px**.
+
+Plus three bugs found in passing and filed: cross-campus teacher assignments, `:id` → 500, and the
+Playwright login ceiling — and two I wrote myself in T2, both caught in a browser and neither
+catchable by the tests I had at the time.
+
+**The thesis held up:** role decides the shell, width decides only the layout. Every phase that
+tried to make the desktop *different* — extra sidebar items in T0, extra cards in T3 — was rejected
+on that ground, and the result is one product a teacher learns once.

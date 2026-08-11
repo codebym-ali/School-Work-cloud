@@ -249,6 +249,26 @@ input.invalid, select.invalid { border-color: var(--danger); }
   .has-tabbar .sidebar, .has-tabbar .nav-toggle, .has-tabbar .nav-overlay { display: none; }
 }
 
+/* ── The teacher's home at desktop width (Teacher App Shell Plan, T3) ────────
+   Measured before changing anything, at 1440x900: the "now" card was **1164px wide
+   and 176px tall, with 474px of empty viewport beneath it** — a phone component
+   stretched to fill a laptop, which is not the same thing as a design for one.
+
+   Two columns above 1024px, one below. The primary column is capped at 640px so a
+   26px headline spans a readable measure instead of ~90 characters; the secondary
+   column carries the day's other registers and the notices.
+
+   ⚠️ The CONTENT is identical at both widths — only the arrangement changes. Giving
+   the desktop extra cards would be a second product for the same person, which is
+   the exact thing this plan exists to undo. */
+.home-grid { display: grid; gap: 14px; align-items: start; }
+.home-grid > * { min-width: 0; }
+.home-main, .home-side { display: grid; gap: 14px; align-content: start; }
+
+@media (min-width: 1024px) {
+  .home-grid { grid-template-columns: minmax(0, 640px) minmax(260px, 1fr); }
+}
+
 /* ── The "now" card ──────────────────────────────────────────────────────────
    The one loud element on the teacher's home, and the only inverted surface in the
    product. Everything around it is a white card on grey; making this dark is what

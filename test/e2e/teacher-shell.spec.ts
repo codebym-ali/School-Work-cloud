@@ -22,19 +22,30 @@ test.describe('teacher shell', () => {
   // instead would log the owner out and take the setup with it.
   const TABS = ['Home', 'Attendance', 'Week', 'More'];
 
-  test('a teacher gets the same four destinations on a phone and on a laptop', async ({ page, browser }) => {
-    // Owner session, only to create the throwaway teacher.
+  /**
+   * ⚠️ **One test, one login — and that constraint is not cosmetic.** The §29 limiter allows 5
+   * logins per IP per 15 minutes, and the suite was already at 5 before this file existed. Adding
+   * a second teacher session here took it to **6**, and a full run started failing on whichever
+   * spec happened to log in last — reported as a 30-second navigation timeout, not as a rate
+   * limit, so it read as a broken feature. See the task filed for the durable fix (a shared
+   * teacher `storageState` setup project); until then, teacher-side cases share one session.
+   *
+   * The user is **TEACHER + ACCOUNTANT** rather than a plain teacher because that exercises the
+   * same shell path *plus* the case T1 exists for: `usesTeacherShell` returns true for both, so
+   * nothing about the shell is left unasserted by choosing the harder one.
+   *
+   * ACCOUNTANT rather than ADMISSION_CONTROLLER because the API refuses a second admission officer
+   * per campus, which would make this fight demo's seed data.
+   */
+  test('a teacher — including one who also keeps the books — gets the app at every width', async ({ page, browser }) => {
     await gotoApp(page);
     const ts = Date.now();
     const email = `shell-${ts}@e2e.local`;
     const password = 'Shell!Secret12';
     const campuses = await apiSetupGet<{ id: string }[]>(page, '/campuses');
-    const created = await apiSetupPost<{ userId: string; loginActive: boolean }>(page, '/staff', {
-      email, password, fullName: `Shell Teacher ${ts}`, campusId: campuses[0].id,
-      staffType: 'TEACHER', employeeCode: `E2E-SHELL-${ts}`, designation: 'Teacher',
-      joinedAt: new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10),
+    const created = await apiSetupPost<{ id: string }>(page, '/users', {
+      email, password, roles: ['TEACHER', 'ACCOUNTANT'], campusId: campuses[0].id,
     });
-    expect(created.loginActive).toBe(true);
 
     try {
       const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
@@ -44,10 +55,17 @@ test.describe('teacher shell', () => {
         await teacher.getByLabel('Email').fill(email);
         await teacher.getByLabel('Password').fill(password);
         await teacher.getByRole('button', { name: /sign in/i }).click();
-        // A teacher's landing path IS /home — if that ever changes, this waits forever and says so.
-        await teacher.waitForURL('**/home');
 
-        // ── Desktop: the half that was broken ──────────────────────────────────
+        // ── T1: lands on the teacher home, not the accountant's dashboard ──────
+        // Two steps rather than `waitForURL('**/home')`: that spends the full 30s test budget and
+        // then reports only "timeout", while this settles as soon as login redirects anywhere and
+        // then says **"expected /home, received /dashboard"**. When this breaks, the landing page
+        // is the whole question, so the failure should name it.
+        await teacher.waitForURL((u) => !u.pathname.startsWith('/login'));
+        await expect(teacher).toHaveURL(/\/home$/);
+        await expect(teacher.locator('.sidebar')).toContainText('Teacher');
+
+        // ── T0: the same four destinations, at desktop width ──────────────────
         const sidebar = teacher.locator('.sidebar');
         await expect(sidebar).toBeVisible();
         for (const label of TABS) {
@@ -57,83 +75,45 @@ test.describe('teacher shell', () => {
         // admin's word for a teacher's own things, and its presence means the wrong nav rendered.
         await expect(teacher.locator('.sidebar .group-label')).toHaveCount(0);
 
-        // The regression itself: leave Home, and be able to come back.
+        // The regression that started this plan: leave Home, and be able to come back.
         await teacher.getByRole('link', { name: 'Attendance', exact: true }).click();
         await teacher.waitForURL('**/attendance');
-        await teacher.locator('.sidebar').getByRole('link', { name: 'Home', exact: true }).click();
+        await sidebar.getByRole('link', { name: 'Home', exact: true }).click();
         await expect(teacher).toHaveURL(/\/home$/);
 
-        // ── Phone: same four, as a bottom bar, with the sidebar gone ───────────
+        // ── T3: two columns above 1024px ──────────────────────────────────────
+        // Measured before T3 at 1440x900: the "now" card was 1164px wide with 474px of empty
+        // viewport under it — a phone component stretched to fill a laptop. The cap is what makes
+        // a 26px headline span a readable measure instead of ~90 characters.
+        const grid = teacher.locator('.home-grid');
+        await expect(grid).toBeVisible();
+        const wide = await grid.evaluate((el) => getComputedStyle(el).gridTemplateColumns);
+        // Asserted as "two tracks" rather than exact pixels, which would break on any future width
+        // tweak without anything actually being wrong.
+        expect(wide.split(' ').length).toBe(2);
+
+        // ── T1: the accounting job is not lost — it moved under More ──────────
+        // Without this, "give the teacher an app" could quietly have meant "take the other half of
+        // their work away", and no test would have noticed.
+        await teacher.getByRole('link', { name: 'More', exact: true }).click();
+        await teacher.waitForURL('**/me-more');
+        for (const label of ['Dashboard', 'Fees', 'Payment submissions', 'Reports']) {
+          await expect(teacher.getByRole('link', { name: label, exact: true })).toBeVisible();
+        }
+
+        // ── T0/T3: the phone — same four as a bottom bar, one column, no sideways scroll ──
+        await teacher.goto('/home');
         await teacher.setViewportSize({ width: 375, height: 812 });
         const tabbar = teacher.locator('.tabbar');
         await expect(tabbar).toBeVisible();
         await expect(tabbar.locator('.tab-label')).toHaveText(TABS);
         // Two navigations on one screen is how a user learns to trust neither.
         await expect(sidebar).toBeHidden();
-      } finally {
-        await ctx.close();
-      }
-    } finally {
-      await apiSetupDelete(page, `/users/${created.userId}`);
-    }
-  });
 
-  /**
-   * T1: the shell follows the person, not the role table.
-   *
-   * ⚠️ **This is the case the old rule silently excluded.** `usesTeacherShell` used to be
-   * `primaryRole(roles)?.role === 'TEACHER'`, and `primaryRole` returns the first match in
-   * `ROLE_INFO` order where TEACHER sits **7th** — so a teacher who also kept the books got the
-   * Accountant shell with no tab bar and no Home, **on a phone as well as a laptop**. In a small
-   * school one person wearing two hats is normal staffing, so this is the common case, not an edge.
-   *
-   * ACCOUNTANT rather than ADMISSION_CONTROLLER because the API refuses a second admission officer
-   * per campus, which would make this spec fight the seed data for demo's existing one.
-   */
-  test('a teacher who also keeps the books still gets the teacher app', async ({ page, browser }) => {
-    await gotoApp(page);
-    const ts = Date.now();
-    const email = `dual-${ts}@e2e.local`;
-    const password = 'Dual!Secret12';
-    const campuses = await apiSetupGet<{ id: string }[]>(page, '/campuses');
-    const created = await apiSetupPost<{ id: string }>(page, '/users', {
-      email, password, roles: ['TEACHER', 'ACCOUNTANT'], campusId: campuses[0].id,
-    });
-
-    try {
-      const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
-      const dual = await ctx.newPage();
-      try {
-        await dual.goto('/login');
-        await dual.getByLabel('Email').fill(email);
-        await dual.getByLabel('Password').fill(password);
-        await dual.getByRole('button', { name: /sign in/i }).click();
-
-        // Lands on the teacher home, not the accountant's dashboard — they are being handed the
-        // teacher app, so starting them on the other job contradicts it.
-        //
-        // Two steps rather than `waitForURL('**/home')`: that spends the full 30s test budget and
-        // then reports only "timeout", while this settles as soon as login redirects anywhere and
-        // then says **"expected /home, received /dashboard"**. When this breaks, the landing page
-        // is the whole question, so the failure should name it.
-        await dual.waitForURL((u) => !u.pathname.startsWith('/login'));
-        await expect(dual).toHaveURL(/\/home$/);
-        await expect(dual.locator('.sidebar')).toContainText('Teacher');
-
-        const sidebar = dual.locator('.sidebar');
-        for (const label of TABS) {
-          await expect(sidebar.getByRole('link', { name: label, exact: true })).toBeVisible();
-        }
-
-        // **The accounting job is not lost — it moved.** `/me-more` is built from the person's
-        // roles, so it still carries every screen the accountant shell used to show in its sidebar.
-        // Asserting this is what stops "give the teacher an app" from quietly meaning "take the
-        // other half of their work away".
-        await dual.getByRole('link', { name: 'More', exact: true }).click();
-        await dual.waitForURL('**/me-more');
-        for (const label of ['Dashboard', 'Fees', 'Payment submissions', 'Reports']) {
-          await expect(dual.getByRole('link', { name: label, exact: true })).toBeVisible();
-        }
+        const narrow = await grid.evaluate((el) => getComputedStyle(el).gridTemplateColumns);
+        expect(narrow.split(' ').length).toBe(1);
+        expect(await teacher.evaluate(() =>
+          document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
       } finally {
         // Best-effort: after a timeout the context may already be tearing down, and a throw here
         // would be reported instead of the assertion that actually failed.

@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { AttendanceStatus, LeaveStatus } from '@prisma/client';
 import { isPastLocalTime, parseSchoolSettings, TenantContext } from '@common';
 import { TenantPrismaService } from '@database';
+import { CoverService } from '../cover/cover.service';
 import { DashboardService } from '../reports/insights.service';
 import { AttendanceService } from '../attendance/attendance.service';
 import { ClaimsService } from '../fees/claims.service';
@@ -39,7 +40,9 @@ export type NotificationItem = {
     // "What the school needs from you" (N2) — previously derived in `dashboard/page.tsx`.
     | 'DEFAULTERS' | 'LEAVES_PENDING' | 'SMS_FAILED' | 'CLAIMS_PENDING'
     | 'REGISTERS_UNMARKED' | 'STAFF_UNMARKED' | 'STAFF_ABSENT'
-    | 'READY_TO_ADMIT' | 'TESTS_TODAY';
+    | 'READY_TO_ADMIT' | 'TESTS_TODAY'
+    // Cover (C2): one for the person taking the class, one for the person whose class it is.
+    | 'COVERING_TODAY' | 'COVERED_TODAY';
   severity: 'info' | 'warn';
   text: string;
   href: string;
@@ -86,6 +89,7 @@ export class NotificationsService {
     private readonly attendance: AttendanceService,
     private readonly claims: ClaimsService,
     private readonly admissions: AdmissionsService,
+    private readonly cover: CoverService,
   ) {}
 
   private get db() {
@@ -112,6 +116,7 @@ export class NotificationsService {
             this.markedAbsent(staff.id),
             this.salaryPaid(staff.id),
             user.roles.includes('TEACHER') ? this.registerUnmarked(staff.id) : Promise.resolve([]),
+            this.coverToday(staff.id),
           ])
         ).flat()
       : [];
@@ -321,6 +326,49 @@ export class NotificationsService {
   }
 
   /**
+   * Cover, both ways (Cover Plan §5, C2).
+   *
+   * **The substitute is told they have a class**, because nothing else tells them: cover is
+   * arranged by the office, on a screen the teacher cannot open, and a grant nobody mentions is a
+   * grant nobody uses. **The absent teacher is told who took theirs**, because being covered in
+   * silence is how staff learn to distrust a system — and because they are the one person who can
+   * say "that is not my class" if the office picked the wrong section.
+   *
+   * Derived from the `CoverAssignment` rows themselves, so both items vanish the moment the cover
+   * is removed — the rule that makes a derived feed trustworthy.
+   *
+   * Today only. Tomorrow's cover is not news yet, and yesterday's is history.
+   */
+  private async coverToday(staffId: string): Promise<NotificationItem[]> {
+    const today = new Date(new Date().toISOString().slice(0, 10));
+    const { covering, covered } = await this.cover.mineFor(staffId, today);
+    const where = (c: { periodNo: number | null; section: { name: string; class: { name: string } } }) =>
+      `${c.section.class.name}-${c.section.name}${c.periodNo ? ` period ${c.periodNo}` : ''}`;
+
+    return [
+      ...covering.map((c) => ({
+        id: `covering:${c.id}`,
+        kind: 'COVERING_TODAY' as const,
+        // Not a warning: it is a fact about their day, and the action attached to it is one they
+        // would want anyway. Warnings are for things that are going wrong.
+        severity: 'info' as const,
+        text: `You are covering ${where(c)} today${c.absentStaff ? ` for ${c.absentStaff.fullName ?? c.absentStaff.employeeCode}` : ''}.`,
+        // Straight to the register that now works — the whole point of the grant.
+        href: `/attendance?sectionId=${c.sectionId}`,
+        at: c.createdAt.toISOString(),
+      })),
+      ...covered.map((c) => ({
+        id: `covered:${c.id}`,
+        kind: 'COVERED_TODAY' as const,
+        severity: 'info' as const,
+        text: `${c.coveringStaff.fullName ?? c.coveringStaff.employeeCode} is covering your ${where(c)} today.`,
+        href: '/my-timetable',
+        at: c.createdAt.toISOString(),
+      })),
+    ];
+  }
+
+  /**
    * Your own register is not marked yet — **one line a day, not one per section**.
    *
    * G3 built this for the head teacher, who needed to see which classes were behind. Pointing the
@@ -349,19 +397,27 @@ export class NotificationsService {
     if (settings.weeklyOffDays.includes(WEEK[today.getUTCDay()])) return [];
     if (await this.db.holiday.count({ where: { date: today } })) return [];
 
-    // Only the sections THIS teacher is responsible for.
+    // Only the sections THIS teacher is responsible for **today**, which is not the same as the
+    // sections they are assigned (Cover Plan §6a). Once 9-A is covered it is no longer their
+    // register that day, and a class they are covering is — chasing someone about a lesson they
+    // were away from is how a feed loses its credibility.
     const assignments = await this.db.teacherAssignment.findMany({
       where: { staffId, academicYearId: year.id },
       select: { sectionId: true },
     });
-    const sectionIds = [...new Set(assignments.map((a) => a.sectionId))];
+    const own = [...new Set(assignments.map((a) => a.sectionId))];
+    const sectionIds = await this.cover.sectionsResponsibleFor(staffId, own, today);
     if (!sectionIds.length) return [];
 
     let outstanding = 0;
     for (const sectionId of sectionIds) {
       const [expected, marked] = await Promise.all([
         this.db.studentEnrollment.count({
-          where: { sectionId, academicYearId: year.id, status: 'ACTIVE', student: { deletedAt: null }, startedAt: { lte: today } },
+          // `lt` tomorrow, not `lte` today: `startedAt` carries a time, so comparing it against
+          // midnight silently drops anyone enrolled earlier the same day — the same fix as
+          // `unmarkedToday`, and the two must agree or the head and the teacher are told different
+          // things about the same register.
+          where: { sectionId, academicYearId: year.id, status: 'ACTIVE', student: { deletedAt: null }, startedAt: { lt: new Date(today.getTime() + 86400000) } },
         }),
         this.db.attendanceRecord.count({
           where: { date: today, session, enrollment: { sectionId, academicYearId: year.id } },

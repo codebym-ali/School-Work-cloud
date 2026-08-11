@@ -1,8 +1,8 @@
 ---
 title: Cover Plan (teacher absent → who takes the class)
 type: plan
-status: C0 + C1 SHIPPED 2026-08-10 · C2–C4 planned
-updated: 2026-08-10
+status: C0–C2 SHIPPED (C0/C1 2026-08-10, C2 2026-08-11) · C3–C4 planned
+updated: 2026-08-11
 ---
 
 # 🔁 Cover — when a teacher is away
@@ -221,7 +221,9 @@ without being told is how staff learn to distrust a system.
 - **C1 — start from who is away. ✅ SHIPPED 2026-08-10.** Reads staff attendance **and approved
   leave** to list absent/on-leave teachers and their sections, so the office picks from a list
   rather than memory. Plus "repeat for a date range" for a known multi-day absence. See §11.
-- **C2 — the covering teacher's surfaces.** Now card, My Timetable badge, both notifications.
+- **C2 — the covering teacher's surfaces. ✅ SHIPPED 2026-08-11.** Now card, My Timetable card,
+  both notifications, `GET /cover/mine` — **and §6a**, which is the half that changes existing
+  behaviour rather than adding to it. See §12.
 - **C3 — free-teacher suggestions.** Only meaningful once a school has a timetable; ships behind
   the same endpoint so the dropdown simply gets better rather than the screen changing.
 - **C4 — tests, gates, brain.** Cases that must be able to fail: a covering teacher can mark **only**
@@ -429,3 +431,99 @@ so instead of claiming nobody is away. Demo left clean, including the staff-atte
 `REGISTER_UNMARKED` and the head's unmarked count still name the *absent* teacher rather than the
 cover (§6a). The covering teacher's own surfaces — the now card, the My Timetable badge, both
 notifications (§5) — are C2. Free-teacher suggestions need a timetable and are C3.
+
+---
+
+## 12. C2 as built — 2026-08-11
+
+**Shipped:** `GET /cover/mine?date=`, two notification kinds (`COVERING_TODAY`, `COVERED_TODAY`),
+the cover card on `/home` and `/my-timetable`, **and §6a** — responsibility moving with the cover,
+in the teacher's own reminder and on the head's unmarked list. **4 more e2e cases (23 in the file).**
+
+### The half that matters most is the half that changes existing behaviour
+
+C0 and C1 added things. C2 also **takes something away**: once 9-A is covered it stops being the
+absent teacher's register that day.
+
+- **`registerUnmarked` now asks `sectionsResponsibleFor`**, not `TeacherAssignment` — own sections,
+  minus the ones somebody else is covering, plus the ones they are covering. The test asserts the
+  count *moves* rather than the notice vanishing: Nadia still teaches 9-B, so she keeps a reminder;
+  Fatima teaches nothing, so any reminder she has is cover and only cover.
+- **`unmarkedToday` rows carry `coveredBy`.** A covered-but-unmarked register is still worth
+  chasing, but a row naming the teacher who was away sends the head to somebody who could not have
+  marked it. Shown on the `/attendance` chips as *"· Fatima Noor covering"*.
+- ⚠️ **What makes a register somebody else's today is that somebody else HOLDS it** — the query
+  keys on `coveringStaffId`, never on `absentStaffId`. `absentStaffId` is optional and the office
+  often records only who is covering; keying on it would have made re-attribution work only when
+  the form was filled in completely.
+
+### Both people are told
+
+- The substitute, because nothing else tells them: cover is arranged by the office on a screen a
+  teacher cannot open, and **a grant nobody mentions is a grant nobody uses**. Its `href` goes
+  straight to the register that now works.
+- The absent teacher, because being covered in silence is how staff learn to distrust a system —
+  and they are the one person who can say *that is not my class*.
+- Both are derived from the `CoverAssignment` rows, so **both disappear when the cover is removed**;
+  a test asserts exactly that. A stored notice telling someone to take a class that was reassigned
+  an hour ago is the failure the no-table rule exists to prevent.
+
+### `@Roles` had to move from the class to the methods
+
+`/cover/mine` is self-scoped and must be open to the teacher it is about, but `RolesGuard` reads
+with `getAllAndOverride([handler, class])` — **a handler with no metadata of its own inherits the
+class's, so a class-level decorator cannot be opted out of.** The cost is that a future admin route
+added here without `@Roles` would be open to every signed-in user. What makes that safe is the
+permission matrix having a row per route: conformance still passes 504/504 after the move, which is
+the proof the five admin routes are unchanged.
+
+### ⚠️ A real bug found on the way, in code C2 only happened to read
+
+`unmarkedToday` and `registerUnmarked` both counted expected students with
+`startedAt: { lte: <midnight of that day> }`. **`startedAt` carries a time**, so a student enrolled
+*earlier the same day* was excluded — while the two other places asking the same question normalise
+both sides first (`startOfDay(enr.startedAt) <= startOfDay(date)`, in marking and in the coverage
+strip). The effect: on their admission day a student's register could be **marked but never
+reported as outstanding**. Fixed by comparing against the start of tomorrow, which is that same
+question asked in SQL. Probed: reverting it turns a C2 test red.
+
+This is the fourth time in this codebase that one question has had two implementations and they
+disagreed. It is also why the C2 fixture admits a child into **section B** — `unmarkedToday` skips
+an empty section, correctly, so an empty B would have made every assertion about B pass without
+measuring anything.
+
+### Proven non-vacuous
+
+| Probe | Result |
+|---|---|
+| `sectionsResponsibleFor` returns the teacher's own sections unchanged | **1 failed** — "stops chasing the teacher who was away, and starts chasing the cover" |
+| `mineFor` returns two empty lists | **2 failed** — both "tells the substitute…" and "takes both notices back…" |
+| `coveredByBySection` returns an empty map | **1 failed** — "names the cover on the head teacher's unmarked list" |
+| The `startedAt` fix reverted to `lte` | **1 failed** — the head's unmarked list |
+
+### Verified live (demo, owner then the covering teacher)
+
+Marked *Haris Ali* absent and covered **10th-A** with *Ayesha Khan*, who does not teach it:
+
+- The head's unmarked strip chip read **"10th A · Ayesha Khan covering →"**, the other four plain.
+- Her home's now card read **COVERING · ALL DAY / 10th-A / For Haris Ali · Sick**, its button
+  pointing at `/attendance?sectionId=<10th-A>`.
+- Her bell: **"You are covering 10th-A today for Haris Ali."**
+- **My Timetable**, on the *empty week* branch — which is every school today — showed
+  *COVER TODAY · 10th-A — you are covering for Haris Ali · Sick* above the "no periods yet" text.
+  That branch was the specific risk: an early return would have hidden cover from exactly the
+  teachers who need it.
+- §6a live: her `REGISTER_UNMARKED` read **5**, not her usual 4 — the covered class had moved onto
+  her.
+
+⚠️ **Not verified in the browser:** the absent teacher's own view (`COVERED_TODAY`, and the covered
+class dropping off *their* reminder). It needs a second teacher password on the demo tenant, and one
+temporary password swap — captured and restored — was already more than this warranted. Both are
+asserted by e2e cases running under a real signed-in teacher session. Demo was left clean: the cover
+row, the staff-attendance rows and the password hash were all put back.
+
+### Still open (C3–C4)
+
+Free-teacher suggestions (C3) need a timetable. C4's remaining cases are the ones C0–C2 did not
+need: cover not leaking into exam marks, and the campus boundary on `/cover/away` with a real
+second campus.

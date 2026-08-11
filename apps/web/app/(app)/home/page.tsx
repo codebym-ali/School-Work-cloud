@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { api, type CheckInState, type MyTimetable, type NotificationItem, type TimetableSlot } from '@/lib/api';
+import { api, type CheckInState, type CoverRow, type MyCover, type MyTimetable, type NotificationItem, type TimetableSlot } from '@/lib/api';
 import { useMe } from '@/lib/me-context';
 import { DAY_NAMES, sectionLabel, todayDow } from '@/lib/timetable';
 
@@ -21,12 +21,18 @@ import { DAY_NAMES, sectionLabel, todayDow } from '@/lib/timetable';
  * tap. Everything else here is context for that one action.
  *
  * No new endpoints — `/timetable/mine`, `/notifications` and the check-in state already exist.
+ *
+ * **Cover outranks the timetable in the now card** (Cover Plan C2). Your own periods you already
+ * know; a class you have been handed this morning is the thing you do not. It also has to work
+ * where the timetable does not exist at all — every school has zero slots today — so cover is read
+ * from its own endpoint rather than inferred from a grid that may be empty.
  */
 export default function TeacherHome() {
   const me = useMe();
   const [timetable, setTimetable] = useState<MyTimetable | null>(null);
   const [items, setItems] = useState<NotificationItem[]>([]);
   const [checkIn, setCheckIn] = useState<CheckInState | null>(null);
+  const [cover, setCover] = useState<MyCover | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
@@ -36,6 +42,7 @@ export default function TeacherHome() {
     api.timetable.mine().then(setTimetable).catch(() => setTimetable({ as: 'NONE', academicYearId: '', slots: [] }));
     api.notifications.list().then((r) => setItems(r.items)).catch(() => {});
     api.staff.checkInState().then(setCheckIn).catch(() => {});
+    api.cover.mine().then(setCover).catch(() => {});
   }
   useEffect(() => { load(); }, []);
 
@@ -46,7 +53,11 @@ export default function TeacherHome() {
   // which bell is ringing (there are no period times in the model), so it uses the honest proxy:
   // the earliest thing still outstanding. Comment kept because "now" implies a clock that is not
   // there, and the next reader will otherwise go looking for one.
+  const covering = cover?.covering ?? [];
   const now: TimetableSlot | undefined = today[0];
+  // A cover takes the top card ahead of an ordinary period: it is today's exception, and it is the
+  // one thing on this screen the teacher had no other way of finding out.
+  const coverNow: CoverRow | undefined = covering[0];
   const rest = today.slice(1);
 
   const unmarked = items.find((i) => i.kind === 'REGISTER_UNMARKED');
@@ -98,7 +109,21 @@ export default function TeacherHome() {
       )}
 
       {/* ── The one loud thing on the page ── */}
-      {now ? (
+      {coverNow ? (
+        <div className="now">
+          <p className="eyebrow">Covering{coverNow.periodNo ? ` · Period ${coverNow.periodNo}` : ' · all day'}</p>
+          <p className="headline">{coverNow.section.class.name}-{coverNow.section.name}</p>
+          <p className="detail">
+            {coverNow.absentStaff
+              ? `For ${coverNow.absentStaff.fullName ?? coverNow.absentStaff.employeeCode}`
+              : 'Arranged by the office'}
+            {coverNow.reason ? ` · ${coverNow.reason}` : ''}
+          </p>
+          {/* This button is the whole feature: before C0 it returned "You are not assigned to this
+              section", and the grant is what makes it work. */}
+          <Link className="cta" href={`/attendance?sectionId=${coverNow.section.id}`}>Mark this register</Link>
+        </div>
+      ) : now ? (
         <div className="now">
           <p className="eyebrow">Now · Period {now.periodNo}</p>
           <p className="headline">{sectionLabel(now)}</p>
@@ -121,11 +146,22 @@ export default function TeacherHome() {
         </div>
       )}
 
-      {rest.length > 0 && (
+      {(rest.length > 0 || covering.length > 1 || (coverNow && today.length > 0)) && (
         <div className="card">
           <div className="section-title">Later today</div>
           <ul className="day-rail">
-            {rest.map((s) => (
+            {/* Whichever cover did not get the top card, plus — when a cover DID take it — the
+                teacher's own periods, which would otherwise have vanished off the screen. */}
+            {covering.slice(coverNow ? 1 : 0).map((c) => (
+              <li key={c.id}>
+                <span className="p">{c.periodNo ? `P${c.periodNo}` : 'Cvr'}</span>
+                <span>
+                  <span className="what">{c.section.class.name}-{c.section.name} · Covering</span>
+                  {c.absentStaff && <><br /><span className="where">for {c.absentStaff.fullName ?? c.absentStaff.employeeCode}</span></>}
+                </span>
+              </li>
+            ))}
+            {(coverNow ? today : rest).map((s) => (
               <li key={s.id}>
                 <span className="p">P{s.periodNo}</span>
                 <span>

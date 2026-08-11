@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { api, type MyTimetable } from '@/lib/api';
+import { api, type MyCover, type MyTimetable } from '@/lib/api';
 import { DAY_NAMES, DAY_SHORT, byCell, gridShape, sectionLabel, todayDow } from '@/lib/timetable';
 import { useIsPhone } from '@/lib/use-phone';
 
@@ -14,9 +14,15 @@ import { useIsPhone } from '@/lib/use-phone';
  * of what Thursday looks like.
  *
  * Self-scoped on the server — the request carries no id, so there is nothing to widen.
+ *
+ * **Today's cover sits above the week** (Cover Plan C2), both directions: a class handed to you,
+ * and a class of yours somebody else is taking. It renders even when the week is empty — which is
+ * every school right now, since `timetable_slots` has no rows anywhere — because that is precisely
+ * the teacher who has no other way of learning they are covering 9-A this morning.
  */
 export default function MyTimetablePage() {
   const [data, setData] = useState<MyTimetable | null>(null);
+  const [cover, setCover] = useState<MyCover | null>(null);
   const [err, setErr] = useState(false);
   // A week IS a grid, so the desktop keeps one. Six columns on a 375px screen either scroll
   // sideways or shrink past reading, and this is the one place where the right answer needs
@@ -24,7 +30,11 @@ export default function MyTimetablePage() {
   const isPhone = useIsPhone();
   const [pickedDay, setPickedDay] = useState<number | null>(null);
 
-  useEffect(() => { api.timetable.mine().then(setData).catch(() => setErr(true)); }, []);
+  useEffect(() => {
+    api.timetable.mine().then(setData).catch(() => setErr(true));
+    // Independent: cover failing must not blank the week, and an empty week must not hide cover.
+    api.cover.mine().then(setCover).catch(() => {});
+  }, []);
 
   if (err) return <p className="error">Couldn&apos;t load your timetable.</p>;
   if (!data) return <p className="muted">Loading…</p>;
@@ -34,10 +44,41 @@ export default function MyTimetablePage() {
   const cells = byCell(data.slots);
   const { days, periods } = gridShape(data.slots, { minDays: 0, minPeriods: 0 });
 
+  const coverCard = (cover && (cover.covering.length > 0 || cover.covered.length > 0)) ? (
+    <div className="card stack" style={{ gap: 8 }}>
+      <div className="section-title" style={{ margin: 0 }}>Cover today</div>
+      <ul className="day-rail">
+        {cover.covering.map((c) => (
+          <li key={c.id}>
+            <span className="p">{c.periodNo ? `P${c.periodNo}` : 'Cvr'}</span>
+            <span>
+              <span className="what">
+                <strong>{c.section.class.name}-{c.section.name}</strong> — you are covering
+                {c.absentStaff ? ` for ${c.absentStaff.fullName ?? c.absentStaff.employeeCode}` : ''}
+              </span>
+              {c.reason && <><br /><span className="where">{c.reason}</span></>}
+            </span>
+          </li>
+        ))}
+        {/* The other direction. Being covered without being told is how staff learn to distrust a
+            system — and this teacher is the one person who can say the office picked wrong. */}
+        {cover.covered.map((c) => (
+          <li key={c.id}>
+            <span className="p">{c.periodNo ? `P${c.periodNo}` : 'Cvr'}</span>
+            <span className="what">
+              <strong>{c.section.class.name}-{c.section.name}</strong> — {c.coveringStaff.fullName ?? c.coveringStaff.employeeCode} is covering for you
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  ) : null;
+
   if (!data.slots.length) {
     return (
       <div className="stack">
         <h1>My Timetable</h1>
+        {coverCard}
         {/* An empty week is almost always "the office hasn't built it yet" rather than "you teach
             nothing" — saying so stops it reading as a fault. */}
         <p className="muted">
@@ -51,6 +92,7 @@ export default function MyTimetablePage() {
   return (
     <div className="stack">
       <h1>My Timetable</h1>
+      {coverCard}
 
       <div className="card stack" style={{ gap: 8 }}>
         <div className="section-title" style={{ margin: 0 }}>Today — {DAY_NAMES[dow]}</div>

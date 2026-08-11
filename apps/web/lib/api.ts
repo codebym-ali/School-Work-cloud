@@ -97,7 +97,15 @@ export interface ClosureNotice {
  */
 export interface NotificationItem {
   id: string;
-  kind: 'LEAVE_DECIDED' | 'REGISTER_UNMARKED' | 'MARKED_ABSENT' | 'SALARY_PAID';
+  /** Kept in step with `NotificationsService`'s union. It had drifted — the client still listed
+   *  only the four N0 kinds while the server had grown nine more, so every N2 item arrived typed
+   *  as something it was not, and a `kind ===` check could not be trusted. */
+  kind:
+    | 'LEAVE_DECIDED' | 'REGISTER_UNMARKED' | 'MARKED_ABSENT' | 'SALARY_PAID'
+    | 'DEFAULTERS' | 'LEAVES_PENDING' | 'SMS_FAILED' | 'CLAIMS_PENDING'
+    | 'REGISTERS_UNMARKED' | 'STAFF_UNMARKED' | 'STAFF_ABSENT'
+    | 'READY_TO_ADMIT' | 'TESTS_TODAY'
+    | 'COVERING_TODAY' | 'COVERED_TODAY';
   severity: 'info' | 'warn';
   text: string;
   href: string;
@@ -111,7 +119,9 @@ export interface UnmarkedRegisters {
   due: boolean;
   markByTime: string;
   count: number;
-  sections: Array<{ sectionId: string; className: string; sectionName: string; expected: number; marked: number; partial: boolean }>;
+  /** `coveredBy` names who actually holds the register today — chase the cover, not the teacher
+   *  who was away and could not have marked it (Cover Plan §6a). */
+  sections: Array<{ sectionId: string; className: string; sectionName: string; expected: number; marked: number; partial: boolean; coveredBy: string | null }>;
 }
 /** Shared vocabulary with the API and the student portal, so the ranges never diverge. */
 export const PERFORMANCE_RANGES = ['1w', '1m', '2m', '3m', '6m'] as const;
@@ -317,6 +327,8 @@ export interface AwayStaff {
 /** `staffRegisterMarked` false ⇒ the list can only know about approved leave, and says so. */
 export interface AwayToday { date: string; staffRegisterMarked: boolean; away: AwayStaff[] }
 export interface CoverRangeResult { created: CoverRow[]; skipped: Array<{ date: string; reason: string }> }
+/** Cover that touches ME on a day: what I took on, and what of mine somebody else has. */
+export interface MyCover { date: string; covering: CoverRow[]; covered: CoverRow[] }
 export interface ManagedTeacher {
   id: string; staffType: string; employeeCode: string; fullName: string | null; designation: string;
   employmentStatus: string; joinedAt: string;
@@ -777,6 +789,8 @@ export const api = {
       apiPost<CoverRow>('/cover', body),
     remove: (id: string) => apiDelete<{ deleted: boolean }>(`/cover/${id}`),
     away: (date: string) => apiGet<AwayToday>(`/cover/away?date=${date}`),
+    /** What I am covering, and what of mine is covered — self-scoped, so any staff member may ask. */
+    mine: (date?: string) => apiGet<MyCover>(`/cover/mine${date ? `?date=${date}` : ''}`),
     range: (body: { sectionId: string; fromDate: string; toDate: string; coveringStaffId: string; periodNo?: number; absentStaffId?: string; reason?: string }) =>
       apiPost<CoverRangeResult>('/cover/range', body),
   },

@@ -260,6 +260,82 @@ export class CoverService {
   }
 
   /**
+   * What I am covering, and what of mine is covered (Cover Plan, C2 / §5).
+   *
+   * **Both directions, because being covered in silence is how staff learn to distrust a system.**
+   * The substitute needs to know they have been handed a class; the absent teacher needs to know
+   * who took theirs. One query each, off the same rows the office created.
+   *
+   * Self-scoped by construction — it resolves the caller's own staff profile and can address no
+   * other. An account with no staff profile (an owner who is not also staff, a student) gets two
+   * empty lists rather than a 403: this feeds a home screen, and a 403 there reads as a fault.
+   */
+  async mine(q: CoverQuery) {
+    const date = new Date(q.date ?? new Date().toISOString().slice(0, 10));
+    const iso = date.toISOString().slice(0, 10);
+    const staff = await this.db.staffProfile.findFirst({
+      where: { userId: this.ctx.user!.userId },
+      select: { id: true },
+    });
+    if (!staff) return { date: iso, covering: [], covered: [] };
+    return { date: iso, ...(await this.mineFor(staff.id, date)) };
+  }
+
+  /** The same two lists for a staff id already in hand — the bell has one, and re-resolving the
+   *  caller's profile per notification kind is a query per item for no benefit. */
+  async mineFor(staffId: string, date: Date) {
+    const [covering, covered] = await Promise.all([
+      this.db.coverAssignment.findMany({
+        where: { coveringStaffId: staffId, date },
+        include: CoverService.INCLUDE,
+        orderBy: [{ periodNo: 'asc' }, { createdAt: 'asc' }],
+      }),
+      this.db.coverAssignment.findMany({
+        where: { absentStaffId: staffId, date },
+        include: CoverService.INCLUDE,
+        orderBy: [{ periodNo: 'asc' }, { createdAt: 'asc' }],
+      }),
+    ]);
+    return { covering, covered };
+  }
+
+  /**
+   * Which sections is this staff member answerable for on this date — after cover (C2 / §6a).
+   *
+   * **Cover moves responsibility, not just permission.** Once 9-A is covered it is no longer the
+   * absent teacher's register that day, and chasing them about a class they were away from is how
+   * a notification feed loses its credibility. So: their own sections, minus the ones somebody
+   * else is covering, plus the ones they are covering.
+   *
+   * Returns section ids only — the callers count and compare, they do not display.
+   */
+  async sectionsResponsibleFor(staffId: string, ownSectionIds: string[], date: Date): Promise<string[]> {
+    const [handedOver, takenOn] = await Promise.all([
+      this.db.coverAssignment.findMany({
+        // NOT `absentStaffId` — that field is optional, and the office often records only who is
+        // covering. What makes a register somebody else's today is that somebody else holds it.
+        where: { date, sectionId: { in: ownSectionIds }, coveringStaffId: { not: staffId } },
+        select: { sectionId: true },
+      }),
+      this.db.coverAssignment.findMany({
+        where: { date, coveringStaffId: staffId },
+        select: { sectionId: true },
+      }),
+    ]);
+    const gone = new Set(handedOver.map((c) => c.sectionId));
+    return [...new Set([...ownSectionIds.filter((id) => !gone.has(id)), ...takenOn.map((c) => c.sectionId)])];
+  }
+
+  /** Who holds each of these sections' registers on a date, by section id. Empty ⇒ nobody. */
+  async coveredByBySection(sectionIds: string[], date: Date): Promise<Map<string, string>> {
+    const rows = await this.db.coverAssignment.findMany({
+      where: { date, sectionId: { in: sectionIds } },
+      select: { sectionId: true, coveringStaff: { select: { fullName: true, employeeCode: true } } },
+    });
+    return new Map(rows.map((r) => [r.sectionId, r.coveringStaff.fullName ?? r.coveringStaff.employeeCode]));
+  }
+
+  /**
    * Is this staff member covering this section on this date?
    *
    * The whole point of C0 — called from `assertCanMark`. Deliberately narrow: **that section, that

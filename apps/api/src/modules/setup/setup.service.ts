@@ -178,6 +178,30 @@ export class SetupService {
     return updated;
   }
 
+  /**
+   * Does this section have room for one more child?
+   *
+   * ⚠️ **Lives here because it has two callers and must never have two implementations.** It began
+   * as a private method on `StudentsService`, which is exactly why `POST /enrollments/transfer`
+   * never had it: a 41st child could be *moved* into a 40-seat section that the admissions flow
+   * would have refused. One rule, one place — the same discipline as `whoIsAway()` and
+   * `myUnmarkedToday()`.
+   *
+   * `ADVISORY` deliberately allows the write and lets the UI warn: a school that has not opted into
+   * a hard cap is telling you its class sizes are guidance, and refusing them would be the product
+   * overruling the school about its own rooms.
+   */
+  async assertSectionHasRoom(sectionId: string, academicYearId: string, capacity: number): Promise<void> {
+    const settings = parseSchoolSettings((await this.db.school.findFirst({ where: { id: this.ctx.requireSchoolId() } }))?.settings ?? {});
+    if (settings.sectionCapacityMode !== 'HARD') return;
+    const count = await this.db.studentEnrollment.count({
+      where: { sectionId, academicYearId, status: 'ACTIVE' },
+    });
+    if (count >= capacity) {
+      throw new AppError(ErrorCodes.SECTION_FULL, HttpStatus.UNPROCESSABLE_ENTITY, 'Section is at capacity');
+    }
+  }
+
   /** Resolve the school's current academic year id (used by admissions/enrollment). */
   async requireCurrentYearId(): Promise<string> {
     const year = await this.db.academicYear.findFirst({ where: { isCurrent: true } });

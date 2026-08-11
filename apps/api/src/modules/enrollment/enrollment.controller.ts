@@ -9,6 +9,16 @@ import { PromoteDto } from './dto/promotion.dto';
 export class EnrollmentController {
   constructor(private readonly enrollment: EnrollmentService) {}
 
+  /**
+   * ⚠️ **This had NO `@Roles` at all** until 2026-08-11, so every authenticated session — student,
+   * parent, any staff member — could enumerate which child is in which class across the school. It
+   * was found by *adding the permission-matrix row*, which is the argument for the matrix: the
+   * write beside it was correctly gated, and a guarded write does not imply a guarded read.
+   *
+   * TEACHER is admitted because the attendance roster and marks entry both load from here. The
+   * campus half is narrowed in the service.
+   */
+  @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN', 'ADMISSION_CONTROLLER', 'TEACHER')
   @Get()
   list(@Query() q: EnrollmentListQuery) {
     return this.enrollment.list(q);

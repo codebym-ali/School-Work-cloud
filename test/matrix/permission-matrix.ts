@@ -68,6 +68,19 @@ export const PERMISSION_MATRIX: MatrixRow[] = [
   { label: 'declare a closure range', method: 'post', path: '/api/v1/holidays/range', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'], scopeGated: true },
   { label: 'read the closure calendar', method: 'get', path: '/api/v1/holidays', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'TEACHER'] },
   { label: 'remove a closure', method: 'delete', path: '/api/v1/holidays/00000000-0000-0000-0000-000000000000', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'], scopeGated: true },
+  // ── Enrollment ────────────────────────────────────────────────────────────
+  // Neither of these had a row, so the conformance check had never asserted who may call them —
+  // and a transfer RELOCATES A CHILD, including between campuses. A route with no row is not
+  // "assumed safe", it is unmeasured. The campus half is enforced in the service (§22.8), on both
+  // the source and the destination.
+  { label: 'transfer a student', method: 'post', path: '/api/v1/enrollments/transfer', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'], scopeGated: true },
+  // ⚠️ Adding this row is what revealed the endpoint had NO `@Roles` at all — every authenticated
+  // session could enumerate which child is in which class. TEACHER stays because the attendance
+  // roster and marks entry both load from here.
+  { label: 'read enrollments', method: 'get', path: '/api/v1/enrollments', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ADMISSION_CONTROLLER', 'TEACHER'], scopeGated: true },
+  // Promotion is a bulk year-roll for a whole class; same admins, and it had no row either.
+  { label: 'promote a class', method: 'post', path: '/api/v1/promotions', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'], scopeGated: true },
+
   { label: 'create academic year', method: 'post', path: '/api/v1/academic-years', body: {}, allow: ['OWNER_ADMIN'] },
   { label: 'list inquiries', method: 'get', path: '/api/v1/inquiries', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ADMISSION_CONTROLLER'], scopeGated: true },
   { label: 'admissions summary', method: 'get', path: '/api/v1/inquiries/summary', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ADMISSION_CONTROLLER'] },

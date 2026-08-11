@@ -216,4 +216,97 @@ describe('Admit journey (e2e, §8)', () => {
     expect(active.body.data).toHaveLength(1);
     expect(active.body.data[0].sectionId).toBe(toSectionId);
   });
+
+  /**
+   * Student Transfer Plan, X0 — the three gaps the endpoint shipped with.
+   *
+   * A transfer **relocates a child**, including across campuses, and it had no campus check, no
+   * capacity check and no permission-matrix row. The matrix row is what found a fourth: `GET
+   * /enrollments` had no `@Roles` at all.
+   */
+  describe('the limits on a transfer (X0)', () => {
+    /** A second admitted child, so a capacity test has somebody to be refused. */
+    const admitSecondStudent = async (): Promise<string> => {
+      const inq = await post('/api/v1/inquiries', {
+        campusId, guardianName: 'Cap Guardian', guardianPhone: '03005550000',
+        studentName: 'Cap Child', desiredClassId: classId,
+      });
+      await post(`/api/v1/inquiries/${inq.body.id}/entry-test`, { scheduledAt: '2026-03-15T09:00:00.000Z' });
+      await patch(`/api/v1/inquiries/${inq.body.id}/entry-test`, { passed: true, score: 80 });
+      const admitted = await acPost('/api/v1/admissions', {
+        inquiryId: inq.body.id, gender: 'MALE', dateOfBirth: '2019-06-02', classId, sectionId,
+        guardian: { mode: 'CREATE', fullName: 'Cap Guardian', phone: '03005550000', relation: 'FATHER' },
+      });
+      expect(admitted.status).toBe(201);
+      return admitted.body.studentId as string;
+    };
+
+    it('refuses a campus-bound admin moving a student to another campus', async () => {
+      const otherCampus = await post('/api/v1/campuses', { name: 'North Campus' });
+      const otherClass = await post('/api/v1/classes', { campusId: otherCampus.body.id, name: 'Grade 5', order: 5 });
+      const otherSection = await post('/api/v1/sections', { classId: otherClass.body.id, name: 'A', capacity: 40 });
+
+      const email = 'campusadmin@adm.pk';
+      const created = await post('/api/v1/users', { email, roles: ['CAMPUS_ADMIN'], campusId, password: 'Campus!Secret12' });
+      expect([200, 201]).toContain(created.status);
+      const caLogin = await request(server()).post('/api/v1/auth/login').set('Host', host)
+        .send({ email, password: 'Campus!Secret12' });
+      expect(caLogin.status).toBe(200);
+      const caCookies = caLogin.headers['set-cookie'] as unknown as string[];
+      const caCsrf = csrfOf(caCookies);
+
+      // ── Direction 1: pushing a child OUT of their campus. Source is theirs, destination is not.
+      const pushOut = await request(app.getHttpServer()).post('/api/v1/enrollments/transfer')
+        .set('Host', host).set('Cookie', caCookies).set('X-CSRF-Token', caCsrf)
+        .send({ studentId, toSectionId: otherSection.body.id });
+      expect(pushOut.status).toBe(403);
+
+      // ── Direction 2: pulling a child IN. Destination is theirs, source is not.
+      //
+      // ⚠️ **This case exists because a probe found nothing to break.** With only direction 1,
+      // deleting the source-end check failed no test — the destination check caught that move on
+      // its own. Only an admin of the FAR campus can distinguish the two, and without them "both
+      // ends" was a claim in a comment rather than a tested rule.
+      const farEmail = 'northadmin@adm.pk';
+      await post('/api/v1/users', { email: farEmail, roles: ['CAMPUS_ADMIN'], campusId: otherCampus.body.id, password: 'North!Secret12' });
+      const farLogin = await request(server()).post('/api/v1/auth/login').set('Host', host)
+        .send({ email: farEmail, password: 'North!Secret12' });
+      const farCookies = farLogin.headers['set-cookie'] as unknown as string[];
+
+      const pullIn = await request(app.getHttpServer()).post('/api/v1/enrollments/transfer')
+        .set('Host', host).set('Cookie', farCookies).set('X-CSRF-Token', csrfOf(farCookies))
+        .send({ studentId, toSectionId: otherSection.body.id });
+      expect(pullIn.status).toBe(403);
+
+      // ...and the owner, who is school-wide, may do exactly the same move.
+      const asOwner = await post('/api/v1/enrollments/transfer', { studentId, toSectionId: otherSection.body.id });
+      expect(asOwner.status).toBe(201);
+      // Put the student back so later assertions and other specs see the fixture they expect.
+      const backTo = await get(`/api/v1/sections?classId=${classId}`);
+      await post('/api/v1/enrollments/transfer', { studentId, toSectionId: backTo.body[0].id });
+    });
+
+    it('refuses a move into a full section when the school caps them', async () => {
+      await request(app.getHttpServer()).patch('/api/v1/school-settings').set('Host', host)
+        .set('Cookie', cookies).set('X-CSRF-Token', csrf).send({ sectionCapacityMode: 'HARD' });
+      // One seat, and the child already in the class is not in it — so the section is empty and the
+      // move must succeed, then the SECOND child must be refused. Capacity tests that only ever
+      // assert a refusal cannot tell a working rule from a broken endpoint.
+      const tiny = await post('/api/v1/sections', { classId, name: 'T', capacity: 1 });
+      const first = await post('/api/v1/enrollments/transfer', { studentId, toSectionId: tiny.body.id });
+      expect(first.status).toBe(201);
+
+      const second = await admitSecondStudent();
+      const res = await post('/api/v1/enrollments/transfer', { studentId: second, toSectionId: tiny.body.id });
+      expect(res.status).toBe(422);
+      expect(res.body.error.code).toBe('SECTION_FULL');
+
+      await request(app.getHttpServer()).patch('/api/v1/school-settings').set('Host', host)
+        .set('Cookie', cookies).set('X-CSRF-Token', csrf).send({ sectionCapacityMode: 'ADVISORY' });
+      // ADVISORY is not "no rule" — it is the school saying its class sizes are guidance, and the
+      // write must go through so the UI can warn instead of the API refusing.
+      const advisory = await post('/api/v1/enrollments/transfer', { studentId: second, toSectionId: tiny.body.id });
+      expect(advisory.status).toBe(201);
+    });
+  });
 });

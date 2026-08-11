@@ -13,7 +13,6 @@ import {
   ErrorCodes,
   normalizePkPhone,
   paginate,
-  parseSchoolSettings,
   restrictedCampusId,
   TenantContext,
   toSkipTake,
@@ -87,7 +86,9 @@ export class StudentsService {
     }
 
     const academicYearId = await this.setup.requireCurrentYearId();
-    await this.assertSectionCapacity(input.sectionId, academicYearId, section.capacity);
+    // Owned by SetupService so admission and transfer cannot disagree about a full section —
+    // this used to be private here, which is precisely why `/enrollments/transfer` never had it.
+    await this.setup.assertSectionHasRoom(input.sectionId, academicYearId, section.capacity);
 
     // Resolved only when a guardian was actually supplied — admitting without one is allowed
     // and leaves zero `student_guardians` rows, which every downstream reader already handles
@@ -588,21 +589,7 @@ export class StudentsService {
     return `${school.grPrefix}${updated.nextGrNumber - 1}`;
   }
 
-  private async assertSectionCapacity(sectionId: string, academicYearId: string, capacity: number): Promise<void> {
-    const settings = parseSchoolSettings((await this.currentSchoolSettings()) ?? {});
-    if (settings.sectionCapacityMode !== 'HARD') return; // ADVISORY: allow (UI warns)
-    const count = await this.db.studentEnrollment.count({
-      where: { sectionId, academicYearId, status: 'ACTIVE' },
-    });
-    if (count >= capacity) {
-      throw new AppError(ErrorCodes.SECTION_FULL, HttpStatus.UNPROCESSABLE_ENTITY, 'Section is at capacity');
-    }
-  }
 
-  private async currentSchoolSettings(): Promise<unknown> {
-    const school = await this.db.school.findFirst({ where: { id: this.ctx.requireSchoolId() } });
-    return school?.settings;
-  }
 
   // ── Guardian passthroughs (student-scoped) ───────────────────────────────────
   async addGuardian(studentId: string, res: GuardianResolutionDto, isPrimary: boolean): Promise<void> {

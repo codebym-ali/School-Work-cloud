@@ -2,14 +2,17 @@ import { HttpStatus, Injectable } from '@nestjs/common';
 import { EnrollmentStatus } from '@prisma/client';
 import {
   AppError,
+  assertCampusAccess,
   AuditActions,
   ErrorCodes,
   paginate,
+  restrictedCampusId,
   TenantContext,
   toSkipTake,
   type Paginated,
 } from '@common';
 import { AuditService, TenantPrismaService } from '@database';
+import { SetupService } from '../setup/setup.service';
 import type { EnrollmentListQuery, TransferDto } from './dto/enrollment.dto';
 
 /**
@@ -24,6 +27,7 @@ export class EnrollmentService {
     private readonly tenantPrisma: TenantPrismaService,
     private readonly audit: AuditService,
     private readonly ctx: TenantContext,
+    private readonly setup: SetupService,
   ) {}
 
   private get db() {
@@ -31,7 +35,12 @@ export class EnrollmentService {
   }
 
   async list(q: EnrollmentListQuery): Promise<Paginated<unknown>> {
+    // Campus scoping (§22.8): `StudentEnrollment` carries `campusId` — written on admission and
+    // re-written on transfer — so a campus-bound reader sees their own campus and no other. It was
+    // unscoped, which meant a campus admin could read every campus's roster.
+    const restricted = restrictedCampusId(this.ctx.user);
     const where = {
+      ...(restricted ? { campusId: restricted } : {}),
       // Never surface soft-deleted students in operational lists (e.g. the attendance roster,
       // which loads ?status=ACTIVE) — otherwise a removed student stays markable/billable.
       student: { deletedAt: null },
@@ -62,14 +71,26 @@ export class EnrollmentService {
       throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'No active enrollment for student');
     }
 
+    // ⚠️ **Both ends, §22.8.** A campus-bound admin may move a child *within* their campus and
+    // nowhere else — checking only the destination would let them push a student out of their
+    // campus, and checking only the source would let them pull one in. This write relocates a child
+    // between campuses, so it is the one place where checking a single end is obviously not enough.
+    assertCampusAccess(this.ctx.user, current.campusId);
+
     const section = await this.db.section.findFirst({
       where: { id: dto.toSectionId },
       include: { class: { select: { id: true, campusId: true } } },
     });
     if (!section) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'Target section not found');
+    assertCampusAccess(this.ctx.user, section.class.campusId);
     if (section.id === current.sectionId) {
       throw new AppError(ErrorCodes.CONFLICT, HttpStatus.CONFLICT, 'Student is already in that section');
     }
+
+    // The same rule admission uses, from the same method — a 41st child must not be *moved* into a
+    // section a new admission would have been refused from. Honours `sectionCapacityMode`, so an
+    // ADVISORY school is still allowed through and warned by the UI.
+    await this.setup.assertSectionHasRoom(section.id, current.academicYearId, section.capacity);
 
     // Close the old enrollment first (partial-unique: one ACTIVE per student+year).
     await this.db.studentEnrollment.update({

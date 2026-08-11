@@ -59,5 +59,29 @@ test.describe('student move', () => {
     // on an endpoint that copied the enrolment instead of moving it.
     const old = await apiSetupGet<{ data: unknown[] }>(page, `/enrollments?sectionId=${sectionId}&status=ACTIVE`);
     expect(old.data).toHaveLength(0);
+
+    // ── X2: the same action from the student's own record ─────────────────────
+    // Someone reading one child's profile is exactly who notices they are in the wrong room, and
+    // sending them back to the list to act on what is already on screen is how a capability goes
+    // unused — which is the whole reason this feature had no UI for four months.
+    await page.locator('tbody tr', { hasText: studentName }).getByRole('button', { name: 'View', exact: true }).click();
+    const enrolment = page.locator('.card', { hasText: 'Current enrollment' });
+    await expect(enrolment).toContainText(toName);
+    await enrolment.getByRole('button', { name: 'Move', exact: true }).click();
+
+    const profileDialog = page.locator('.card', { hasText: `Move — ${studentName}` });
+    await expect(profileDialog).toContainText(`Currently ${className}-${toName}`);
+    await profileDialog.locator('label:text-is("Class") + select').selectOption(classId);
+    await profileDialog.locator('label:text-is("Section") + select').selectOption(sectionId);
+    await profileDialog.getByRole('button', { name: 'Move student' }).click();
+
+    // The profile refetches in place: the card behind the dialog must show where they are NOW, not
+    // where they were when the page loaded. A stale card would contradict the toast above it.
+    //
+    // ⚠️ Asserted as "no longer names the section they LEFT", not as "contains the section they
+    // returned to". The first version did the latter, and `sectionName` is a single letter — which
+    // the card already contained inside "Status ACTIVE". It passed with the refetch deleted.
+    // A generated name is unique; a letter is a substring of half the page.
+    await expect(enrolment).not.toContainText(toName);
   });
 });

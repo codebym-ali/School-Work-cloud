@@ -1,7 +1,7 @@
 ---
 title: Student Transfer Plan (moving a child between sections, classes and campuses)
 type: plan
-status: X0 + X1 SHIPPED 2026-08-11 · X2–X3 planned
+status: COMPLETE — X0–X3 SHIPPED 2026-08-11
 updated: 2026-08-11
 ---
 
@@ -74,9 +74,12 @@ Three things follow:
   for transfer *and* promotions. Backend only, no UI. **Fixes 1.2, 1.3, 1.4.**
 - **X1 — the move dialog on the Students page. ✅ SHIPPED 2026-08-11.** The general home for "find a child, act on them",
   and it works when the user does not know which class they are in today. **Fixes 1.1.**
-- **X2 — the same action from the class workbench** (`/classes/[id]`), where somebody *notices* the
-  problem while looking at a roster. Same component, second entry point.
-- **X3 — tests, browser pass, brain.**
+- **X2 — a second entry point. ✅ SHIPPED 2026-08-11**, on the **student's profile** rather than the
+  class workbench. ⚠️ The workbench has **no roster** — it shows a strength count and a *View
+  students* button that routes to the filtered Students list, which is where Move already lives.
+  Building a roster there purely to host the action would have been inventing a screen to justify a
+  plan. See §10.
+- **X3 — tests, browser pass, brain. ✅ SHIPPED 2026-08-11** (folded into X1/X2 rather than run as its own phase — the surface is two dialogs, not a screen).
 
 ## 4. X1 — what the dialog says
 
@@ -245,3 +248,52 @@ section is empty afterwards** — checking only the destination would pass on an
 
 X2 — the same dialog from the class workbench and from `StudentProfile`, where somebody actually
 *notices* a child is in the wrong room. X3 — the wider browser pass.
+
+---
+
+## 10. X2 as built — 2026-08-11 · the plan is complete
+
+**Shipped:** `MoveStudentDialog` extracted to `components/move-student-dialog.tsx` and wired into
+**`StudentProfile`**, beside *Current enrollment*.
+
+### ⚠️ The class workbench was the wrong second home, and checking said so
+
+The plan named `/classes/[id]`. It **has no student roster** — 277 lines showing a strength count
+and a *View students* button that routes to `/students?campusId=…&classId=…`, which is exactly where
+Move already lives. Adding a roster purely to host the action would have been building a screen to
+justify a plan.
+
+The profile is the right second home: **someone reading one child's record is exactly who notices
+they are in the wrong room**, and sending them back to a list to act on what is already on screen is
+how a capability goes unused — which is how this feature spent four months with no UI at all.
+
+The dialog's props were narrowed to `{ id, fullName }` so a `StudentDetail` satisfies them without a
+second prop shape.
+
+### ⚠️ My first version of the refresh assertion was vacuous
+
+`await expect(enrolment).toContainText(sectionName)` — and `sectionName` is a **single letter**,
+which the card already contained inside *"Status ACTIVE"*. Deleting the profile's `load()` refetch
+failed nothing.
+
+It now asserts the card **no longer names the section they left**, using the generated
+`S<timestamp>` name. *A generated name is unique; a letter is a substring of half the page.* Probed
+again with the refetch removed: it fails.
+
+### Verified live (demo, owner session)
+
+From the profile: *Current enrollment · Move* → **"Currently 8th-B"** → moved to 9th-A → the card
+behind the dialog refetched to **Class 9th / Section A** without a page reload. Moved back; demo
+left as found.
+
+### What the plan cost, and what it bought
+
+Four phases, from one question — *"can a student be moved from one class to another?"*
+
+**The answer was "yes, and nobody can".** The endpoint had shipped in M2 and had no UI, no campus
+check, no capacity check and no matrix row — and adding the matrix row exposed a fifth thing, an
+**ungated `GET /enrollments`** that let any authenticated session enumerate every child's class.
+
+Two of the four gaps were only visible because something *else* was being written down: the capacity
+rule surfaced when it had to be shared, and the read leak surfaced when the route was finally
+described in the matrix. **Describing a thing precisely is a way of testing it.**

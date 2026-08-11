@@ -17,6 +17,14 @@ import type { MetadataRoute } from 'next';
  *
  * If offline is ever wanted, the version-check and "reload" prompt have to arrive in the same
  * change as the service worker, never after it.
+ *
+ * ⚠️ **The price of that decision, confirmed 2026-08-11: Chrome will never OFFER the install.**
+ * Chrome dropped the service-worker requirement for installing **from the browser menu** (m108
+ * mobile, m112 desktop), which is exactly why this works with no service worker — but the
+ * automatic banner (`beforeinstallprompt`) still requires a `fetch()` handler, so it does not
+ * fire here. The teacher has to be *told* to use "Add to Home Screen"; nothing prompts them.
+ * (iOS Safari has never had a prompt either, so this is one instruction, not two.)
+ * Verified by `test/e2e/installable.spec.ts`, which deliberately asserts no prompt.
  */
 export default function manifest(): MetadataRoute.Manifest {
   return {

@@ -1,8 +1,8 @@
 ---
 title: Teacher Mobile Home Plan
 type: plan
-status: M0–M4 shipped — plan complete
-updated: 2026-08-08
+status: M0–M4 shipped and VERIFIED — plan complete
+updated: 2026-08-11
 ---
 
 # 📱 Teacher Mobile Home — plan
@@ -175,7 +175,7 @@ paths to the same data.
     `/attendance`, `/my-classes`, `/calendar`, `/exams`) rendered at 375px with **zero horizontal
     overflow**. Desktop re-checked at 1280px: table headers, table rows and `::before` labels all
     behave as before.
-- **M4 — installable (PWA). ✅ DONE 2026-08-09.** Manifest + icons, so "Add to home screen" gives a
+- **M4 — installable (PWA). ✅ DONE 2026-08-09 · VERIFIED 2026-08-11 (M4c).** Manifest + icons, so "Add to home screen" gives a
   real icon, a standalone window with no address bar, and a splash screen. No app store, no review,
   no separate Android and iOS builds — deploy the site and everyone has the new version.
   - **The stale-version guard turned out to be unnecessary, and that is worth stating.** I deferred
@@ -246,3 +246,55 @@ prompt to do safely. Worth having; not worth bundling into a UI change.
   `lib/roles.ts`; the tab bar is a filtered projection of it, never a second list.
 - **Scope creep into "redesign the whole app".** M0 is a shell change and an overflow audit, not a
   visual redesign. The visual language stays as it is unless that is a separate, stated decision.
+
+---
+
+## M4c — verified installable, 2026-08-11
+
+M4 was built on 2026-08-09 and marked done; **nothing had ever checked that it worked.** This is
+that check, and it is now a test rather than a claim: `test/e2e/installable.spec.ts`, three cases.
+
+### What was verified
+
+| Check | Result |
+|---|---|
+| `/manifest.webmanifest` served and parses | ✅ 200, valid JSON |
+| name · short_name · start_url · `display: standalone` | ✅ all present |
+| icons at 192 **and** 512, plus a maskable one | ✅ all three |
+| `start_url` / `scope` **relative** | ✅ — an absolute URL would point every tenant's installed app at one school |
+| every icon resolves | ✅ 200, `image/png` |
+| every icon's **real pixel size** matches what the manifest claims | ✅ read from the PNG IHDR |
+| head: manifest link · `theme-color` · `viewport-fit=cover` | ✅ |
+| head: `apple-mobile-web-app-capable` · `apple-touch-icon` | ✅ — iOS ignores the manifest for standalone display and reads these instead |
+
+**The size check is the one worth having.** A 200 cannot tell you a file is the size it claims, and
+Chrome refuses to install when the manifest says 512×512 and the bytes say otherwise. Probed by
+copying the 192px file over `icon-512.png`: **1 failed**, `/icon-512.png pixel size`. This is the
+same failure mode already recorded here — the generated `app/icon.tsx` route **500s on Windows**
+(`@vercel/og` cannot load its own font), which would have left every icon a broken link with
+nothing going red.
+
+### ⚠️ The finding: Chrome will never *offer* the install
+
+`beforeinstallprompt` does not fire, and after checking the Chrome documentation that is **correct
+behaviour for this app, not a defect**:
+
+- Chrome **removed** the service-worker requirement for installing **from the browser menu** —
+  m108 mobile, m112 desktop. That is precisely why this app is installable with no service worker,
+  and it is what makes M4b's "no service worker" decision viable at all.
+- But the **automatic** install banner still requires a `fetch()` handler, which only a service
+  worker provides. So Chrome shows nothing.
+
+**The consequence is an onboarding one, and it belongs in whatever a school is told at handover:
+teachers must be shown "Add to Home Screen" once, because nothing will prompt them.** iOS Safari
+has never had a prompt either, so it is one instruction for both, not two.
+
+The spec asserts *no* prompt deliberately — asserting one would fail forever, and a test that can
+only fail is as useless as one that can only pass.
+
+**Not fixed here, on purpose.** Adding a service worker to earn the banner would buy a prompt and
+re-introduce the stale-shell risk M4b was closed to avoid — a bad trade for one banner. A small
+in-app "Install this app" hint on `/me-more` would get the same result with none of the risk; that
+is a UI change, not verification, so it is left as a suggestion rather than smuggled into M4c.
+
+**Sources:** [Revisiting Chrome's installability criteria](https://developer.chrome.com/blog/update-install-criteria)

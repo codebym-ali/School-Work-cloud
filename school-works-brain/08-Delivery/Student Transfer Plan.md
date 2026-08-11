@@ -1,7 +1,7 @@
 ---
 title: Student Transfer Plan (moving a child between sections, classes and campuses)
 type: plan
-status: X0 SHIPPED 2026-08-11 · X1–X3 planned, one decision open (§5)
+status: X0 + X1 SHIPPED 2026-08-11 · X2–X3 planned
 updated: 2026-08-11
 ---
 
@@ -72,7 +72,7 @@ Three things follow:
 
 - **X0 — close the three gaps. ✅ SHIPPED 2026-08-11.** Campus scoping on both ends, the shared capacity rule, matrix rows
   for transfer *and* promotions. Backend only, no UI. **Fixes 1.2, 1.3, 1.4.**
-- **X1 — the move dialog on the Students page.** The general home for "find a child, act on them",
+- **X1 — the move dialog on the Students page. ✅ SHIPPED 2026-08-11.** The general home for "find a child, act on them",
   and it works when the user does not know which class they are in today. **Fixes 1.1.**
 - **X2 — the same action from the class workbench** (`/classes/[id]`), where somebody *notices* the
   problem while looking at a roster. Same component, second entry point.
@@ -102,10 +102,15 @@ Move Ayesha Malik
 - **The sentence about what stays** is not a nicety: it is the difference between a correct mental
   model and a support ticket about missing attendance.
 
-## 5. Decision needed for X1
+## 5. Decision TAKEN for X1 (2026-08-11) — option 1
 
-**Where does the move action live on the Students page?** The row already has a status menu
-(suspend, restrict, strike off, withdraw). Options:
+**A row action beside "Change status", not inside it.** ⚠️ **Correction to how this was framed:**
+the row has no *menu* — it carries inline buttons (View · Change status · Delete) — and there IS a
+student detail view (`StudentProfile`, rendered in place), which the options below said there was
+not. That was inferred from the file listing rather than from reading the file. Option 1 was chosen
+and still holds on its merits: a move is a **correction, not a sanction**, so it sits beside the
+status dialog rather than inside it with the four destructive changes. The profile view remains the
+natural second home for it — see X2. The options as considered:
 
 1. **In that existing menu**, as "Move to another class…". One place for everything you do *to* a
    student; no new affordance to learn. Risk: it sits beside destructive status changes, and a
@@ -192,3 +197,51 @@ tell you nothing about the other.*
   previously possible for anyone who found the endpoint.
 - A campus admin's `GET /enrollments` now returns **their campus only**.
 - A move into a full section is refused in `HARD` schools — as admission already was.
+
+---
+
+## 9. X1 as built — 2026-08-11
+
+**Shipped:** `api.enrollments.{list,transfer}`, a **Move** action on each Students row, the
+`MoveStudentDialog`, and `test/e2e/student-move.spec.ts`.
+
+### What the dialog does, and why each part is there
+
+| | |
+|---|---|
+| *Currently 8th-B* | resolved from the student's **active enrolment** — `Student` on the row carries no placement, and without this a user cannot tell a correction from a mistake |
+| `A — 4 of 40 seats` | seats on the option itself, read **while choosing** rather than after a refusal |
+| Full section | refused before the click in `HARD` schools, warned about in `ADVISORY` — the same distinction admission draws |
+| Same section | button disabled, with *"That is the section they are already in"* |
+| *Only today onwards moves* | the sentence that stops the history staying behind being reported as data loss |
+
+The API stays the authority on all of it — campus scoping both ends, capacity. The dialog shows the
+same facts early so a refusal is **rare**, never *instead of* the check.
+
+### Verified live (demo, owner session)
+
+Opened on *Abdullah Mohsin* → **"Currently 8th-B"**; picking 9th listed *A — 4 of 40 seats* and
+*B — 1 of 40 seats*; moving produced **"Abdullah Mohsin moved to 9th-A"**, closed the dialog and
+reloaded the list. Reopening showed **"Currently 9th-A"** and selecting 9-A again disabled the
+button with the same-section notice. Moved back to 8th-B; demo left as found.
+
+### Proven non-vacuous
+
+Dropping the *"Only today onwards moves"* clause fails the spec. The e2e also asserts the **old
+section is empty afterwards** — checking only the destination would pass on an endpoint that
+*copied* an enrolment instead of moving it.
+
+### ⚠️ Two things worth carrying forward
+
+- **My first probe was malformed JSX** and broke the page compile, so the run failed in the login
+  *setup* projects and proved nothing. A probe has to break the **behaviour** under test, not the
+  build — otherwise the red tells you about your edit, not about the test.
+- **The spec makes no login of its own** and reuses the shared owner session, because the suite sits
+  exactly at the §29 ceiling of 5 per IP per 15 minutes. `seedClassSectionStudent` does log in as
+  the admission officer, which is why the durable fix (a shared `storageState` per actor) matters
+  more with every teacher- or student-facing spec added.
+
+### Still open (X2–X3)
+
+X2 — the same dialog from the class workbench and from `StudentProfile`, where somebody actually
+*notices* a child is in the wrong room. X3 — the wider browser pass.

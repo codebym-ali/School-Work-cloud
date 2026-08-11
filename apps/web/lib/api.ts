@@ -711,6 +711,18 @@ export const api = {
     remove: (id: string) => apiDelete<null>(`/holidays/${id}`),
   },
   /** The school's own operating rules. Read by admins, changed only by the owner. */
+  /**
+   * Enrolment — a student's place in a class, and moving it (Student Transfer Plan, X1).
+   *
+   * A transfer is not an edit: the API closes the current enrolment and opens a new one, so
+   * attendance and marks already recorded stay with the class they happened in.
+   */
+  enrollments: {
+    list: (qs: string) => apiGet<Paged<Enrollment>>(`/enrollments?${qs}`),
+    /** Owner / campus admin. Campus-scoped on BOTH ends in the service, and capacity-checked. */
+    transfer: (studentId: string, toSectionId: string) =>
+      apiPost<Enrollment>('/enrollments/transfer', { studentId, toSectionId }),
+  },
   schoolSettings: {
     get: () => apiGet<SchoolSettings>('/school-settings'),
     /** Partial — send only what changed; the server merges, including one level into groups. */

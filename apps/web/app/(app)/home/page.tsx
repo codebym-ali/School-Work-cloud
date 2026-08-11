@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { api, type CheckInState, type CoverRow, type MyCover, type MyTimetable, type NotificationItem, type TimetableSlot } from '@/lib/api';
+import { api, type CheckInState, type CoverRow, type MyCover, type MyTimetable, type MyUnmarkedRegisters, type NotificationItem, type TimetableSlot } from '@/lib/api';
 import { useMe } from '@/lib/me-context';
 import { DAY_NAMES, sectionLabel, todayDow } from '@/lib/timetable';
 
@@ -33,6 +33,7 @@ export default function TeacherHome() {
   const [items, setItems] = useState<NotificationItem[]>([]);
   const [checkIn, setCheckIn] = useState<CheckInState | null>(null);
   const [cover, setCover] = useState<MyCover | null>(null);
+  const [unmarkedMine, setUnmarkedMine] = useState<MyUnmarkedRegisters | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
@@ -43,6 +44,7 @@ export default function TeacherHome() {
     api.notifications.list().then((r) => setItems(r.items)).catch(() => {});
     api.staff.checkInState().then(setCheckIn).catch(() => {});
     api.cover.mine().then(setCover).catch(() => {});
+    api.staff.myUnmarkedRegisters().then(setUnmarkedMine).catch(() => {});
   }
   useEffect(() => { load(); }, []);
 
@@ -60,7 +62,25 @@ export default function TeacherHome() {
   const coverNow: CoverRow | undefined = covering[0];
   const rest = today.slice(1);
 
-  const unmarked = items.find((i) => i.kind === 'REGISTER_UNMARKED');
+  /**
+   * ⚠️ **Deliberately NOT gated on `due`, unlike the bell.** The mark-by deadline exists to stop a
+   * *warning* firing during the lesson it is about. This card is not a warning — it is the answer
+   * to "what am I doing now", and at 08:30 that answer is still "mark 9-A". Gating it here also
+   * produced a lie: with the list emptied before the deadline, the screen fell through to the
+   * good-news branch and claimed every register was marked.
+   */
+  const myUnmarked = unmarkedMine?.sections ?? [];
+  const [firstUnmarked, ...restUnmarked] = myUnmarked;
+  /**
+   * ⚠️ **`responsible`, not `sections.length`.** `sections` holds only the UNMARKED ones, so once
+   * the teacher finishes it is empty — which made the "all done" branch unreachable and sent a
+   * teacher who had just marked everything to "No timetable has been set for you yet". Caught in a
+   * browser, not by a test: both branches type-check and both render.
+   */
+  const responsible = unmarkedMine?.responsible ?? 0;
+  // The register reminder is filtered out of "Needs you" because the card above says the same
+  // thing better — it names the class and links straight to it. Two versions of one message on one
+  // screen is how a list of alerts stops being read.
   const needsYou = items.filter((i) => i.kind !== 'REGISTER_UNMARKED');
   const firstName = (me?.email ?? '').split('@')[0].split('.')[0];
   const hour = new Date().getHours();
@@ -130,17 +150,43 @@ export default function TeacherHome() {
           <p className="detail">{now.subject.name}{now.room ? ` · ${now.room}` : ''}</p>
           <Link className="cta" href={`/attendance?sectionId=${now.section.id}`}>Mark this register</Link>
         </div>
+      ) : firstUnmarked ? (
+        /* No timetable, but a register with this teacher's name on it (T2).
+         *
+         * ⚠️ This card used to read "A register needs marking" over "No timetable has been set for
+         * you yet" with a generic *Open attendance* — a headline promising a task, a body
+         * withdrawing it, and a button that opened a screen cold. **The system knew which register
+         * the whole time**; the count was computed and the names thrown away. Since every school
+         * has zero timetable rows today, this is the card most teachers actually see, so it is the
+         * one that has to do the work. */
+        <div className="now">
+          <p className="eyebrow">Today</p>
+          <p className="headline">Mark {firstUnmarked.className}-{firstUnmarked.sectionName}</p>
+          <p className="detail">
+            {firstUnmarked.marked > 0
+              // Half-done and never-started are different problems needing different effort, and
+              // the register screen already makes that distinction.
+              ? `${firstUnmarked.marked} of ${firstUnmarked.expected} marked so far`
+              : `${firstUnmarked.expected} student${firstUnmarked.expected === 1 ? '' : 's'}`}
+            {restUnmarked.length > 0 && ` · ${restUnmarked.length} more register${restUnmarked.length === 1 ? '' : 's'} after this`}
+          </p>
+          <Link className="cta" href={`/attendance?sectionId=${firstUnmarked.sectionId}`}>Mark this register</Link>
+        </div>
       ) : (
         /* Degrading honestly matters more here than anywhere: the timetable feature shipped on
            2026-08-08 with zero rows in every school, so for most schools this is what the home
            looks like on day one. It must explain itself rather than sit empty. */
         <div className="now">
           <p className="eyebrow">Today</p>
-          <p className="headline">{unmarked ? 'A register needs marking' : 'Nothing scheduled'}</p>
+          <p className="headline">{responsible > 0 ? 'Nothing to mark' : 'Nothing scheduled'}</p>
           <p className="detail">
-            {timetable?.slots.length
-              ? 'You have no periods today.'
-              : 'No timetable has been set for you yet — the office builds it under Timetable.'}
+            {responsible > 0
+              // Said plainly rather than left blank: "no periods today" on a screen with no
+              // timetable reads as a fault, when the truth is that the work is done.
+              ? 'Every register you are responsible for is marked.'
+              : timetable?.slots.length
+                ? 'You have no periods today.'
+                : 'No timetable has been set for you yet — the office builds it under Timetable.'}
           </p>
           <Link className="cta" href="/attendance">Open attendance</Link>
         </div>

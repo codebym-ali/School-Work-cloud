@@ -1,7 +1,7 @@
 ---
 title: Teacher App Shell Plan (one navigation, both widths)
 type: plan
-status: T0 + T1 SHIPPED 2026-08-11 · T2–T4 planned
+status: T0–T2 SHIPPED 2026-08-11 · T3–T4 planned
 updated: 2026-08-11
 ---
 
@@ -107,7 +107,7 @@ because there were spare pixels.*
 - **T1 — the teacher shell follows the person, not the role table. ✅ SHIPPED 2026-08-11.** A user holding TEACHER gets
   the teacher shell even when they also hold another role, with the second role's screens reachable
   from the last tab. **All three decisions taken — see §5 and §5a.** **Fixes 1.3.**
-- **T2 — the home screen earns the top of the screen with no timetable.** When there is no
+- **T2 — the home screen earns the top of the screen with no timetable. ✅ SHIPPED 2026-08-11.** When there is no
   timetable, name the registers: *"Mark 9-A"* with the rest listed beneath, derived from
   `unmarked-today` ∩ `my-classes`. The headline stops promising a task the body then withdraws.
   **Fixes 1.4.** No new endpoints.
@@ -121,7 +121,7 @@ because there were spare pixels.*
 
 - **No other role's shell.** Owner, campus admin, accountant, HR and admission keep the sidebar and
   drawer at every width. This is about the one role that is mobile-heavy by nature (blueprint §3).
-- **No new endpoints.** Everything T2 needs is already served.
+- ~~**No new endpoints.** Everything T2 needs is already served.~~ ⚠️ **Wrong, corrected 2026-08-11.** `/attendance/unmarked-today` is admin-only and the teacher-callable `/attendance/coverage` is per-section — naming four registers would have been four requests on a phone. T2 added **one** self-scoped route, `GET /attendance/mine/unmarked-today`, out of a computation that already existed. See §9.
 - **No offline.** Still out, for the reason in [[Teacher Mobile Home Plan]] §8: a silent sync
   conflict on a register that feeds pay is worse than waiting for signal.
 - **Not the student portal.** `/me/*` is its own shell and its own question.
@@ -303,3 +303,78 @@ Both surfaced while probing, and both are about failures that lie:
 T2 (the home screen naming the actual registers when there is no timetable), T3 (the teacher's
 cards at desktop width — now including the finance and admission screens a dual-role person will
 open inside the teacher shell), T4 (browser pass at 375/768/1440 and the brain).
+
+---
+
+## 9. T2 as built — 2026-08-11
+
+**Shipped:** `AttendanceService.myUnmarkedToday()` + `GET /attendance/mine/unmarked-today`
+(self-scoped, no `@Roles`); `NotificationsService.registerUnmarked` rewritten as a *consumer* of it;
+the teacher home names the register.
+
+### The card, before and after
+
+| | |
+|---|---|
+| **Before** | *A register needs marking* / "No timetable has been set for you yet — the office builds it under Timetable." / **Open attendance** |
+| **After** | *Mark 9th-A* / "4 students" / **Mark this register** → `/attendance?sectionId=…` |
+
+A headline promising a task, a body withdrawing it, and a button that opened a screen cold — replaced
+by the answer. **The system knew which register the whole time.**
+
+### ⚠️ The plan said "no new endpoints" and was wrong
+
+`/attendance/unmarked-today` is OWNER_ADMIN/CAMPUS_ADMIN — a teacher cannot call it. The
+teacher-callable `/attendance/coverage` is **per section**, so naming four registers meant four
+requests on a phone, on Pakistani mobile data, on the screen that has to load fastest.
+
+But the endpoint is not new *logic*: **`registerUnmarked` already computed exactly this list and
+reduced it to a count.** The teacher's home could say *"a register needs marking"* while being
+unable to say **which**, because the names were being thrown away one line before they were needed.
+One method now, two consumers — the bell collapses it to a number, the home names the classes.
+Same discipline as `whoIsAway()` in Cover C3, and for the same reason.
+
+The bell's reminder stays **one line a day, not one per section** (G3's *surface, don't police*) and
+now links to `/home`, where the naming happens. The home filters it out of "Needs you" — the card
+above says it better, and two versions of one message on one screen is how an alert list stops
+being read.
+
+### ⚠️ Two bugs I wrote, and a browser caught both
+
+Both type-checked, both rendered, and **neither would ever have failed a test**:
+
+1. **The good-news branch was unreachable.** I derived "does this teacher have classes" from
+   `sections.length` — but `sections` holds only the *unmarked* ones, so the moment a teacher
+   finished marking, the count hit zero and the screen told them *"No timetable has been set for
+   you yet."* Fixed by returning **`responsible`** — the count *before* filtering — because
+   *"you have no classes"* and *"all of yours are done"* otherwise arrive identically as `[]`, and
+   only one of them is good news. The e2e now asserts it.
+2. **It would have lied before the mark-by time.** I gated the card on `due`, copying the bell.
+   With the list emptied early, the screen fell through to the same branch and claimed every
+   register was marked at 08:30. **The card is now deliberately not gated on `due`:** the deadline
+   exists to stop a *warning* firing during the lesson it is about, and this is not a warning — it
+   is the answer to "what am I doing now", which at 08:30 is still *mark 9-A*.
+
+### Proven non-vacuous
+
+| Probe | Result |
+|---|---|
+| `myUnmarkedToday` stops being cover-aware | **2 failed** — including the C2 §6a case |
+| `responsible` mirrors the unmarked count again (bug 1) | **1 failed** |
+
+### Verified live (demo, throwaway teacher)
+
+*Mark 9th-A · 4 students* → the pre-scoped link loaded the right roster with **4 rows and no
+picking**; saving it flipped the card to *Nothing to mark · Every register you are responsible for
+is marked.* Probe deleted, attendance rows removed.
+
+⚠️ **Found while doing it:** `POST /teacher-assignments` accepted a teacher at one campus being
+assigned a section at **another**, and the home then said *Mark 9th-A* for a register the API
+refuses with *"Resource belongs to another campus"*. Always possible; T2 made it visible by naming
+the class and linking to it. Filed separately — it also needs checking for `/timetable/slots` and
+`/cover`.
+
+### Still open (T3–T4)
+
+T3 (the teacher's cards at desktop width, now including the finance and admission screens a
+dual-role person opens inside the teacher shell), T4 (browser pass at 375/768/1440 and the brain).

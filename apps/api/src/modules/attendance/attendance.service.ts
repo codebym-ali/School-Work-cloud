@@ -281,6 +281,97 @@ export class AttendanceService {
    * `partial` is distinguished from untouched: a register interrupted halfway is a different
    * problem from one never started, and needs a different word from whoever chases it.
    */
+  /**
+   * **My own** registers that are not marked yet today (Teacher App Shell Plan, T2).
+   *
+   * Self-scoped: it resolves the caller's staff profile and can address no other, which is why it
+   * needs no `@Roles` — the same shape as `/staff-attendance/mine`. An account with no staff
+   * profile gets an empty list rather than a 403, because a home screen calls this.
+   *
+   * ⚠️ **This computation already existed and was thrown away.** `NotificationsService.
+   * registerUnmarked` did exactly this and reduced it to a count — so the teacher's home could say
+   * *"a register needs marking"* while being unable to say **which**, and the system had the answer
+   * the whole time. One method now, two consumers: the bell collapses it to a number, the home
+   * screen names the classes. Two implementations of one question is the most expensive pattern in
+   * this codebase's history.
+   *
+   * **Cover-aware** (Cover Plan §6a): the sections are the ones this person is responsible for
+   * *today*, so a class handed to a substitute drops off their list and a class they are covering
+   * appears on it.
+   *
+   * `due` is false before the school's own mark-by time — a register is not late during the lesson,
+   * and a screen that nags from 08:00 teaches people to ignore it.
+   */
+  async myUnmarkedToday() {
+    const schoolId = this.ctx.requireSchoolId();
+    const school = await this.db.school.findFirst({ where: { id: schoolId }, select: { settings: true } });
+    const settings = parseSchoolSettings(school?.settings ?? {});
+    const session = settings.attendanceSessions[0];
+    const date = new Date(startOfDay(new Date()));
+    const empty = {
+      due: isPastLocalTime(new Date(), settings.attendanceMarkByTime, settings.timezone),
+      markByTime: settings.attendanceMarkByTime,
+      /**
+       * How many registers this person is answerable for today, **before** filtering to the
+       * unmarked ones. Without it a caller cannot tell *"you have no classes"* from *"every one of
+       * your classes is done"* — both arrive as an empty `sections`, and only one of them is good
+       * news. The teacher home got that wrong until it was looked at in a browser.
+       */
+      responsible: 0,
+      sections: [] as { sectionId: string; className: string; sectionName: string; expected: number; marked: number }[],
+    };
+
+    const staff = await this.db.staffProfile.findFirst({ where: { userId: this.ctx.user!.userId }, select: { id: true } });
+    if (!staff) return empty;
+
+    // A closure or weekly off is not a gap — the same check the bell, the coverage strip and the
+    // day-close job all make, for the same reason: crying wolf every Sunday is how a warning
+    // becomes wallpaper.
+    const WEEK = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'] as const;
+    if (settings.weeklyOffDays.includes(WEEK[date.getUTCDay()])) return empty;
+    if (await this.db.holiday.count({ where: { date } })) return empty;
+
+    const academicYearId = await this.setup.requireCurrentYearId();
+    const assignments = await this.db.teacherAssignment.findMany({
+      where: { staffId: staff.id, academicYearId },
+      select: { sectionId: true },
+    });
+    const own = [...new Set(assignments.map((a) => a.sectionId))];
+    const sectionIds = await this.cover.sectionsResponsibleFor(staff.id, own, date);
+    if (!sectionIds.length) return empty;
+
+    const sections = await this.db.section.findMany({
+      where: { id: { in: sectionIds } },
+      select: { id: true, name: true, class: { select: { name: true, order: true } } },
+    });
+    const beforeTomorrow = new Date(startOfDay(date) + 86400000);
+
+    const rows = await Promise.all(sections.map(async (sec) => {
+      const [expected, marked] = await Promise.all([
+        this.db.studentEnrollment.count({
+          where: { sectionId: sec.id, academicYearId, status: 'ACTIVE', student: { deletedAt: null }, startedAt: { lt: beforeTomorrow } },
+        }),
+        this.db.attendanceRecord.count({
+          where: { date, session, enrollment: { sectionId: sec.id, academicYearId } },
+        }),
+      ]);
+      // A section with nobody in it cannot be behind on anything.
+      if (expected === 0 || marked >= expected) return null;
+      return { sectionId: sec.id, className: sec.class.name, sectionName: sec.name, expected, marked, order: sec.class.order };
+    }));
+
+    return {
+      ...empty,
+      responsible: sectionIds.length,
+      // Class order, then section: the teacher's own mental list of their classes, not whatever
+      // order the database returned them in.
+      sections: rows
+        .filter((r): r is NonNullable<typeof r> => r !== null)
+        .sort((a, b) => a.order - b.order || a.sectionName.localeCompare(b.sectionName))
+        .map(({ order: _order, ...r }) => r),
+    };
+  }
+
   async unmarkedToday() {
     const schoolId = this.ctx.requireSchoolId();
     const school = await this.db.school.findFirst({ where: { id: schoolId } });

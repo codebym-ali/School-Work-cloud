@@ -561,6 +561,37 @@ describe('Cover (e2e) — who may mark when the teacher is away', () => {
         expect(await reminder(subCookies)).toHaveLength(1);
       });
 
+      it('names the registers on the teacher’s own list, and the bell counts the same ones', async () => {
+        const mine = await get('/api/v1/attendance/mine/unmarked-today', awayCookies);
+        expect(mine.status).toBe(200);
+        expect(mine.body.due).toBe(true);
+        // Nadia teaches 9-A and 9-B and both are unmarked, so her home can NAME them — which is
+        // the whole point: the count was always computable, the names were being thrown away.
+        expect(mine.body.sections.map((s: { sectionName: string }) => s.sectionName)).toEqual(['A', 'B']);
+        expect(mine.body.sections[0]).toMatchObject({ className: 'Grade 9', expected: 1, marked: 0 });
+
+        // ⚠️ The bell and the home screen must be reading the SAME list. They were two
+        // computations of one question until T2; a home naming two classes beside a bell saying
+        // "3 registers" is exactly the kind of disagreement this codebase has paid for before.
+        const bellText = kinds((await bell(awayCookies)).body, 'REGISTER_UNMARKED')[0].text;
+        expect(bellText).toContain(`${mine.body.sections.length} of your registers`);
+
+        // ⚠️ `responsible` counts what she is answerable for BEFORE filtering to the unmarked.
+        // Without it a caller cannot tell "you have no classes" from "all of yours are done" —
+        // both arrive as an empty `sections` — and the teacher home's good-news branch was
+        // literally unreachable until a browser pass caught it: a teacher who had just marked
+        // everything was told "No timetable has been set for you yet".
+        expect(mine.body.responsible).toBe(2);
+
+        // Cover-aware, like the bell: once 9-A is covered it is the substitute's register, and it
+        // leaves Nadia's list and joins Fatima's.
+        await post('/api/v1/cover', { sectionId: sectionA, date: DAY, coveringStaffId: subStaffId });
+        expect((await get('/api/v1/attendance/mine/unmarked-today', awayCookies)).body.sections
+          .map((s: { sectionName: string }) => s.sectionName)).toEqual(['B']);
+        expect((await get('/api/v1/attendance/mine/unmarked-today', subCookies)).body.sections
+          .map((s: { sectionName: string }) => s.sectionName)).toEqual(['A']);
+      });
+
       it('names the cover on the head teacher’s unmarked list', async () => {
         await post('/api/v1/cover', { sectionId: sectionA, date: DAY, coveringStaffId: subStaffId });
         const res = await get('/api/v1/attendance/unmarked-today');

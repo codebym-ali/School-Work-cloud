@@ -309,6 +309,14 @@ export interface CoverRow {
   coveringStaff: { id: string; fullName: string | null; employeeCode: string };
   absentStaff: { id: string; fullName: string | null; employeeCode: string } | null;
 }
+/** Who is away on a day, and which of their classes still needs somebody (Cover Plan C1). */
+export interface AwayStaff {
+  staffId: string; fullName: string | null; employeeCode: string; reason: string;
+  sections: Array<{ sectionId: string; className: string; sectionName: string; coveredBy: string | null }>;
+}
+/** `staffRegisterMarked` false ⇒ the list can only know about approved leave, and says so. */
+export interface AwayToday { date: string; staffRegisterMarked: boolean; away: AwayStaff[] }
+export interface CoverRangeResult { created: CoverRow[]; skipped: Array<{ date: string; reason: string }> }
 export interface ManagedTeacher {
   id: string; staffType: string; employeeCode: string; fullName: string | null; designation: string;
   employmentStatus: string; joinedAt: string;
@@ -768,6 +776,9 @@ export const api = {
     create: (body: { sectionId: string; date: string; coveringStaffId: string; periodNo?: number; absentStaffId?: string; reason?: string }) =>
       apiPost<CoverRow>('/cover', body),
     remove: (id: string) => apiDelete<{ deleted: boolean }>(`/cover/${id}`),
+    away: (date: string) => apiGet<AwayToday>(`/cover/away?date=${date}`),
+    range: (body: { sectionId: string; fromDate: string; toDate: string; coveringStaffId: string; periodNo?: number; absentStaffId?: string; reason?: string }) =>
+      apiPost<CoverRangeResult>('/cover/range', body),
   },
   subjects: {
     list: (classId: string) => apiGet<Subject[]>(`/subjects?classId=${classId}`),

@@ -31,5 +31,6 @@
       "@database": ["libs/database/src"]
     }
   },
-  "exclude": ["node_modules", "dist", "apps/web"]
+  "//exclude": "test/e2e runs in a browser page and needs the DOM lib, which this project deliberately does not have — it has its own tsconfig, typechecked by its own CI step.",
+  "exclude": ["node_modules", "dist", "apps/web", "test/e2e"]
 }

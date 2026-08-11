@@ -97,7 +97,7 @@ describe('Cover (e2e) — who may mark when the teacher is away', () => {
 
     ownerCookies = await login(owner.email, owner.password);
     ownerCsrf = csrfOf(ownerCookies);
-    await post('/api/v1/academic-years', { name: '2026-27', startDate: '2026-04-01', endDate: '2027-03-31', isCurrent: true });
+    const yearId = (await post('/api/v1/academic-years', { name: '2026-27', startDate: '2026-04-01', endDate: '2027-03-31', isCurrent: true })).body.id;
     // Every day is a working day, so the cases do not depend on which day the suite runs.
     await request(server()).patch('/api/v1/school-settings').set('Host', host)
       .set('Cookie', ownerCookies).set('X-CSRF-Token', ownerCsrf).send({ weeklyOffDays: [] });
@@ -128,6 +128,15 @@ describe('Cover (e2e) — who may mark when the teacher is away', () => {
     absentStaffId = await mkStaff('nadia@cv.pk', 'EMP-001');
     subCookies = await login(substitute.email, substitute.password);
     subCsrf = csrfOf(subCookies);
+
+    // Nadia teaches BOTH sections, and 9-A twice — two subjects to one class. C1's "away" list has
+    // to answer with classes, not with assignment rows, or the office sees 9-A listed twice and
+    // arranges the same cover two ways.
+    const maths = (await post('/api/v1/subjects', { classId, name: 'Mathematics' })).body.id;
+    const science = (await post('/api/v1/subjects', { classId, name: 'Science' })).body.id;
+    for (const [sectionId, subjectId] of [[sectionA, maths], [sectionA, science], [sectionB, maths]]) {
+      expect((await post('/api/v1/teacher-assignments', { staffId: absentStaffId, academicYearId: yearId, sectionId, subjectId })).status).toBe(201);
+    }
 
     const { admit } = await admissionController(app, platform, schoolId, host, campusId);
     const student = await admit({
@@ -251,6 +260,127 @@ describe('Cover (e2e) — who may mark when the teacher is away', () => {
     // Names, not only ids: audit_logs has no FK to the entity by design, so the row has to say
     // what it was about after the cover itself is gone.
     expect(log.newValue).toMatchObject({ section: 'Grade 9-A', covering: 'T EMP-SUB', absent: 'T EMP-001', reason: 'Fever' });
+  });
+
+  // ── C1: start from who is away, and from a whole absence ──────────────────
+  describe('who is away (C1)', () => {
+    const markStaff = (status: string, date = DAY) =>
+      post('/api/v1/staff-attendance/bulk', {
+        date, session: 'MORNING', allowHolidayOverride: true,
+        records: [{ staffId: absentStaffId, status }],
+      });
+
+    afterEach(async () => {
+      await platform.staffAttendance.deleteMany({ where: { schoolId } });
+      await platform.staffLeave.deleteMany({ where: { schoolId } });
+    });
+
+    it('names the away teacher and the classes that are hers', async () => {
+      expect((await markStaff('ABSENT')).status).toBe(200);
+
+      const res = await get(`/api/v1/cover/away?date=${DAY}`);
+      expect(res.status).toBe(200);
+      expect(res.body.staffRegisterMarked).toBe(true);
+      expect(res.body.away).toHaveLength(1);
+      expect(res.body.away[0]).toMatchObject({ staffId: absentStaffId, reason: 'Marked absent' });
+      // Both her sections, each once — she teaches two subjects to 9-A and that is still one class
+      // to arrange cover for. Deduping is the difference between a worklist and a list of rows.
+      expect(res.body.away[0].sections.map((s: { sectionName: string }) => s.sectionName)).toEqual(['A', 'B']);
+      expect(res.body.away[0].sections[0].coveredBy).toBeNull();
+    });
+
+    it('says who is already covered, so the office knows what is left', async () => {
+      await markStaff('ABSENT');
+      await post('/api/v1/cover', { sectionId: sectionA, date: DAY, coveringStaffId: subStaffId });
+
+      const away = (await get(`/api/v1/cover/away?date=${DAY}`)).body.away[0];
+      // Without this the list is a list of her classes, not of the ones still needing somebody —
+      // and the office arranges the same cover twice, which the clash check then refuses.
+      expect(away.sections.find((s: { sectionName: string }) => s.sectionName === 'A').coveredBy).toBe('T EMP-SUB');
+      expect(away.sections.find((s: { sectionName: string }) => s.sectionName === 'B').coveredBy).toBeNull();
+    });
+
+    it('finds approved leave even when the staff register was never marked', async () => {
+      const leave = await post('/api/v1/staff-leaves', {
+        staffId: absentStaffId, leaveType: 'SICK', fromDate: DAY, toDate: DAY, reason: 'Flu',
+      });
+      expect(leave.status).toBe(201);
+      await post(`/api/v1/staff-leaves/${leave.body.id}/approve`);
+      await platform.staffAttendance.deleteMany({ where: { schoolId } }); // approving settles the register (L4)
+
+      const res = await get(`/api/v1/cover/away?date=${DAY}`);
+      // Leave is approved days ahead and the register is marked at 08:00 — a list that read only
+      // the register would be empty every time the office looked before school started.
+      expect(res.body.staffRegisterMarked).toBe(false);
+      expect(res.body.away).toHaveLength(1);
+      expect(res.body.away[0].reason).toContain('approved sick leave');
+    });
+
+    it('leaves out whoever actually turned up', async () => {
+      await markStaff('PRESENT');
+      expect((await get(`/api/v1/cover/away?date=${DAY}`)).body.away).toEqual([]);
+      // And the day is not confused with another: she is away today, not tomorrow.
+      await markStaff('ABSENT');
+      expect((await get(`/api/v1/cover/away?date=${OTHER_DAY}`)).body.away).toEqual([]);
+      expect((await get(`/api/v1/cover/away?date=${DAY}`)).body.away).toHaveLength(1);
+    });
+
+    it('lets the register overrule an approved leave that was worked through', async () => {
+      const leave = await post('/api/v1/staff-leaves', {
+        staffId: absentStaffId, leaveType: 'CASUAL', fromDate: DAY, toDate: DAY, reason: 'Errand',
+      });
+      await post(`/api/v1/staff-leaves/${leave.body.id}/approve`);
+      await markStaff('PRESENT');
+
+      // She came in anyway. Listing her as away would send the office looking for cover for
+      // classes she is standing in front of.
+      expect((await get(`/api/v1/cover/away?date=${DAY}`)).body.away).toEqual([]);
+    });
+  });
+
+  describe('a whole absence at once (C1)', () => {
+    const range = (body: object) => post('/api/v1/cover/range', body);
+
+    it('covers every working day in the range', async () => {
+      const res = await range({
+        sectionId: sectionA, fromDate: iso(2), toDate: DAY, coveringStaffId: subStaffId, reason: 'Sick until Monday',
+      });
+      expect(res.status).toBe(200);
+      expect(res.body.created).toHaveLength(3);
+      expect(res.body.created.map((c: { date: string }) => c.date.slice(0, 10))).toEqual([iso(2), iso(1), DAY]);
+      // The grant is real on every one of them, not just the first.
+      expect((await subMarks(sectionA, iso(1))).status).toBe(200);
+    });
+
+    it('skips a closure instead of refusing the whole range', async () => {
+      await post('/api/v1/holidays', { date: iso(1), name: 'Independence Day', campusId });
+      const res = await range({ sectionId: sectionA, fromDate: iso(2), toDate: DAY, coveringStaffId: subStaffId });
+
+      expect(res.body.created).toHaveLength(2);
+      // Refusing outright would send the office back to entering the other two days by hand; a
+      // cover on a day the school is shut would put her name against a day nobody came in.
+      expect(res.body.skipped).toEqual([{ date: iso(1), reason: 'School is closed that day' }]);
+      await platform.holiday.deleteMany({ where: { schoolId } });
+    });
+
+    it('skips a day someone else already has, and says who', async () => {
+      await post('/api/v1/cover', { sectionId: sectionA, date: iso(1), coveringStaffId: absentStaffId });
+      const res = await range({ sectionId: sectionA, fromDate: iso(2), toDate: DAY, coveringStaffId: subStaffId });
+
+      expect(res.body.created).toHaveLength(2);
+      expect(res.body.skipped[0].reason).toContain('T EMP-001 is already covering Grade 9-A');
+      // The other two days still happened — a partial answer the office can read and act on.
+      expect((await subMarks(sectionA, DAY)).status).toBe(200);
+    });
+
+    it('refuses a range that is backwards or absurdly long', async () => {
+      expect((await range({ sectionId: sectionA, fromDate: DAY, toDate: iso(2), coveringStaffId: subStaffId })).status).toBe(422);
+      const long = await range({ sectionId: sectionA, fromDate: iso(60), toDate: DAY, coveringStaffId: subStaffId });
+      // Held down by mistake, a date picker will happily produce a year. That is a reassignment,
+      // and it would hand one teacher standing access to another class's register.
+      expect(long.status).toBe(422);
+      expect(long.body.error.message).toContain('31 days');
+    });
   });
 
   it('never lets a teacher arrange their own cover', async () => {

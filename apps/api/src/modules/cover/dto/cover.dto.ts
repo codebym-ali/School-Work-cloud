@@ -31,3 +31,33 @@ export class CreateCoverDto {
   @IsOptional() @IsString() @MaxLength(200)
   reason?: string;
 }
+
+/**
+ * The same cover, repeated over a known multi-day absence (Cover Plan, C1).
+ *
+ * A separate endpoint rather than a `toDate` on `CreateCoverDto`, because it does not behave like
+ * a create: some days in a range are legitimately skipped (weekly off, a closure, a day already
+ * covered), so it answers with a summary instead of a row, the way `/attendance/bulk` does.
+ */
+export class CreateCoverRangeDto {
+  @IsUUID()
+  sectionId!: string;
+
+  @IsDateString()
+  fromDate!: string;
+
+  @IsDateString()
+  toDate!: string;
+
+  @IsUUID()
+  coveringStaffId!: string;
+
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(12)
+  periodNo?: number;
+
+  @IsOptional() @IsUUID()
+  absentStaffId?: string;
+
+  @IsOptional() @IsString() @MaxLength(200)
+  reason?: string;
+}

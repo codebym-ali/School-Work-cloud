@@ -1,0 +1,11 @@
+{
+  "//": "Playwright specs run IN a browser page (page.evaluate), so they legitimately use `document`, `fetch`, `Response`, `File`. The root tsconfig is a Node project with lib ES2022 and no DOM — deliberately, so API code cannot reach for a browser global by accident. Splitting them is what lets both be true. Typechecked in CI by its own step; without that step this file would just be a place errors go to hide.",
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM"],
+    "noEmit": true
+  },
+  "//exclude": "MUST be overridden. `exclude` is inherited from the base, whose paths resolve against the BASE directory — so the root's `\"test/e2e\"` would exclude every file this config includes, and `tsc -p` would report a clean run over zero files. A gate that checks nothing passes loudly.",
+  "exclude": ["../../node_modules", "../../dist"],
+  "include": ["**/*.ts", "../../playwright.config.ts"]
+}

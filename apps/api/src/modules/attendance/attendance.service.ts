@@ -295,6 +295,13 @@ export class AttendanceService {
     const due = isPastLocalTime(now, settings.attendanceMarkByTime, settings.timezone);
     const date = new Date(startOfDay(now));
 
+    // ⚠️ `startedAt` is a full timestamp, not a date, so `startedAt <= <midnight>` excludes anyone
+    // enrolled *earlier today* — and the two other places that ask "was this enrolment active on
+    // day D" normalise both sides first (`startOfDay(enr.startedAt) <= startOfDay(date)`, marking
+    // and the coverage strip). The raw comparison here meant a student admitted this morning could
+    // have their attendance marked while their register never appeared as outstanding. Comparing
+    // against the START OF TOMORROW is the same question asked in SQL.
+    const beforeTomorrow = new Date(startOfDay(date) + 86400000);
     const restricted = restrictedCampusId(this.ctx.user);
     const sections = await this.db.section.findMany({
       where: { ...(restricted ? { class: { campusId: restricted } } : {}) },
@@ -309,7 +316,7 @@ export class AttendanceService {
 
         const [expected, marked] = await Promise.all([
           this.db.studentEnrollment.count({
-            where: { sectionId: s.id, academicYearId, status: 'ACTIVE', student: { deletedAt: null }, startedAt: { lte: date } },
+            where: { sectionId: s.id, academicYearId, status: 'ACTIVE', student: { deletedAt: null }, startedAt: { lt: beforeTomorrow } },
           }),
           this.db.attendanceRecord.count({
             where: { date, session, enrollment: { sectionId: s.id, academicYearId } },
@@ -329,12 +336,18 @@ export class AttendanceService {
     );
 
     const outstanding = rows.filter((r): r is NonNullable<typeof r> => r !== null);
+    // Who actually holds each of these registers today (Cover Plan §6a). A covered-but-unmarked
+    // register is still worth chasing — but the person to chase is the cover, and a row naming the
+    // teacher who was away sends the head to somebody who could not have marked it.
+    const coveredBy = await this.cover.coveredByBySection(outstanding.map((r) => r.sectionId), date);
     return {
       /** Whether the school's own deadline has passed yet — the UI stays quiet until it has. */
       due,
       markByTime: settings.attendanceMarkByTime,
       count: outstanding.length,
-      sections: outstanding.sort((a, b) => a.className.localeCompare(b.className) || a.sectionName.localeCompare(b.sectionName)),
+      sections: outstanding
+        .map((r) => ({ ...r, coveredBy: coveredBy.get(r.sectionId) ?? null }))
+        .sort((a, b) => a.className.localeCompare(b.className) || a.sectionName.localeCompare(b.sectionName)),
     };
   }
 

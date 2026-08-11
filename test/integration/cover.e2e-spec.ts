@@ -29,6 +29,7 @@ describe('Cover (e2e) — who may mark when the teacher is away', () => {
   let ownerCsrf: string;
   let subCookies: string[];   // the substitute: teaches NOTHING
   let subCsrf: string;
+  let awayCookies: string[];  // the teacher whose classes these are
   let classId: string;
   let sectionA: string;
   let sectionB: string;
@@ -40,6 +41,7 @@ describe('Cover (e2e) — who may mark when the teacher is away', () => {
   const host = `${sub}.localhost`;
   const owner = { email: 'owner@cv.pk', password: 'Owner!Secret12' };
   const substitute = { email: 'fatima@cv.pk', password: 'Cover!Secret12' };
+  const away = { email: 'nadia@cv.pk', password: 'Away!Secret12' };
 
   const server = () => app.getHttpServer();
   const csrfOf = (c: string[]) => (c.find((x) => x.startsWith('csrf=')) ?? '').split(';')[0].slice(5);
@@ -125,9 +127,13 @@ describe('Cover (e2e) — who may mark when the teacher is away', () => {
     // ⚠️ The substitute is given NO teacher assignment anywhere. That is the point: everything
     // she can do here, she can do *only* because of cover.
     subStaffId = await mkStaff(substitute.email, 'EMP-SUB', substitute.password);
-    absentStaffId = await mkStaff('nadia@cv.pk', 'EMP-001');
+    // Nadia gets a login too: C2 is about what each of them is TOLD, and the absent teacher's
+    // half — "who took my class", and no longer being chased for it — can only be asserted from
+    // her own session.
+    absentStaffId = await mkStaff(away.email, 'EMP-001', away.password);
     subCookies = await login(substitute.email, substitute.password);
     subCsrf = csrfOf(subCookies);
+    awayCookies = await login(away.email, away.password);
 
     // Nadia teaches BOTH sections, and 9-A twice — two subjects to one class. C1's "away" list has
     // to answer with classes, not with assignment rows, or the office sees 9-A listed twice and
@@ -145,6 +151,15 @@ describe('Cover (e2e) — who may mark when the teacher is away', () => {
       guardian: { mode: 'CREATE', fullName: 'Asif Malik', phone: '03001234567', relation: 'FATHER' },
     });
     enrolmentA = student.body.enrollmentId;
+
+    // Section B needs a child too. `unmarkedToday` and the register reminder both skip a section
+    // with nobody in it — correctly, since an empty section cannot be behind on anything — so an
+    // empty B would make every assertion about B pass without measuring it.
+    await admit({
+      fullName: 'Bilal Raza', gender: 'MALE', dateOfBirth: '2011-07-02',
+      campusId, classId, sectionId: sectionB,
+      guardian: { mode: 'CREATE', fullName: 'Raza Khan', phone: '03007654321', relation: 'FATHER' },
+    });
   });
 
   afterAll(async () => {
@@ -181,7 +196,8 @@ describe('Cover (e2e) — who may mark when the teacher is away', () => {
   // ── the grant is narrow ───────────────────────────────────────────────────
   it('does not let the cover mark a DIFFERENT section', async () => {
     await post('/api/v1/cover', { sectionId: sectionA, date: DAY, coveringStaffId: subStaffId });
-    // Section B has no students, so a 403 here is the authorization refusing — not an empty roster.
+    // Section B has a child of its own, so this 403 is authorization refusing on the SECTION —
+    // the enrolment sent belongs to A, and `assertCanMark` runs before any record is looked at.
     const res = await request(server()).post('/api/v1/attendance/bulk').set('Host', host)
       .set('Cookie', subCookies).set('X-CSRF-Token', subCsrf)
       .send({ sectionId: sectionB, date: DAY, session: 'MORNING', records: [{ enrollmentId: enrolmentA, status: 'PRESENT' }] });
@@ -293,11 +309,11 @@ describe('Cover (e2e) — who may mark when the teacher is away', () => {
       await markStaff('ABSENT');
       await post('/api/v1/cover', { sectionId: sectionA, date: DAY, coveringStaffId: subStaffId });
 
-      const away = (await get(`/api/v1/cover/away?date=${DAY}`)).body.away[0];
+      const row = (await get(`/api/v1/cover/away?date=${DAY}`)).body.away[0];
       // Without this the list is a list of her classes, not of the ones still needing somebody —
       // and the office arranges the same cover twice, which the clash check then refuses.
-      expect(away.sections.find((s: { sectionName: string }) => s.sectionName === 'A').coveredBy).toBe('T EMP-SUB');
-      expect(away.sections.find((s: { sectionName: string }) => s.sectionName === 'B').coveredBy).toBeNull();
+      expect(row.sections.find((s: { sectionName: string }) => s.sectionName === 'A').coveredBy).toBe('T EMP-SUB');
+      expect(row.sections.find((s: { sectionName: string }) => s.sectionName === 'B').coveredBy).toBeNull();
     });
 
     it('finds approved leave even when the staff register was never marked', async () => {
@@ -380,6 +396,97 @@ describe('Cover (e2e) — who may mark when the teacher is away', () => {
       // and it would hand one teacher standing access to another class's register.
       expect(long.status).toBe(422);
       expect(long.body.error.message).toContain('31 days');
+    });
+  });
+
+  // ── C2: both people are told, and responsibility moves with the cover ─────
+  describe('the people it happens to (C2)', () => {
+    const bell = (cookies: string[]) => get('/api/v1/notifications', cookies);
+    const kinds = (body: { items: { kind: string; text: string }[] }, kind: string) =>
+      body.items.filter((i) => i.kind === kind);
+
+    it('tells the substitute they have a class, and the teacher who took theirs', async () => {
+      await post('/api/v1/cover', {
+        sectionId: sectionA, date: DAY, coveringStaffId: subStaffId, absentStaffId, reason: 'Fever',
+      });
+
+      const mineSub = await get('/api/v1/cover/mine', subCookies);
+      expect(mineSub.status).toBe(200);
+      expect(mineSub.body.covering).toHaveLength(1);
+      // Direction matters: the substitute is COVERING, she is not being covered. Swapping the two
+      // lists would tell each person the other one's news.
+      expect(mineSub.body.covered).toEqual([]);
+
+      const mineAway = await get('/api/v1/cover/mine', awayCookies);
+      expect(mineAway.body.covering).toEqual([]);
+      expect(mineAway.body.covered).toHaveLength(1);
+      expect(mineAway.body.covered[0].coveringStaff.employeeCode).toBe('EMP-SUB');
+
+      const subBell = kinds((await bell(subCookies)).body, 'COVERING_TODAY');
+      expect(subBell).toHaveLength(1);
+      expect(subBell[0].text).toContain('You are covering Grade 9-A today for T EMP-001');
+
+      // Being covered without being told is how staff learn to distrust a system — and she is the
+      // one person who can say the office picked the wrong class.
+      const awayBell = kinds((await bell(awayCookies)).body, 'COVERED_TODAY');
+      expect(awayBell).toHaveLength(1);
+      expect(awayBell[0].text).toContain('T EMP-SUB is covering your Grade 9-A today');
+    });
+
+    it('takes both notices back when the cover is removed', async () => {
+      const cover = await post('/api/v1/cover', { sectionId: sectionA, date: DAY, coveringStaffId: subStaffId, absentStaffId });
+      expect(kinds((await bell(subCookies)).body, 'COVERING_TODAY')).toHaveLength(1);
+
+      await del(`/api/v1/cover/${cover.body.id}`);
+      // Derived, never stored: an item exists only while its cause does. A notice telling someone
+      // to take a class that was reassigned an hour ago is the exact failure the no-table rule
+      // exists to prevent.
+      expect(kinds((await bell(subCookies)).body, 'COVERING_TODAY')).toEqual([]);
+      expect(kinds((await bell(awayCookies)).body, 'COVERED_TODAY')).toEqual([]);
+    });
+
+    describe('responsibility moves with it (§6a)', () => {
+      // The register reminder is silent until the school's own mark-by time has passed, and the
+      // suite must not depend on the hour it runs at — the staff-attendance spec was green only
+      // six days a week for exactly this kind of reason.
+      const settings = (body: object) =>
+        request(server()).patch('/api/v1/school-settings').set('Host', host)
+          .set('Cookie', ownerCookies).set('X-CSRF-Token', ownerCsrf).send(body);
+
+      beforeAll(async () => { await settings({ attendanceMarkByTime: '00:01' }); });
+      afterAll(async () => { await settings({ attendanceMarkByTime: '10:00' }); });
+
+      it('stops chasing the teacher who was away, and starts chasing the cover', async () => {
+        const reminder = async (cookies: string[]) =>
+          kinds((await bell(cookies)).body, 'REGISTER_UNMARKED');
+
+        // Before: 9-A is Nadia's problem and nobody else's.
+        expect(await reminder(awayCookies)).toHaveLength(1);
+        expect(await reminder(subCookies)).toEqual([]);
+
+        await post('/api/v1/cover', { sectionId: sectionA, date: DAY, coveringStaffId: subStaffId, absentStaffId });
+
+        // After: it is the cover's. Nadia still teaches 9-B, so she keeps a reminder — the count
+        // moved, not the whole notice, which is what makes this a real re-attribution rather than
+        // "silence the absent teacher".
+        const nadia = await reminder(awayCookies);
+        expect(nadia).toHaveLength(1);
+        expect(nadia[0].text).toContain('One of your registers');
+        // Fatima teaches nothing at all. Any reminder she has is cover, and only cover.
+        expect(await reminder(subCookies)).toHaveLength(1);
+      });
+
+      it('names the cover on the head teacher’s unmarked list', async () => {
+        await post('/api/v1/cover', { sectionId: sectionA, date: DAY, coveringStaffId: subStaffId });
+        const res = await get('/api/v1/attendance/unmarked-today');
+
+        const a = res.body.sections.find((s: { sectionName: string }) => s.sectionName === 'A');
+        const b = res.body.sections.find((s: { sectionName: string }) => s.sectionName === 'B');
+        // A covered-but-unmarked register is still worth chasing — but a row naming the teacher who
+        // was away sends the head to somebody who could not have marked it.
+        expect(a.coveredBy).toBe('T EMP-SUB');
+        expect(b?.coveredBy ?? null).toBeNull();
+      });
     });
   });
 

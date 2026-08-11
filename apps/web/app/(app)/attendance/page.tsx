@@ -192,7 +192,10 @@ export default function AttendancePage() {
                 onClick={() => { setSectionId(u.sectionId); setDate(today()); }}>
                 {u.className} {u.sectionName}
                 {/* Half-done and never-started are different problems needing different effort. */}
-                {u.partial ? ` — ${u.marked}/${u.expected} done` : ''} →
+                {u.partial ? ` — ${u.marked}/${u.expected} done` : ''}
+                {/* Who to chase. A covered register is still worth chasing, but the teacher who was
+                    away could not have marked it (Cover Plan §6a). */}
+                {u.coveredBy ? ` · ${u.coveredBy} covering` : ''} →
               </button>
             ))}
           </div>

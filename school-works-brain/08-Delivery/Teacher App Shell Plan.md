@@ -106,7 +106,7 @@ because there were spare pixels.*
   being orphans. **Fixes 1.1 and 1.2.**
 - **T1 — the teacher shell follows the person, not the role table.** A user holding TEACHER gets
   the teacher shell even when they also hold another role, with the second role's screens reachable
-  from **Me**. Needs one decision (§5). **Fixes 1.3.**
+  from the last tab. **All three decisions taken — see §5 and §5a.** **Fixes 1.3.**
 - **T2 — the home screen earns the top of the screen with no timetable.** When there is no
   timetable, name the registers: *"Mark 9-A"* with the rest listed beneath, derived from
   `unmarked-today` ∩ `my-classes`. The headline stops promising a task the body then withdraws.
@@ -141,6 +141,40 @@ stranding an owner who happens to teach a class. The options as considered:
    *Recommended:* it fixes Ayesha's case, which is the realistic one, without stranding an owner.
 3. **Let the user choose**, remembered per account. Most flexible, most to build, and a preference
    nobody sets is a preference that does nothing.
+
+## 5a. What a dual-role person actually gets (decided 2026-08-11)
+
+Checked live on `demo` with a real TEACHER + ACCOUNTANT user before deciding — the system refuses a
+second ADMISSION_CONTROLLER per campus, so that pairing is capped at one person and ACCOUNTANT is
+the general case.
+
+**Today, pre-T1:** brand reads *"🏫 Accountant"*, shell class is plain `shell`, **no tab bar in the
+DOM at all**, and a 12-link accountant sidebar. The teacher app does not exist for this person on
+any device. That is the bug.
+
+**After T1:** they get the teacher shell at every width, and **the second job is not lost** —
+`/me-more` is built from the person's *roles*, not a hardcoded teacher list, so it already renders
+the lot. Observed verbatim: *Dashboard · My Classes · Exams & Results · Reports · Fees · Payment
+submissions · School calendar · My Attendance · My Leaves · My Payslips*, plus Account. It moves
+from "always in the sidebar" to "behind one tab".
+
+Three decisions follow, all taken:
+
+1. **The last tab is renamed "Me" → "More".** It is about to hold Dashboard, Fees, Payment
+   submissions and Reports — a whole second job — under a person icon. The label is *already*
+   slightly wrong for a plain teacher, since Exams & Results and School calendar are not personal
+   either. "More" is honest in both cases and does not vary per user.
+2. **A dual-role person lands on `/home`.** They are being given the teacher app, so starting them
+   anywhere else contradicts the change, and Home is cheap to leave. ⚠️ **This changes existing
+   behaviour**: `landingPath` keys off the same `primaryRole` as the shell, so an
+   accountant-who-teaches who opens on `/dashboard` today will open on `/home` after T1.
+3. **Four tabs stay four.** The second job lives in the grouped list behind the last tab rather
+   than earning a tab of its own — the tab bar must not differ per person, or "learn it once"
+   stops being true. A role switcher was considered and rejected as too heavy a concept for a small
+   school where one person simply wears two hats.
+
+**Consequence for T3:** the finance and admission screens will render inside the teacher shell — a
+four-item sidebar beside a fees table. They will work; nobody has looked at them in that frame.
 
 ## 6. Risks
 

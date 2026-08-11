@@ -111,6 +111,12 @@ export default function TeacherHome() {
 
       {msg && <div className="toast ok">{msg}</div>}
 
+      {/* Two columns above 1024px, one below — same cards either way. The measured problem was a
+          1164px-wide "now" card with 474px of empty viewport under it: a phone component stretched
+          to fill a laptop, which is not a design for one. */}
+      <div className="home-grid">
+        <div className="home-main">
+
       {/* Check-in comes first only while it is still outstanding — once you are in, it is noise. */}
       {checkIn?.enabled && !checkIn.nonWorkingDay && !checkIn.today && (
         <div className="card row" style={{ gap: 12 }}>
@@ -220,6 +226,36 @@ export default function TeacherHome() {
         </div>
       )}
 
+        </div>
+
+        <div className="home-side">
+      {/* The rest of the day's registers. Computed since T2 and shown NOWHERE — the card above
+          only counted them ("2 more registers after this"), so the teacher could see that more
+          existed and not what they were. One tap each, same as the first. */}
+      {restUnmarked.length > 0 && (
+        <div className="card">
+          <div className="section-title">Also today</div>
+          <ul className="day-rail">
+            {restUnmarked.map((u) => (
+              <li key={u.sectionId} style={{ gridTemplateColumns: '1fr auto', alignItems: 'center' }}>
+                <span>
+                  <span className="what">{u.className}-{u.sectionName}</span>
+                  <br />
+                  <span className="where">
+                    {/* Half-done and never-started need different effort, and the register screen
+                        already draws that distinction. */}
+                    {u.marked > 0 ? `${u.marked} of ${u.expected} marked` : `${u.expected} student${u.expected === 1 ? '' : 's'}`}
+                  </span>
+                </span>
+                <Link className="ghost small" href={`/attendance?sectionId=${u.sectionId}`} style={{ textDecoration: 'none' }}>
+                  Mark →
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {needsYou.length > 0 && (
         <div className="card">
           <div className="section-title">Needs you</div>
@@ -235,6 +271,8 @@ export default function TeacherHome() {
           </ul>
         </div>
       )}
+        </div>
+      </div>
     </div>
   );
 }

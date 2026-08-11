@@ -1,7 +1,7 @@
 ---
 title: Teacher App Shell Plan (one navigation, both widths)
 type: plan
-status: T0–T2 SHIPPED 2026-08-11 · T3–T4 planned
+status: T0–T3 SHIPPED 2026-08-11 · T4 planned
 updated: 2026-08-11
 ---
 
@@ -111,7 +111,7 @@ because there were spare pixels.*
   timetable, name the registers: *"Mark 9-A"* with the rest listed beneath, derived from
   `unmarked-today` ∩ `my-classes`. The headline stops promising a task the body then withdraws.
   **Fixes 1.4.** No new endpoints.
-- **T3 — the teacher's surfaces at desktop width.** Cap the now card's measure so it reads as a
+- **T3 — the teacher's surfaces at desktop width. ✅ SHIPPED 2026-08-11.** Cap the now card's measure so it reads as a
   card rather than a banner; two-column above 1024px so the screen is not three-quarters empty.
   **Fixes 1.5.**
 - **T4 — tests, browser pass at 375 / 768 / 1440, brain.** A Playwright case that a teacher can
@@ -378,3 +378,61 @@ the class and linking to it. Filed separately — it also needs checking for `/t
 
 T3 (the teacher's cards at desktop width, now including the finance and admission screens a
 dual-role person opens inside the teacher shell), T4 (browser pass at 375/768/1440 and the brain).
+
+---
+
+## 10. T3 as built — 2026-08-11
+
+**Measured first, at 1440×900, before changing anything:**
+
+| | Before | After |
+|---|---|---|
+| "now" card width | **1164px** | **640px** |
+| Layout | one column | two columns above 1024px |
+| The day's other registers | computed, shown **nowhere** | listed, one tap each |
+
+The card was a phone component stretched to fill a laptop — a 26px headline across 1164px is about
+ninety characters, well past a readable measure. Capping the primary column at 640px is what makes
+it read as a card rather than a banner.
+
+**⚠️ 474px of viewport was still empty afterwards, and that is left alone deliberately.** A teacher
+with three registers and no timetable genuinely has a short day; filling the space would be padding.
+What was wrong was the *stretching*, not the emptiness.
+
+### The second column carries something real
+
+`restUnmarked` had been computed since T2 and **rendered nowhere** — the card counted them
+("2 more registers after this") so a teacher could see that more existed but not what they were.
+They are now a list, each one tap.
+
+⚠️ **Shown at both widths, not desktop-only.** Extra cards on the desktop would be a second product
+for the same person, which is the exact thing this plan exists to undo — **width changes the
+arrangement, never the content.** On a phone the list stacks under the now card; on a laptop it sits
+beside it.
+
+### The dual-role screens needed nothing
+
+T1 flagged that a teacher-plus-accountant would open `/fees` inside the teacher shell. Checked by
+construction rather than by eye: `.shell` is `220px 1fr` for **both** shells and `.content` is
+untouched, so the content column is identical either way. The concern was unfounded.
+
+### ⚠️ I broke the Playwright suite and then fixed it
+
+T1's dual-role case was a **sixth** form login against the §29 limit of 5/IP/15min, so a full run
+began failing on whichever spec logged in last — reported as a 30-second navigation timeout, not as
+a rate limit, which is why it read as a broken feature (`closure-banner` this time, `staff-attendance`
+before).
+
+Fixed by **merging the two teacher-session cases into one**: the user is `TEACHER + ACCOUNTANT`,
+which exercises the same shell path as a plain teacher *plus* the case T1 exists for, so nothing is
+left unasserted by choosing the harder one. Back to 5 logins — still **zero headroom**, and the
+durable fix (a shared teacher `storageState` setup project) remains filed.
+
+### Proven non-vacuous
+
+Deleting the `@media (min-width: 1024px)` rule fails the layout assertion with **Expected 2,
+Received 1**.
+
+### Still open (T4)
+
+Browser pass at 768px (375 and 1440 are done), and the brain — most of which this section is.

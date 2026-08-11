@@ -575,6 +575,125 @@ describe('Cover (e2e) — who may mark when the teacher is away', () => {
     });
   });
 
+  // ── C4: the edges of the grant ────────────────────────────────────────────
+  describe('what cover is NOT (C4)', () => {
+    it('does not let the cover enter exam marks for that class', async () => {
+      await post('/api/v1/cover', { sectionId: sectionA, date: DAY, coveringStaffId: subStaffId });
+      // She can mark the register — that is the grant working.
+      expect((await subMarks(sectionA, DAY)).status).toBe(200);
+
+      const yearId = (await get('/api/v1/academic-years')).body.find((y: { isCurrent: boolean }) => y.isCurrent).id;
+      const term = await post('/api/v1/terms', { academicYearId: yearId, name: 'Term 1', startDate: '2026-04-01', endDate: '2026-09-30' });
+      expect(term.status).toBe(201);
+      const subjectId = (await get(`/api/v1/subjects?classId=${classId}`)).body[0].id;
+      const exam = await post('/api/v1/exams', {
+        termId: term.body.id, classId, name: 'Mid Term', examType: 'MID_TERM', weightagePercent: 30, examDate: DAY,
+      });
+      // Asserted, not assumed: an unchecked create leaves `undefined` in the next URL, and the API
+      // answers a non-uuid path param with a 500 — which reads as "the feature is broken" when it
+      // only means the fixture is.
+      expect(exam.status).toBe(201);
+      expect((await post(`/api/v1/exams/${exam.body.id}/open-marks-entry`)).status).toBe(201);
+
+      const res = await request(server()).post(`/api/v1/exams/${exam.body.id}/results/bulk`)
+        .set('Host', host).set('Cookie', subCookies).set('X-CSRF-Token', subCsrf)
+        .send({ records: [{ enrollmentId: enrolmentA, subjectId, totalMarks: 100, marksObtained: 80 }] });
+
+      // ⚠️ **Cover is a day's attendance, not a teaching relationship.** Marks are the class's
+      // academic record and outlive the day entirely; whoever stood in for one lesson has no basis
+      // to grade the term. Marks entry asks `TeacherAssignment` and deliberately never consults
+      // cover — this locks that in, so a future "reuse coversSectionOn here" cannot widen the grant
+      // silently. §25.3 partial-failure shape, so the refusal is per row inside a 200.
+      expect(res.status).toBe(200);
+      expect(res.body.succeeded).toBe(0);
+      expect(JSON.stringify(res.body.errors)).toContain('Not assigned to this section/subject');
+
+      await platform.examResult.deleteMany({ where: { schoolId } });
+      await platform.examDefinition.deleteMany({ where: { schoolId } });
+      await platform.term.deleteMany({ where: { schoolId } });
+    });
+
+    describe('the campus boundary', () => {
+      let otherCampus: string;
+      let otherSection: string;
+      let campusAdmin: string[];
+      let crossCampusAssignment: string;
+
+      beforeAll(async () => {
+        otherCampus = (await post('/api/v1/campuses', { name: 'North Campus' })).body.id;
+        const otherClass = (await post('/api/v1/classes', { campusId: otherCampus, name: 'Grade 10', order: 10 })).body.id;
+        otherSection = (await post('/api/v1/sections', { classId: otherClass, name: 'A' })).body.id;
+
+        // ⚠️ Nadia teaches at BOTH campuses, and that is what makes the filter observable. Without
+        // this the away-list test passed with the campus filter deleted — she had nothing at the
+        // far campus, so there was nothing for a leak to expose. A boundary test needs something on
+        // the wrong side of the boundary.
+        const yearId = (await get('/api/v1/academic-years')).body.find((y: { isCurrent: boolean }) => y.isCurrent).id;
+        const otherSubject = (await post('/api/v1/subjects', { classId: otherClass, name: 'Physics' })).body.id;
+        const a = await post('/api/v1/teacher-assignments', { staffId: absentStaffId, academicYearId: yearId, sectionId: otherSection, subjectId: otherSubject });
+        expect(a.status).toBe(201);
+        crossCampusAssignment = a.body.id;
+
+        // A campus admin bound to the ORIGINAL campus. The scoping rule has been written three
+        // times across C1–C3 and never watched fail; a second campus is the only way to see it.
+        const email = 'campusadmin@cv.pk';
+        const user = await post('/api/v1/users', { email, roles: ['CAMPUS_ADMIN'], campusId, password: 'Campus!Secret12' });
+        expect([201, 200]).toContain(user.status);
+        campusAdmin = await login(email, 'Campus!Secret12');
+      });
+
+      const asCampusAdmin = (p: string) => request(server()).get(p).set('Host', host).set('Cookie', campusAdmin);
+
+      it('refuses cover for a class at another campus', async () => {
+        const res = await request(server()).post('/api/v1/cover').set('Host', host)
+          .set('Cookie', campusAdmin).set('X-CSRF-Token', csrfOf(campusAdmin))
+          .send({ sectionId: otherSection, date: DAY, coveringStaffId: subStaffId });
+        expect(res.status).toBe(403);
+      });
+
+      it('keeps another campus out of the cover list and the suggestions', async () => {
+        // The owner arranges cover at BOTH campuses, so there is something at each to leak.
+        await post('/api/v1/cover', { sectionId: sectionA, date: DAY, coveringStaffId: subStaffId });
+        await post('/api/v1/cover', { sectionId: otherSection, date: DAY, coveringStaffId: subStaffId });
+        expect((await get(`/api/v1/cover?date=${DAY}`)).body.cover).toHaveLength(2);
+
+        // Populating only the far campus and expecting [] would pass with the scoping ignored —
+        // there would be nothing to land on. Both are populated, so the count is the assertion.
+        const mine = (await asCampusAdmin(`/api/v1/cover?date=${DAY}`)).body.cover;
+        expect(mine).toHaveLength(1);
+        expect(mine[0].section.id).toBe(sectionA);
+
+        // Suggestions for a section at the other campus is not theirs to ask.
+        expect((await asCampusAdmin(`/api/v1/cover/suggestions?sectionId=${otherSection}&date=${DAY}`)).status).toBe(403);
+        expect((await asCampusAdmin(`/api/v1/cover/suggestions?sectionId=${sectionA}&date=${DAY}`)).status).toBe(200);
+      });
+
+      it('shows an away teacher only the classes this admin could arrange', async () => {
+        await post('/api/v1/staff-attendance/bulk', {
+          date: DAY, session: 'MORNING', allowHolidayOverride: true,
+          records: [{ staffId: absentStaffId, status: 'ABSENT' }],
+        });
+
+        // The owner sees all three of Nadia's classes — 9-A, 9-B here and 10-A at North.
+        expect((await get(`/api/v1/cover/away?date=${DAY}`)).body.away[0].sections).toHaveLength(3);
+
+        const res = await asCampusAdmin(`/api/v1/cover/away?date=${DAY}`);
+        // The campus admin sees the two that are theirs to arrange, and she is still LISTED — a
+        // filter that dropped the colleague entirely would be just as wrong as one that leaked
+        // the far campus.
+        expect(res.body.away).toHaveLength(1);
+        expect(res.body.away[0].sections.map((s: { sectionId: string }) => s.sectionId).sort())
+          .toEqual([sectionA, sectionB].sort());
+        await platform.staffAttendance.deleteMany({ where: { schoolId } });
+      });
+
+      afterAll(async () => {
+        // Put the fixture back: every earlier case assumes Nadia teaches exactly this campus.
+        await platform.teacherAssignment.delete({ where: { id: crossCampusAssignment } });
+      });
+    });
+  });
+
   it('never lets a teacher arrange their own cover', async () => {
     const res = await request(server()).post('/api/v1/cover').set('Host', host)
       .set('Cookie', subCookies).set('X-CSRF-Token', subCsrf)

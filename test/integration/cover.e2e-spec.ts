@@ -399,6 +399,91 @@ describe('Cover (e2e) — who may mark when the teacher is away', () => {
     });
   });
 
+  // ── C3: who could take it, best first ─────────────────────────────────────
+  describe('who could take it (C3)', () => {
+    const suggest = (extra = '') => get(`/api/v1/cover/suggestions?sectionId=${sectionA}&date=${DAY}${extra}`);
+    const byCode = (body: { suggestions: { employeeCode: string; status: string; note: string }[] }, code: string) =>
+      body.suggestions.find((s) => s.employeeCode === code);
+
+    afterEach(async () => {
+      await platform.staffAttendance.deleteMany({ where: { schoolId } });
+      await platform.staffLeave.deleteMany({ where: { schoolId } });
+      await platform.timetableSlot.deleteMany({ where: { schoolId } });
+    });
+
+    it('will not claim anybody is FREE when there is no timetable to check', async () => {
+      const res = await suggest('&periodNo=2');
+      expect(res.status).toBe(200);
+      // ⚠️ The load-bearing case. `timetable_slots` is empty in every school today, and a
+      // suggestion that says "free" on no evidence is worse than one that admits what it knows —
+      // the office would trust it and double-book somebody.
+      expect(res.body.timetableKnown).toBe(false);
+      expect(res.body.suggestions.map((s: { status: string }) => s.status)).not.toContain('FREE');
+      expect(byCode(res.body, 'EMP-SUB')).toMatchObject({ status: 'IN_SCHOOL', note: 'In school today' });
+    });
+
+    it('says FREE only once the timetable proves it, and BUSY when it disproves it', async () => {
+      // A real period for Nadia this weekday. Now the table can answer for period 2.
+      const subjectId = (await get(`/api/v1/subjects?classId=${classId}`)).body[0].id;
+      const dow = new Date(DAY).getUTCDay() === 0 ? 7 : new Date(DAY).getUTCDay();
+      const slot = await post('/api/v1/timetable/slots', { sectionId: sectionB, dayOfWeek: dow, periodNo: 2, subjectId, staffId: absentStaffId });
+      expect(slot.status).toBe(201);
+
+      const res = await suggest('&periodNo=2');
+      expect(res.body.timetableKnown).toBe(true);
+      // Fatima has no periods at all, so the table positively says she is free.
+      expect(byCode(res.body, 'EMP-SUB')).toMatchObject({ status: 'FREE' });
+      // Nadia is teaching 9-B then, and the note says which class — "busy" alone sends the office
+      // looking for the reason.
+      expect(byCode(res.body, 'EMP-001')).toMatchObject({ status: 'BUSY' });
+      expect(byCode(res.body, 'EMP-001')!.note).toContain('Teaching Grade 9-B that period');
+    });
+
+    it('puts the away and the busy last, but never hides them', async () => {
+      await post('/api/v1/staff-attendance/bulk', {
+        date: DAY, session: 'MORNING', allowHolidayOverride: true,
+        records: [{ staffId: absentStaffId, status: 'ABSENT' }],
+      });
+      const res = await suggest();
+
+      expect(byCode(res.body, 'EMP-001')).toMatchObject({ status: 'AWAY', note: 'Marked absent' });
+      // Nobody is removed. An administrator may know something the register does not — that
+      // somebody came in late and unmarked — so the list orders and explains rather than forbids.
+      expect(res.body.suggestions).toHaveLength(2);
+      expect(res.body.suggestions[0].employeeCode).toBe('EMP-SUB');
+    });
+
+    it('offers somebody who worked through their approved leave', async () => {
+      const leave = await post('/api/v1/staff-leaves', {
+        staffId: subStaffId, leaveType: 'CASUAL', fromDate: DAY, toDate: DAY, reason: 'Errand',
+      });
+      await post(`/api/v1/staff-leaves/${leave.body.id}/approve`);
+      expect(byCode((await suggest()).body, 'EMP-SUB')).toMatchObject({ status: 'AWAY' });
+
+      await post('/api/v1/staff-attendance/bulk', {
+        date: DAY, session: 'MORNING', allowHolidayOverride: true,
+        records: [{ staffId: subStaffId, status: 'PRESENT' }],
+      });
+      // ⚠️ This case exists because a probe found nothing to break. C1's `away()` and C3's
+      // suggestions each had their own copy of this precedence and only one was tested, so the
+      // untested copy could have been inverted silently. They are now one function — and this
+      // asserts the C3 side of it, since a shared helper with one caller under test is the same
+      // hole wearing a better name.
+      expect(byCode((await suggest()).body, 'EMP-SUB')).toMatchObject({ status: 'IN_SCHOOL' });
+    });
+
+    it('marks somebody already covering another class as busy, but not for this one', async () => {
+      await post('/api/v1/cover', { sectionId: sectionB, date: DAY, coveringStaffId: subStaffId });
+      expect(byCode((await suggest()).body, 'EMP-SUB')!.note).toContain('Already covering Grade 9-B');
+
+      await platform.coverAssignment.deleteMany({ where: { schoolId } });
+      await post('/api/v1/cover', { sectionId: sectionA, date: DAY, coveringStaffId: subStaffId });
+      // Being asked to cover the SAME class twice is not a clash — `create` refuses the duplicate
+      // on its own, and calling it "busy" here would read as a different problem entirely.
+      expect(byCode((await suggest()).body, 'EMP-SUB')).toMatchObject({ status: 'IN_SCHOOL' });
+    });
+  });
+
   // ── C2: both people are told, and responsibility moves with the cover ─────
   describe('the people it happens to (C2)', () => {
     const bell = (cookies: string[]) => get('/api/v1/notifications', cookies);

@@ -1,7 +1,7 @@
 import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Post, Query } from '@nestjs/common';
 import { Roles } from '@common';
 import { CoverService } from './cover.service';
-import { CoverQuery, CreateCoverDto, CreateCoverRangeDto } from './dto/cover.dto';
+import { CoverQuery, CoverSuggestionQuery, CreateCoverDto, CreateCoverRangeDto } from './dto/cover.dto';
 
 /**
  * Cover (Cover Plan, C0–C1).
@@ -32,6 +32,16 @@ export class CoverController {
   @Get('away')
   away(@Query() q: CoverQuery) {
     return this.cover.away(q);
+  }
+
+  /**
+   * Who could take this class, best first, each with the reason (C3). Admin-only: it reads the
+   * whole staff body's attendance and timetable, which is oversight, not self-service.
+   */
+  @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
+  @Get('suggestions')
+  suggestions(@Query() q: CoverSuggestionQuery) {
+    return this.cover.suggestions(q);
   }
 
   /**

@@ -329,6 +329,17 @@ export interface AwayToday { date: string; staffRegisterMarked: boolean; away: A
 export interface CoverRangeResult { created: CoverRow[]; skipped: Array<{ date: string; reason: string }> }
 /** Cover that touches ME on a day: what I took on, and what of mine somebody else has. */
 export interface MyCover { date: string; covering: CoverRow[]; covered: CoverRow[] }
+/**
+ * Who could take a class, best first (C3). `timetableKnown` false ⇒ nobody is marked FREE, because
+ * with no timetable that claim would be an invention — the UI says "in school" and means only that.
+ */
+export interface CoverSuggestions {
+  date: string; periodNo: number | null; timetableKnown: boolean;
+  suggestions: Array<{
+    staffId: string; fullName: string | null; employeeCode: string;
+    status: 'FREE' | 'IN_SCHOOL' | 'BUSY' | 'AWAY'; note: string;
+  }>;
+}
 export interface ManagedTeacher {
   id: string; staffType: string; employeeCode: string; fullName: string | null; designation: string;
   employmentStatus: string; joinedAt: string;
@@ -791,6 +802,8 @@ export const api = {
     away: (date: string) => apiGet<AwayToday>(`/cover/away?date=${date}`),
     /** What I am covering, and what of mine is covered — self-scoped, so any staff member may ask. */
     mine: (date?: string) => apiGet<MyCover>(`/cover/mine${date ? `?date=${date}` : ''}`),
+    suggestions: (sectionId: string, date: string, periodNo?: number) =>
+      apiGet<CoverSuggestions>(`/cover/suggestions?sectionId=${sectionId}&date=${date}${periodNo ? `&periodNo=${periodNo}` : ''}`),
     range: (body: { sectionId: string; fromDate: string; toDate: string; coveringStaffId: string; periodNo?: number; absentStaffId?: string; reason?: string }) =>
       apiPost<CoverRangeResult>('/cover/range', body),
   },

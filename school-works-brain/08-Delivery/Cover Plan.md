@@ -1,7 +1,7 @@
 ---
 title: Cover Plan (teacher absent → who takes the class)
 type: plan
-status: C0–C2 SHIPPED (C0/C1 2026-08-10, C2 2026-08-11) · C3–C4 planned
+status: C0–C3 SHIPPED (C0/C1 2026-08-10, C2/C3 2026-08-11) · C4 planned
 updated: 2026-08-11
 ---
 
@@ -224,8 +224,9 @@ without being told is how staff learn to distrust a system.
 - **C2 — the covering teacher's surfaces. ✅ SHIPPED 2026-08-11.** Now card, My Timetable card,
   both notifications, `GET /cover/mine` — **and §6a**, which is the half that changes existing
   behaviour rather than adding to it. See §12.
-- **C3 — free-teacher suggestions.** Only meaningful once a school has a timetable; ships behind
-  the same endpoint so the dropdown simply gets better rather than the screen changing.
+- **C3 — free-teacher suggestions. ✅ SHIPPED 2026-08-11.** Ranked and annotated, degrading
+  honestly when there is no timetable — which is every school today, so that degradation is the
+  feature rather than a caveat. The screen does not change; the dropdown gets better. See §13.
 - **C4 — tests, gates, brain.** Cases that must be able to fail: a covering teacher can mark **only**
   the covered section, **only** on that date; cover into an APPROVED payroll month is refused; the
   grant does not leak into exam marks; removing cover removes the ability.
@@ -527,3 +528,68 @@ row, the staff-attendance rows and the password hash were all put back.
 Free-teacher suggestions (C3) need a timetable. C4's remaining cases are the ones C0–C2 did not
 need: cover not leaking into exam marks, and the campus boundary on `/cover/away` with a real
 second campus.
+
+---
+
+## 13. C3 as built — 2026-08-11
+
+**Shipped:** `GET /cover/suggestions?sectionId=&date=&periodNo=`, the ordered and annotated
+*Covered by* dropdown, a permission-matrix row, **5 more e2e cases (28 in the file)**.
+
+### The design is that it refuses to over-claim
+
+Four statuses, each meaning only what the data supports:
+
+| Status | Means | Note shown |
+|---|---|---|
+| `FREE` | in school, **and the timetable positively says nothing else is scheduled** | *Free that period* |
+| `IN_SCHOOL` | in school, and there is no timetable to check | *In school today* |
+| `BUSY` | teaching something else then, or already covering elsewhere | names the class |
+| `AWAY` | marked absent / on leave, or on approved leave | names which |
+
+⚠️ **`timetableKnown` is the load-bearing part.** `timetable_slots` is empty in every school right
+now, so `FREE` would otherwise be claimed for the entire staff body on no evidence — and an office
+that trusts it double-books somebody. It is only claimed when a period was asked for **and** that
+weekday actually has slots. The first C3 test asserts nobody comes back `FREE` on an empty table;
+breaking that check fails it.
+
+**Nobody is hidden, ever.** An administrator may know something the register does not — a teacher
+who came in late and unmarked — so the list **orders and explains rather than forbids**. The only
+true exclusions are people who cannot hold a class at all: non-teaching staff, and anyone whose
+`leftAt` has passed by that date.
+
+**Being asked to cover the same class twice is not a clash.** `create` refuses the duplicate on its
+own with a message naming who holds it; marking them `BUSY` here would read as a different problem.
+
+### ⚠️ A probe found nothing to break, and that was the finding
+
+Breaking *"the register overrules approved leave"* inside `suggestions` failed **zero** tests —
+because C1's `away()` and C3's `suggestions()` had each grown **their own copy** of that precedence,
+and only C1's was covered. Two implementations of one question is the most expensive pattern in this
+codebase's history. Now one `whoIsAway()` function, plus a C3-side test — *a shared helper with only
+one caller under test is the same hole wearing a better name*. Re-probed: breaking it now fails
+**both** callers' tests.
+
+### Proven non-vacuous
+
+| Probe | Result |
+|---|---|
+| `FREE` claimed without checking the timetable exists | **1 failed** — "will not claim anybody is FREE when there is no timetable to check" |
+| `dayOfWeek` left as `getUTCDay()` (0 = Sunday, off by one) | **1 failed** — "says FREE only once the timetable proves it" |
+| The register no longer overrules approved leave | **2 failed** — one per caller, after the helper was shared |
+
+### Verified live (demo, owner session)
+
+With *Haris Ali* marked absent, picking **10th-A** reordered *Covered by* to end with
+**"Haris Ali — marked absent"** — last, and still selectable. Everyone else read
+*"— in school today"*, **nobody "free"**, which is right: demo has no timetable, so that is the
+degradation working rather than a missing feature. Demo left clean.
+
+⚠️ The dropdown also showed ~23 `Att Teacher <epoch-ms>` accounts left behind by Playwright runs in
+the shared demo tenant — the same leak as the `Cls<epoch-ms>` classes, now hurting a second picker.
+Filed with the wider scope; not a cover defect.
+
+### Still open (C4)
+
+The cases C0–C3 did not need: cover not leaking into exam marks, and the campus boundary on
+`/cover/away` and `/cover/suggestions` with a real second campus.

@@ -167,6 +167,9 @@ export const PERMISSION_MATRIX: MatrixRow[] = [
   { label: 'read the cover list', method: 'get', path: '/api/v1/cover', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'], scopeGated: true },
   { label: 'read who is away', method: 'get', path: '/api/v1/cover/away', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'], scopeGated: true },
   { label: 'arrange cover for a range', method: 'post', path: '/api/v1/cover/range', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
+  // Suggestions read the whole staff body's attendance and timetable, so it is oversight, not
+  // self-service — a teacher must not be able to ask who else is away today.
+  { label: 'suggest who could cover', method: 'get', path: '/api/v1/cover/suggestions', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'], scopeGated: true },
   // ── Timetable ─────────────────────────────────────────────────────────────
   // Building the week is the office's job; a teacher reads theirs and does not author it (§23).
   // These rows would have been impossible to write until 2026-08-08 — `timetable_slots` had no

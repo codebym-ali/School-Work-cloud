@@ -12,7 +12,7 @@ import {
 } from '@common';
 import { AuditService, TenantPrismaService } from '@database';
 import { SetupService } from '../setup/setup.service';
-import type { CreateCoverDto, CreateCoverRangeDto, CoverQuery } from './dto/cover.dto';
+import type { CreateCoverDto, CreateCoverRangeDto, CoverQuery, CoverSuggestionQuery } from './dto/cover.dto';
 
 /** Every calendar day in an inclusive range — the denominator `workingDaysBetween` filters down. */
 function allDatesBetween(from: Date, to: Date): string[] {
@@ -24,6 +24,33 @@ function allDatesBetween(from: Date, to: Date): string[] {
     cursor.setUTCDate(cursor.getUTCDate() + 1);
   }
   return days;
+}
+
+/**
+ * Who is away on a day, from the two sources that can say so — and in which order they win.
+ *
+ * ⚠️ **One function because it was briefly two.** C1's `away()` and C3's `suggestions()` each had
+ * their own copy of this precedence, and a probe proved the C3 copy was untested: breaking it
+ * failed nothing. Two implementations of one question is the single most expensive pattern in this
+ * codebase — three copies of the attendance percentage once gave a parent, a teacher and a director
+ * three different figures for one child.
+ *
+ * **The register wins where both speak.** It records what actually happened, and an approved leave
+ * somebody worked through anyway is not an absence — listing them as away sends the office hunting
+ * for cover for a class they are standing in front of.
+ */
+function whoIsAway(
+  marked: readonly { staffId: string; status: string }[],
+  leaves: readonly { staffId: string; leaveType: string }[],
+): Map<string, string> {
+  const reasons = new Map<string, string>();
+  for (const l of leaves) reasons.set(l.staffId, `On approved ${l.leaveType.toLowerCase()} leave`);
+  for (const m of marked) {
+    if (m.status === 'ABSENT') reasons.set(m.staffId, 'Marked absent');
+    else if (m.status === 'ON_LEAVE') reasons.set(m.staffId, 'Marked on leave');
+    else reasons.delete(m.staffId);
+  }
+  return reasons;
 }
 
 /**
@@ -174,15 +201,7 @@ export class CoverService {
       select: { staffId: true, leaveType: true },
     });
 
-    // The register wins where both speak: it is the record of what actually happened, and an
-    // approved leave someone worked through anyway is not an absence.
-    const reasons = new Map<string, string>();
-    for (const l of leaves) reasons.set(l.staffId, `On approved ${l.leaveType.toLowerCase()} leave`);
-    for (const m of marked) {
-      if (m.status === 'ABSENT') reasons.set(m.staffId, 'Marked absent');
-      else if (m.status === 'ON_LEAVE') reasons.set(m.staffId, 'Marked on leave');
-      else reasons.delete(m.staffId);
-    }
+    const reasons = whoIsAway(marked, leaves);
     if (reasons.size === 0) return { date: q.date ?? date.toISOString().slice(0, 10), staffRegisterMarked: marked.length > 0, away: [] };
 
     const staff = await this.db.staffProfile.findMany({
@@ -257,6 +276,109 @@ export class CoverService {
       },
     });
     return { deleted: true };
+  }
+
+  /**
+   * Who could take this class (Cover Plan, C3).
+   *
+   * **The dropdown is the design.** Every fact needed to answer "who is free?" is already in the
+   * database — the staff register says who is in, the timetable says who is teaching, and cover
+   * says who has already been handed something. Making an administrator hold all three in their
+   * head at 07:45 is the difference between a tool and a form.
+   *
+   * **It degrades honestly, which is the whole reason it can ship now.** `timetable_slots` has no
+   * rows in any school, so "free that period" is usually unknowable — and a suggestion that claims
+   * *free* on no evidence is worse than one that admits it only knows who turned up. So each name
+   * comes back with the status the data actually supports:
+   *
+   * - `FREE` — in school, and the timetable confirms nothing else is scheduled that period.
+   * - `IN_SCHOOL` — in school, and there is no timetable to check. The honest default today.
+   * - `BUSY` — teaching something else that period, or already covering elsewhere that day.
+   * - `AWAY` — marked absent/on leave, or on approved leave spanning the date.
+   *
+   * Nobody is hidden. An administrator who knows something the register does not — that a teacher
+   * came in late and unmarked — must still be able to pick them; the list orders and explains
+   * rather than forbids. The only true exclusions are people who cannot hold a class at all.
+   */
+  async suggestions(q: CoverSuggestionQuery) {
+    const date = new Date(q.date ?? new Date().toISOString().slice(0, 10));
+    const section = await this.db.section.findFirst({
+      where: { id: q.sectionId },
+      select: { id: true, class: { select: { campusId: true } } },
+    });
+    if (!section) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'Section not found');
+    assertCampusAccess(this.ctx.user, section.class.campusId);
+
+    // Only people who can actually stand in front of a class, and only those still employed on the
+    // day in question — a teacher who leaves in March must not be offered for cover in April.
+    const staff = await this.db.staffProfile.findMany({
+      where: {
+        staffType: 'TEACHER',
+        employmentStatus: 'ACTIVE',
+        OR: [{ leftAt: null }, { leftAt: { gt: date } }],
+      },
+      select: { id: true, fullName: true, employeeCode: true },
+    });
+    if (!staff.length) return { date: date.toISOString().slice(0, 10), periodNo: q.periodNo ?? null, timetableKnown: false, suggestions: [] };
+
+    const ids = staff.map((s) => s.id);
+    // `dayOfWeek` is stored 1 = Monday … 7 = Sunday; `getUTCDay()` is 0 = Sunday. Getting this
+    // wrong shifts every lookup by a day and the result still looks plausible, which is the worst
+    // kind of wrong.
+    const dow = date.getUTCDay() === 0 ? 7 : date.getUTCDay();
+    const yearId = await this.setup.requireCurrentYearId();
+
+    const [marks, leaves, busySlots, alreadyCovering, periodSlots] = await Promise.all([
+      this.db.staffAttendance.findMany({ where: { date, staffId: { in: ids } }, select: { staffId: true, status: true } }),
+      this.db.staffLeave.findMany({
+        where: { status: 'APPROVED', staffId: { in: ids }, fromDate: { lte: date }, toDate: { gte: date } },
+        // `leaveType` is selected because the shared `whoIsAway` names it — "On approved sick
+        // leave" tells the office more than "away" for the same query cost.
+        select: { staffId: true, leaveType: true },
+      }),
+      q.periodNo
+        ? this.db.timetableSlot.findMany({
+            where: { academicYearId: yearId, staffId: { in: ids }, dayOfWeek: dow, periodNo: q.periodNo },
+            select: { staffId: true, section: { select: { name: true, class: { select: { name: true } } } } },
+          })
+        : Promise.resolve([]),
+      this.db.coverAssignment.findMany({
+        where: { date, coveringStaffId: { in: ids } },
+        select: { coveringStaffId: true, sectionId: true, periodNo: true, section: { select: { name: true, class: { select: { name: true } } } } },
+      }),
+      // Does this school keep a timetable at all for this day? Without one, `FREE` cannot be
+      // claimed for anybody, and saying "free" on an empty table would be an invention.
+      this.db.timetableSlot.count({ where: { academicYearId: yearId, dayOfWeek: dow } }),
+    ]);
+
+    const away = whoIsAway(marks, leaves);
+    const teaching = new Map(busySlots.map((s) => [s.staffId, `Teaching ${s.section.class.name}-${s.section.name} that period`]));
+    const covering = new Map<string, string>();
+    for (const c of alreadyCovering) {
+      // Being asked to cover the SAME class twice is not a clash — `create` will refuse the
+      // duplicate on its own, and marking them busy for it would read as a different problem.
+      if (c.sectionId === q.sectionId) continue;
+      covering.set(c.coveringStaffId, `Already covering ${c.section.class.name}-${c.section.name}${c.periodNo ? ` period ${c.periodNo}` : ' today'}`);
+    }
+
+    const timetableKnown = Boolean(q.periodNo) && periodSlots > 0;
+    const RANK = { FREE: 0, IN_SCHOOL: 1, BUSY: 2, AWAY: 3 } as const;
+    const suggestions = staff.map((s) => {
+      const [status, note] = away.has(s.id)
+        ? (['AWAY', away.get(s.id)!] as const)
+        : teaching.has(s.id)
+          ? (['BUSY', teaching.get(s.id)!] as const)
+          : covering.has(s.id)
+            ? (['BUSY', covering.get(s.id)!] as const)
+            : timetableKnown
+              ? (['FREE', 'Free that period'] as const)
+              : (['IN_SCHOOL', 'In school today'] as const);
+      return { staffId: s.id, fullName: s.fullName, employeeCode: s.employeeCode, status, note };
+    });
+
+    suggestions.sort((a, b) =>
+      RANK[a.status] - RANK[b.status] || (a.fullName ?? a.employeeCode).localeCompare(b.fullName ?? b.employeeCode));
+    return { date: date.toISOString().slice(0, 10), periodNo: q.periodNo ?? null, timetableKnown, suggestions };
   }
 
   /**

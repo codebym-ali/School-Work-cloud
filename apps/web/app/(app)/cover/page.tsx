@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { api, ApiError, type AwayToday, type CoverRow, type ManagedTeacher, type TimetableCoverage } from '@/lib/api';
+import { api, ApiError, type AwayToday, type CoverRow, type CoverSuggestions, type ManagedTeacher, type TimetableCoverage } from '@/lib/api';
 
 /**
  * Cover — who is taking a class today (Cover Plan, C0 §4.1 + C1).
@@ -14,6 +14,11 @@ import { api, ApiError, type AwayToday, type CoverRow, type ManagedTeacher, type
  * and approved leave; each away teacher's classes come from their assignments. Clicking one fills
  * the form, so the office picks from a list instead of reconstructing the morning from two other
  * screens. When a class is already covered the row says by whom, so what is left is what is shown.
+ *
+ * **C3 makes the one remaining decision easier.** Once a class is chosen, *Covered by* is ordered
+ * by who could actually take it — free that period, in school, busy, away — each with the reason
+ * beside the name. It degrades honestly: with no timetable nobody is called *free*, because that
+ * claim on no evidence is how an office double-books somebody.
  *
  * The outcome that matters happens elsewhere: the covering teacher's *Mark this register* button
  * starts working.
@@ -29,6 +34,7 @@ export default function CoverPage() {
   const [away, setAway] = useState<AwayToday | null>(null);
   const [sections, setSections] = useState<TimetableCoverage['sections']>([]);
   const [staff, setStaff] = useState<ManagedTeacher[]>([]);
+  const [suggest, setSuggest] = useState<CoverSuggestions | null>(null);
   const [f, setF] = useState({ sectionId: '', coveringStaffId: '', absentStaffId: '', reason: '', toDate: '' });
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
@@ -50,6 +56,13 @@ export default function CoverPage() {
     api.timetable.coverage().then((c) => setSections(c.sections)).catch(() => {});
     api.staff.list().then(setStaff).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    // Re-asked whenever the class or the day changes, because the answer depends on both: who is
+    // free on Tuesday is not who is free today.
+    if (!f.sectionId) { setSuggest(null); return; }
+    api.cover.suggestions(f.sectionId, date).then(setSuggest).catch(() => setSuggest(null));
+  }, [f.sectionId, date]);
 
   async function save() {
     if (!f.sectionId || !f.coveringStaffId) return;
@@ -164,10 +177,19 @@ export default function CoverPage() {
               ))}
             </select>
           </div>
-          <div style={{ minWidth: 190 }}><label>Covered by</label>
+          <div style={{ minWidth: 230 }}><label>Covered by</label>
             <select value={f.coveringStaffId} onChange={(e) => setF({ ...f, coveringStaffId: e.target.value })}>
               <option value="">Select…</option>
-              {activeStaff.map((s) => <option key={s.id} value={s.id}>{s.fullName ?? s.employeeCode}</option>)}
+              {/* Ordered and annotated by the server once a class is picked; the plain staff list is
+                  the fallback before then, and if the suggestion call fails. Nobody is ever removed
+                  — the office may know something the register does not. */}
+              {suggest
+                ? suggest.suggestions.map((s) => (
+                    <option key={s.staffId} value={s.staffId}>
+                      {s.fullName ?? s.employeeCode} — {s.note.toLowerCase()}
+                    </option>
+                  ))
+                : activeStaff.map((s) => <option key={s.id} value={s.id}>{s.fullName ?? s.employeeCode}</option>)}
             </select>
           </div>
           {/* Optional, and it says so: a class can need someone for reasons the register does not

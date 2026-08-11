@@ -32,6 +32,19 @@ export class CreateCoverDto {
   reason?: string;
 }
 
+/** Who could take this class (Cover Plan, C3). `periodNo` sharpens the answer; without it the
+ *  question is only "who is in school today", and the response says so rather than implying more. */
+export class CoverSuggestionQuery {
+  @IsUUID()
+  sectionId!: string;
+
+  @IsOptional() @IsDateString()
+  date?: string;
+
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(12)
+  periodNo?: number;
+}
+
 /**
  * The same cover, repeated over a known multi-day absence (Cover Plan, C1).
  *

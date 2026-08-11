@@ -1,7 +1,7 @@
 ---
 title: Cover Plan (teacher absent → who takes the class)
 type: plan
-status: C0–C3 SHIPPED (C0/C1 2026-08-10, C2/C3 2026-08-11) · C4 planned
+status: COMPLETE — C0–C4 SHIPPED (C0/C1 2026-08-10, C2–C4 2026-08-11)
 updated: 2026-08-11
 ---
 
@@ -227,9 +227,10 @@ without being told is how staff learn to distrust a system.
 - **C3 — free-teacher suggestions. ✅ SHIPPED 2026-08-11.** Ranked and annotated, degrading
   honestly when there is no timetable — which is every school today, so that degradation is the
   feature rather than a caveat. The screen does not change; the dropdown gets better. See §13.
-- **C4 — tests, gates, brain.** Cases that must be able to fail: a covering teacher can mark **only**
-  the covered section, **only** on that date; cover into an APPROVED payroll month is refused; the
-  grant does not leak into exam marks; removing cover removes the ability.
+- **C4 — tests, gates, brain. ✅ SHIPPED 2026-08-11.** Cases that must be able to fail: a covering
+  teacher can mark **only** the covered section, **only** on that date; cover into an APPROVED
+  payroll month is refused; the grant does not leak into exam marks; removing cover removes the
+  ability; and the campus boundary holds on every read. See §14.
 
 ## 6a. Two consequences the first draft left out
 
@@ -593,3 +594,65 @@ Filed with the wider scope; not a cover defect.
 
 The cases C0–C3 did not need: cover not leaking into exam marks, and the campus boundary on
 `/cover/away` and `/cover/suggestions` with a real second campus.
+
+---
+
+## 14. C4 as built — 2026-08-11 · the plan is complete
+
+**Shipped:** the four cases C0–C3 did not need — **32 e2e cases in the file**.
+
+### Cover is a day's attendance, not a teaching relationship
+
+The covering teacher **cannot enter exam marks** for the class she covered, and now a test says so.
+Marks entry asks `TeacherAssignment` and deliberately never consults cover; that was already true by
+construction, and the case exists so a future *"we could reuse `coversSectionOn` here"* cannot widen
+the grant silently. Marks are the class's academic record and outlive the day entirely — whoever
+stood in for one lesson has no basis to grade the term.
+
+Probed: making marks honour cover fails the case.
+
+### The campus boundary, finally watched failing
+
+The scoping rule was written three times across C1–C3 and **never once observed to work**, because
+every fixture had a single campus. C4 adds a second one with a `CAMPUS_ADMIN` bound to the first:
+
+- arranging cover for a class at the other campus → **403**;
+- the cover list shows **1 of 2** rows — both campuses are populated, so the count is the assertion;
+- `/cover/suggestions` for a far-campus section → 403, for their own → 200;
+- `/cover/away` shows the away teacher's **2** classes, not her 3.
+
+⚠️ **The first version of that last case could not fail.** Deleting the campus filter from `away()`
+broke nothing, because Nadia had no classes at the far campus — there was nothing for a leak to
+expose. The fixture now assigns her at **both**, the owner is asserted to see 3 while the campus
+admin sees exactly 2, and the probe fails as it should. *A boundary test needs something on the
+wrong side of the boundary* — the same shape as the timetable scoping test that had to be rewritten
+in TT4, and as "populate both sections, then assert what the student DOES see".
+
+It also asserts she is still **listed**, not dropped: a filter that hides the colleague entirely is
+as wrong as one that leaks the other campus, and only checking the leak direction would miss it.
+
+### Proven non-vacuous
+
+| Probe | Result |
+|---|---|
+| Exam marks start honouring cover | **1 failed** — "does not let the cover enter exam marks for that class" |
+| The cover list drops its campus filter | **1 failed** — "keeps another campus out of the cover list and the suggestions" |
+| `away()` drops its campus filter | **1 failed** — after the fixture was fixed; **0 before**, which is the finding |
+
+### ⚠️ Found while writing these, filed separately
+
+Any route taking `:id` answers a **malformed id with a 500**, not a 404 — the value reaches Prisma
+unvalidated (`Inconsistent column data: Error creating UUID`). It surfaced as
+`POST /api/v1/exams/undefined/...` when an unchecked fixture step left `undefined` in the URL, and
+it cost real time: the failure read as *the feature is broken* when only the fixture was. Not a
+cover defect; `ParseUUIDPipe` on `:id` params is the fix.
+
+### What the whole plan cost, and what it bought
+
+Five phases in two days. `cover_assignments` + two partial unique indexes + one migration; six
+endpoints; one screen and four existing surfaces changed; 32 e2e cases; **three real bugs fixed in
+code cover only happened to read** (the `startedAt` day comparison, the duplicated away/leave
+precedence, and the CI typecheck gate that had been red on `main`).
+
+The gap it closed is still one sentence: **the person actually standing in the room can mark the
+register.**

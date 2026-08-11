@@ -7,7 +7,7 @@ import { api, ApiError, type ClosureNotice, type Me } from '@/lib/api';
 import { MeContext } from '@/lib/me-context';
 import { NotificationBell } from '@/components/notification-bell';
 import { groupedNav, hasAnyRole, navItemFor, panelLabel, usesMobileShell, MFA_REQUIRED_ROLES } from '@/lib/roles';
-import { TeacherTabs } from '@/components/teacher-tabs';
+import { TeacherSidebarNav, TeacherTabs } from '@/components/teacher-tabs';
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -47,29 +47,40 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const current = navItemFor(pathname);
   const authorized = !current || hasAnyRole(me.roles, current.roles);
   const needsMfa = !me.mfaEnabled && me.roles.some((r) => (MFA_REQUIRED_ROLES as readonly string[]).includes(r));
-  // TEACHER only (Teacher Mobile Home Plan 7.1). `has-tabbar` lets CSS swap the drawer for the
-  // tab bar at the phone breakpoint without this component knowing what that breakpoint is.
-  const mobileShell = usesMobileShell(me.roles);
+  /**
+   * TEACHER only (Teacher Mobile Home Plan 7.1). `has-tabbar` lets CSS swap the drawer for the
+   * tab bar at the phone breakpoint without this component knowing what that breakpoint is.
+   *
+   * **It now decides the sidebar too** (Teacher App Shell Plan, T0): a teacher gets the same four
+   * destinations at every width — as a bottom bar under 720px, as a short sidebar above it. It
+   * used to swap only the phone half, so a teacher on a laptop got the administrator's eight-link
+   * menu **with no `/home` in it at all**, and could not navigate back to the screen they land on.
+   */
+  const teacherShell = usesMobileShell(me.roles);
 
   return (
     <MeContext.Provider value={me}>
-      <div className={`shell${mobileShell ? ' has-tabbar' : ''}`}>
+      <div className={`shell${teacherShell ? ' has-tabbar' : ''}`}>
         {navOpen && (
           <button className="nav-overlay" aria-label="Close menu" onClick={() => setNavOpen(false)} />
         )}
         <aside className={`sidebar${navOpen ? ' open' : ''}`} id="app-nav">
           <div className="brand">🏫 {panelLabel(me.roles)}</div>
-          {nav.map(({ group, items }) => (
-            <div key={group} className="nav-group">
-              <div className="group-label">{group}</div>
-              {items.map((n) => (
-                <Link key={n.href} href={n.href} className={pathname.startsWith(n.href) ? 'active' : ''}>
-                  <span className="nav-icon" aria-hidden="true">{n.icon}</span>
-                  {n.label}
-                </Link>
-              ))}
-            </div>
-          ))}
+          {teacherShell ? (
+            <TeacherSidebarNav roles={me.roles} admissionsMode={me.admissionsMode} />
+          ) : (
+            nav.map(({ group, items }) => (
+              <div key={group} className="nav-group">
+                <div className="group-label">{group}</div>
+                {items.map((n) => (
+                  <Link key={n.href} href={n.href} className={pathname.startsWith(n.href) ? 'active' : ''}>
+                    <span className="nav-icon" aria-hidden="true">{n.icon}</span>
+                    {n.label}
+                  </Link>
+                ))}
+              </div>
+            ))
+          )}
         </aside>
         <div className="content">
           <div className="topbar">
@@ -126,7 +137,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           )}
         </div>
         {/* Outside `.content` so it is fixed to the viewport rather than to a scrolling column. */}
-        {mobileShell && <TeacherTabs roles={me.roles} admissionsMode={me.admissionsMode} />}
+        {teacherShell && <TeacherTabs roles={me.roles} admissionsMode={me.admissionsMode} />}
       </div>
     </MeContext.Provider>
   );

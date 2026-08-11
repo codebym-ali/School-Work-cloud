@@ -1,7 +1,7 @@
 ---
 title: Teacher App Shell Plan (one navigation, both widths)
 type: plan
-status: drafted 2026-08-11 — decisions taken, not yet built
+status: T0 SHIPPED 2026-08-11 · T1–T4 planned
 updated: 2026-08-11
 ---
 
@@ -100,13 +100,13 @@ because there were spare pixels.*
 
 ## 3. Phases
 
-- **T0 — one navigation, two renderings.** `TEACHER_TABS` becomes the single source of truth for
+- **T0 — one navigation, two renderings. ✅ SHIPPED 2026-08-11.** `TEACHER_TABS` becomes the single source of truth for
   both. A `TeacherNav` component renders it as the bottom bar ≤720px and as the teacher sidebar
   above; the admin sidebar stops rendering for a teacher at any width. `/home` and `/me-more` stop
   being orphans. **Fixes 1.1 and 1.2.**
 - **T1 — the teacher shell follows the person, not the role table.** A user holding TEACHER gets
   the teacher shell even when they also hold another role, with the second role's screens reachable
-  from **Me**. Needs one decision (§5). **Fixes 1.3.**
+  from the last tab. **All three decisions taken — see §5 and §5a.** **Fixes 1.3.**
 - **T2 — the home screen earns the top of the screen with no timetable.** When there is no
   timetable, name the registers: *"Mark 9-A"* with the rest listed beneath, derived from
   `unmarked-today` ∩ `my-classes`. The headline stops promising a task the body then withdraws.
@@ -126,9 +126,12 @@ because there were spare pixels.*
   conflict on a register that feeds pay is worse than waiting for signal.
 - **Not the student portal.** `/me/*` is its own shell and its own question.
 
-## 5. Decision needed before T1
+## 5. Decision TAKEN for T1 (2026-08-11)
 
-**Which shell does a teacher who also holds an administrative role get?** Options:
+**Option 2: the teacher shell wins unless the person also holds OWNER_ADMIN or CAMPUS_ADMIN.**
+Teacher beats ACCOUNTANT, ADMISSION_CONTROLLER and HR_MANAGER; it never beats a school-wide
+administrator. This fixes the realistic case — the teacher who also runs admissions — without
+stranding an owner who happens to teach a class. The options as considered:
 
 1. **Teacher shell wins for anyone holding TEACHER** — simple rule, and the teaching job is the one
    done between rooms on a phone. Risk: an owner who is also formally a teacher would lose the
@@ -139,6 +142,40 @@ because there were spare pixels.*
 3. **Let the user choose**, remembered per account. Most flexible, most to build, and a preference
    nobody sets is a preference that does nothing.
 
+## 5a. What a dual-role person actually gets (decided 2026-08-11)
+
+Checked live on `demo` with a real TEACHER + ACCOUNTANT user before deciding — the system refuses a
+second ADMISSION_CONTROLLER per campus, so that pairing is capped at one person and ACCOUNTANT is
+the general case.
+
+**Today, pre-T1:** brand reads *"🏫 Accountant"*, shell class is plain `shell`, **no tab bar in the
+DOM at all**, and a 12-link accountant sidebar. The teacher app does not exist for this person on
+any device. That is the bug.
+
+**After T1:** they get the teacher shell at every width, and **the second job is not lost** —
+`/me-more` is built from the person's *roles*, not a hardcoded teacher list, so it already renders
+the lot. Observed verbatim: *Dashboard · My Classes · Exams & Results · Reports · Fees · Payment
+submissions · School calendar · My Attendance · My Leaves · My Payslips*, plus Account. It moves
+from "always in the sidebar" to "behind one tab".
+
+Three decisions follow, all taken:
+
+1. **The last tab is renamed "Me" → "More".** It is about to hold Dashboard, Fees, Payment
+   submissions and Reports — a whole second job — under a person icon. The label is *already*
+   slightly wrong for a plain teacher, since Exams & Results and School calendar are not personal
+   either. "More" is honest in both cases and does not vary per user.
+2. **A dual-role person lands on `/home`.** They are being given the teacher app, so starting them
+   anywhere else contradicts the change, and Home is cheap to leave. ⚠️ **This changes existing
+   behaviour**: `landingPath` keys off the same `primaryRole` as the shell, so an
+   accountant-who-teaches who opens on `/dashboard` today will open on `/home` after T1.
+3. **Four tabs stay four.** The second job lives in the grouped list behind the last tab rather
+   than earning a tab of its own — the tab bar must not differ per person, or "learn it once"
+   stops being true. A role switcher was considered and rejected as too heavy a concept for a small
+   school where one person simply wears two hats.
+
+**Consequence for T3:** the finance and admission screens will render inside the teacher shell — a
+four-item sidebar beside a fees table. They will work; nobody has looked at them in that frame.
+
 ## 6. Risks
 
 - **Removing the admin sidebar for teachers hides screens they currently reach in one click**
@@ -148,3 +185,59 @@ because there were spare pixels.*
   three-quarters-empty page reads as a bug, not a design. T3 is not optional trim.
 - **`primaryRole` is load-bearing in more places than the shell** (`landingPath`, `panelLabel`).
   Changing precedence for the shell must not silently change where people land.
+
+---
+
+## 7. T0 as built — 2026-08-11
+
+**Shipped:** `TeacherSidebarNav` alongside `TeacherTabs` in `components/teacher-tabs.tsx`, both
+reading the same `tabsFor()` list; the shell renders the teacher sidebar instead of the grouped
+admin nav when `usesMobileShell`; `test/e2e/teacher-shell.spec.ts` (2 cases).
+
+### What changed
+
+| | Before | After |
+|---|---|---|
+| Teacher @ 1440px | 8 admin links in 3 groups, **no `/home`** | **Home · Attendance · Week · Me** |
+| Teacher @ 375px | Home · Attendance · Week · Me | unchanged |
+| Getting back to Home on a laptop | browser back button only | a link, from every screen |
+| Owner / other roles | 19 links, 6 groups | unchanged |
+
+Verified live at both widths on `demo` with a throwaway teacher, and the owner re-checked at
+1440px: still 19 links, 6 groups, `shell` without `has-tabbar`, no tab bar in the DOM at all.
+
+### Why the desktop sidebar is four items and not ten
+
+The obvious move is to hoist the six secondary screens into the sidebar because a laptop has room.
+Rejected: **the phone's structure is the product's structure**, and spare pixels are a reason to
+make things bigger, not to invent a second information architecture for the same person. Everything
+else stays behind **Me**, exactly as on the phone, and the topbar keeps Security and Sign out above
+720px so the sidebar does not need an account footer.
+
+*If real use shows that costs a click too many, promoting the secondary list is a one-line change —
+but it should be made because a teacher complained, not because there were spare pixels.*
+
+### Proven non-vacuous
+
+Reverting the shell to the pre-T0 behaviour (teacher gets the admin sidebar again) fails
+**"a teacher gets the same four destinations on a phone and on a laptop"**. The second case asserts
+the *other* direction — an owner still gets the grouped admin nav and no tab bar — because a change
+scoped to one role is exactly the kind that quietly widens, and a suite that only ever looks at the
+teacher would never see it.
+
+### ⚠️ The suite now has zero login headroom, and it cost me a false failure
+
+`teacher-shell` seeds a teacher and signs in, which takes the suite to **exactly 5 form logins per
+run against the §29 limit of 5/IP/15min**. A clean run passes. Running one spec twice during
+development and then the full suite does not — and the symptom is **not** a rate-limit error but a
+30-second navigation timeout that reads as a broken feature. That is precisely what happened here:
+`staff-attendance` failed in a full run, passed in isolation, and passed again in a full run once
+the window drained. The tracker already records the same trap from an earlier design; it has simply
+been re-approached from the other side. **Filed as its own task** — the fix is fewer logins (a
+shared teacher `storageState` setup project), not a higher limit, because the limit is real
+production behaviour worth testing against.
+
+### Still open (T1–T4)
+
+T1 (role precedence — decision taken, §5), T2 (the home screen with no timetable), T3 (desktop
+layout for the teacher's cards), T4 (browser pass at 375/768/1440 and the brain).

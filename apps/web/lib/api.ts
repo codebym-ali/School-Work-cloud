@@ -123,6 +123,19 @@ export interface UnmarkedRegisters {
    *  who was away and could not have marked it (Cover Plan §6a). */
   sections: Array<{ sectionId: string; className: string; sectionName: string; expected: number; marked: number; partial: boolean; coveredBy: string | null }>;
 }
+/**
+ * **My own** unmarked registers, named (Teacher App Shell Plan T2) — self-scoped, so any staff
+ * member may ask and a non-teacher simply gets an empty list. `due` is false before the school's
+ * mark-by time, and the home screen stays quiet until then.
+ */
+export interface MyUnmarkedRegisters {
+  due: boolean;
+  markByTime: string;
+  /** Registers answerable for today, before filtering to the unmarked — distinguishes "you have
+   *  no classes" from "all of yours are done", which otherwise arrive identically as `[]`. */
+  responsible: number;
+  sections: Array<{ sectionId: string; className: string; sectionName: string; expected: number; marked: number }>;
+}
 /** Shared vocabulary with the API and the student portal, so the ranges never diverge. */
 export const PERFORMANCE_RANGES = ['1w', '1m', '2m', '3m', '6m'] as const;
 export type PerformanceRange = (typeof PERFORMANCE_RANGES)[number];
@@ -618,6 +631,8 @@ export const api = {
     /** Which class registers are still unmarked today. Admins only — a teacher gets their own
      *  coverage strip, not a list of which colleagues are behind. */
     unmarkedRegisters: () => apiGet<UnmarkedRegisters>('/attendance/unmarked-today'),
+    /** The caller's OWN unmarked registers, named. Self-scoped, so a teacher may ask for theirs. */
+    myUnmarkedRegisters: () => apiGet<MyUnmarkedRegisters>('/attendance/mine/unmarked-today'),
     /** Any authenticated role — teachers have no dashboard, so the shell is the only place
      *  a closure notice reaches everybody. */
     closureNotice: () => apiGet<ClosureNotice>('/attendance/closure-notice'),

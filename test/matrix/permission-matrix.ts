@@ -75,6 +75,10 @@ export const PERMISSION_MATRIX: MatrixRow[] = [
   // Which registers are still unmarked is OVERSIGHT, not self-service: it names colleagues who
   // are behind. A teacher gets their own coverage strip instead.
   { label: 'unmarked registers today', method: 'get', path: '/api/v1/attendance/unmarked-today', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'], scopeGated: true },
+  // `/attendance/mine/unmarked-today` is deliberately NOT here: it is self-scoped like
+  // `/staff-attendance/mine`, so every role reaching it is correct and a deny row would encode the
+  // opposite. What protects it is that the service resolves the caller's own staff profile and can
+  // address no other — an account without one gets an empty list, not somebody else's registers.
   // Staff attendance had NO matrix row at all, on either endpoint — and these rows feed the
   // payroll attendance deduction, so who may write them is a pay question. Marking is the
   // office's job: a teacher must never record staff attendance, least of all their own.

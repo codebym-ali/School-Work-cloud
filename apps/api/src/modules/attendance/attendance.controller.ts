@@ -43,6 +43,16 @@ export class AttendanceController {
    * Deliberately NOT open to TEACHER: this is a list of colleagues who are behind, and a teacher
    * needs their own coverage strip, not a leaderboard of everyone else's.
    */
+  /**
+   * **My own** unmarked registers, named (T2). No `@Roles` — self-scoped in the service, like
+   * `/staff-attendance/mine`: it resolves the caller's staff profile and can address no other.
+   * Declared before `unmarked-today` for readability; the paths do not collide.
+   */
+  @Get('mine/unmarked-today')
+  myUnmarkedToday() {
+    return this.attendance.myUnmarkedToday();
+  }
+
   @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
   @Get('unmarked-today')
   unmarkedToday() {

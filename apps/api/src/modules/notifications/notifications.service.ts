@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { AttendanceStatus, LeaveStatus } from '@prisma/client';
-import { isPastLocalTime, parseSchoolSettings, TenantContext } from '@common';
+import { TenantContext } from '@common';
 import { TenantPrismaService } from '@database';
 import { CoverService } from '../cover/cover.service';
 import { DashboardService } from '../reports/insights.service';
@@ -115,7 +115,7 @@ export class NotificationsService {
             this.leaveDecided(staff.id),
             this.markedAbsent(staff.id),
             this.salaryPaid(staff.id),
-            user.roles.includes('TEACHER') ? this.registerUnmarked(staff.id) : Promise.resolve([]),
+            user.roles.includes('TEACHER') ? this.registerUnmarked() : Promise.resolve([]),
             this.coverToday(staff.id),
           ])
         ).flat()
@@ -378,67 +378,28 @@ export class NotificationsService {
    * `attendanceMarkByTime` has passed — before that a blank register is just a lesson that has
    * not happened yet, and complaining then teaches people to ignore the complaint.
    */
-  private async registerUnmarked(staffId: string): Promise<NotificationItem[]> {
-    const schoolId = this.ctx.requireSchoolId();
-    const school = await this.db.school.findFirst({ where: { id: schoolId }, select: { settings: true } });
-    const settings = parseSchoolSettings(school?.settings ?? {});
-    const now = new Date();
-    if (!isPastLocalTime(now, settings.attendanceMarkByTime, settings.timezone)) return [];
+  private async registerUnmarked(): Promise<NotificationItem[]> {
+    const { due, markByTime, sections } = await this.attendance.myUnmarkedToday();
+    // Silent until the school's own deadline: before it, a blank register is a lesson that has not
+    // happened yet, and complaining then teaches people to ignore the complaint.
+    if (!due || sections.length === 0) return [];
 
-    const year = await this.db.academicYear.findFirst({ where: { isCurrent: true }, select: { id: true } });
-    if (!year) return [];
-
-    const session = settings.attendanceSessions[0];
-    const today = new Date(new Date().toISOString().slice(0, 10));
-
-    // A closure or weekly off is not a gap. Crying wolf every Sunday is how a warning becomes
-    // wallpaper — the same reason the coverage strip and the day-close job both check this.
-    const WEEK = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'] as const;
-    if (settings.weeklyOffDays.includes(WEEK[today.getUTCDay()])) return [];
-    if (await this.db.holiday.count({ where: { date: today } })) return [];
-
-    // Only the sections THIS teacher is responsible for **today**, which is not the same as the
-    // sections they are assigned (Cover Plan §6a). Once 9-A is covered it is no longer their
-    // register that day, and a class they are covering is — chasing someone about a lesson they
-    // were away from is how a feed loses its credibility.
-    const assignments = await this.db.teacherAssignment.findMany({
-      where: { staffId, academicYearId: year.id },
-      select: { sectionId: true },
-    });
-    const own = [...new Set(assignments.map((a) => a.sectionId))];
-    const sectionIds = await this.cover.sectionsResponsibleFor(staffId, own, today);
-    if (!sectionIds.length) return [];
-
-    let outstanding = 0;
-    for (const sectionId of sectionIds) {
-      const [expected, marked] = await Promise.all([
-        this.db.studentEnrollment.count({
-          // `lt` tomorrow, not `lte` today: `startedAt` carries a time, so comparing it against
-          // midnight silently drops anyone enrolled earlier the same day — the same fix as
-          // `unmarkedToday`, and the two must agree or the head and the teacher are told different
-          // things about the same register.
-          where: { sectionId, academicYearId: year.id, status: 'ACTIVE', student: { deletedAt: null }, startedAt: { lt: new Date(today.getTime() + 86400000) } },
-        }),
-        this.db.attendanceRecord.count({
-          where: { date: today, session, enrollment: { sectionId, academicYearId: year.id } },
-        }),
-      ]);
-      // A section with nobody in it cannot be behind on anything.
-      if (expected > 0 && marked < expected) outstanding++;
-    }
-    if (!outstanding) return [];
-
+    const today = new Date().toISOString().slice(0, 10);
     return [{
       // Dated, so it is a fresh reminder each day rather than one that never goes away.
-      id: `register:${today.toISOString().slice(0, 10)}`,
+      id: `register:${today}`,
       kind: 'REGISTER_UNMARKED' as const,
       severity: 'warn' as const,
-      text: outstanding === 1
+      // ONE line a day, not one per section. G3 built this list for the head teacher, who needed to
+      // see which classes were behind; aimed at the individual it would read as nagging, and G3's
+      // rule was *surface, don't police*. The teacher's HOME names them instead — that is an
+      // answer to "what do I do now", which is a different question from a reminder.
+      text: sections.length === 1
         ? 'One of your registers is not marked yet today.'
-        : `${outstanding} of your registers are not marked yet today.`,
-      href: '/attendance',
+        : `${sections.length} of your registers are not marked yet today.`,
+      href: '/home',
       // The deadline itself, not "now" — so the item does not appear to move every time it is read.
-      at: new Date(`${today.toISOString().slice(0, 10)}T${settings.attendanceMarkByTime}:00.000Z`).toISOString(),
+      at: new Date(`${today}T${markByTime}:00.000Z`).toISOString(),
     }];
   }
 }

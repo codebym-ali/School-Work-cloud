@@ -9,10 +9,12 @@ import { gotoApp, apiSetupGet, apiSetupPost, seedClassSectionStudent } from './h
  * `/my-attendance` and `/my-leaves`. So the assertion that matters is not that the API works
  * (integration covers that) but that a person can *reach* it.
  *
- * Reuses the shared OWNER session and makes **no login of its own**: the suite sits exactly at the
- * §29 limit of 5 logins per IP per 15 minutes, and a sixth turns some other spec red with a
- * 30-second navigation timeout that reads as a broken feature. See the filed task for the durable
- * fix.
+ * Reuses the shared OWNER session and adds no form login of its own — the right default, though
+ * ⚠️ **not for the reason first written here.** That comment claimed the suite sat at the §29
+ * ceiling of 5 logins per IP per 15 minutes. It does not: the run makes roughly **thirteen** logins
+ * anyway (`seedClassSectionStudent`, used below, signs in as the admission officer and eight specs
+ * call it), and measured on 2026-08-11 the limiter does not fire at all — seven consecutive logins
+ * returned 200 with the flag set both ways. See Key Decisions.
  */
 test.describe('student move', () => {
   test('an admin can move a student to another section, and the screen says what stays behind', async ({ page }) => {

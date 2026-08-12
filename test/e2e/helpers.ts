@@ -246,6 +246,15 @@ export async function seedClassSectionStudent(page: Page): Promise<SeededClassWi
   const ts = Date.now();
   const studentName = `Student ${ts}`;
   // A separate request context so the owner's storageState session is left untouched.
+  //
+  // ⚠️ **This logs in, and eight specs call this helper** — so a full run makes roughly THIRTEEN
+  // logins, not the "~2 per run" the storageState setup projects were built to guarantee. Sharing
+  // an officer session (a third setup project) is still the right shape.
+  //
+  // What is NOT true is that this is currently tripping anything: measured 2026-08-11, seven
+  // consecutive logins returned 200 with `RATE_LIMIT_ENABLED` set BOTH ways, after an API restart
+  // and a Redis flush. The §29 login limit does not fire against this dev server and **why is
+  // unresolved**. Do not repeat the earlier claim that it does — see Key Decisions.
   const officer = await request.newContext({ baseURL: 'http://localhost:3001' });
   try {
     const auth = await officer.post('/api/v1/auth/login', { data: { email, password } });

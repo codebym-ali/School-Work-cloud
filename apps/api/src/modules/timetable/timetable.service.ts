@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import {
   AppError,
   assertCampusAccess,
+  assertSameCampus,
   ErrorCodes,
   isAdminRole,
   restrictedCampusId,
@@ -131,9 +132,13 @@ export class TimetableService {
 
     const staff = await this.db.staffProfile.findFirst({
       where: { id: dto.staffId },
-      select: { id: true, fullName: true, employeeCode: true, leftAt: true },
+      select: { id: true, fullName: true, employeeCode: true, leftAt: true, user: { select: { campusId: true } } },
     });
     if (!staff) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'Staff member not found');
+    // The campus check above is about the CALLER, and an owner is school-wide — so nothing compared
+    // the teacher to the class. A timetable that puts a campus-A teacher in a campus-B room is a
+    // grid that renders perfectly and cannot be taught.
+    assertSameCampus(staff.user?.campusId, section.class.campusId, staff.fullName ?? staff.employeeCode);
     // `fullName` is nullable on StaffProfile, and a clash message reading "null already teaches
     // 9-B" helps nobody — the employee code is always there and always identifies the person.
     const staffName = staff.fullName ?? staff.employeeCode;

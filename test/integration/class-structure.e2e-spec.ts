@@ -219,8 +219,12 @@ describe('Class structure — section subjects & teacher assignments (e2e)', () 
       // The Classes screen replaces a teacher by delete-then-create. Before the year filter it
       // matched on (section, subject) alone, so "who teaches 9-A Maths this year?" resolved to
       // the historical row and reassignment destroyed the record of who taught it last year.
+      // A SECOND teacher of campus A. This used to use `teacherOnB`, which sits in campus B — a
+      // cross-campus assignment that stopped being possible on 2026-08-11. The year filter is what
+      // this case is about, and it needs two different teachers, not two different campuses.
+      const relief = await createTeacher('teach.a2@cst.pk', campusA);
       const fresh = await ownerPost('/api/v1/teacher-assignments', {
-        staffId: teacherOnB, academicYearId: thisYear, sectionId: sectionA, subjectId: maths,
+        staffId: relief, academicYearId: thisYear, sectionId: sectionA, subjectId: maths,
       });
       expect(fresh.status).toBe(201);
 
@@ -230,16 +234,27 @@ describe('Class structure — section subjects & teacher assignments (e2e)', () 
 
       const thisYearRows = await ownerGet(`/api/v1/teacher-assignments?sectionId=${sectionA}`);
       expect(thisYearRows.body).toHaveLength(1);
-      expect(thisYearRows.body[0].staffId).toBe(teacherOnB);
+      expect(thisYearRows.body[0].staffId).toBe(relief);
     });
 
-    it('a campus admin sees an assignment on their OWN section even when the teacher sits in another campus', async () => {
-      // `teacherOnB`'s user carries campus B while the section belongs to campus A. Scoping by
-      // the teacher's campus hid this row, so the campus admin's own class read as unstaffed.
+    /**
+     * ⚠️ **This case used to assert the opposite, and the change is deliberate.**
+     *
+     * It read *"a campus admin sees an assignment on their OWN section even when the teacher sits
+     * in another campus"* — built when scoping by the *teacher's* campus was hiding rows from the
+     * admin who owned the section. That fix was right about the scoping and wrong about the
+     * premise: a teacher may no longer be assigned outside their campus at all (operator decision,
+     * 2026-08-11), so teacher campus and section campus are now always the same and the two
+     * scopings are indistinguishable. The old case can no longer be constructed.
+     *
+     * What survives is the half that still has meaning: the admin sees their own section's
+     * assignment.
+     */
+    it('a campus admin sees the assignment on their OWN section', async () => {
       const res = await authed('get', `/api/v1/teacher-assignments?sectionId=${sectionA}`, adminCookies);
       expect(res.status).toBe(200);
       expect(res.body).toHaveLength(1);
-      expect(res.body[0]).toMatchObject({ staffId: teacherOnB, sectionId: sectionA });
+      expect(res.body[0]).toMatchObject({ sectionId: sectionA });
     });
 
     it('a campus admin sees nothing on another campus’s section', async () => {

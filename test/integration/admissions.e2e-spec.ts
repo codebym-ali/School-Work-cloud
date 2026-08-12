@@ -286,6 +286,51 @@ describe('Admit journey (e2e, §8)', () => {
       await post('/api/v1/enrollments/transfer', { studentId, toSectionId: backTo.body[0].id });
     });
 
+    /**
+     * The same "check the PAIR, not the caller" gap, on the two other writes that link a staff
+     * member to a section. All three were found together: every campus guard in the codebase asks
+     * *may you touch this?*, which an owner always may, so nothing compared the two things being
+     * linked. The assignment saved, the teacher's home said "Mark 9-A", and attendance then refused
+     * them for being at another campus.
+     */
+    it('refuses linking a teacher to a class at another campus, even for the owner', async () => {
+      const north = await post('/api/v1/campuses', { name: 'Far Campus' });
+      const northClass = await post('/api/v1/classes', { campusId: north.body.id, name: 'Grade 7', order: 7 });
+      const northSection = await post('/api/v1/sections', { classId: northClass.body.id, name: 'A', capacity: 40 });
+      const northSubject = await post('/api/v1/subjects', { classId: northClass.body.id, name: 'Physics' });
+      const yearId = (await get('/api/v1/academic-years')).body.find((y: { isCurrent: boolean }) => y.isCurrent).id;
+
+      // A teacher of the ORIGINAL campus.
+      const teacher = await post('/api/v1/staff', {
+        email: `t-${Date.now()}@adm.pk`, campusId, staffType: 'TEACHER', employeeCode: `E-${Date.now()}`,
+        designation: 'Teacher', joinedAt: '2026-04-01', fullName: 'Local Teacher',
+      });
+      expect(teacher.status).toBe(201);
+
+      const assign = await post('/api/v1/teacher-assignments', {
+        staffId: teacher.body.staffId, academicYearId: yearId, sectionId: northSection.body.id, subjectId: northSubject.body.id,
+      });
+      // 422, not 403: nobody's permissions are at fault — the pair is invalid.
+      expect(assign.status).toBe(422);
+      expect(assign.body.error.message).toContain('belongs to a different campus');
+
+      const slot = await post('/api/v1/timetable/slots', {
+        sectionId: northSection.body.id, dayOfWeek: 1, periodNo: 1,
+        subjectId: northSubject.body.id, staffId: teacher.body.staffId,
+      });
+      // A grid that puts a campus-A teacher in a campus-B room renders perfectly and cannot be
+      // taught, which is why this needs the same rule rather than a comment about it.
+      expect(slot.status).toBe(422);
+      expect(slot.body.error.message).toContain('belongs to a different campus');
+
+      // ...and the same teacher in their OWN campus is still accepted, so this is a boundary and
+      // not a blanket refusal.
+      const ok = await post('/api/v1/teacher-assignments', {
+        staffId: teacher.body.staffId, academicYearId: yearId, sectionId, subjectId: undefined,
+      });
+      expect(ok.status).toBe(201);
+    });
+
     it('refuses a move into a full section when the school caps them', async () => {
       await request(app.getHttpServer()).patch('/api/v1/school-settings').set('Host', host)
         .set('Cookie', cookies).set('X-CSRF-Token', csrf).send({ sectionCapacityMode: 'HARD' });

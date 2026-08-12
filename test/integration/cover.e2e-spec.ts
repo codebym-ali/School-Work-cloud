@@ -648,22 +648,35 @@ describe('Cover (e2e) — who may mark when the teacher is away', () => {
       let otherCampus: string;
       let otherSection: string;
       let campusAdmin: string[];
-      let crossCampusAssignment: string;
+      let farStaffId: string;
 
       beforeAll(async () => {
         otherCampus = (await post('/api/v1/campuses', { name: 'North Campus' })).body.id;
         const otherClass = (await post('/api/v1/classes', { campusId: otherCampus, name: 'Grade 10', order: 10 })).body.id;
         otherSection = (await post('/api/v1/sections', { classId: otherClass, name: 'A' })).body.id;
 
-        // ⚠️ Nadia teaches at BOTH campuses, and that is what makes the filter observable. Without
-        // this the away-list test passed with the campus filter deleted — she had nothing at the
-        // far campus, so there was nothing for a leak to expose. A boundary test needs something on
-        // the wrong side of the boundary.
+        /**
+         * ⚠️ **A teacher OF the far campus, teaching there — not Nadia teaching at both.**
+         *
+         * The first version of this fixture assigned Nadia (main campus) to a North section, so the
+         * away-list filter had something to leak. That assignment only ever succeeded **because of
+         * the bug fixed on 2026-08-11**: nothing compared the teacher's campus to the class's, so
+         * `POST /teacher-assignments` accepted the pair. The fixture was exercising a defect.
+         *
+         * A far-campus teacher who is also away makes the same filter observable with a legal
+         * fixture: the owner sees two people, the campus admin sees one.
+         */
         const yearId = (await get('/api/v1/academic-years')).body.find((y: { isCurrent: boolean }) => y.isCurrent).id;
         const otherSubject = (await post('/api/v1/subjects', { classId: otherClass, name: 'Physics' })).body.id;
-        const a = await post('/api/v1/teacher-assignments', { staffId: absentStaffId, academicYearId: yearId, sectionId: otherSection, subjectId: otherSubject });
-        expect(a.status).toBe(201);
-        crossCampusAssignment = a.body.id;
+        const far = await post('/api/v1/staff', {
+          email: 'north@cv.pk', campusId: otherCampus, staffType: 'TEACHER', employeeCode: 'EMP-NORTH',
+          designation: 'Teacher', joinedAt: '2026-04-01', fullName: 'T EMP-NORTH',
+        });
+        expect(far.status).toBe(201);
+        farStaffId = far.body.staffId;
+        expect((await post('/api/v1/teacher-assignments', {
+          staffId: farStaffId, academicYearId: yearId, sectionId: otherSection, subjectId: otherSubject,
+        })).status).toBe(201);
 
         // A campus admin bound to the ORIGINAL campus. The scoping rule has been written three
         // times across C1–C3 and never watched fail; a second campus is the only way to see it.
@@ -675,6 +688,25 @@ describe('Cover (e2e) — who may mark when the teacher is away', () => {
 
       const asCampusAdmin = (p: string) => request(server()).get(p).set('Host', host).set('Cookie', campusAdmin);
 
+      /**
+       * ⚠️ **A different bug from the one below, and it hid behind it.**
+       *
+       * The check below asks whether the CALLER may touch this section — and an owner is
+       * school-wide, so it always passes for them. Nothing asked whether the substitute works at
+       * that campus. An owner could hand a campus-A teacher a campus-B register; it saved, the
+       * teacher's home told them to mark it, and attendance then refused them for being at another
+       * campus. The same gap existed on `/teacher-assignments` and `/timetable/slots`.
+       *
+       * 422, not 403: nobody's permissions are at fault, the *pair* is invalid.
+       */
+      it('refuses a substitute who works at a different campus, even for the owner', async () => {
+        const res = await post('/api/v1/cover', {
+          sectionId: otherSection, date: DAY, coveringStaffId: subStaffId,
+        });
+        expect(res.status).toBe(422);
+        expect(res.body.error.message).toContain('belongs to a different campus');
+      });
+
       it('refuses cover for a class at another campus', async () => {
         const res = await request(server()).post('/api/v1/cover').set('Host', host)
           .set('Cookie', campusAdmin).set('X-CSRF-Token', csrfOf(campusAdmin))
@@ -683,9 +715,10 @@ describe('Cover (e2e) — who may mark when the teacher is away', () => {
       });
 
       it('keeps another campus out of the cover list and the suggestions', async () => {
-        // The owner arranges cover at BOTH campuses, so there is something at each to leak.
+        // The owner arranges cover at BOTH campuses, so there is something at each to leak — each
+        // with a substitute who actually works at that campus, which is now enforced.
         await post('/api/v1/cover', { sectionId: sectionA, date: DAY, coveringStaffId: subStaffId });
-        await post('/api/v1/cover', { sectionId: otherSection, date: DAY, coveringStaffId: subStaffId });
+        expect((await post('/api/v1/cover', { sectionId: otherSection, date: DAY, coveringStaffId: farStaffId })).status).toBe(201);
         expect((await get(`/api/v1/cover?date=${DAY}`)).body.cover).toHaveLength(2);
 
         // Populating only the far campus and expecting [] would pass with the scoping ignored —
@@ -702,26 +735,26 @@ describe('Cover (e2e) — who may mark when the teacher is away', () => {
       it('shows an away teacher only the classes this admin could arrange', async () => {
         await post('/api/v1/staff-attendance/bulk', {
           date: DAY, session: 'MORNING', allowHolidayOverride: true,
-          records: [{ staffId: absentStaffId, status: 'ABSENT' }],
+          records: [{ staffId: absentStaffId, status: 'ABSENT' }, { staffId: farStaffId, status: 'ABSENT' }],
         });
 
-        // The owner sees all three of Nadia's classes — 9-A, 9-B here and 10-A at North.
-        expect((await get(`/api/v1/cover/away?date=${DAY}`)).body.away[0].sections).toHaveLength(3);
+        // The owner sees BOTH away teachers — Nadia here, and the North teacher at the far campus.
+        const ownerSees = (await get(`/api/v1/cover/away?date=${DAY}`)).body.away;
+        expect(ownerSees.map((a: { employeeCode: string }) => a.employeeCode).sort())
+          .toEqual(['EMP-001', 'EMP-NORTH']);
 
         const res = await asCampusAdmin(`/api/v1/cover/away?date=${DAY}`);
-        // The campus admin sees the two that are theirs to arrange, and she is still LISTED — a
-        // filter that dropped the colleague entirely would be just as wrong as one that leaked
-        // the far campus.
+        // The campus admin sees only theirs — and Nadia is still LISTED with both her sections. A
+        // filter that dropped the colleague entirely would be as wrong as one that leaked the far
+        // campus, so both directions are asserted.
         expect(res.body.away).toHaveLength(1);
+        expect(res.body.away[0].employeeCode).toBe('EMP-001');
         expect(res.body.away[0].sections.map((s: { sectionId: string }) => s.sectionId).sort())
           .toEqual([sectionA, sectionB].sort());
         await platform.staffAttendance.deleteMany({ where: { schoolId } });
       });
 
-      afterAll(async () => {
-        // Put the fixture back: every earlier case assumes Nadia teaches exactly this campus.
-        await platform.teacherAssignment.delete({ where: { id: crossCampusAssignment } });
-      });
+
     });
   });
 

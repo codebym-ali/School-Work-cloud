@@ -78,12 +78,7 @@ both rows exist, taking `db:setup` down with it. That is the intended order of e
 seat gets resolved deliberately by a human, not silently by a migration picking a winner. The demo
 tenant has zero accountants, so nothing to migrate here.
 
-**⚠️ Not done, deliberately: the UI still offers the action and lets the API refuse it.** The
-campuses screen lists an "Accountants" group with an add control, and will now 409 on the second.
-That is unchanged from `CAMPUS_ADMIN` and the admission officer, which have been seats all along and
-behave the same way — so this ships consistent with what is there rather than fixing one of three.
-Making all three seats show their holder instead of an add button is a worthwhile follow-up, and is
-the "system offers what it then blocks" pattern this project keeps correcting.
+**✅ The UI follow-up shipped straight after, on operator instruction — F0b below.**
 
 **Superseded note — existing tenants:** `assertSoleCampusSeat` runs on write, so a tenant that
 already has two accountants on one campus keeps them until somebody edits one. The demo tenant has
@@ -95,6 +90,43 @@ therefore means **exactly one non-owner person per campus can accept a payment**
 of a fee month that is a single queue. The owner can collect too, which is the escape valve; if that
 proves insufficient the answer is a separate `CASHIER` seat (collect-only, many per campus), not
 loosening this rule. **Operator's decision, recorded 2026-08-12: one per campus.**
+
+---
+
+## F0b — The campuses screen names the holder instead of offering the seat — **SHIPPED 2026-08-12**
+
+The screen did not know seats existed: it listed **"Campus Admins"** (plural), always offered every
+role in the add form — defaulting to `CAMPUS_ADMIN`, the one choice guaranteed to 409 on a
+configured campus — and let the server deliver the bad news. **Offering an action the API will
+refuse is the defect this project keeps correcting**; it had simply never been fixed for the two
+seats that predate the accountant.
+
+**What it does now**
+- Seat groups are **singular** (`Campus admin`, `Admission officer`, `Accountant`) and render
+  **whether or not they are filled**. A filled seat shows its holder; an empty one is not hidden
+  the way empty non-seat groups are — it is a gap worth naming, so it says what the campus cannot
+  currently do: *"Not assigned. Nobody but an owner can take a fee payment here."*
+- The add form **disables a taken seat and names who holds it** (`Accountant — held by x@y.pk`)
+  rather than hiding the option, which would just look like a bug. It defaults to the first role
+  that can actually be created, and the submit button is disabled with the reason spelled out.
+
+**⚠️ It immediately surfaced a real fact about the operator's own tenant:** *neither* campus has
+an accountant, so today nobody but the owner can take a fee payment at either one. The old screen
+rendered nothing at all for an empty seat, so that was invisible — **the absence of a row was
+carrying information nobody could see.**
+
+**⚠️ F0 had already broken a Playwright spec and nobody noticed, because only jest was re-run.**
+`campuses.spec` chose `ACCOUNTANT` for its inline-add case with the comment *"deliberately not
+CAMPUS_ADMIN: that is a seat role"* — true when written, false the moment F0 shipped. It kept
+passing only because the E2E campus happened to have no accountant and the spec cleaned up after
+itself; one failed cleanup and every later run would have failed. Now uses `TEACHER`, the only role
+a campus can hold many of. **A comment that justifies a choice by a rule elsewhere goes stale
+silently when that rule moves — and a backend change that alters an invariant needs the browser
+suite run, not just the API one.**
+
+**Tests** — one new Playwright case, probed in **both** halves independently: stop disabling the
+taken option → fails; hide empty seats again → fails. Verified in a browser as well, which is where
+the default-role behaviour was confirmed.
 
 ---
 

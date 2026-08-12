@@ -5,13 +5,28 @@ import { api, apiGet, apiPost, apiDelete, ApiError, type Campus, type ManagedUse
 import { useMe } from '@/lib/me-context';
 
 type Msg = { ok: boolean; text: string } | null;
-const ROLE_GROUPS: Array<{ role: string; label: string }> = [
-  { role: 'CAMPUS_ADMIN', label: 'Campus Admins' },
-  { role: 'ADMISSION_CONTROLLER', label: 'Admission Controllers' },
-  { role: 'ACCOUNTANT', label: 'Accountants' },
+
+/**
+ * ⚠️ **Seat roles are singular, and the screen has to say so before you act, not after.**
+ *
+ * A campus has exactly one campus admin, one admission officer and one accountant — enforced in
+ * `UsersService` and by a partial unique index per role. The screen did not know that: it listed
+ * "Campus Admins" (plural), always offered every role in the add form, and let the API answer with
+ * a 409. Offering an action the server will refuse is the defect this project keeps correcting;
+ * here it is fixed by showing **who holds the seat** instead of an invitation to fill it twice.
+ *
+ * `hint` is what to do when the seat is EMPTY — an empty seat is a real gap (nobody can take fees
+ * at this campus), so it renders as a prompt rather than being hidden the way empty non-seat
+ * groups are.
+ */
+const ROLE_GROUPS: Array<{ role: string; label: string; seat?: boolean; hint?: string }> = [
+  { role: 'CAMPUS_ADMIN', label: 'Campus admin', seat: true, hint: 'Nobody runs this campus day to day.' },
+  { role: 'ADMISSION_CONTROLLER', label: 'Admission officer', seat: true, hint: 'Nobody can admit students here.' },
+  { role: 'ACCOUNTANT', label: 'Accountant', seat: true, hint: 'Nobody but an owner can take a fee payment here.' },
   { role: 'TEACHER', label: 'Teachers' },
   { role: 'STAFF', label: 'Staff' },
 ];
+const SEAT_ROLES = ROLE_GROUPS.filter((g) => g.seat).map((g) => g.role);
 
 export default function CampusesPage() {
   const me = useMe();
@@ -80,6 +95,15 @@ export default function CampusesPage() {
   }
 
   const usersOf = (campusId: string) => users.filter((u) => u.campusId === campusId);
+  /** role → the email already holding that seat on this campus, for roles that are seats. */
+  const seatHolders = (campusId: string): Record<string, string> => {
+    const held: Record<string, string> = {};
+    for (const role of SEAT_ROLES) {
+      const holder = usersOf(campusId).find((u) => u.roles.includes(role));
+      if (holder) held[role] = holder.email;
+    }
+    return held;
+  };
   const schoolWide = users.filter((u) => u.campusId == null);
   const loginLink = (name: string) =>
     typeof window === 'undefined' ? '' : `${window.location.origin}/login?campus=${encodeURIComponent(name)}`;
@@ -130,16 +154,25 @@ export default function CampusesPage() {
           </div>
 
           {openFor === c.id && isOwner && (
-            <AddUser campusId={c.id} campusName={c.name}
+            <AddUser campusId={c.id} campusName={c.name} taken={seatHolders(c.id)}
               onDone={async (ok, text) => { setMsg({ ok, text }); if (ok) { setOpenFor(null); await load(); } }} />
           )}
 
-          {ROLE_GROUPS.map(({ role, label }) => {
+          {ROLE_GROUPS.map(({ role, label, seat, hint }) => {
             const group = usersOf(c.id).filter((u) => u.roles.includes(role));
-            if (group.length === 0) return null;
+            // A non-seat group with nobody in it is just absent. An empty SEAT is a gap worth
+            // naming, so it renders with what the campus cannot currently do.
+            if (group.length === 0 && !seat) return null;
             return (
               <div key={role}>
                 <div className="muted" style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6 }}>{label}</div>
+                {group.length === 0 && (
+                  <p className="muted" style={{ margin: '2px 0 0', fontSize: 13 }}>
+                    Not assigned. {hint}
+                    {isOwner ? ' Use “+ Add user” above.' : ''}
+                  </p>
+                )}
+                {group.length > 0 && (
                 <table>
                   <tbody>
                     {group.map((u) => (
@@ -163,10 +196,10 @@ export default function CampusesPage() {
                     ))}
                   </tbody>
                 </table>
+                )}
               </div>
             );
           })}
-          {usersOf(c.id).length === 0 && <p className="muted" style={{ margin: 0 }}>No users yet. Add a campus admin so someone can log in and manage this campus.</p>}
         </div>
       ))}
       {campuses.length === 0 && <p className="muted">No campuses yet.{isOwner ? ' Add one above.' : ''}</p>}
@@ -188,9 +221,25 @@ export default function CampusesPage() {
   );
 }
 
-function AddUser({ campusId, campusName, onDone }: { campusId: string; campusName: string; onDone: (ok: boolean, text: string) => void }) {
-  const [f, setF] = useState<Record<string, string>>({ role: 'CAMPUS_ADMIN' });
+const ADDABLE_ROLES: Array<{ value: string; label: string }> = [
+  { value: 'CAMPUS_ADMIN', label: 'Campus Admin' },
+  { value: 'ADMISSION_CONTROLLER', label: 'Admission Controller' },
+  { value: 'ACCOUNTANT', label: 'Accountant' },
+  { value: 'TEACHER', label: 'Teacher' },
+  { value: 'STAFF', label: 'Staff' },
+];
+
+function AddUser({ campusId, campusName, taken, onDone }: {
+  campusId: string; campusName: string; taken: Record<string, string>;
+  onDone: (ok: boolean, text: string) => void;
+}) {
+  // ⚠️ Default to a role that can actually be created. `CAMPUS_ADMIN` was hard-coded, so on any
+  // configured campus the form opened pre-set to a seat that was already filled — the one choice
+  // guaranteed to 409.
+  const firstFree = ADDABLE_ROLES.find((r) => !taken[r.value])?.value ?? 'TEACHER';
+  const [f, setF] = useState<Record<string, string>>({ role: firstFree });
   const set = (k: string, v: string) => setF({ ...f, [k]: v });
+  const takenBy = taken[f.role];
   async function submit() {
     try {
       const u = await api.users.create({ email: f.email, roles: [f.role], campusId, password: f.password });
@@ -205,16 +254,24 @@ function AddUser({ campusId, campusName, onDone }: { campusId: string; campusNam
         <div><label>Email</label><input type="email" value={f.email ?? ''} onChange={(e) => set('email', e.target.value)} placeholder="admin@school.pk" /></div>
         <div><label>Role</label>
           <select value={f.role} onChange={(e) => set('role', e.target.value)}>
-            <option value="CAMPUS_ADMIN">Campus Admin</option>
-            <option value="ADMISSION_CONTROLLER">Admission Controller</option>
-            <option value="ACCOUNTANT">Accountant</option>
-            <option value="TEACHER">Teacher</option>
-            <option value="STAFF">Staff</option>
+            {ADDABLE_ROLES.map((r) => (
+              // Disabled rather than hidden: "Accountant — held by x@y.pk" answers the question the
+              // owner is actually asking, where a missing option would just look like a bug.
+              <option key={r.value} value={r.value} disabled={!!taken[r.value]}>
+                {taken[r.value] ? `${r.label} — held by ${taken[r.value]}` : r.label}
+              </option>
+            ))}
           </select>
         </div>
         <div><label>Initial password</label><input type="text" value={f.password ?? ''} onChange={(e) => set('password', e.target.value)} placeholder="min 10 characters" /></div>
       </div>
-      <div><button onClick={submit} disabled={!f.email || (f.password ?? '').length < 10}>Create login for {campusName}</button></div>
+      {takenBy && (
+        <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+          This campus already has {ADDABLE_ROLES.find((r) => r.value === f.role)?.label.toLowerCase()} ({takenBy}).
+          Remove or reassign them before adding another.
+        </p>
+      )}
+      <div><button onClick={submit} disabled={!f.email || (f.password ?? '').length < 10 || !!takenBy}>Create login for {campusName}</button></div>
     </div>
   );
 }

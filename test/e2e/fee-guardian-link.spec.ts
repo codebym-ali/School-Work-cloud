@@ -32,26 +32,51 @@ test.describe('guardian fee link', () => {
 
       // A billable child of our own: the demo tenant's invoices are all settled, and a settled
       // invoice cannot exercise the form at all.
-      const { classId, className, studentName } = await seedClassSectionStudent(page);
-      const head = await apiSetupPost<{ id: string }>(page, '/fee-heads', { name: `GL ${Date.now()}` });
+      const { classId, className, studentName } = await seedClassSectionStudent(page, { name: 'E2E Guardian' });
+      // Found before created, and the structure below with it. ⚠️ `GL <timestamp>` per run left
+      // **30 dead fee heads** in the operator's dropdown — the same leak fees.spec had. Nothing
+      // deletes a fee head here, so the name has to be one that can be reused.
+      const heads = await apiSetupGet<{ id: string; name: string }[]>(page, '/fee-heads');
+      const head = heads.find((h) => h.name === 'E2E Guardian Fee')
+        ?? await apiSetupPost<{ id: string }>(page, '/fee-heads', { name: 'E2E Guardian Fee' });
       const years = await apiSetupGet<{ id: string; isCurrent: boolean }[]>(page, '/academic-years');
       const year = years.find((y) => y.isCurrent) ?? years[0];
       const campuses = await apiSetupGet<{ id: string; name: string }[]>(page, '/campuses');
       const campus = campuses.find((c) => c.name === 'E2E Automation') ?? campuses[0];
-      await apiSetupPost(page, '/fee-structures', {
-        campusId: campus.id, classId, feeHeadId: head.id,
-        academicYearId: year.id, amount: 1500, frequency: 'MONTHLY',
-      });
+      const structures = await apiSetupGet<{ id: string }[]>(page, `/fee-structures?classId=${classId}`);
+      if (structures.length === 0) {
+        await apiSetupPost(page, '/fee-structures', {
+          campusId: campus.id, classId, feeHeadId: head.id,
+          academicYearId: year.id, amount: 1500, frequency: 'MONTHLY',
+        });
+      }
 
+      // ⚠️ **Bill a month this class has not billed before.** `createBatch` returns early when a
+      // batch for (class, month, year) already exists and generates nothing, and there is no DELETE
+      // for a financial record — so with a reused class, re-billing the current month leaves this
+      // run's child with no invoice at all. It only worked while every run got a brand-new class.
       const now = new Date();
-      await apiSetupPost(page, '/fees/invoice-batches', {
-        classId, month: now.getMonth() + 1, year: now.getFullYear(),
-      });
-      const invoices = await apiSetupGet<{ data: { id: string; status: string }[] }>(
-        page, `/fees/invoices?pageSize=100&month=${now.getMonth() + 1}&year=${now.getFullYear()}`,
+      let billed: { month: number; year: number } | undefined;
+      for (let i = 0; i < 24 && !billed; i += 1) {
+        const at = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + i, 1));
+        const month = at.getUTCMonth() + 1;
+        const year = at.getUTCFullYear();
+        const res = await apiSetupPost<{ generated?: number }>(
+          page, '/fees/invoice-batches', { classId, month, year });
+        if (res.generated === 1) billed = { month, year };
+      }
+      expect(billed, `no unbilled month found for ${className}`).toBeTruthy();
+
+      // ⚠️ **This child's invoice, not merely an unpaid one.** The original picked the first
+      // non-PAID invoice in the whole month across the tenant, so it could mint a guardian link for
+      // somebody else's child entirely — and the assertions about hiding a full name would then be
+      // checking a student this test never created.
+      const invoices = await apiSetupGet<{ data: { id: string; status: string;
+        student: { fullName: string | null } }[] }>(
+        page, `/fees/invoices?pageSize=100&month=${billed!.month}&year=${billed!.year}`,
       );
-      const invoice = invoices.data.find((i) => i.status !== 'PAID');
-      expect(invoice, `no unpaid invoice generated for ${className}`).toBeTruthy();
+      const invoice = invoices.data.find((i) => i.student.fullName === studentName && i.status !== 'PAID');
+      expect(invoice, `no unpaid invoice generated for ${studentName} in ${className}`).toBeTruthy();
 
       const { url } = await apiSetupPost<{ url: string }>(page, `/fees/invoices/${invoice!.id}/guardian-link`, {});
 

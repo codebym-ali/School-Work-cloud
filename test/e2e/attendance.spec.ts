@@ -11,7 +11,7 @@ import { gotoApp, seedClassSectionStudent, safeAttendanceDate } from './helpers'
 test.describe('attendance', () => {
   test('mark a student LATE on a valid date, persisted on reload', async ({ page }) => {
     await gotoApp(page);
-    const { className, sectionName, studentName } = await seedClassSectionStudent(page);
+    const { className, sectionName, studentName } = await seedClassSectionStudent(page, { name: 'E2E Attendance' });
 
     await page.getByRole('link', { name: 'Attendance', exact: true }).click();
     await page.waitForURL('**/attendance');

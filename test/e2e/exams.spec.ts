@@ -22,7 +22,7 @@ test.describe('exams', () => {
     //    (structure moved to Classes, and the Exams subjects card is deliberately read-only
     //    so subjects have one home). A spec should not be a hostage of whichever screen owns
     //    its fixture data this month.
-    const { className, sectionName, subjectName, studentName } = await seedClassSectionStudent(page);
+    const { className, sectionName, subjectName, studentName } = await seedClassSectionStudent(page, { name: 'E2E Exams' });
 
     // 2) Exams page: term, exam
     // 'Exams & Results' — the nav label, not 'Exams'.

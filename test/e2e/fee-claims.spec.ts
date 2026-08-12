@@ -33,14 +33,16 @@ test.describe('payment submissions', () => {
 
     // An empty queue says so plainly rather than showing a bare table.
     //
-    // Wait for the card to settle first. Counting rows while it still says "Loading…" reads as
-    // zero, and the spec then demanded an empty-state message that had not rendered either — a
-    // race that only shows up once the screen has enough to fetch to be slow.
-    await expect(page.getByText('Loading…')).toHaveCount(0);
+    // ⚠️ Waiting for "Loading…" to disappear did NOT close this race, though an earlier fix
+    // thought it had: the check also passes when the text has not appeared **yet**, so a fetch that
+    // has not started reads as a finished empty one, and the spec then demands an empty-state
+    // message that will never come because rows are on their way. It surfaced the moment the demo
+    // tenant grew enough to make the request slow. Wait for the settled outcome itself — a row or
+    // the empty message, whichever the queue actually has.
     const rows = page.locator('table tbody tr');
-    if (await rows.count() === 0) {
-      await expect(page.getByText(/Nothing is waiting to be checked/i)).toBeVisible();
-    }
+    const emptyNote = page.getByText(/Nothing is waiting to be checked/i);
+    await expect(rows.first().or(emptyNote)).toBeVisible();
+    if (await rows.count() === 0) await expect(emptyNote).toBeVisible();
   });
 
   test('the pending count the dashboard advertises matches the queue', async ({ page }) => {

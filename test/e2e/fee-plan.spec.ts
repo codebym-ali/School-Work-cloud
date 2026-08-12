@@ -21,7 +21,9 @@ test.describe('fee plan', () => {
     const year = years.find((y) => y.isCurrent);
     test.skip(!year, 'no current academic year on this tenant');
 
-    const { classId, className } = await seedClassSection(page);
+    // Scratch: the `finally` below deletes this class outright, so it cannot be a class any
+    // other spec reuses. It leaves nothing behind, which is what earns it a per-run name.
+    const { classId, className } = await seedClassSection(page, { scratch: true });
     const tuition = await apiSetupPost<{ id: string }>(page, '/fee-heads', { name: `Tuition-${Date.now()}` });
     const transport = await apiSetupPost<{ id: string }>(page, '/fee-heads', { name: `Transport-${Date.now()}` });
 

@@ -9,7 +9,7 @@ import { gotoApp, seedClassSectionStudent } from './helpers';
 test.describe('reports', () => {
   test('class-strength renders a table and CSV export works', async ({ page }) => {
     await gotoApp(page);
-    await seedClassSectionStudent(page);
+    await seedClassSectionStudent(page, { name: 'E2E Reports' });
 
     await page.getByRole('link', { name: 'Reports', exact: true }).click();
     await page.waitForURL('**/reports');

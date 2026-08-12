@@ -11,10 +11,12 @@ interface Klass { id: string; name: string }
  * collect a partial payment (→ PARTIAL) and the remainder (→ PAID). Asserts the posted
  * payment amount at the network layer and the status transitions in the table.
  */
+const E2E_FEE_HEAD = 'E2E Tuition';
+
 test.describe('fees', () => {
   test('generate invoice batch, then partial + full payment → PAID', async ({ page }) => {
     await gotoApp(page);
-    const { className, studentName } = await seedClassSectionStudent(page);
+    const { className, studentName } = await seedClassSectionStudent(page, { name: 'E2E Fees' });
 
     // Resolve ids for the fee-structure setup (UI has no fee-setup screen).
     const [campuses, years, classes] = await Promise.all([
@@ -26,25 +28,52 @@ test.describe('fees', () => {
     const academicYearId = (years.find((y) => y.isCurrent) ?? years[0]).id;
     const classId = classes.find((c) => c.name === className)!.id;
 
-    // Fee head + MONTHLY structure of Rs 5000 for the fresh class.
-    const head = await apiSetupPost<{ id: string }>(page, '/fee-heads', { name: `Tuition ${Date.now()}` });
-    await apiSetupPost(page, '/fee-structures', {
-      campusId, classId, feeHeadId: head.id, academicYearId, amount: 5000, frequency: 'MONTHLY',
-    });
+    // Fee head + MONTHLY structure of Rs 5000 — **found before created, both of them.**
+    //
+    // ⚠️ This spec used to mint `Tuition <timestamp>` every run and delete nothing, and the demo
+    // tenant reached **33 of them out of 64 fee heads**: the operator's fee dropdown was half test
+    // debris. fee-plan.spec had already written the warning about exactly this and removes its own
+    // heads; this spec had the same leak and no cleanup. A second structure also meant a second
+    // line item, which is why the invoice read Rs 10,000 on the second run.
+    const heads = await apiSetupGet<{ id: string; name: string }[]>(page, '/fee-heads');
+    const head = heads.find((h) => h.name === E2E_FEE_HEAD)
+      ?? await apiSetupPost<{ id: string }>(page, '/fee-heads', { name: E2E_FEE_HEAD });
+    const structures = await apiSetupGet<{ id: string }[]>(page, `/fee-structures?classId=${classId}`);
+    if (structures.length === 0) {
+      await apiSetupPost(page, '/fee-structures', {
+        campusId, classId, feeHeadId: head.id, academicYearId, amount: 5000, frequency: 'MONTHLY',
+      });
+    }
 
     const now = new Date();
-    const month = String(now.getUTCMonth() + 1);
-    const year = String(now.getUTCFullYear());
 
     // Generate the invoice batch on the Fees screen.
     await page.getByRole('link', { name: 'Fees', exact: true }).click();
     await page.waitForURL('**/fees');
     const genCard = page.locator('.card', { hasText: 'Generate invoices' });
     await genCard.locator('label:text-is("Class") + select').selectOption({ label: className });
-    await genCard.locator('label:text-is("Month") + input').fill(month);
-    await genCard.locator('label:text-is("Year") + input').fill(year);
-    await genCard.getByRole('button', { name: 'Generate' }).click();
-    await expect(page.locator('.toast.ok')).toContainText('Generated 1 invoice(s)');
+
+    // ⚠️ **A month can only be billed once, ever.** `createBatch` returns early when a batch for
+    // (class, month, year) exists and generates nothing — and there is no DELETE for an invoice or
+    // a batch, deliberately: a financial record is not test debris to be swept away. So a reused
+    // class cannot re-bill the month a previous run already billed. Walk forward to the first month
+    // this class has never billed, instead of asserting against a slot that is already spent.
+    // (Before the fixture was reused this never came up: every run invoiced a brand-new class.)
+    let billed = false;
+    for (let i = 0; i < 24 && !billed; i += 1) {
+      const at = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + i, 1));
+      await genCard.locator('label:text-is("Month") + input').fill(String(at.getUTCMonth() + 1));
+      await genCard.locator('label:text-is("Year") + input').fill(String(at.getUTCFullYear()));
+      // ⚠️ Read the RESPONSE, not the toast. Reading `.toast.ok` matched the toast still on screen
+      // from the previous iteration, so a month that had just been billed still looked unbilled and
+      // the loop kept going — it billed three months in one run before this was caught.
+      const posted = page.waitForResponse(
+        (r) => r.url().includes('/fees/invoice-batches') && r.request().method() === 'POST');
+      await genCard.getByRole('button', { name: 'Generate' }).click();
+      const body = (await (await posted).json()) as { generated?: number };
+      billed = body.generated === 1;
+    }
+    expect(billed, 'no unbilled month found in the next two years').toBe(true);
 
     // Invoice row for our student: total Rs 5,000, status PENDING.
     const row = page.locator('tbody tr', { hasText: studentName });

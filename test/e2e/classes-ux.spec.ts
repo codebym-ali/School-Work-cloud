@@ -40,7 +40,7 @@ test.describe('classes — first run, responsive, keyboard', () => {
 
   test('the selected section is in the URL and survives the back button', async ({ page }) => {
     await gotoApp(page);
-    const { classId, sectionId, className } = await seedClassSection(page);
+    const { classId, sectionId, className } = await seedClassSection(page, { name: 'E2E Classes UX' });
     try {
       await page.goto(`/classes/${classId}`);
       await page.locator('tr', { hasText: 'Section A' }).getByRole('button', { name: 'Open' }).click();
@@ -110,7 +110,21 @@ test.describe('classes — first run, responsive, keyboard', () => {
 
   test('the class row menu is reachable and announced to a screen reader', async ({ page }) => {
     await gotoApp(page, '/classes');
-    const menu = page.locator('button[aria-haspopup="menu"]').first();
+
+    // ⚠️ **Not `.first()`.** The reorder items render only when the class has a neighbour to
+    // swap with (`class-card.tsx`), so a class alone in its campus correctly shows no "Move
+    // earlier". This passed for months only because the tenant was full of fixture classes and the
+    // first card always had siblings; clearing them out turned a true statement about the UI into a
+    // failing test. Pick a class that provably has one.
+    const all = await apiSetupGet<{ id: string; name: string; campusId: string }[]>(page, '/classes');
+    const byCampus = new Map<string, string[]>();
+    for (const k of all) byCampus.set(k.campusId, [...(byCampus.get(k.campusId) ?? []), k.name]);
+    const pair = [...byCampus.values()].find((names) => names.length > 1);
+    test.skip(!pair, 'no campus has two classes to reorder');
+
+    const menu = page.locator('.card')
+      .filter({ has: page.getByRole('link', { name: pair![1], exact: true }) })
+      .locator('button[aria-haspopup="menu"]').first();
     await expect(menu).toHaveAttribute('aria-expanded', 'false');
     await expect(menu).toHaveAttribute('aria-label', /More actions/);
 

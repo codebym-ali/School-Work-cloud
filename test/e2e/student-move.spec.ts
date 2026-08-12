@@ -19,11 +19,15 @@ import { gotoApp, apiSetupGet, apiSetupPost, seedClassSectionStudent } from './h
 test.describe('student move', () => {
   test('an admin can move a student to another section, and the screen says what stays behind', async ({ page }) => {
     await gotoApp(page);
-    const { className, sectionName, sectionId, classId, campusId, studentName } = await seedClassSectionStudent(page);
+    const { className, sectionName, sectionId, classId, campusId, studentName } = await seedClassSectionStudent(page, { name: 'E2E Move' });
 
-    // A second section in the same class to move into.
-    const toName = `S${Date.now().toString().slice(-4)}`;
-    const to = await apiSetupPost<{ id: string }>(page, '/sections', { classId, name: toName, capacity: 40 });
+    // A second section in the same class to move into — **reused, not minted per run.** A fresh
+    // `S<timestamp>` section each time was quietly growing the shared class, which is both the
+    // debris this cleanup exists to remove and what made a sibling spec's section count wrong.
+    const toName = 'Z';
+    const existing = await apiSetupGet<{ id: string; name: string }[]>(page, `/sections?classId=${classId}`);
+    const to = existing.find((x) => x.name === toName)
+      ?? await apiSetupPost<{ id: string }>(page, '/sections', { classId, name: toName, capacity: 40 });
 
     // Filtered to the seeded class rather than the unfiltered list: demo carries hundreds of
     // students and a fresh one is not on page 1.
@@ -47,7 +51,10 @@ test.describe('student move', () => {
     await dialog.locator('label:text-is("Class") + select').selectOption(classId);
     const sectionSelect = dialog.locator('label:text-is("Section") + select');
     // Seats live on the option itself: "0 of 40" read while choosing beats a refusal afterwards.
-    await expect(sectionSelect).toContainText(`${toName} — 0 of 40 seats`);
+    // The COUNT is deliberately not pinned: the section is reused across runs and a crash before
+    // teardown can leave an active student in it, which would fail an assertion about the feature
+    // rather than about the seeding.
+    await expect(sectionSelect).toContainText(new RegExp(`${toName} — [0-9]+ of 40 seats`));
     await sectionSelect.selectOption(to.id);
     await dialog.getByRole('button', { name: 'Move student' }).click();
 
@@ -59,8 +66,13 @@ test.describe('student move', () => {
     expect(active.data.some((e) => e.sectionId === to.id)).toBe(true);
     // And the section they left no longer holds them — asserting only the destination would pass
     // on an endpoint that copied the enrolment instead of moving it.
-    const old = await apiSetupGet<{ data: unknown[] }>(page, `/enrollments?sectionId=${sectionId}&status=ACTIVE`);
-    expect(old.data).toHaveLength(0);
+    // ⚠️ Asked about THIS CHILD, not about the section's population. `toHaveLength(0)` was a
+    // statement about the tenant — it held only while every run got a brand-new section, and a run
+    // that crashes before teardown leaves an active child behind and fails the next one for a
+    // reason that has nothing to do with moving students.
+    const old = await apiSetupGet<{ data: { student: { fullName: string } }[] }>(
+      page, `/enrollments?sectionId=${sectionId}&status=ACTIVE`);
+    expect(old.data.some((e) => e.student.fullName === studentName)).toBe(false);
 
     // ── X2: the same action from the student's own record ─────────────────────
     // Someone reading one child's profile is exactly who notices they are in the wrong room, and

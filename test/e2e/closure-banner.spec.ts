@@ -26,18 +26,22 @@ test.describe('closure banner', () => {
     try {
       // The dashboard, where an admin would see it.
       await page.reload();
-      await expect(page.getByText(/E2E emergency closure/)).toBeVisible();
+      // ⚠️ `.first()`: the closure is named in the shell banner AND on the "Staff today" card,
+      // which appears only when there is a register to mark. Asserting on the bare locator was a
+      // strict-mode violation the moment both were on screen — a test that broke because the app
+      // said the right thing twice.
+      await expect(page.getByText(/E2E emergency closure/).first()).toBeVisible();
       await expect(page.getByText(/no attendance is taken/i)).toBeVisible();
 
       // And — the point of putting it in the shell — a page that is not the dashboard. This is
       // where a teacher actually lands.
       await page.goto('/attendance');
-      await expect(page.getByText(/E2E emergency closure/)).toBeVisible();
+      await expect(page.getByText(/E2E emergency closure/).first()).toBeVisible();
 
       // The screens that already asked "is this a working day" now say WHICH day and why,
       // instead of the old generic "holiday or weekly off".
       await page.goto('/my-attendance');
-      await expect(page.getByText(/E2E emergency closure/)).toBeVisible();
+      await expect(page.getByText(/E2E emergency closure/).first()).toBeVisible();
     } finally {
       await apiSetupDelete(page, `/holidays/${closure.id}`);
     }

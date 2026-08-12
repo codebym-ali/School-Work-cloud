@@ -10,7 +10,7 @@ import { gotoApp, login, seedClassSectionStudent, e2eOfficer, cardByHeading } fr
 test.describe('students CSV import', () => {
   test('validate reports bad rows, then a clean import adds siblings', async ({ page }) => {
     await gotoApp(page);
-    const { className, sectionName } = await seedClassSectionStudent(page);
+    const { className, sectionName } = await seedClassSectionStudent(page, { name: 'E2E Import' });
 
     // `POST /students/import` is ADMISSION_CONTROLLER-only, so this spec cannot run as the owner
     // the shared session uses — every Validate/Import click would 403. Re-log as the suite's

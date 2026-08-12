@@ -18,7 +18,9 @@ import { gotoApp, fieldInput, apiSetupGet, apiSetupPost, seedClassSection } from
 test.describe('classes', () => {
   test('class card shows teaching tags; workbench renames a subject and re-picks a section’s subjects', async ({ page }) => {
     await gotoApp(page);
-    const seeded = await seedClassSection(page);
+    // Scratch, not the shared class: this spec renames and re-picks subjects, and deletes the
+    // whole class in its `finally`. See `seedClassSection`.
+    const seeded = await seedClassSection(page, { scratch: true });
     const { className, sectionName, classId, sectionId, subjectName } = seeded;
     const secondSubject = `Extra${Date.now()}`;
 
@@ -46,8 +48,13 @@ test.describe('classes', () => {
 
       const subjectsCard = page.locator('.card').filter({ has: page.getByRole('heading', { name: 'Subjects', level: 2 }) });
       await expect(subjectsCard).toContainText(subjectName);
-      // "All 1 section" — a section with no list of its own studies everything the class offers.
-      await expect(subjectsCard).toContainText('All 1 section');
+      // "All N sections" — a section with no list of its own studies everything the class offers.
+      // ⚠️ The number is READ, not hard-coded. The seeded class is now reused across runs and
+      // other specs add sections to it, so a literal "All 1 section" asserted the state of the
+      // tenant rather than the behaviour under test, and broke the moment a sibling spec ran first.
+      const sections = await apiSetupGet<unknown[]>(page, `/sections?classId=${classId}`);
+      const n = sections.length;
+      await expect(subjectsCard).toContainText(`All ${n} section${n === 1 ? '' : 's'}`);
 
       // Rename — the action that did not exist. A typo used to be permanent the moment an exam
       // result referenced the subject and blocked deletion.
@@ -90,8 +97,25 @@ test.describe('classes', () => {
       await expect(sectionsCard.locator('tr', { hasText: `Section ${sectionName}` })).toContainText('own list');
 
       // ── The tag turns green when a teacher is assigned ──────────────────────
-      const teachers = await apiSetupGet<{ id: string; staffType: string; fullName: string | null }[]>(page, '/staff');
-      const teacher = teachers.find((t) => t.staffType === 'TEACHER');
+      // ⚠️ **Must be a teacher of the SECTION's campus.** A teacher may no longer be assigned
+      // outside their own campus (operator decision, 2026-08-11), and the seeded section lives in
+      // the E2E campus. This used to pass by luck: the tenant was full of leftover fixture staff
+      // created in that same campus, so `find(first TEACHER)` happened to return one. Clearing that
+      // debris left a real Falcon teacher first in the list, and the assignment started 422-ing —
+      // **the spec had been depending on the mess it was leaving behind.**
+      const E2E_TEACHER_NAME = 'E2E Teacher';
+      // Campus is on the linked USER row, not on the staff profile (`listStaff` includes it there),
+      // and reading it from the wrong level silently matched nobody — which looked like "no teacher
+      // yet" and tried to create a duplicate.
+      const teachers = await apiSetupGet<{ id: string; staffType: string; fullName: string | null;
+        user: { campusId: string | null } }[]>(page, '/staff');
+      const teacher = teachers.find((t) => t.staffType === 'TEACHER' && t.user.campusId === seeded.campusId)
+        ?? await apiSetupPost<{ staffId: string; fullName: string }>(page, '/staff', {
+          email: `e2e.teacher@e2e.local`, campusId: seeded.campusId, staffType: 'TEACHER',
+          employeeCode: 'E2E-TEACHER', designation: 'Teacher', joinedAt: '2026-04-01',
+          fullName: E2E_TEACHER_NAME,
+        }).then((r) => ({ id: r.staffId, staffType: 'TEACHER', fullName: E2E_TEACHER_NAME,
+          user: { campusId: seeded.campusId } }));
       test.skip(!teacher, 'no teacher on this tenant to assign');
 
       const years = await apiSetupGet<{ id: string; isCurrent: boolean }[]>(page, '/academic-years');

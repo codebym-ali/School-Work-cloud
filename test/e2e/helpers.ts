@@ -207,23 +207,72 @@ export async function e2eOfficer(page: Page): Promise<{ email: string; password:
   return { email: E2E_OFFICER_EMAIL, password: E2E_OFFICER_PASSWORD };
 }
 
-export async function seedClassSection(page: Page): Promise<SeededClass> {
-  const ts = Date.now();
-  const className = `Cls${ts}`;
-  const sectionName = 'A';
-  const subjectName = `Subj${ts}`;
+export const E2E_CLASS_NAME = 'E2E Class';
+export const E2E_SUBJECT_NAME = 'E2E Subject';
 
+/** Fetch a list and reuse the row with this name, or create it. */
+async function findOrCreate<T extends { id: string; name: string }>(
+  page: Page, path: string, name: string, create: () => Promise<T>, list?: string,
+): Promise<T> {
+  const rows = await apiSetupGet<T[]>(page, list ?? path);
+  const hit = rows.find((r) => r.name === name);
+  return hit ?? (await create());
+}
+
+/**
+ * The suite's own class, **found or created — not a new one per run**.
+ *
+ * ⚠️ **It used to be `Cls${Date.now()}`, and the demo tenant reached 185 of them against 3 real
+ * classes.** They were accepted as harmless because they sat "in a campus nobody looks at" — until
+ * the Cover and student-Move screens began listing every class in the school, at which point every
+ * class picker in the app was 98% test debris. Nothing enforced a ceiling, because nothing could:
+ * the count grew with how often the suite ran, not with how much was built.
+ *
+ * Students are still created per run (`Student <ts>` in `seedClassSectionStudent`), but the global
+ * teardown now removes those records as well as withdrawing them — the ones it must leave are those
+ * carrying payment or certificate history, which the product itself refuses to delete.
+ *
+ * `scratch: true` opts OUT of the shared class and mints a private, throwaway one.
+ *
+ * ⚠️ **Reuse and mutation cannot share a fixture.** Most specs only READ the class, so one stable
+ * copy suits them. But a spec that renames the subject, adds another, and rewrites what a section
+ * studies leaves the fixture altered for whoever runs next — and its own opening assertions
+ * ("unassigned", "1 subject without a teacher") only hold against a pristine class. Such a spec
+ * must own its class outright and delete it in a `finally`; that is what `scratch` is for. Its
+ * name still carries a timestamp, which is fine precisely BECAUSE it is deleted — the 185 leaked
+ * classes came from timestamped names that nothing ever removed, not from timestamps as such.
+ *
+ * `name` gives a spec its OWN stable class. ⚠️ **One shared class across all specs does not work.**
+ * The first attempt handed every spec the same one and four specs went red at once: the exam roster
+ * loaded another spec's child, the move spec found its old section still occupied, and the fee specs
+ * read totals and batches left by their neighbours. Freshness had been doing the isolation work
+ * silently, and reuse removed it. A class per spec keeps both properties — isolation, and a count
+ * that is fixed at nine rather than growing by one every run.
+ */
+export async function seedClassSection(
+  page: Page, opts?: { scratch?: boolean; name?: string },
+): Promise<SeededClass> {
   const campusId = await e2eCampusId(page);
+  const base = opts?.name ?? E2E_CLASS_NAME;
+  const className = opts?.scratch ? `${base} ${Date.now()}` : base;
 
-  const existing = await apiSetupGet<{ order: number; campusId: string }[]>(page, '/classes');
-  const order = Math.max(0, ...existing.filter((k) => k.campusId === campusId).map((k) => k.order)) + 1;
+  const existing = await apiSetupGet<{ id: string; name: string; order: number; campusId: string }[]>(page, '/classes');
+  const mine = existing.filter((k) => k.campusId === campusId);
+  const klass = mine.find((k) => k.name === className) ?? await apiSetupPost<{ id: string; name: string }>(
+    page, '/classes',
+    { campusId, name: className, order: Math.max(0, ...mine.map((k) => k.order)) + 1 },
+  );
 
-  const klass = await apiSetupPost<{ id: string }>(page, '/classes', { campusId, name: className, order });
-  const subject = await apiSetupPost<{ id: string }>(page, '/subjects', { classId: klass.id, name: subjectName });
-  const section = await apiSetupPost<{ id: string }>(page, '/sections', { classId: klass.id, name: sectionName, capacity: 40 });
+  const subject = await findOrCreate(page, '/subjects', E2E_SUBJECT_NAME,
+    () => apiSetupPost<{ id: string; name: string }>(page, '/subjects', { classId: klass.id, name: E2E_SUBJECT_NAME }),
+    `/subjects?classId=${klass.id}`);
+
+  const section = await findOrCreate(page, '/sections', 'A',
+    () => apiSetupPost<{ id: string; name: string }>(page, '/sections', { classId: klass.id, name: 'A', capacity: 40 }),
+    `/sections?classId=${klass.id}`);
 
   return {
-    className, sectionName, subjectName, campusId,
+    className, sectionName: 'A', subjectName: E2E_SUBJECT_NAME, campusId,
     classId: klass.id, sectionId: section.id, subjectId: subject.id,
   };
 }
@@ -239,8 +288,10 @@ export async function seedClassSection(page: Page): Promise<SeededClass> {
  * holds is never one the school cares about. `E2E_ADMISSION_OFFICER_EMAIL` /
  * `E2E_ADMISSION_OFFICER_PASSWORD` still override it if you want to nominate someone.
  */
-export async function seedClassSectionStudent(page: Page): Promise<SeededClassWithStudent> {
-  const seeded = await seedClassSection(page);
+export async function seedClassSectionStudent(
+  page: Page, opts?: { scratch?: boolean; name?: string },
+): Promise<SeededClassWithStudent> {
+  const seeded = await seedClassSection(page, opts);
   const { email, password } = await e2eOfficer(page);
 
   const ts = Date.now();

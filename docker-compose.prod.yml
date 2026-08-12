@@ -25,6 +25,15 @@ x-app-env: &app-env
   # below, and the Traefik loadbalancer label all assume the container listens on 3000.
   API_PORT: '3000'
   TZ: Asia/Karachi
+  # §29 brute-force protection, pinned ON here rather than left to `.env`.
+  #
+  # ⚠️ `env_file: .env` below hands these services the SAME file local dev uses, and local dev
+  # sets `RATE_LIMIT_ENABLED=false` on purpose (the e2e suite makes ~13 logins in a run). Without
+  # this line a dev env file silently disabled password-guessing protection on every school's
+  # login page — measured 2026-08-12, this stack was running with it off. `environment:` wins over
+  # `env_file:`, so the server is protected no matter what the file says, and `validateEnv` now
+  # refuses to boot a production API without it.
+  RATE_LIMIT_ENABLED: 'true'
 
 services:
   migrate:

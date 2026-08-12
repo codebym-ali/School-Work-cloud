@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { gotoApp, fieldInput, fieldSelect, apiSetupGet, apiSetupDelete } from './helpers';
+import { gotoApp, fieldInput, fieldSelect, apiSetupGet, apiSetupPost, apiSetupDelete, e2eCampusId, E2E_CAMPUS_NAME } from './helpers';
 
 /**
  * Campuses screen (§23) against the live stack: each campus shows its users grouped by role
@@ -14,14 +14,17 @@ test.describe('campuses', () => {
     // The per-campus login link is a button now, not the `Login link:` text this asserted for.
     await expect(page.getByRole('button', { name: /Campus login/ }).first()).toBeVisible();
 
-    // ACCOUNTANT, deliberately not CAMPUS_ADMIN: that is a **seat role** (one per campus, enforced
-    // by a partial unique index), so on a configured tenant the seat is already taken and this
-    // would 409 — the spec would be asserting that a real invariant is broken. The inline-add
-    // flow is what is under test here; the seat rule itself is covered in `users.e2e`.
+    // TEACHER, because it is the only kind of login a campus can hold MANY of.
+    //
+    // ⚠️ This used to say "ACCOUNTANT, deliberately not CAMPUS_ADMIN: that is a seat role" — true
+    // when written, false since 2026-08-12, when the accountant became a seat too. The spec kept
+    // passing only because the E2E campus happened to have no accountant and this cleaned up after
+    // itself; one failed cleanup and the seat would be taken for every later run. **A comment that
+    // justifies a choice by a rule elsewhere goes stale silently when that rule moves.**
     await page.getByRole('button', { name: '+ Add user' }).first().click();
     const form = page.locator('.card').filter({ has: page.getByRole('button', { name: /Create login for/ }) }).first();
     await fieldInput(form, 'Email').fill(email);
-    await fieldSelect(form, 'Role').selectOption('ACCOUNTANT');
+    await fieldSelect(form, 'Role').selectOption('TEACHER');
     await fieldInput(form, 'Initial password').fill('CampusPass12345');
     await form.getByRole('button', { name: /Create login for/ }).click();
 
@@ -54,6 +57,43 @@ test.describe('campuses', () => {
       const users = await apiSetupGet<{ id: string; email: string }[]>(page, '/users').catch(() => []);
       const mine = users.find((u) => u.email === email);
       if (mine) await apiSetupDelete(page, `/users/${mine.id}`);
+    }
+  });
+
+  test('a filled seat names its holder instead of offering to fill it again', async ({ page }) => {
+    // The screen used to list "Accountants" (plural), always offer every role, and let the API
+    // answer a second one with a 409. A campus has exactly ONE accountant, campus admin and
+    // admission officer — so the screen says who, before the owner types anything.
+    await gotoApp(page);
+    const campusId = await e2eCampusId(page);
+    const email = `seat${Date.now()}@demo.pk`;
+    const holder = await apiSetupPost<{ id: string }>(page, '/users', {
+      email, roles: ['ACCOUNTANT'], campusId, password: 'SeatPass123456',
+    });
+
+    try {
+      await page.goto('/campuses');
+      const card = page.locator('.card').filter({ has: page.getByRole('heading', { name: E2E_CAMPUS_NAME, exact: true }) });
+      await expect(card).toBeVisible();
+
+      // Singular label, and the holder is on screen.
+      await expect(card).toContainText('Accountant');
+      // `exact`: the row's select-checkbox cell carries the address in its aria-label
+      // ("Select <email>"), so a loose match finds two cells and fails strict mode.
+      await expect(card.getByRole('cell', { name: email, exact: true })).toBeVisible();
+
+      // ⚠️ The point of the change: the add form must not OFFER the seat that is taken.
+      await card.getByRole('button', { name: '+ Add user' }).click();
+      const form = card.locator('.card').filter({ has: page.getByRole('button', { name: /Create login for/ }) });
+      const accountantOption = form.locator('option', { hasText: 'Accountant' });
+      await expect(accountantOption).toBeDisabled();
+      await expect(accountantOption).toContainText(email);   // names WHO holds it, not just "unavailable"
+
+      // An unfilled seat is not hidden either — it is a gap worth naming, because nobody can do
+      // the thing it exists for. (No admission officer is seeded on this campus.)
+      await expect(card).toContainText(/Not assigned/);
+    } finally {
+      await apiSetupDelete(page, `/users/${holder.id}`);
     }
   });
 });

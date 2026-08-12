@@ -31,12 +31,27 @@ const API_PORT = process.env.API_PORT || '4000';
  *  and the seeded demo school is the one a bare host is almost always meant to reach. */
 const FALLBACK_ORIGIN = `http://demo.localhost:${API_PORT}`;
 
+/**
+ * Standalone output is what the Docker runner stage ships (`.next/standalone/server.js`, only the
+ * traced deps, no full node_modules — see apps/web/Dockerfile), so it must stay on for any build
+ * that produces the image.
+ *
+ * ⚠️ **It cannot run on Windows without extra privileges.** Tracing copies dependencies by
+ * creating SYMLINKS, and Windows only permits that for an administrator or with Developer Mode
+ * enabled — so `next build` on a normal Windows account dies with `EPERM: operation not permitted,
+ * symlink` *after* compiling, type-checking and generating every page successfully. The build was
+ * therefore unusable locally while being perfectly fine in CI and Docker, which both run Linux.
+ *
+ * Skipped on win32 rather than solved, because there is nothing to solve: the standalone bundle is
+ * consumed **only** by the Linux container image, so a Windows developer producing one has no use
+ * for it. Set `NEXT_STANDALONE=1` to force it anyway (Developer Mode on, or an elevated shell).
+ */
+const STANDALONE = process.env.NEXT_STANDALONE === '1' || process.platform !== 'win32';
+
 /** @type {import('next').NextConfig} */
 export default {
   reactStrictMode: true,
-  // Emit a self-contained server bundle (`.next/standalone/server.js`) so the Docker
-  // runner stage ships only the traced deps — no full node_modules. See apps/web/Dockerfile.
-  output: 'standalone',
+  ...(STANDALONE ? { output: 'standalone' } : {}),
   async rewrites() {
     if (EXPLICIT_ORIGIN) {
       return [{ source: '/api/:path*', destination: `${EXPLICIT_ORIGIN}/api/:path*` }];

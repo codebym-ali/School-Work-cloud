@@ -23,12 +23,32 @@ const CAMPUS_ADMIN_MAY_GRANT: Role[] = [Role.ADMISSION_CONTROLLER, Role.ACCOUNTA
  * because both speak for the campus and a second holder makes "who is responsible?"
  * unanswerable. Enforced in the service on every write path AND by a partial unique index
  * per role in 02_partial_uniques.sql.
+ *
+ * ACCOUNTANT joined them on operator instruction (2026-08-12) for the money version of the same
+ * question: one person per campus reconciles the drawer, so a shortfall has one name against it.
+ *
+ * ⚠️ **It has a real cost at the counter, and it was accepted deliberately.** Taking a payment
+ * (`POST /fees/invoices/:id/payments`) admits only OWNER_ADMIN and ACCOUNTANT, so a campus now has
+ * exactly one non-owner who can accept money — a single queue in the first days of a fee month,
+ * with the owner as the only relief. If that proves too tight the answer is a separate collect-only
+ * CASHIER seat (many per campus), **not** relaxing this rule: the point is accountability for the
+ * drawer, which a second accountant would remove.
  */
-const SOLE_CAMPUS_SEAT_ROLES: Role[] = [Role.CAMPUS_ADMIN, Role.ADMISSION_CONTROLLER];
+const SOLE_CAMPUS_SEAT_ROLES: Role[] = [Role.CAMPUS_ADMIN, Role.ADMISSION_CONTROLLER, Role.ACCOUNTANT];
 const SEAT_LABEL: Record<string, string> = {
   [Role.CAMPUS_ADMIN]: 'a campus admin',
   [Role.ADMISSION_CONTROLLER]: 'an admission officer',
+  [Role.ACCOUNTANT]: 'an accountant',
 };
+/**
+ * What to do INSTEAD of adding a second holder. The admission officer's wording is its own because
+ * the campus's Admission Portal login is handed over rather than duplicated.
+ */
+const SEAT_REMEDY: Record<string, string> = {
+  [Role.ADMISSION_CONTROLLER]:
+    "Hand the campus's admission access over to someone else instead of adding a second one.",
+};
+const DEFAULT_SEAT_REMEDY = 'Remove or reassign them before adding another.';
 
 /** Audit action pair (granted, revoked) per access role. HR and campus-admin keep their
  *  specific actions; the rest use the generic role-access pair. */
@@ -419,10 +439,12 @@ export class UsersService {
       select: { email: true },
     });
     if (!existing) return;
+    // ⚠️ Driven by the label map, not a ternary over two roles. The previous form defaulted
+    // anything that was not ADMISSION_CONTROLLER to the campus-admin wording, so adding a third
+    // seat would have told the operator their new accountant was "a campus admin".
     const message =
-      role === Role.ADMISSION_CONTROLLER
-        ? `This campus already has an admission officer (${existing.email}). Hand the campus's admission access over to someone else instead of adding a second one.`
-        : `This campus already has a campus admin (${existing.email}). Remove or reassign them before adding another.`;
+      `This campus already has ${SEAT_LABEL[role] ?? 'a holder of this role'} (${existing.email}). `
+      + `${SEAT_REMEDY[role] ?? DEFAULT_SEAT_REMEDY}`;
     throw new AppError(ErrorCodes.CONFLICT, HttpStatus.CONFLICT, message);
   }
 

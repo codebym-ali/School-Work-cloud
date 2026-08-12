@@ -107,6 +107,46 @@ describe('Users & roles (e2e, §23)', () => {
     expect(grant.status).toBe(409);
   });
 
+  it('allows at most one accountant per campus', async () => {
+    // Operator instruction 2026-08-12: the accountant is a campus SEAT, like the principal and the
+    // admission officer. One person per campus reconciles the drawer, so a shortfall has one name
+    // against it. Costed and accepted: only OWNER_ADMIN and ACCOUNTANT may take a payment, so this
+    // leaves a campus with exactly one non-owner cashier.
+    const first = await post('/api/v1/users', { email: 'acc-a@usr.pk', roles: ['ACCOUNTANT'], campusId: campusAId, password: 'Another!Secret12' }, ownerCookies);
+    expect(first.status).toBe(201);
+
+    const second = await post('/api/v1/users', { email: 'acc-a2@usr.pk', roles: ['ACCOUNTANT'], campusId: campusAId, password: 'Another!Secret12' }, ownerCookies);
+    expect(second.status).toBe(409);
+    // Names the incumbent and the remedy — and names the right ROLE. The message used to be a
+    // ternary that called anything other than an admission officer "a campus admin".
+    expect(second.body.error.message).toMatch(/already has an accountant/i);
+    expect(second.body.error.message).toContain('acc-a@usr.pk');
+
+    // ⚠️ The rule is one per CAMPUS, not one per school — without this case a filter that ignored
+    // the campus entirely would pass every other assertion here.
+    const otherCampus = await post('/api/v1/users', { email: 'acc-b@usr.pk', roles: ['ACCOUNTANT'], campusId: campusBId, password: 'Another!Secret12' }, ownerCookies);
+    expect(otherCampus.status).toBe(201);
+
+    // The capability grant is the other way in: an existing employee of campus A promoted to
+    // accountant must hit the same seat check, not just the create path.
+    const emp = await post('/api/v1/users', { email: 'emp-acc@usr.pk', roles: ['TEACHER'], campusId: campusAId, password: 'Another!Secret12' }, ownerCookies);
+    expect(emp.status).toBe(201);
+    const grant = await patch(`/api/v1/users/${emp.body.id}/access`, { role: 'ACCOUNTANT', grant: true }, ownerCookies);
+    expect(grant.status).toBe(409);
+
+    // ⚠️ **The service check is not what makes this safe — it is what makes it civil.** Probed by
+    // removing ACCOUNTANT from `SOLE_CAMPUS_SEAT_ROLES`: this case still failed, but with **500**
+    // rather than 201, because the partial unique index in `02_partial_uniques.sql` refuses the row
+    // regardless. The index is the backstop under a race (a check is read-then-write, so two owners
+    // assigning at the same moment both pass it); the service check is what turns that into a 409
+    // naming the incumbent instead of a stack trace.
+
+    // A refused attempt must not half-apply: the employee is still only a teacher.
+    const after = await get(`/api/v1/users`, ownerCookies);
+    const row = (after.body.data ?? after.body).find((u: { email: string }) => u.email === 'emp-acc@usr.pk');
+    expect(row.roles).toEqual(['TEACHER']);
+  });
+
   it('lists users; owner reset-password works', async () => {
     const list = await get('/api/v1/users', ownerCookies);
     expect(list.status).toBe(200);

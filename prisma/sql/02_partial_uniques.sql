@@ -62,6 +62,19 @@ CREATE UNIQUE INDEX IF NOT EXISTS users_one_admission_controller_per_campus
   ON users (campus_id)
   WHERE 'ADMISSION_CONTROLLER' = ANY (roles) AND deleted_at IS NULL AND campus_id IS NOT NULL;
 
+-- The accountant is the third seat (operator instruction, 2026-08-12): one person per campus
+-- reconciles the drawer, so a shortfall has one name against it.
+--
+-- â  This index is stricter than the service check in one way that matters on an EXISTING
+-- tenant: `assertSoleCampusSeat` only runs on a write, so a school that already has two
+-- accountants on one campus keeps them until somebody edits one -- but THIS statement fails
+-- outright while they both exist, taking `db:setup` down with it. That is the intended order of
+-- events: a duplicate seat is resolved deliberately by a human, not silently by a migration
+-- picking a winner.
+CREATE UNIQUE INDEX IF NOT EXISTS users_one_accountant_per_campus
+  ON users (campus_id)
+  WHERE 'ACCOUNTANT' = ANY (roles) AND deleted_at IS NULL AND campus_id IS NOT NULL;
+
 -- Cover: one owner per class, per period — or per day when the school runs no timetable.
 --
 -- Two PARTIAL indexes rather than one `UNIQUE (section_id, date, period_no)`, because

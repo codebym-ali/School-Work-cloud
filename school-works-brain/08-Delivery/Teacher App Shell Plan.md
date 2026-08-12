@@ -225,7 +225,7 @@ the *other* direction — an owner still gets the grouped admin nav and no tab b
 scoped to one role is exactly the kind that quietly widens, and a suite that only ever looks at the
 teacher would never see it.
 
-### ⚠️ The suite now has zero login headroom, and it cost me a false failure
+### ⚠️ ~~The suite now has zero login headroom, and it cost me a false failure~~ — WRONG, corrected 2026-08-11
 
 `teacher-shell` seeds a teacher and signs in, which takes the suite to **exactly 5 form logins per
 run against the §29 limit of 5/IP/15min**. A clean run passes. Running one spec twice during
@@ -416,7 +416,7 @@ T1 flagged that a teacher-plus-accountant would open `/fees` inside the teacher 
 construction rather than by eye: `.shell` is `220px 1fr` for **both** shells and `.content` is
 untouched, so the content column is identical either way. The concern was unfounded.
 
-### ⚠️ I broke the Playwright suite and then fixed it
+### ⚠️ ~~I broke the Playwright suite and then fixed it~~ — WRONG, corrected 2026-08-11
 
 T1's dual-role case was a **sixth** form login against the §29 limit of 5/IP/15min, so a full run
 began failing on whichever spec logged in last — reported as a 30-second navigation timeout, not as
@@ -488,3 +488,37 @@ catchable by the tests I had at the time.
 **The thesis held up:** role decides the shell, width decides only the layout. Every phase that
 tried to make the desktop *different* — extra sidebar items in T0, extra cards in T3 — was rejected
 on that ground, and the result is one product a teacher learns once.
+
+---
+
+## 12. ⚠️ Correction — the login-limiter diagnosis in T0 and T3 was wrong (2026-08-11)
+
+Two sections above blame intermittent Playwright failures on the §29 login limiter, and T3 records
+"fixing" it by merging two `teacher-shell` cases into one. **Both are wrong, and the merge has been
+undone.**
+
+**The limiter does not fire here at all.** Measured 2026-08-11: seven consecutive logins returned
+200 with `RATE_LIMIT_ENABLED=false`, **and still 200 with it set to `true`** after an API restart and
+a Redis flush. ⚠️ **Why is unresolved** — there is no `dotenv` import anywhere, so `.env` may never
+be read, and the schema defaults the flag to `'true'`. The count was wrong too:
+`seedClassSectionStudent` logs in as the admission officer and **eight specs call it**, so a run has
+always made ~13 logins, not 5 — a number that would have tripped a live 5/IP/15min limit long before
+this week.
+
+**What those failures probably were:** `next dev` compiles a route on first visit, so whichever spec
+hits a cold route on a busy machine eats the 30-second budget. It fits every observation — red in a
+full run, green in isolation, green in a later full run — and needs no limiter. *(The one setup-project
+failure really was mine: a malformed JSX probe that broke the compile.)*
+
+⚠️ **And my replacement claim was wrong too.** I first "corrected" this to *"a fresh clone runs with
+the limiter ON and fails on the first run"* — then tested it, set the flag to `true`, and seven
+logins still passed. **Two wrong explanations in a row for the same observation.** What is actually
+established is only the measurement above; the mechanism is open. A shared officer session remains
+worth doing as tidiness — thirteen logins where the design says two — not as a fix for a failure
+anyone has seen.
+
+**The lesson, recorded in [[Key Decisions]]:** a diagnosis that neatly explains a flake, costs
+nothing to believe, and is never tested is the easiest kind to get wrong. This one was repeated into
+three commit messages and two brain notes before anybody checked the flag — **and then the
+correction was wrong as well, for exactly the same reason.** The fix is not a better guess; it is
+writing down only what was measured and marking the rest open.

@@ -1,6 +1,6 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { Prisma, Role, StaffType } from '@prisma/client';
-import { AppError, assertCampusAccess, AuditActions, ErrorCodes, restrictedCampusId, TenantContext } from '@common';
+import { AppError, assertCampusAccess, assertSameCampus, AuditActions, ErrorCodes, restrictedCampusId, TenantContext } from '@common';
 import { AuditService, TenantPrismaService } from '@database';
 import { PasswordService } from '../auth/password.service';
 import { AccessService } from '../access/access.service';
@@ -263,21 +263,27 @@ export class StaffService {
   }
 
   /** The section a caller is about to write against must be inside their campus. */
-  private async assertSectionCampus(sectionId: string) {
+  private async assertSectionCampus(sectionId: string): Promise<string> {
     const section = await this.db.section.findFirst({
       where: { id: sectionId },
       select: { class: { select: { campusId: true } } },
     });
     if (!section) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'Section not found');
     assertCampusAccess(this.ctx.user, section.class.campusId);
+    return section.class.campusId;
   }
 
   async createAssignment(dto: CreateTeacherAssignmentDto) {
     await this.access.assert('hr.assign');
-    await this.getStaff(dto.staffId); // asserts the staff is in the caller's campus
+    const staff = await this.getStaff(dto.staffId); // asserts the staff is in the caller's campus
     // ...and the section, which was unchecked: a campus-A admin could put their own teacher
     // in front of a campus-B class.
-    await this.assertSectionCampus(dto.sectionId);
+    const sectionCampusId = await this.assertSectionCampus(dto.sectionId);
+    // ⚠️ Both of the above ask "may the CALLER touch this?", and an owner is school-wide, so
+    // neither compared the teacher to the class. An owner could assign a campus-A teacher to a
+    // campus-B section: it saved, the teacher's home told them to mark that register, and
+    // attendance then refused them for being at another campus.
+    assertSameCampus(staff.user.campusId, sectionCampusId, staff.fullName ?? staff.employeeCode);
     try {
       return await this.db.teacherAssignment.create({
         data: { schoolId: this.sid, staffId: dto.staffId, academicYearId: dto.academicYearId, sectionId: dto.sectionId, subjectId: dto.subjectId },

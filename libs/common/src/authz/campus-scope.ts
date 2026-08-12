@@ -58,3 +58,31 @@ export function assertCampusAccess(user: RequestUser | undefined, campusId: stri
     throw new AppError(ErrorCodes.FORBIDDEN, HttpStatus.FORBIDDEN, 'Resource belongs to another campus');
   }
 }
+
+/**
+ * Is this person and this campus-bound thing on the same campus?
+ *
+ * ⚠️ **Not a check on the caller — a check on the PAIR.** Every campus guard in this codebase asks
+ * "may *you* touch this?", which an owner always may, being school-wide. Nothing asked whether the
+ * two things being linked belong together, so an owner could assign a campus-A teacher to a
+ * campus-B class. The assignment saved, the teacher's home told them to mark that register, and the
+ * API then refused them with *"Resource belongs to another campus"* — the system instructing
+ * somebody to do a thing it would then block.
+ *
+ * A `null` person campus means school-wide (an owner who also teaches), and is allowed anywhere:
+ * they are not bound to a campus, so there is no boundary to cross.
+ *
+ * 422 rather than 403 on purpose. Nobody's permissions are at fault; the pair is invalid — the same
+ * category as *"Section does not belong to class"*.
+ */
+export function assertSameCampus(
+  personCampusId: string | null | undefined,
+  resourceCampusId: string,
+  personLabel: string,
+): void {
+  if (!personCampusId) return;
+  if (personCampusId !== resourceCampusId) {
+    throw new AppError(ErrorCodes.VALIDATION_FAILED, HttpStatus.UNPROCESSABLE_ENTITY,
+      `${personLabel} belongs to a different campus`);
+  }
+}

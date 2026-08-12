@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import {
   AppError,
   assertCampusAccess,
+  assertSameCampus,
   AuditActions,
   ErrorCodes,
   parseSchoolSettings,
@@ -489,10 +490,15 @@ export class CoverService {
 
     const covering = await this.db.staffProfile.findFirst({
       where: { id: coveringStaffId },
-      select: { id: true, fullName: true, employeeCode: true, leftAt: true },
+      select: { id: true, fullName: true, employeeCode: true, leftAt: true, user: { select: { campusId: true } } },
     });
     if (!covering) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'Staff member not found');
     const coveringName = covering.fullName ?? covering.employeeCode;
+    // `assertCampusAccess` above asks whether the CALLER may touch this section; an owner always
+    // may. Nothing asked whether the substitute works at that campus — and cover is a grant to
+    // write a register, so handing it to someone at the wrong site is the same class of mistake as
+    // the assignment gap it was copied from.
+    assertSameCampus(covering.user?.campusId, section.class.campusId, coveringName);
 
     for (const date of dates) {
       if (covering.leftAt && covering.leftAt <= date) {

@@ -86,10 +86,34 @@ export const envSchema = z.object({
 
   // Redis sliding-window rate limits (§29). On by default; disabled in the test
   // env so the shared-Redis integration suites stay deterministic across many logins.
+  //
+  // ⚠️ `.default('true')` protects only the case where the key is ABSENT — see the
+  // production refusal below, which exists because a copied dev `.env` makes it present.
   RATE_LIMIT_ENABLED: z
     .string()
     .default('true')
     .transform((s) => s.toLowerCase() === 'true'),
+}).superRefine((env, ctx) => {
+  // ⚠️ **Refuse to start a production server with brute-force protection off.**
+  //
+  // Found 2026-08-12: the limiter had never fired in local dev, and the reason was simply that
+  // `.env` carries `RATE_LIMIT_ENABLED=false`, which `loadDotenv()` puts into `process.env` at the
+  // top of `main.ts`. That is correct and wanted locally. What made it a security problem is that
+  // `docker-compose.prod.yml` passes `env_file: .env` and its `x-app-env` anchor does not set the
+  // variable, so a dev env file copied to a server disables §29 for every school's login page
+  // **silently** — the schema default never applies, because the key is present, not missing.
+  //
+  // Crashing at boot is the point: an operator who genuinely wants it off must say so out loud.
+  if (env.NODE_ENV === 'production' && !env.RATE_LIMIT_ENABLED) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['RATE_LIMIT_ENABLED'],
+      message:
+        'refusing to start: rate limiting is disabled while NODE_ENV=production, which leaves '
+        + 'login open to unlimited password guessing (§29). Set RATE_LIMIT_ENABLED=true — a dev '
+        + '.env copied to a server is the usual cause.',
+    });
+  }
 });
 
 export type Env = z.infer<typeof envSchema>;

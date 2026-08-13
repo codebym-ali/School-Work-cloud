@@ -106,10 +106,18 @@ export class AuthService {
         throw new AppError(ErrorCodes.ACCOUNT_LOCKED, HttpStatus.UNAUTHORIZED, 'Account locked; try later');
       }
       // Lock expired — self-heal before verifying (§22.3).
-      await this.db.user.update({
-        where: { id: user.id },
-        data: { status: 'ACTIVE', failedLoginCount: 0, lockedUntil: null },
-      });
+      //
+      // ⚠️ Also outside the request transaction, for two reasons. It must persist even when the
+      // very next step rejects the password (otherwise an expired lock never actually clears), and
+      // writing it here in the OUTER transaction would leave that row locked while
+      // `registerFailure()` below — running in its own transaction — waited for it: a self-deadlock
+      // that only unwinds when the transaction budget expires.
+      await this.tenantPrisma.outsideRequestTransaction((tx) =>
+        tx.user.update({
+          where: { id: user.id },
+          data: { status: 'ACTIVE', failedLoginCount: 0, lockedUntil: null },
+        }),
+      );
       user.failedLoginCount = 0;
       user.status = 'ACTIVE';
     }
@@ -135,14 +143,18 @@ export class AuthService {
     // behind it is.
     if (!doorAllows(door, user.roles)) {
       await this.registerFailure(user);
-      // The only place this event is visible — the caller is told nothing (see LOGIN_WRONG_DOOR).
-      await this.audit.record({
-        action: AuditActions.LOGIN_WRONG_DOOR,
-        entityType: 'User',
-        entityId: user.id,
-        actorId: user.id, // no session yet; the password just proved who this is
-        newValue: { door, roles: user.roles },
-      });
+      // The only place this event is visible — the caller is told nothing (see LOGIN_WRONG_DOOR),
+      // so this row must outlive the rejection that follows it. `AuditService` resolves its client
+      // from CLS, so running it inside the helper puts the row in the durable transaction too.
+      await this.tenantPrisma.outsideRequestTransaction(() =>
+        this.audit.record({
+          action: AuditActions.LOGIN_WRONG_DOOR,
+          entityType: 'User',
+          entityId: user.id,
+          actorId: user.id, // no session yet; the password just proved who this is
+          newValue: { door, roles: user.roles },
+        }),
+      );
       throw invalid();
     }
 
@@ -158,16 +170,24 @@ export class AuthService {
     return this.issueSession(user, res);
   }
 
+  /**
+   * Count a failed attempt, locking the account at the ceiling (§22.3).
+   *
+   * ⚠️ **Written OUTSIDE the request transaction, and that is the whole point.** Every caller
+   * throws immediately afterwards, and the request transaction rolls back on the way out — so for
+   * as long as this used `this.db`, the count was undone by the very rejection it was recording.
+   * `failedLoginCount` never rose above 0 and **lockout had never once fired.** Nothing detected it
+   * because nothing tested it; the suite covered the arithmetic, never the effect.
+   */
   private async registerFailure(user: User): Promise<void> {
     const failed = user.failedLoginCount + 1;
-    if (failed >= MAX_FAILED) {
-      await this.db.user.update({
-        where: { id: user.id },
-        data: { failedLoginCount: failed, status: 'LOCKED', lockedUntil: new Date(Date.now() + LOCK_MS) },
-      });
-    } else {
-      await this.db.user.update({ where: { id: user.id }, data: { failedLoginCount: failed } });
-    }
+    const data =
+      failed >= MAX_FAILED
+        ? { failedLoginCount: failed, status: 'LOCKED' as const, lockedUntil: new Date(Date.now() + LOCK_MS) }
+        : { failedLoginCount: failed };
+    await this.tenantPrisma.outsideRequestTransaction((tx) =>
+      tx.user.update({ where: { id: user.id }, data }),
+    );
   }
 
   // ── Student portal login: registration no + CNIC (§28) ──────────────────────

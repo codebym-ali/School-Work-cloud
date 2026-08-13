@@ -72,4 +72,32 @@ export class TenantPrismaService {
       { timeout: this.txTimeoutMs, maxWait: this.txMaxWaitMs },
     );
   }
+
+  /**
+   * Run `fn` in a tenant transaction of its **own**, independent of the request's.
+   *
+   * ⚠️ **For writes that must survive a REJECTED request — and nothing else.**
+   *
+   * `TenantTransactionInterceptor` wraps each request in one transaction, so a handler that
+   * records something *about* a failure and then throws loses the record: the rollback takes the
+   * evidence with the rejection. That is not hypothetical — **§22.3 account lockout had never
+   * fired in a running system** because `registerFailure()`'s write was rolled back by the very
+   * exception it was counting (found 2026-08-12).
+   *
+   * A plain non-transactional client is NOT a substitute: outside a transaction there is no
+   * `set_config('app.current_school_id')`, so RLS matches nothing and the write silently affects
+   * **zero rows** — failing closed, and just as invisible. The isolation guarantee is kept by
+   * opening a real tenant transaction on its own connection, GUC and all.
+   *
+   * ⚠️ **Never write a row here that the request transaction has already written.** The outer
+   * transaction still holds that lock and will not release it until the handler returns — which is
+   * waiting on this call. That is a self-deadlock, and it resolves only when the transaction budget
+   * expires. Login's lock self-heal goes through this same helper for exactly that reason.
+   */
+  async outsideRequestTransaction<T>(fn: (tx: TenantTx) => Promise<T>): Promise<T> {
+    // `withTenant` always opens a fresh `$transaction`, which Prisma serves from a different
+    // connection, and restores the previous CLS tx afterwards. So services called inside `fn`
+    // (AuditService, for instance) resolve `client` to THIS transaction and commit with it.
+    return this.withTenant(fn);
+  }
 }

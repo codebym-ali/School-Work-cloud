@@ -3,7 +3,7 @@
 **Raised by the operator, 2026-08-12:** *"owner should have a separate login page from all those — no
 other user should use that login page."*
 
-**Status:** **O0 + O1 SHIPPED 2026-08-12.** O2/O3 pending. ⚠️ Two invariants (I4, I8) are blocked by a pre-existing defect found during the build — see §Blocked below.
+**Status:** **O0 + O1 SHIPPED 2026-08-12**, with all eight invariants satisfied. O2/O3 pending. The pre-existing lockout defect found during the build was fixed the same day — see §Was blocked.
 Decisions taken 2026-08-12 (§Decisions); nine security findings folded into the phases (§Audit).
 
 ## What exists today
@@ -152,7 +152,7 @@ design consequence of the security rule, not a nicety.
 
 ---
 
-## ⚠️ Blocked — I4 and I8 cannot hold until the request transaction is fixed
+## ✅ Was blocked — I4 and I8 now hold (fixed 2026-08-12, same day)
 
 **Found while building O0, and it is pre-existing, not caused by it.**
 `TenantTransactionInterceptor` opens **one `$transaction` per request**, and a failed login
@@ -169,13 +169,14 @@ Consequences for this plan:
 - **I1 is NOT affected, which is why O0 was still worth shipping.** Both paths perform the same
   write and both roll it back, so they remain indistinguishable and no timing oracle appears.
 
-Three tests are marked `it.failing` — they assert the correct behaviour, pass while it is absent,
-and turn into hard errors the moment somebody fixes the rollback, which is the prompt to remove the
-markers.
+**Fixed on the operator's instruction rather than deferred**, because a lockout that never locks is
+a live brute-force exposure and it also unblocks this plan. `TenantPrismaService.outsideRequestTransaction()`
+gives failure-path writes a tenant transaction of their own; `registerFailure()`, the lock self-heal
+and the wrong-door audit all use it. The three `it.failing` markers are gone — they are ordinary
+passing tests now — and **§22.3 lockout finally has a test**: ten wrong passwords must leave the
+account `LOCKED` and refuse an otherwise-correct password.
 
-**The fix is not part of this plan** (it is bigger than the door, and it is a live brute-force
-exposure on its own): writes that must survive a rejected request need a connection outside the
-request transaction. **Worth doing before the pen test, and arguably before O2.**
+**I4 and I8 hold. All eight invariants are now satisfied.**
 
 ---
 

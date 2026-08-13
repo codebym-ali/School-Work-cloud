@@ -112,7 +112,6 @@ export class FeeSetupService {
     const klass = await this.db.class.findFirst({ where: { id: dto.classId }, select: { campusId: true } });
     if (!klass) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'Class not found');
     assertCampusAccess(this.ctx.user, klass.campusId);
-    this.assertBillableFrequency(dto.frequency);
 
     const effectiveFrom = await this.resolveEffectiveFrom(dto.academicYearId, dto.effectiveFrom);
     try {
@@ -309,19 +308,19 @@ export class FeeSetupService {
   }
 
   /**
-   * `ONE_TIME` and `ADMISSION` are in the enum but invoicing never applies them — it bills
-   * MONTHLY always and ANNUAL in the year's first month. Accepting one would store a price
-   * that looks configured and charges nothing, for ever. Refused with the reason until the
-   * behaviour exists (see [[Fees Gaps Register]] F3).
+   * ✅ **Retired 2026-08-12 — all four frequencies now bill (Fees Billing Plan, B3).**
+   *
+   * This used to refuse `ONE_TIME` and `ADMISSION` with *"Invoicing does not yet charge ADMISSION
+   * fees, so this would never appear on a bill"*, because billing asked only "is it this month?"
+   * and a one-off charge can never answer that. **Refusing the configuration was the right call at
+   * the time** — storing a price that looks configured and charges nothing, for ever, is worse
+   * than saying no — and the guard is what made the gap discoverable instead of silent.
+   *
+   * B3 replaced the calendar question with a ledger one (has this student been charged this head on
+   * this enrolment?), so the reason for the refusal is gone. Kept as a comment rather than deleted
+   * because the *pattern* is worth copying: when behaviour is missing, refuse the configuration
+   * that depends on it and say why.
    */
-  private assertBillableFrequency(frequency: string): void {
-    if (frequency === 'MONTHLY' || frequency === 'ANNUAL') return;
-    throw new AppError(
-      ErrorCodes.VALIDATION_FAILED,
-      HttpStatus.UNPROCESSABLE_ENTITY,
-      `Invoicing does not yet charge ${frequency} fees, so this would never appear on a bill. Use MONTHLY or ANNUAL.`,
-    );
-  }
 
   private asDuplicate(e: unknown, effectiveFrom: Date): unknown {
     if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {

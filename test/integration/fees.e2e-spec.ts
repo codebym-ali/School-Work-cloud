@@ -637,16 +637,24 @@ describe('Fees end-to-end (e2e, §12)', () => {
       expect(dupe.body.error.message).toMatch(/already has a price/i);
     });
 
-    it('refuses a frequency that invoicing would never charge', async () => {
-      // ONE_TIME and ADMISSION are in the enum but createBatch only applies MONTHLY and
-      // ANNUAL, so accepting one would store a price that looks configured and bills nothing.
+    it('accepts a charge-once frequency now that invoicing bills it', async () => {
+      // ⚠️ **This case asserted the OPPOSITE until 2026-08-12, and was right to.** ONE_TIME and
+      // ADMISSION were in the enum while `createBatch` applied only MONTHLY and ANNUAL, so storing
+      // such a price would have looked configured and billed nothing, for ever — the refusal is
+      // what kept that gap visible instead of silent.
+      //
+      // B3 replaced the calendar question ("is it this month?", which no one-off charge can answer)
+      // with a ledger one ("has this student been charged it on this enrolment?"), so the reason
+      // for the refusal is gone and the guard was retired with it. **A test that encodes a decision
+      // is evidence: when the decision moves, the case is rewritten to the half that still means
+      // something — not deleted quietly.** That the fee is billed exactly once is asserted in
+      // "bills an ADMISSION fee once, and not again on the next invoice".
       const head = await post('/api/v1/fee-heads', { name: 'Admission Fee' });
       const res = await post('/api/v1/fee-structures', {
         classId: revClassId, feeHeadId: head.body.id, academicYearId: yearId,
         amount: 5000, frequency: 'ADMISSION',
       });
-      expect(res.status).toBe(422);
-      expect(res.body.error.message).toMatch(/never appear on a bill/i);
+      expect(res.status).toBe(201);
     });
 
     it('renames a fee, and refuses to delete one that is still in use', async () => {
@@ -953,6 +961,119 @@ describe('Fees end-to-end (e2e, §12)', () => {
       await post('/api/v1/fees/invoices', { studentId, month, year }, { 'Idempotency-Key': key() });
       const invoices = await get(`/api/v1/fees/invoices?studentId=${studentId}&month=${month}&year=${year}`);
       expect(Number(invoices.body.data[0].totalAmount)).toBe(900);
+    });
+  });
+
+  // ── B2 + B3: the sibling discount, and charges billed once ──────────────────
+  describe('sibling discount and charge-once heads', () => {
+    const setSibling = (percent: number) =>
+      request(server()).patch('/api/v1/school-settings')
+        .set('Host', host).set('Cookie', cookies).set('X-CSRF-Token', csrf)
+        .send({ siblingDiscountPercent: percent });
+
+    afterEach(async () => { await setSibling(0); });
+
+    /**
+     * Admit a child under a guardian, LINKING to that parent when they already exist.
+     *
+     * ⚠️ Two `CREATE`s with one phone do not make siblings — they make two parents, and the rank
+     * is computed from the shared PRIMARY guardian. The first draft did exactly that and the
+     * discount never appeared, which read as "the feature does not work" rather than "the fixture
+     * built the wrong family".
+     */
+    const admitUnder = async (fullName: string, parentId?: string, phone?: string) => {
+      const section = await get(`/api/v1/sections?classId=${classId}`);
+      const res = await admit({
+        fullName, gender: 'MALE', dateOfBirth: '2019-01-01', campusId, classId, sectionId: section.body[0].id,
+        guardian: parentId
+          ? { mode: 'LINK', parentId, relation: 'FATHER' }
+          : { mode: 'CREATE', fullName: 'Shared Parent', phone, relation: 'FATHER' },
+      });
+      expect(res.body.studentId).toBeTruthy(); // a broken fixture must not read as broken billing
+      return { studentId: res.body.studentId as string, parentId: res.body.parentId as string };
+    };
+
+    it('discounts the SECOND child and leaves the first at full price', async () => {
+      // ⚠️ The defect this closes: `siblingDiscountPercent` existed in the schema, the DTO, the API
+      // types AND the settings screen while being read by nothing. An owner could set 20%, see a
+      // success toast, and no invoice was ever a rupee cheaper — silently overcharging families.
+      const first = await admitUnder('Elder Child', undefined, '03211234567');
+      const elder = first.studentId;
+      const younger = (await admitUnder('Younger Child', first.parentId)).studentId;
+      await setSibling(50);
+
+      const month = 3;
+      const year = 2032;
+      for (const sid of [elder, younger]) {
+        await post('/api/v1/fees/invoices', { studentId: sid, month, year }, { 'Idempotency-Key': randomUUID() });
+      }
+
+      const elderInv = await get(`/api/v1/fees/invoices?studentId=${elder}&month=${month}&year=${year}`);
+      const youngerInv = await get(`/api/v1/fees/invoices?studentId=${younger}&month=${month}&year=${year}`);
+      expect(Number(elderInv.body.data[0].totalAmount)).toBe(1000);
+      expect(Number(youngerInv.body.data[0].totalAmount)).toBe(500);
+    });
+
+    it('says WHY on the invoice — the reason is what makes historising the setting unnecessary', async () => {
+      const born = await admitUnder('First Born', undefined, '03211234568');
+      const second = (await admitUnder('Second Born', born.parentId)).studentId;
+      await setSibling(25);
+
+      const month = 4;
+      const year = 2032;
+      await post('/api/v1/fees/invoices', { studentId: second, month, year }, { 'Idempotency-Key': randomUUID() });
+
+      const inv = await get(`/api/v1/fees/invoices?studentId=${second}&month=${month}&year=${year}`);
+      const detail = await get(`/api/v1/fees/invoices/${inv.body.data[0].id}`);
+      const line = detail.body.items.find((i: { type: string }) => i.type === 'DISCOUNT');
+      expect(line.description).toMatch(/Sibling discount \(child 2, 25%\)/);
+    });
+
+    it('⚠️ at 0% there is NO discount line — the test must depend on the setting', async () => {
+      // Without this the two cases above would pass against an implementation that discounted
+      // everybody unconditionally.
+      const alpha = await admitUnder('Alpha Child', undefined, '03211234569');
+      const second = (await admitUnder('Beta Child', alpha.parentId)).studentId;
+      await setSibling(0);
+
+      const month = 5;
+      const year = 2032;
+      await post('/api/v1/fees/invoices', { studentId: second, month, year }, { 'Idempotency-Key': randomUUID() });
+      const inv = await get(`/api/v1/fees/invoices?studentId=${second}&month=${month}&year=${year}`);
+      expect(Number(inv.body.data[0].totalAmount)).toBe(1000);
+    });
+
+    it('an only child is never ranked second', async () => {
+      await setSibling(50);
+      const solo = (await admitUnder('Only Child', undefined, '03219876543')).studentId;
+      const month = 6;
+      const year = 2032;
+      await post('/api/v1/fees/invoices', { studentId: solo, month, year }, { 'Idempotency-Key': randomUUID() });
+      const inv = await get(`/api/v1/fees/invoices?studentId=${solo}&month=${month}&year=${year}`);
+      expect(Number(inv.body.data[0].totalAmount)).toBe(1000);
+    });
+
+    it('bills an ADMISSION fee once, and not again on the next invoice', async () => {
+      // ⚠️ Before B3 this could not be billed AT ALL: billing asked "is it this month?", which no
+      // one-off charge can answer, so the admission fee was collected off-book.
+      const head = await post('/api/v1/fee-heads', { name: `Admission ${randomUUID().slice(0, 6)}` });
+      const st = await post('/api/v1/fee-structures', {
+        campusId, classId, feeHeadId: head.body.id, academicYearId: yearId, amount: 5000, frequency: 'ADMISSION',
+      });
+      // Until B3 this was refused outright: "Invoicing does not yet charge ADMISSION fees."
+      expect(st.status).toBe(201);
+      const fresh = (await admitUnder('Brand New', undefined, '03215550001')).studentId;
+
+      const first = await post('/api/v1/fees/invoices',
+        { studentId: fresh, month: 7, year: 2032 }, { 'Idempotency-Key': randomUUID() });
+      expect(first.status).toBe(201);
+      const inv1 = await get(`/api/v1/fees/invoices?studentId=${fresh}&month=7&year=2032`);
+      expect(Number(inv1.body.data[0].totalAmount)).toBe(6000); // 1000 tuition + 5000 admission
+
+      await post('/api/v1/fees/invoices',
+        { studentId: fresh, month: 8, year: 2032 }, { 'Idempotency-Key': randomUUID() });
+      const inv2 = await get(`/api/v1/fees/invoices?studentId=${fresh}&month=8&year=2032`);
+      expect(Number(inv2.body.data[0].totalAmount)).toBe(1000); // tuition only — charged once
     });
   });
 

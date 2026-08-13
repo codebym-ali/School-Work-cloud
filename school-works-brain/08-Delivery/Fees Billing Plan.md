@@ -4,7 +4,8 @@
 separately… when the fee controller collects, he should just select the student and hit generate…
 until that student has a sibling, then the discount applies."*
 
-**Status:** **B0 + B1 SHIPPED 2026-08-12.** B2/B3 pending — both need decisions (§Decisions).
+**Status:** ✅ **COMPLETE — B0–B3 shipped 2026-08-12/13.** The three open decisions were taken as
+recommended and are flagged in the code where they bite (§Decisions taken).
 ⚠️ The first version of this plan had **four defects of its own**; they are folded in below as
 invariants. See §What the audit changed.
 
@@ -131,7 +132,7 @@ not a convenience gap; mid-session admissions are normal.
 
 ---
 
-## B2 — Sibling discount that actually applies
+## B2 — Sibling discount that actually applies — **SHIPPED**
 
 `siblingDiscountPercent` exists in the settings schema, the DTO, the API types **and the settings
 screen** — and is read by **nothing**. An owner can set 20%, get a success toast, and no invoice is
@@ -159,7 +160,7 @@ per student, and the CSV import deliberately links siblings to one parent accoun
 
 ---
 
-## B3 — Charge-once heads (admission, one-time)
+## B3 — Charge-once heads (admission, one-time) — **SHIPPED**
 
 `FeeFrequency` has `ADMISSION` and `ONE_TIME`, but billing asks only *"is it this month?"*:
 
@@ -184,7 +185,25 @@ and gets collected off-book, which is where a fee system loses its integrity.
 
 ---
 
-## Decisions needed before B0 starts
+## Decisions taken (assumed as recommended, 2026-08-13)
+
+Each is flagged in the code at the point it decides money, so reversing one is a local edit rather
+than an archaeology exercise.
+
+1. **`month IS NULL`** — periodic invoices always carry a month; charge-once items ride on one
+   rather than inventing month-less invoices. The B0 index says so in its `WHERE`.
+2. **Sibling ordering** — admission order (`Student.createdAt`, tie-broken by GR number) among
+   **currently enrolled** siblings. ⚠️ So the rank MOVES: if the eldest leaves, the next child stops
+   being discounted on future invoices, while issued ones keep what they were charged. The
+   alternative — a rank remembered for ever — cannot be explained from the data a year later.
+3. **Scope** — the sibling percentage applies to **all heads**, because the setting is a single
+   percentage with no head scope; narrowing it to tuition would invent a rule nobody configured.
+   `Discount.feeHeadId` already supports per-head concessions if a school wants one.
+4. **Re-enrolment** — admission fee is per **enrolment**, so a child who leaves and returns is
+   charged again. A school treating it as once-per-child-for-life needs the scope widened to the
+   student, not a special case.
+
+## Original decision list (superseded)
 
 1. **What does `month IS NULL` mean on an invoice?** Nothing creates one today (all 36 have a
    month), so this is a free choice — and it decides B0's index shape. Recommend: *periodic
@@ -197,6 +216,27 @@ and gets collected off-book, which is where a fee system loses its integrity.
 3. **Does the sibling discount apply to all heads or tuition only?** `Discount.feeHeadId` already
    supports either. Most schools discount tuition only; discounting transport is unusual.
 4. **Re-enrolment and admission fee** — charged again, or once per child for life?
+
+## What B2/B3 caught
+
+- ✅ **A guard was doing its job, and retiring it was the last step.** `fee-setup.service` refused
+  `ADMISSION`/`ONE_TIME` structures outright: *"Invoicing does not yet charge ADMISSION fees, so
+  this would never appear on a bill."* **That refusal is why the gap was discoverable rather than
+  silent** — storing a price that looks configured and charges nothing, for ever, is worse than
+  saying no. B3 removed the reason, so the guard went with it; the comment stays because the
+  *pattern* is worth copying.
+- ⚠️ **An existing test asserted the opposite and was rewritten, not deleted.** *"refuses a
+  frequency that invoicing would never charge"* encoded the old decision correctly. When the
+  decision moved, the case became *"accepts a charge-once frequency now that invoicing bills it"* —
+  a test that encodes a decision is evidence.
+- ⚠️ **The first sibling fixture built the wrong family.** Two `CREATE` guardians with one phone
+  make two parents, not siblings, and the rank is computed from the shared PRIMARY guardian — so
+  the discount never appeared and it read as *"the feature does not work"*. The helper now LINKs the
+  second child to the first child's parent.
+- **Two attendance failures during the final run were pre-existing and proven so**, by stashing
+  every change and re-running: the same two fail on a clean tree. They are time-of-day sensitive
+  (a closure created for the UTC date is not "today" once Karachi has rolled over). **Not caused by
+  this work, and not fixed by it** — worth their own ticket.
 
 ## Sequencing and gates
 

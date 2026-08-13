@@ -3,8 +3,15 @@
 import { useMemo, useState } from 'react';
 import { api, ApiError, type AcademicYear, type FeeHead, type FeeStructure, type Klass } from '@/lib/api';
 
-/** Invoicing only ever charges these two, so offering the others would configure nothing. */
-const FREQUENCIES = ['MONTHLY', 'ANNUAL'] as const;
+/**
+ * ⚠️ **All four are billable now.** This used to be `['MONTHLY', 'ANNUAL']` with the note
+ * *"invoicing only ever charges these two, so offering the others would configure nothing"* — true
+ * at the time, and the reason the **admission fee could not be billed through the system at all**.
+ * Billing asked "is it this month?", which no one-off charge can answer, so ADMISSION and ONE_TIME
+ * were silently skipped and the money was collected off-book. B3 made them a ledger fact instead:
+ * charged once per enrolment.
+ */
+const FREQUENCIES = ['MONTHLY', 'ANNUAL', 'ADMISSION', 'ONE_TIME'] as const;
 const rs = (n: number) => `Rs ${n.toLocaleString()}`;
 
 /**

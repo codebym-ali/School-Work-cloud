@@ -11,6 +11,7 @@ import { admissionController } from './support/admission';
 import { SMS_QUEUE } from '../../apps/api/src/modules/comms/sms/sms.types';
 import { destroyTenant } from './support/tenant';
 import { drainSmsFor } from './support/sms';
+import { loginRequest } from './support/login';
 
 /**
  * M4 gate (roadmap M4): collect-fee E2E + fee-integrity-check clean.
@@ -64,7 +65,7 @@ describe('Fees end-to-end (e2e, §12)', () => {
     const prov = await provisioning.provisionSchool({ name: 'Fee School', subdomain: sub, ownerEmail: email, ownerPassword: password });
     schoolId = prov.schoolId;
 
-    const login = await request(server()).post('/api/v1/auth/login').set('Host', host).send({ email, password });
+    const login = await loginRequest(server(), host, email, password);
     cookies = login.headers['set-cookie'] as unknown as string[];
     csrf = csrfOf(cookies);
 

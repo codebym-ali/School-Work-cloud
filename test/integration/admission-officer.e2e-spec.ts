@@ -7,6 +7,7 @@ import { PlatformPrismaService } from '@database';
 import { AppModule } from '../../apps/api/src/app.module';
 import { ProvisioningService } from '../../apps/api/src/modules/platform/provisioning.service';
 import { destroyTenant } from './support/tenant';
+import { loginRequest } from './support/login';
 
 /**
  * The per-campus admission seat (§8/§23).
@@ -35,7 +36,7 @@ describe('Admission officer — the per-campus seat (e2e)', () => {
 
   const server = () => app.getHttpServer();
   const login = async (email: string, password: string) => {
-    const res = await request(server()).post('/api/v1/auth/login').set('Host', host).send({ email, password });
+    const res = await loginRequest(server(), host, email, password);
     return { status: res.status, cookies: res.headers['set-cookie'] as unknown as string[] };
   };
   const csrfOf = (c: string[]) => (c.find((x) => x.startsWith('csrf=')) ?? '').split(';')[0].slice(5);

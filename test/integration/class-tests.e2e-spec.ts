@@ -9,6 +9,7 @@ import { AppModule } from '../../apps/api/src/app.module';
 import { ProvisioningService } from '../../apps/api/src/modules/platform/provisioning.service';
 import { admissionController } from './support/admission';
 import { destroyTenant } from './support/tenant';
+import { loginRequest } from './support/login';
 
 /**
  * Class tests (§11 extension) — formative assessment owned by the subject teacher.
@@ -42,7 +43,7 @@ describe('Class tests (e2e, §11 extension)', () => {
     request(server())[m](p).set('Host', host).set('Cookie', c).set('X-CSRF-Token', csrfOf(c)).send(b);
   const get = (p: string, c: string[]) => request(server()).get(p).set('Host', host).set('Cookie', c);
   const login = async (email: string, password: string) =>
-    (await request(server()).post('/api/v1/auth/login').set('Host', host).send({ email, password }))
+    (await loginRequest(server(), host, email, password))
       .headers['set-cookie'] as unknown as string[];
 
   const today = () => new Date().toISOString().slice(0, 10);

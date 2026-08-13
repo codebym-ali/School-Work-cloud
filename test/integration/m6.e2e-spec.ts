@@ -10,6 +10,7 @@ import { ProvisioningService } from '../../apps/api/src/modules/platform/provisi
 import { admissionController } from './support/admission';
 import { SMS_QUEUE } from '../../apps/api/src/modules/comms/sms/sms.types';
 import { destroyTenant } from './support/tenant';
+import { loginRequest } from './support/login';
 
 /**
  * M6 gate (roadmap M6): promotion E2E + all seven reports export.
@@ -53,7 +54,7 @@ describe('M6 — HR, payroll, documents, reports, promotion (e2e)', () => {
     const prov = await app.get(ProvisioningService, { strict: false }).provisionSchool({ name: 'M6 School', subdomain: sub, ownerEmail: email, ownerPassword: password });
     schoolId = prov.schoolId;
     campusId = prov.campusId;
-    const login = await request(server()).post('/api/v1/auth/login').set('Host', host).send({ email, password });
+    const login = await loginRequest(server(), host, email, password);
     cookies = login.headers['set-cookie'] as unknown as string[];
     csrf = csrfOf(cookies);
 

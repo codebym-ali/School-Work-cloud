@@ -10,6 +10,7 @@ import { ProvisioningService } from '../../apps/api/src/modules/platform/provisi
 import { admissionController } from './support/admission';
 import { SMS_QUEUE } from '../../apps/api/src/modules/comms/sms/sms.types';
 import { destroyTenant } from './support/tenant';
+import { loginRequest } from './support/login';
 
 /**
  * Real PDFs + storage + upload pipeline (blueprint §22.6, §11, §15) against MinIO.
@@ -48,7 +49,7 @@ describe('Storage, PDFs & uploads (e2e, §22.6)', () => {
     platform = app.get(PlatformPrismaService);
     const prov = await app.get(ProvisioningService, { strict: false }).provisionSchool({ name: 'Storage School', subdomain: sub, ownerEmail: email, ownerPassword: password });
     schoolId = prov.schoolId;
-    const login = await request(server()).post('/api/v1/auth/login').set('Host', host).send({ email, password });
+    const login = await loginRequest(server(), host, email, password);
     cookies = login.headers['set-cookie'] as unknown as string[];
     csrf = csrfOf(cookies);
 

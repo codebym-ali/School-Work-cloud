@@ -10,6 +10,7 @@ import { ProvisioningService } from '../../apps/api/src/modules/platform/provisi
 import { admissionController } from './support/admission';
 import { SMS_QUEUE } from '../../apps/api/src/modules/comms/sms/sms.types';
 import { destroyTenant } from './support/tenant';
+import { loginRequest } from './support/login';
 
 /** M3 leaves (§10): request -> overlap guard -> approve (writes ON_LEAVE) -> reject/cancel + state machine. */
 describe('Leaves (e2e, §10)', () => {
@@ -44,7 +45,7 @@ describe('Leaves (e2e, §10)', () => {
     const prov = await provisioning.provisionSchool({ name: 'Lv School', subdomain: sub, ownerEmail: email, ownerPassword: password });
     schoolId = prov.schoolId;
 
-    const login = await request(server()).post('/api/v1/auth/login').set('Host', host).send({ email, password });
+    const login = await loginRequest(server(), host, email, password);
     cookies = login.headers['set-cookie'] as unknown as string[];
     csrf = csrfOf(cookies);
 

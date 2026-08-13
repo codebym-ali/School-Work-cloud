@@ -6,10 +6,9 @@ import { api } from '@/lib/api';
 import { EmailPasswordSignIn } from '@/components/email-password-signin';
 
 // Demo credentials are pre-filled ONLY in `next dev`; production builds ship empty fields.
-// ⚠️ **Move this at O2.** `owner@demo.pk` is an OWNER_ADMIN, and O2 closes the staff door to
-// owners — at which point this prefill hands every developer the one credential guaranteed to be
-// refused here. It becomes a staff account, or it moves to `/owner-login`.
-const IS_DEV = process.env.NODE_ENV === 'development';
+// ⚠️ **Moved at O2, as flagged.** This used to prefill `owner@demo.pk` — an `OWNER_ADMIN`, and
+// therefore the one credential this door now refuses. The owner's prefill lives on `/owner-login`;
+// this one is left empty rather than inventing a staff account that may not exist in every tenant.
 
 /**
  * The staff door — campus admins, teachers, accountants, admission officers, HR and staff.
@@ -30,7 +29,6 @@ export default function LoginPage() {
       title="Sign in"
       subtitle={campus ?? 'School Management'}
       signIn={api.login}
-      prefill={IS_DEV ? { email: 'owner@demo.pk', password: 'Owner!Secret12' } : undefined}
       footer={
         <>
           {/* Every sign-in page names the others. The student portal was fully built and reachable

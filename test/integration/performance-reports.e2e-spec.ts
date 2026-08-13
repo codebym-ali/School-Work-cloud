@@ -8,6 +8,7 @@ import { AppModule } from '../../apps/api/src/app.module';
 import { ProvisioningService } from '../../apps/api/src/modules/platform/provisioning.service';
 import { admissionController } from './support/admission';
 import { destroyTenant } from './support/tenant';
+import { loginRequest } from './support/login';
 
 /**
  * Performance drill-down (§11 extension): campus → class → student.
@@ -64,7 +65,7 @@ describe('Performance reports (e2e, §11 extension)', () => {
     schoolId = prov.schoolId;
     const campusId = prov.campusId;
 
-    const login = await request(server()).post('/api/v1/auth/login').set('Host', host).send(owner);
+    const login = await loginRequest(server(), host, owner.email, owner.password);
     cookies = login.headers['set-cookie'] as unknown as string[];
 
     await post('/api/v1/academic-years', { name: '2026-27', startDate: '2026-04-01', endDate: '2027-03-31', isCurrent: true });

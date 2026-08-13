@@ -9,6 +9,7 @@ import { ProvisioningService } from '../../apps/api/src/modules/platform/provisi
 import { admissionController } from './support/admission';
 import { SMS_GATEWAY, type SendResult } from '../../apps/api/src/modules/comms/sms/sms-gateway';
 import { destroyTenant } from './support/tenant';
+import { loginRequest } from './support/login';
 
 /**
  * Guardian phone OTP verification (§14). A capturing SMS gateway lets us read the code the
@@ -57,7 +58,7 @@ describe('Guardian phone OTP (e2e, §14)', () => {
     const prov = await provisioning.provisionSchool({ name: 'OTP School', subdomain: sub, ownerEmail: email, ownerPassword: password });
     schoolId = prov.schoolId;
 
-    const login = await request(server()).post('/api/v1/auth/login').set('Host', host).send({ email, password });
+    const login = await loginRequest(server(), host, email, password);
     cookies = login.headers['set-cookie'] as unknown as string[];
     csrf = (cookies.find((x) => x.startsWith('csrf=')) ?? '').split(';')[0].slice(5);
 

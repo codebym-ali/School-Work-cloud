@@ -7,6 +7,7 @@ import { randomUUID } from 'node:crypto';
 import { AppModule } from '../../apps/api/src/app.module';
 import { PlatformPrismaService } from '@database';
 import { destroyTenant } from './support/tenant';
+import { loginRequest } from './support/login';
 
 /**
  * Vendor console (blueprint §24): a platform admin authenticates cross-tenant (no
@@ -81,7 +82,7 @@ describe('Platform vendor console (e2e, §24)', () => {
   const csrfOf = (cs: string[]) => (cs.find((c) => c.startsWith('platform_csrf=')) ?? '').split(';')[0].split('=')[1];
 
   const tenantLogin = () =>
-    request(server()).post('/api/v1/auth/login').set('Host', `${sub}.localhost`).send({ email: ownerEmail, password: ownerPassword });
+    loginRequest(server(), `${sub}.localhost`, ownerEmail, ownerPassword);
 
   let sessionCookies: string[];
 
@@ -135,10 +136,7 @@ describe('Platform vendor console (e2e, §24)', () => {
   });
 
   const provOwnerLogin = () =>
-    request(server())
-      .post('/api/v1/auth/login')
-      .set('Host', `${provSub}.localhost`)
-      .send({ email: provOwnerEmail, password: provOwnerPassword });
+    loginRequest(server(), `${provSub}.localhost`, provOwnerEmail, provOwnerPassword);
 
   it('provisions a new tenant → it appears in the list and its owner can log in', async () => {
     const res = await request(server())

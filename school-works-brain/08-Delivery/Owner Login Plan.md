@@ -3,7 +3,7 @@
 **Raised by the operator, 2026-08-12:** *"owner should have a separate login page from all those — no
 other user should use that login page."*
 
-**Status:** **O0 + O1 SHIPPED 2026-08-12**, with all eight invariants satisfied. O2/O3 pending. The pre-existing lockout defect found during the build was fixed the same day — see §Was blocked.
+**Status:** ✅ **COMPLETE — O0–O3 shipped 2026-08-12**, all eight invariants satisfied. The pre-existing lockout defect found during the build was fixed the same day (§Was blocked).
 Decisions taken 2026-08-12 (§Decisions); nine security findings folded into the phases (§Audit).
 
 ## What exists today
@@ -180,7 +180,7 @@ account `LOCKED` and refuse an otherwise-correct password.
 
 ---
 
-## O2 — The staff door refuses owners
+## O2 — The staff door refuses owners — **SHIPPED**
 
 Without this an owner can still sign in at `/login` and the separation is **branding only**. With
 it the two doors are mutually exclusive and the boundary is real. **In scope by decision (§1).**
@@ -205,9 +205,17 @@ That is the point, and it will feel like a breakage the first time.
 
 ---
 
-## O3 — Matrix, gates, brain
+## O3 — Matrix, gates, brain — **SHIPPED**
 
-- **Permission-matrix rows for both doors.** A route with no row is unmeasured, not safe.
+- ⚠️ **No permission-matrix rows — and this reverses the plan's own instruction.** O3 said *"rows for
+  both doors; a route with no row is unmeasured, not safe."* The harness cannot measure these: it
+  drives every row with a **role's session cookie** and asserts 403 vs not-403, while a login route
+  is `@Public()`, takes *credentials*, has no session to present, and refuses the wrong door with
+  **401 — deliberately indistinguishable from a wrong password**. A row would assert nothing while
+  looking like coverage, **which is worse than the gap it appears to close.** The boundary is
+  measured directly in `auth.e2e-spec.ts` instead, and `permission-matrix.ts` carries a note saying
+  so where a reader would look for the missing rows. *Measured by a different instrument, not
+  unmeasured.*
 - Full gates: unit · integration · isolation · Playwright · lint · typechecks · builds.
 - Brain — Key Decisions: why the refusal must be indistinguishable *in work done as well as in
   wording* (I1/I4); why the check must precede the MFA branch or it is a bypass (I2); why one

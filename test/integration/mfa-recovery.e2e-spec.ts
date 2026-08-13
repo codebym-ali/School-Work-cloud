@@ -8,6 +8,7 @@ import { PlatformPrismaService } from '@database';
 import { AppModule } from '../../apps/api/src/app.module';
 import { ProvisioningService } from '../../apps/api/src/modules/platform/provisioning.service';
 import { destroyTenant } from './support/tenant';
+import { loginRequest } from './support/login';
 
 /**
  * MFA recovery codes (§22.5) — and, incidentally, the first automated coverage of the MFA
@@ -32,7 +33,7 @@ describe('MFA recovery codes (e2e, §22.5)', () => {
 
   const server = () => app.getHttpServer();
   const csrfOf = (c: string[]) => (c.find((x) => x.startsWith('csrf=')) ?? '').split(';')[0].slice(5);
-  const login = () => request(server()).post('/api/v1/auth/login').set('Host', host).send(owner);
+  const login = () => loginRequest(server(), host, owner.email, owner.password);
   const challenge = (mfaToken: string, code: string) =>
     request(server()).post('/api/v1/auth/mfa/challenge').set('Host', host).send({ mfaToken, code });
   const totp = () => authenticator.generate(secret);

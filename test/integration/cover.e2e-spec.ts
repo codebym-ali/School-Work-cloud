@@ -9,6 +9,7 @@ import { AppModule } from '../../apps/api/src/app.module';
 import { ProvisioningService } from '../../apps/api/src/modules/platform/provisioning.service';
 import { destroyTenant } from './support/tenant';
 import { admissionController } from './support/admission';
+import { loginRequest } from './support/login';
 
 /**
  * Cover (Cover Plan, C0) — the substitute can mark the register.
@@ -51,7 +52,7 @@ describe('Cover (e2e) — who may mark when the teacher is away', () => {
     request(server()).delete(p).set('Host', host).set('Cookie', ownerCookies).set('X-CSRF-Token', ownerCsrf);
   const get = (p: string, c = ownerCookies) => request(server()).get(p).set('Host', host).set('Cookie', c);
   const login = async (e: string, pw: string) => {
-    const res = await request(server()).post('/api/v1/auth/login').set('Host', host).send({ email: e, password: pw });
+    const res = await loginRequest(server(), host, e, pw);
     return res.headers['set-cookie'] as unknown as string[];
   };
 

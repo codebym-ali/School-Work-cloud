@@ -17,8 +17,13 @@ export async function login(
   email = 'owner@demo.pk',
   password = 'Owner!Secret12',
   landing = '**/dashboard',
+  door: 'staff' | 'owner' = 'owner',
 ): Promise<void> {
-  await page.goto('/login');
+  // ⚠️ **Defaults to the OWNER door, because the default credentials are the owner's.** Since O2
+  // the two doors are mutually exclusive — `/login` refuses an `OWNER_ADMIN` outright — so the
+  // shared session every spec depends on has to be obtained at `/owner-login`. Specs signing in as
+  // anyone else pass `'staff'`.
+  await page.goto(door === 'owner' ? '/owner-login' : '/login');
   await page.getByLabel('Email').fill(email);
   await page.getByLabel('Password').fill(password);
   await page.getByRole('button', { name: /sign in/i }).click();

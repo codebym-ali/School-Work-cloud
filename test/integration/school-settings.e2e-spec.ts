@@ -8,6 +8,7 @@ import { PlatformPrismaService } from '@database';
 import { AppModule } from '../../apps/api/src/app.module';
 import { ProvisioningService } from '../../apps/api/src/modules/platform/provisioning.service';
 import { destroyTenant } from './support/tenant';
+import { loginRequest } from './support/login';
 
 /**
  * School settings (§17.1).
@@ -40,7 +41,7 @@ describe('School settings (e2e)', () => {
   const patch = (body: object) => authed('patch', '/api/v1/school-settings', ownerCookies, ownerCsrf).send(body);
   const get = () => authed('get', '/api/v1/school-settings', ownerCookies);
   const login = async (e: string, pw: string) => {
-    const res = await request(server()).post('/api/v1/auth/login').set('Host', host).send({ email: e, password: pw });
+    const res = await loginRequest(server(), host, e, pw);
     return res.headers['set-cookie'] as unknown as string[];
   };
 

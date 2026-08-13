@@ -5,6 +5,7 @@ import { authenticator } from 'otplib';
 import type { Role, User } from '@prisma/client';
 import {
   AppError,
+  AuditActions,
   ENV,
   ErrorCodes,
   FIELD_ENCRYPTION,
@@ -14,7 +15,8 @@ import {
   type RequestUser,
   type SchoolSettings,
 } from '@common';
-import { TenantPrismaService } from '@database';
+import { AuditService, TenantPrismaService } from '@database';
+import { doorAllows, type LoginDoor } from './login-door';
 import { PasswordService } from './password.service';
 import { TokenService } from './token.service';
 import { AccessService } from '../access/access.service';
@@ -60,6 +62,7 @@ export class AuthService {
     private readonly access: AccessService,
     @Inject(FIELD_ENCRYPTION) private readonly crypto: FieldEncryption,
     @Inject(ENV) private readonly env: Env,
+    private readonly audit: AuditService,
   ) {}
 
   private get db() {
@@ -67,7 +70,15 @@ export class AuthService {
   }
 
   // ── Login ──────────────────────────────────────────────────────────────────
-  async login(dto: LoginDto, res: Response): Promise<LoginResult> {
+  /**
+   * Which entrance the credentials arrived at (Owner Login Plan). The school owner signs in at
+   * `/owner-login`; everyone else at `/login`.
+   *
+   * ⚠️ **Required, with no default — deliberately.** A default is how this becomes a bypass: a
+   * future caller omits the argument and silently authenticates against the permissive door.
+   * Required means the compiler asks the question.
+   */
+  async login(dto: LoginDto, res: Response, door: LoginDoor): Promise<LoginResult> {
     const invalid = () =>
       new AppError(ErrorCodes.INVALID_CREDENTIALS, HttpStatus.UNAUTHORIZED, 'Invalid email or password');
 
@@ -106,6 +117,32 @@ export class AuthService {
     const ok = await this.passwords.verify(user.passwordHash, dto.password);
     if (!ok) {
       await this.registerFailure(user);
+      throw invalid();
+    }
+
+    // ⚠️ **Placement is the security property, not a style choice.** This sits AFTER the password
+    // is verified and BEFORE the MFA hand-off below, and both halves matter:
+    //
+    //  - After the password, because refusing earlier would answer faster than a wrong password and
+    //    the timing alone would reveal who the owner is.
+    //  - Before the MFA branch, because that branch issues an `mfaToken`, and `mfaChallenge()`
+    //    exchanges a valid one for a **real session** without re-checking anything. A door check
+    //    placed after it would not be a leak — it would be a **complete bypass**.
+    //
+    // The refusal is the same `invalid()` as a wrong password and does the same work: an identical
+    // `registerFailure()` write, because skipping it would return measurably sooner and rebuild the
+    // oracle the shared error exists to prevent. A "constant response" is only constant if the work
+    // behind it is.
+    if (!doorAllows(door, user.roles)) {
+      await this.registerFailure(user);
+      // The only place this event is visible — the caller is told nothing (see LOGIN_WRONG_DOOR).
+      await this.audit.record({
+        action: AuditActions.LOGIN_WRONG_DOOR,
+        entityType: 'User',
+        entityId: user.id,
+        actorId: user.id, // no session yet; the password just proved who this is
+        newValue: { door, roles: user.roles },
+      });
       throw invalid();
     }
 

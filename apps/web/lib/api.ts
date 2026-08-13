@@ -567,6 +567,12 @@ export interface LeaveBalance {
 
 export const api = {
   login: (email: string, password: string) => apiPost<LoginResult>('/auth/login', { email, password }),
+  /**
+   * The owner's own door. Refuses everyone else with a response indistinguishable from a wrong
+   * password, so it cannot be used to work out which address owns the school.
+   */
+  ownerLogin: (email: string, password: string) =>
+    apiPost<LoginResult>('/auth/owner-login', { email, password }),
   logout: () => apiPost<null>('/auth/logout'),
   me: () => apiGet<Me>('/auth/me'),
   mfa: {

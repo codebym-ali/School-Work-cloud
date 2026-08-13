@@ -36,6 +36,16 @@ export const AuditActions = {
   USER_DISABLED: 'USER_DISABLED',
   USER_REMOVED: 'USER_REMOVED',
   MFA_RESET: 'MFA_RESET',
+  /**
+   * A CORRECT password presented at the wrong login door (§29, Owner Login Plan I8) — an owner at
+   * the staff door, or anyone else at the owner door.
+   *
+   * ⚠️ Worth a row precisely because the caller is told nothing: the refusal is byte-identical to
+   * a wrong password so the door cannot be used to discover who the owner is, which leaves the audit
+   * log as the ONLY place this event is visible. It is either a confused owner or somebody probing a
+   * credential they should not hold, and the two look the same from outside.
+   */
+  LOGIN_WRONG_DOOR: 'LOGIN_WRONG_DOOR',
   SCHOOL_PROVISIONED: 'SCHOOL_PROVISIONED',
   /** School settings changed. These govern money (fee due day, proration, sibling discount)
    *  and pay (attendance windows, self-marking), so the row records only the keys that moved

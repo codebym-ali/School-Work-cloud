@@ -33,7 +33,25 @@ export class AuthController {
   @Post('login')
   @HttpCode(HttpStatus.OK)
   login(@Body() dto: LoginDto, @Res({ passthrough: true }) res: Response) {
-    return this.auth.login(dto, res);
+    return this.auth.login(dto, res, 'staff');
+  }
+
+  /**
+   * The school owner's own entrance (Owner Login Plan). Refuses everyone else — with a response
+   * byte-identical to a wrong password, so it cannot be used to discover which address is the
+   * owner's.
+   *
+   * ⚠️ **Same `@RateLimit('login')` as the staff door, on purpose.** The limiter keys on
+   * `rl:{policy}:{scope}:{id}` — the POLICY, not the route — so both doors share one bucket and an
+   * attacker gets 5 attempts per IP across the pair. A policy of its own would give them 5 per door
+   * and **halve** the protection the split was supposed to improve.
+   */
+  @Public()
+  @RateLimit('login')
+  @Post('owner-login')
+  @HttpCode(HttpStatus.OK)
+  ownerLogin(@Body() dto: LoginDto, @Res({ passthrough: true }) res: Response) {
+    return this.auth.login(dto, res, 'owner');
   }
 
   @Public()

@@ -2,48 +2,75 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { api } from '@/lib/api';
-import { EmailPasswordSignIn } from '@/components/email-password-signin';
-
-// Demo credentials are pre-filled ONLY in `next dev`; production builds ship empty fields.
-// ⚠️ **Moved at O2, as flagged.** This used to prefill `owner@demo.pk` — an `OWNER_ADMIN`, and
-// therefore the one credential this door now refuses. The owner's prefill lives on `/owner-login`;
-// this one is left empty rather than inventing a staff account that may not exist in every tenant.
 
 /**
- * The staff door — campus admins, teachers, accountants, admission officers, HR and staff.
- * The school owner has their own (`/owner-login`); students have theirs (`/student-login`).
+ * The chooser — three doors, one neutral landing.
+ *
+ * ⚠️ **This page exists because `/login` cannot itself be a door.** It is the redirect target for
+ * every 401 and every logout (`(app)/layout`, `me-more`, the root page) and for the per-campus
+ * links (`/login?campus=<name>`). At the moment it is reached the visitor is **signed out**, so
+ * nothing knows their role — and since O2 the doors are mutually exclusive, so whichever form sat
+ * here would refuse somebody on every session expiry. The concrete case: a signed-out owner bounced
+ * onto the staff form, refused, by a message that deliberately explains nothing.
+ *
+ * So `/login` names the options and lets the person pick. Everything that redirects here keeps
+ * working, and no bookmark or campus link breaks.
  */
-export default function LoginPage() {
+const DOORS = [
+  {
+    href: '/staff-login',
+    icon: '🏫',
+    title: 'School staff',
+    detail: 'Campus admins, teachers, accountants, admissions and office staff. Sign in with your email.',
+    carriesCampus: true,
+  },
+  {
+    href: '/owner-login',
+    icon: '🔑',
+    title: 'School owner',
+    detail: 'The owner of the school. Sign in with your email.',
+    carriesCampus: false,
+  },
+  {
+    href: '/student-login',
+    icon: '🎒',
+    title: 'Student',
+    detail: 'Sign in with your registration number and CNIC / B-Form.',
+    carriesCampus: false,
+  },
+] as const;
+
+export default function LoginChooserPage() {
   const [campus, setCampus] = useState<string | null>(null);
 
-  // A per-campus login link (?campus=<name>) just brands this page; auth is the same for
-  // the whole school — the user is scoped to their campus after they sign in.
   useEffect(() => {
     const c = new URLSearchParams(window.location.search).get('campus');
     if (c) setCampus(c);
   }, []);
 
   return (
-    <EmailPasswordSignIn
-      title="Sign in"
-      subtitle={campus ?? 'School Management'}
-      signIn={api.login}
-      footer={
-        <>
-          {/* Every sign-in page names the others. The student portal was fully built and reachable
-              only by typing its URL from memory — nothing in the app linked to it. */}
-          <p className="muted" style={{ margin: 0, fontSize: 13, textAlign: 'center' }}>
-            Student? <Link href="/student-login">Sign in with your registration number →</Link>
-          </p>
-          {/* ⚠️ The owner's door is LINKED, not hidden. Obscurity buys nothing here — the route
-              ships in the JS bundle either way — and an owner who cannot find their own entrance
-              telephones support on a Sunday. */}
-          <p className="muted" style={{ margin: 0, fontSize: 13, textAlign: 'center' }}>
-            School owner? <Link href="/owner-login">Sign in here →</Link>
-          </p>
-        </>
-      }
-    />
+    <main className="center">
+      <div className="card stack" style={{ width: 420 }}>
+        <div>
+          <h1>Sign in</h1>
+          <p className="sub">{campus ?? 'School Management'}</p>
+        </div>
+
+        {DOORS.map((d) => (
+          <Link
+            key={d.href}
+            /* The campus name brands the staff page only. An owner belongs to no campus
+               (`restrictedCampusId()` returns null for them) and a student signs in with a
+               registration number, so carrying it further would be meaningless. */
+            href={d.carriesCampus && campus ? `${d.href}?campus=${encodeURIComponent(campus)}` : d.href}
+            className="card"
+            style={{ display: 'block', textDecoration: 'none', padding: '12px 14px' }}
+          >
+            <strong>{d.icon} {d.title} →</strong>
+            <p className="muted" style={{ margin: '4px 0 0', fontSize: 13 }}>{d.detail}</p>
+          </Link>
+        ))}
+      </div>
+    </main>
   );
 }

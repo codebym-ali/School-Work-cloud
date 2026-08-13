@@ -19,12 +19,14 @@ test.describe('owner login door', () => {
     // from the error and this link is the only thing that can redirect them.
     await expect(page.getByRole('link', { name: /Sign in with your email/ })).toBeVisible();
 
-    // …and the staff door names this one, so an owner can find it without being told.
-    // The prompt ("School owner?") sits OUTSIDE the anchor, so the link's accessible name is only
-    // "Sign in here →" — assert the two separately rather than as one phrase.
+    // …and `/login` — the chooser every 401 and logout lands on — names this door, so an owner can
+    // find it without being told. ⚠️ The chooser exists precisely because `/login` cannot be a
+    // door: the visitor is signed out, nothing knows their role, and the doors refuse each other's
+    // people, so any single form there would turn a session expiry into a refusal.
     await page.goto('/login');
-    await expect(page.getByText(/School owner\?/)).toBeVisible();
-    await expect(page.getByRole('link', { name: /Sign in here/ })).toHaveAttribute('href', '/owner-login');
+    await expect(page.getByRole('link', { name: /School owner/ })).toHaveAttribute('href', '/owner-login');
+    await expect(page.getByRole('link', { name: /School staff/ })).toHaveAttribute('href', '/staff-login');
+    await expect(page.getByRole('link', { name: /Student/ })).toHaveAttribute('href', '/student-login');
 
     await page.goto('/owner-login');
     await page.locator('#email').fill('owner@demo.pk');

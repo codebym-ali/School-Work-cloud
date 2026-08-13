@@ -32,11 +32,11 @@ test.describe('staff attendance', () => {
       const teacherCtx = await browser.newContext();
       const teacher = await teacherCtx.newPage();
       try {
-        await teacher.goto('/login');
+        await teacher.goto('/staff-login');
         await teacher.getByLabel('Email').fill(email);
         await teacher.getByLabel('Password').fill(password);
         await teacher.getByRole('button', { name: /sign in/i }).click();
-        await teacher.waitForURL((u) => !u.pathname.startsWith('/login'));
+        await teacher.waitForURL((u) => !u.pathname.endsWith('-login') && u.pathname !== '/login');
 
         await teacher.goto('/my-attendance');
         await expect(teacher.getByRole('heading', { name: 'My Attendance' })).toBeVisible();

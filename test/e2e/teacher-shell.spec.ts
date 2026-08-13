@@ -48,11 +48,15 @@ test.describe('teacher shell', () => {
       const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
       const teacher = await ctx.newPage();
       try {
-        await teacher.goto('/login');
+        // ⚠️ `/staff-login`, not `/login`. `/login` is a CHOOSER now, not a form — filling
+        // "Email" there finds nothing. And the wait below cannot be `!startsWith('/login')`,
+        // because `/staff-login` does not start with `/login` and the guard would pass before the
+        // form was ever submitted.
+        await teacher.goto('/staff-login');
         await teacher.getByLabel('Email').fill(email);
         await teacher.getByLabel('Password').fill(password);
         await teacher.getByRole('button', { name: /sign in/i }).click();
-        await teacher.waitForURL((u) => !u.pathname.startsWith('/login'));
+        await teacher.waitForURL((u) => !u.pathname.endsWith('-login') && u.pathname !== '/login');
         await expect(teacher).toHaveURL(/\/home$/);
 
         // ── T0: the same four destinations, at desktop width ──────────────────
@@ -124,7 +128,7 @@ test.describe('teacher shell', () => {
       const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
       const dual = await ctx.newPage();
       try {
-        await dual.goto('/login');
+        await dual.goto('/staff-login');
         await dual.getByLabel('Email').fill(email);
         await dual.getByLabel('Password').fill(password);
         await dual.getByRole('button', { name: /sign in/i }).click();
@@ -136,7 +140,7 @@ test.describe('teacher shell', () => {
         // then reports only "timeout", while this settles as soon as login redirects anywhere and
         // then says **"expected /home, received /dashboard"**. When this breaks, the landing page
         // is the whole question, so the failure should name it.
-        await dual.waitForURL((u) => !u.pathname.startsWith('/login'));
+        await dual.waitForURL((u) => !u.pathname.endsWith('-login') && u.pathname !== '/login');
         await expect(dual).toHaveURL(/\/home$/);
         // The name in the corner follows the shell, so the two cannot disagree about who you are.
         await expect(dual.locator('.sidebar')).toContainText('Teacher');

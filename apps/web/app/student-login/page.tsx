@@ -58,7 +58,7 @@ export default function StudentLoginPage() {
         {/* Every sign-in page now names the others. Four of them existed with zero cross-links,
             so landing on the wrong one left you failing against a field you could never satisfy. */}
         <p className="muted" style={{ margin: 0, fontSize: 13, textAlign: 'center' }}>
-          Staff or teacher? <Link href="/login">Sign in with your email →</Link>
+          Staff or teacher? <Link href="/staff-login">Sign in with your email →</Link>
         </p>
       </form>
     </main>

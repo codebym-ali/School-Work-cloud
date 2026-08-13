@@ -104,6 +104,7 @@ export class InvoicingService {
       const created = await this.buildInvoice({
         enrollment: enr, structures, annualMonth, dueDate,
         month: dto.month, year: dto.year, batchId: batch.id,
+        academicYearId, siblingDiscountPercent: settings.siblingDiscountPercent,
       });
       if (!created) continue;
       newInvoiceIds.push(created.id);
@@ -174,6 +175,7 @@ export class InvoicingService {
       const created = await this.buildInvoice({
         enrollment, structures, annualMonth, dueDate,
         month: dto.month, year: dto.year, batchId: null,
+        academicYearId, siblingDiscountPercent: settings.siblingDiscountPercent,
       });
       if (!created) {
         throw new AppError(
@@ -213,21 +215,64 @@ export class InvoicingService {
     month: number;
     year: number;
     batchId: string | null;
+    academicYearId: string;
+    siblingDiscountPercent: number;
   }): Promise<{ id: string } | null> {
     const { enrollment, structures, annualMonth, dueDate, month, year, batchId } = args;
 
     const dupe = await this.db.feeInvoice.findFirst({ where: { studentId: enrollment.studentId, month, year } });
     if (dupe) return null;
 
+    // Charge-once heads (B3) already billed on THIS enrolment. Read once rather than per structure.
+    const alreadyCharged = await this.chargedOnceHeadIds(enrollment.id);
+
     const items: LineItem[] = [];
     for (const s of structures) {
-      const applies = s.frequency === 'MONTHLY' || (s.frequency === 'ANNUAL' && month === annualMonth);
+      // ⚠️ **ADMISSION and ONE_TIME used to be silently skipped**, because the question asked was
+      // "is it this month?" — which no one-off charge can ever answer. The admission fee, one of the
+      // largest charges in a Pakistani private school, therefore could not be billed through the
+      // system at all and was collected off-book, which is where a fee system loses its integrity.
+      //
+      // The right question is "has this student been charged it on this enrolment?" — a ledger
+      // fact, not an inference from the calendar.
+      const chargeOnce = s.frequency === 'ADMISSION' || s.frequency === 'ONE_TIME';
+      const applies = chargeOnce
+        ? !alreadyCharged.has(s.feeHeadId)
+        : s.frequency === 'MONTHLY' || (s.frequency === 'ANNUAL' && month === annualMonth);
       if (!applies) continue;
       items.push({ type: 'FEE', feeHeadId: s.feeHeadId, description: `${s.feeHead.name} (${s.frequency})`, amount: money(Number(s.amount)) });
     }
     if (items.length === 0) return null;
 
     for (const d of await this.discountItems(enrollment.studentId, items)) items.push(d);
+
+    // ── Sibling discount (B2) ─────────────────────────────────────────────────
+    // `siblingDiscountPercent` had existed in the settings schema, the DTO, the API types AND the
+    // settings screen while being read by **nothing**: an owner could set 20%, see a success toast,
+    // and no invoice was ever a rupee cheaper. It silently overcharged families, and a school would
+    // have learned of it from a parent rather than an error.
+    //
+    // ⚠️ Applied to the WHOLE fee subtotal, every head. The setting is a single percentage with no
+    // head scope, so narrowing it to tuition here would be inventing a rule the operator never
+    // configured. `Discount.feeHeadId` already supports per-head concessions if a school wants one.
+    // **Assumed 2026-08-12; the alternative is a second setting, not a hidden default.**
+    if (args.siblingDiscountPercent > 0) {
+      const rank = await this.siblingRank(enrollment.studentId, args.academicYearId);
+      if (rank >= 2) {
+        const base = items.filter((i) => i.type === 'FEE').reduce((sum, i) => sum + i.amount, 0);
+        if (base > 0) {
+          const amount = money(Math.min((base * args.siblingDiscountPercent) / 100, base));
+          // The reason is carried ON the invoice, which is what makes historising the SETTING
+          // unnecessary: "why is this family's bill lower?" is answerable from the bill itself.
+          items.push({
+            type: 'DISCOUNT',
+            feeHeadId: null,
+            description: `Sibling discount (child ${rank}, ${args.siblingDiscountPercent}%)`,
+            amount: -amount,
+          });
+        }
+      }
+    }
 
     const total = money(items.reduce((sum, i) => sum + i.amount, 0));
     return this.db.feeInvoice.create({
@@ -246,6 +291,73 @@ export class InvoicingService {
       },
       select: { id: true },
     });
+  }
+
+  /**
+   * Fee heads already charged once on this enrolment (B3).
+   *
+   * ⚠️ **Scoped per ENROLMENT, not per year — and that distinction is the whole point.** A
+   * per-year rule would re-charge the admission fee every time a child is promoted into the next
+   * class, which is the single most obvious way to get this wrong. A student who leaves and later
+   * re-enrols gets a NEW enrolment and is charged again, which matches what a school means by
+   * "admission fee". **Assumed 2026-08-12; a school that treats it as once-per-child-for-life
+   * needs the scope widened to the student, not a special case here.**
+   *
+   * ⚠️ Keyed on the fee HEAD, so a head priced both MONTHLY and ADMISSION would see the monthly
+   * charge suppress the admission one. `inForceStructures` keys on `head:frequency`, so that
+   * combination is expressible — it is just not something a school does, and the failure mode is
+   * under-charging (a skipped admission fee, visible on the invoice) rather than double-charging.
+   */
+  private async chargedOnceHeadIds(enrollmentId: string): Promise<Set<string>> {
+    const rows = await this.db.feeInvoiceItem.findMany({
+      where: { invoice: { enrollmentId }, type: 'FEE', feeHeadId: { not: null } },
+      select: { feeHeadId: true },
+    });
+    return new Set(rows.map((r) => r.feeHeadId).filter((id): id is string => id !== null));
+  }
+
+  /**
+   * Where this child sits among their **currently enrolled** siblings, 1-based.
+   *
+   * Siblings are students sharing a **primary guardian** — `StudentGuardian` allows exactly one
+   * `isPrimary` per student, and the CSV import deliberately links siblings to one parent account
+   * by phone, so the relationship is already in the data rather than needing a new one.
+   *
+   * ⚠️ **Ordered by admission (`Student.createdAt`), tie-broken by GR number.** Two families in
+   * identical situations must be charged identically, so the order cannot be incidental — an
+   * unordered query would hand the discount to whichever row Postgres returned first.
+   *
+   * ⚠️ **"Currently enrolled" means the rank MOVES.** If the eldest leaves, the next child becomes
+   * rank 1 and stops being discounted on FUTURE invoices; already-issued ones keep what they were
+   * charged, because line items are frozen. The alternative — a rank remembered for ever — cannot
+   * be explained from the data a year later. **Operator decision, assumed 2026-08-12; say so if a
+   * school expects the discount to follow the child instead of the position.**
+   */
+  private async siblingRank(studentId: string, academicYearId: string): Promise<number> {
+    const link = await this.db.studentGuardian.findFirst({
+      where: { studentId, isPrimary: true },
+      select: { parentId: true },
+    });
+    if (!link) return 1; // no primary guardian recorded ⇒ no family to rank within
+
+    const family = await this.db.studentGuardian.findMany({
+      where: {
+        parentId: link.parentId,
+        isPrimary: true,
+        student: {
+          deletedAt: null,
+          enrollments: { some: { academicYearId, status: 'ACTIVE' } },
+        },
+      },
+      select: { studentId: true, student: { select: { createdAt: true, grNumber: true } } },
+    });
+    if (family.length < 2) return 1;
+
+    family.sort((a, b) => {
+      const t = a.student.createdAt.getTime() - b.student.createdAt.getTime();
+      return t !== 0 ? t : a.student.grNumber.localeCompare(b.student.grNumber);
+    });
+    return family.findIndex((f) => f.studentId === studentId) + 1;
   }
 
   /** Active discounts for a student → negative line items (FIXED applied after PERCENT). */

@@ -12,11 +12,14 @@ import {
   toSkipTake,
   type Paginated,
 } from '@common';
-import { AuditService, TenantPrismaService } from '@database';
+import { createHash } from 'node:crypto';
+import { AuditService, IdempotencyService, TenantPrismaService } from '@database';
 import { AccessService } from '../access/access.service';
 import { SetupService } from '../setup/setup.service';
 import { PaymentsService } from './payments.service';
-import type { CreateInvoiceBatchDto, DefaultersQuery, InvoiceListQuery, ReasonDto } from './dto/fees.dto';
+import type { CreateInvoiceBatchDto, CreateStudentInvoiceDto, DefaultersQuery, InvoiceListQuery, ReasonDto } from './dto/fees.dto';
+
+const hashOf = (parts: unknown): string => createHash('sha256').update(JSON.stringify(parts)).digest('hex');
 
 const money = (n: number): number => Math.round(n * 100) / 100;
 
@@ -37,6 +40,7 @@ export class InvoicingService {
     private readonly audit: AuditService,
     private readonly payments: PaymentsService,
     private readonly access: AccessService,
+    private readonly idempotency: IdempotencyService,
   ) {}
 
   private get db() {
@@ -97,32 +101,11 @@ export class InvoicingService {
       const dupe = await this.db.feeInvoice.findFirst({ where: { studentId: enr.studentId, month: dto.month, year: dto.year } });
       if (dupe) continue;
 
-      const items: LineItem[] = [];
-      for (const s of structures) {
-        const applies = s.frequency === 'MONTHLY' || (s.frequency === 'ANNUAL' && dto.month === annualMonth);
-        if (!applies) continue;
-        items.push({ type: 'FEE', feeHeadId: s.feeHeadId, description: `${s.feeHead.name} (${s.frequency})`, amount: money(Number(s.amount)) });
-      }
-      if (items.length === 0) continue;
-
-      for (const d of await this.discountItems(enr.studentId, items)) items.push(d);
-
-      const total = money(items.reduce((sum, i) => sum + i.amount, 0));
-      const created = await this.db.feeInvoice.create({
-        data: {
-          schoolId: this.sid,
-          studentId: enr.studentId,
-          enrollmentId: enr.id,
-          batchId: batch.id,
-          totalAmount: Math.max(total, 0),
-          dueDate,
-          status: FeeInvoiceStatus.PENDING,
-          month: dto.month,
-          year: dto.year,
-          // schoolId is derived from the parent invoice's composite relation FK — omit it here.
-          items: { create: items.map((i) => ({ type: i.type, feeHeadId: i.feeHeadId, description: i.description, amount: i.amount })) },
-        },
+      const created = await this.buildInvoice({
+        enrollment: enr, structures, annualMonth, dueDate,
+        month: dto.month, year: dto.year, batchId: batch.id,
       });
+      if (!created) continue;
       newInvoiceIds.push(created.id);
       generated++;
     }
@@ -136,6 +119,133 @@ export class InvoicingService {
 
     await this.db.feeInvoiceBatch.update({ where: { id: batch.id }, data: { status: 'DONE' } });
     return { batch, alreadyExists: false, generated };
+  }
+
+  /**
+   * Invoice ONE student for one period (Fees Billing Plan, B1).
+   *
+   * ⚠️ **The gap this closes is not convenience.** Billing was batch-only, and a
+   * (class, month, year) can be billed once ever — `createBatch` returns early on an existing
+   * batch. So a child admitted *after* their class was billed could not be invoiced at all, and
+   * mid-session admissions are normal. The cashier flow ("open the child, press generate, collect")
+   * had no endpoint behind it either.
+   *
+   * Carries the same guards as the batch path — `fees.invoicing` and the campus check — because a
+   * new write path that quietly drops a check the old one had is the defect this project keeps
+   * finding. Idempotent, like `pay`: a cashier double-clicking must not bill twice, and the unique
+   * index behind it (B0) is the backstop if the key is ever omitted.
+   */
+  async createForStudent(dto: CreateStudentInvoiceDto, idempotencyKey: string) {
+    await this.access.assert('fees.invoicing');
+    if (!idempotencyKey) {
+      throw new AppError(ErrorCodes.VALIDATION_FAILED, HttpStatus.BAD_REQUEST, 'Idempotency-Key header is required');
+    }
+
+    return this.idempotency.run(idempotencyKey, hashOf({ ...dto }), async () => {
+      const academicYearId = await this.setup.requireCurrentYearId();
+
+      // The ACTIVE enrolment is what says which class prices this student and which campus they
+      // belong to — both of which the caller must not be trusted to supply.
+      const enrollment = await this.db.studentEnrollment.findFirst({
+        where: { studentId: dto.studentId, academicYearId, status: 'ACTIVE', student: { deletedAt: null } },
+        select: { id: true, studentId: true, classId: true, campusId: true },
+      });
+      if (!enrollment) {
+        throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'No active enrollment for this student');
+      }
+      assertCampusAccess(this.ctx.user, enrollment.campusId);
+
+      const year = await this.db.academicYear.findFirst({ where: { id: academicYearId } });
+      const annualMonth = year ? new Date(year.startDate).getUTCMonth() + 1 : 4;
+      const settings = parseSchoolSettings((await this.school())?.settings ?? {});
+      const dueDate = new Date(Date.UTC(dto.year, dto.month - 1, settings.feeDueDay));
+      const monthStart = new Date(Date.UTC(dto.year, dto.month - 1, 1));
+
+      const structures = inForceStructures(
+        await this.db.feeStructure.findMany({
+          where: { classId: enrollment.classId, academicYearId, isActive: true, effectiveFrom: { lte: monthStart } },
+          include: { feeHead: { select: { name: true } } },
+          orderBy: { effectiveFrom: 'asc' },
+        }),
+      );
+
+      // batchId: null — this invoice belongs to no batch, which is exactly the case the old
+      // partial unique index did not cover. B0 widened it before this path existed.
+      const created = await this.buildInvoice({
+        enrollment, structures, annualMonth, dueDate,
+        month: dto.month, year: dto.year, batchId: null,
+      });
+      if (!created) {
+        throw new AppError(
+          ErrorCodes.CONFLICT, HttpStatus.CONFLICT,
+          'Nothing to invoice: this student already has an invoice for that period, or their class has no fees set.',
+        );
+      }
+
+      await this.payments.applyAdvanceToInvoice(created.id);
+      await this.audit.record({
+        action: AuditActions.INVOICE_GENERATED,
+        entityType: 'FeeInvoice',
+        entityId: created.id,
+        newValue: { studentId: dto.studentId, month: dto.month, year: dto.year, adHoc: true },
+      });
+      // `run` speaks {status, body} so a replayed key can return the ORIGINAL response verbatim.
+      return { status: 201, body: { invoiceId: created.id } };
+    });
+  }
+
+  /**
+   * Price one student for one period and write the invoice — **the single pricing path.**
+   *
+   * Both the class batch and the per-student route (B1) come through here. A second copy would
+   * drift: the effective-dated price lookup, the ANNUAL anchor month and the discount application
+   * are three rules that must agree, and the one thing worse than billing wrongly is billing two
+   * different ways depending on which button was pressed.
+   *
+   * Returns `null` when there is nothing to charge, so callers can skip rather than write an empty
+   * invoice.
+   */
+  private async buildInvoice(args: {
+    enrollment: { id: string; studentId: string };
+    structures: readonly { feeHeadId: string; frequency: string; amount: Prisma.Decimal | number; feeHead: { name: string } }[];
+    annualMonth: number;
+    dueDate: Date;
+    month: number;
+    year: number;
+    batchId: string | null;
+  }): Promise<{ id: string } | null> {
+    const { enrollment, structures, annualMonth, dueDate, month, year, batchId } = args;
+
+    const dupe = await this.db.feeInvoice.findFirst({ where: { studentId: enrollment.studentId, month, year } });
+    if (dupe) return null;
+
+    const items: LineItem[] = [];
+    for (const s of structures) {
+      const applies = s.frequency === 'MONTHLY' || (s.frequency === 'ANNUAL' && month === annualMonth);
+      if (!applies) continue;
+      items.push({ type: 'FEE', feeHeadId: s.feeHeadId, description: `${s.feeHead.name} (${s.frequency})`, amount: money(Number(s.amount)) });
+    }
+    if (items.length === 0) return null;
+
+    for (const d of await this.discountItems(enrollment.studentId, items)) items.push(d);
+
+    const total = money(items.reduce((sum, i) => sum + i.amount, 0));
+    return this.db.feeInvoice.create({
+      data: {
+        schoolId: this.sid,
+        studentId: enrollment.studentId,
+        enrollmentId: enrollment.id,
+        batchId,
+        totalAmount: Math.max(total, 0),
+        dueDate,
+        status: FeeInvoiceStatus.PENDING,
+        month,
+        year,
+        // schoolId is derived from the parent invoice's composite relation FK — omit it here.
+        items: { create: items.map((i) => ({ type: i.type, feeHeadId: i.feeHeadId, description: i.description, amount: i.amount })) },
+      },
+      select: { id: true },
+    });
   }
 
   /** Active discounts for a student → negative line items (FIXED applied after PERCENT). */

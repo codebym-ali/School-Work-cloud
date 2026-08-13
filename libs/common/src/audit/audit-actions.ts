@@ -54,6 +54,10 @@ export const AuditActions = {
 
   // finance / exams (later milestones — declared as they are used)
   FEE_WAIVED: 'FEE_WAIVED',
+  /** One student invoiced on their own, outside a class batch (Fees Billing Plan, B1) — the
+   *  mid-session admission and the cashier's "generate for this child" path. Recorded because it
+   *  is a discretionary act by a person, where a batch is a scheduled one over a whole class. */
+  INVOICE_GENERATED: 'INVOICE_GENERATED',
   FINE_WAIVED: 'FINE_WAIVED',
   PAYMENT_REVERSED: 'PAYMENT_REVERSED',
   GRADE_CHANGED_POST_PUBLISH: 'GRADE_CHANGED_POST_PUBLISH',

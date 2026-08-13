@@ -869,4 +869,147 @@ describe('Fees end-to-end (e2e, §12)', () => {
       expect(methods.map((m) => m.v)).toContain('ONLINE');
     });
   });
+
+  // ── B1: invoice ONE student ─────────────────────────────────────────────────
+  describe('invoicing a single student', () => {
+    const key = () => randomUUID();
+
+    it('bills a child admitted AFTER their class was already batched', async () => {
+      // ⚠️ The case that has no answer without this route. A (class, month, year) can be billed
+      // once EVER — createBatch returns early on an existing batch — so before B1 a mid-session
+      // admission simply could not be invoiced. Mid-session admissions are normal.
+      const month = 4;
+      const year = 2031;
+      const batch = await post('/api/v1/fees/invoice-batches', { classId, month, year });
+      expect(batch.status).toBe(201);
+
+      const section = await get(`/api/v1/sections?classId=${classId}`);
+      const latecomer = await admit({
+        fullName: 'Late Comer', gender: 'MALE', dateOfBirth: '2020-02-02', campusId, classId,
+        sectionId: section.body[0].id,
+        guardian: { mode: 'CREATE', fullName: 'Parent Two', phone: '03001112233', relation: 'FATHER' },
+      });
+
+      expect(latecomer.body.studentId).toBeTruthy();
+
+      // The batch cannot help: re-running it generates nothing at all.
+      const rerun = await post('/api/v1/fees/invoice-batches', { classId, month, year });
+      expect(rerun.body.generated).toBe(0);
+
+      const res = await post('/api/v1/fees/invoices',
+        { studentId: latecomer.body.studentId, month, year }, { 'Idempotency-Key': key() });
+      expect(res.status).toBe(201);
+
+      const invoices = await get(`/api/v1/fees/invoices?studentId=${latecomer.body.studentId}&month=${month}&year=${year}`);
+      expect(invoices.body.data).toHaveLength(1);
+      expect(Number(invoices.body.data[0].totalAmount)).toBe(1000);
+    });
+
+    it('is idempotent — the same key twice yields ONE invoice', async () => {
+      const month = 5;
+      const year = 2031;
+      const k = key();
+      const first = await post('/api/v1/fees/invoices', { studentId, month, year }, { 'Idempotency-Key': k });
+      const replay = await post('/api/v1/fees/invoices', { studentId, month, year }, { 'Idempotency-Key': k });
+      expect(first.status).toBe(201);
+
+      // The endpoint speaks the same {status, body, replayed} envelope as `pay`: a replay returns
+      // the ORIGINAL invoice id rather than doing the work again, and says that it did.
+      expect(first.body.replayed).toBe(false);
+      expect(replay.body.replayed).toBe(true);
+      expect(replay.body.body.invoiceId).toBe(first.body.body.invoiceId);
+
+      const invoices = await get(`/api/v1/fees/invoices?studentId=${studentId}&month=${month}&year=${year}`);
+      expect(invoices.body.data).toHaveLength(1);
+    });
+
+    it('refuses a second invoice for a period the student already has', async () => {
+      // Belt and braces: a DIFFERENT idempotency key must still not double-bill, because the
+      // service checks and — if that ever fails under concurrency — B0's index refuses the row.
+      const month = 6;
+      const year = 2031;
+      await post('/api/v1/fees/invoices', { studentId, month, year }, { 'Idempotency-Key': key() });
+      const second = await post('/api/v1/fees/invoices', { studentId, month, year }, { 'Idempotency-Key': key() });
+      expect(second.status).toBe(409);
+    });
+
+    it('requires an Idempotency-Key', async () => {
+      const res = await post('/api/v1/fees/invoices', { studentId, month: 7, year: 2031 });
+      expect(res.status).toBe(400);
+    });
+
+    it('404s a student with no active enrollment rather than inventing one', async () => {
+      const res = await post('/api/v1/fees/invoices',
+        { studentId: randomUUID(), month: 8, year: 2031 }, { 'Idempotency-Key': key() });
+      expect(res.status).toBe(404);
+    });
+
+    it('applies the same discounts as the batch path — one pricing path, not two', async () => {
+      // The seeded student carries a 10% discount, so the batch bills 900. The per-student route
+      // must agree; if the two ever diverge, a family is charged differently depending on which
+      // button the office pressed.
+      const month = 9;
+      const year = 2031;
+      await post('/api/v1/fees/invoices', { studentId, month, year }, { 'Idempotency-Key': key() });
+      const invoices = await get(`/api/v1/fees/invoices?studentId=${studentId}&month=${month}&year=${year}`);
+      expect(Number(invoices.body.data[0].totalAmount)).toBe(900);
+    });
+  });
+
+  // ── B0: the invoice key is enforced by the DATABASE ─────────────────────────
+  describe('one invoice per student per period', () => {
+    /**
+     * ⚠️ Asserted against the DATABASE, not through the service.
+     *
+     * The service's duplicate check is a read-then-write: two concurrent requests both pass it.
+     * What actually prevents a family being billed twice for one month is the unique index — so
+     * that is what this test exercises, by inserting directly on the platform (BYPASSRLS)
+     * connection and expecting Postgres to refuse.
+     *
+     * The index used to be `WHERE batch_id IS NOT NULL`, covering only batch-generated rows. The
+     * per-student path (B1) creates invoices with **no batch**, which would have landed in the
+     * uncovered half — billed once by the batch and once ad hoc, with no complaint from the
+     * database. This case is what stops that being reintroduced.
+     */
+    it('refuses a second invoice for the same (student, month, year) — even with no batch', async () => {
+      const existing = await platform.feeInvoice.findFirstOrThrow({ where: { schoolId, studentId } });
+
+      await expect(
+        platform.feeInvoice.create({
+          data: {
+            schoolId,
+            studentId,
+            enrollmentId: existing.enrollmentId,
+            batchId: null, // ← the case the old partial index did not cover
+            month: existing.month,
+            year: existing.year,
+            totalAmount: existing.totalAmount,
+            dueDate: existing.dueDate,
+            status: 'PENDING',
+          },
+        }),
+      ).rejects.toThrow();
+    });
+
+    it('still allows the SAME student a different month — the key is the period, not the student', async () => {
+      // Without this, an index over (school, student) alone would pass every assertion above while
+      // making monthly billing impossible after the first month.
+      const existing = await platform.feeInvoice.findFirstOrThrow({ where: { schoolId, studentId } });
+      const other = await platform.feeInvoice.create({
+        data: {
+          schoolId,
+          studentId,
+          enrollmentId: existing.enrollmentId,
+          batchId: null,
+          month: 12,
+          year: 2099,
+          totalAmount: existing.totalAmount,
+          dueDate: existing.dueDate,
+          status: 'PENDING',
+        },
+      });
+      expect(other.id).toBeTruthy();
+      await platform.feeInvoice.delete({ where: { id: other.id } });
+    });
+  });
 });

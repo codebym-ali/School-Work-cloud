@@ -120,6 +120,14 @@ export class CreateInvoiceBatchDto {
   @IsInt() @Min(2000) @Max(3000) year!: number;
 }
 
+/** Invoice one student for one period (B1). The class, campus and price come from their ACTIVE
+ *  enrolment — never from the caller, who must not be trusted to say which class prices a child. */
+export class CreateStudentInvoiceDto {
+  @IsUUID() studentId!: string;
+  @Type(() => Number) @IsInt() @Min(1) @Max(12) month!: number;
+  @Type(() => Number) @IsInt() @Min(2000) @Max(2100) year!: number;
+}
+
 export class InvoiceListQuery extends PaginationQuery {
   @IsOptional() @IsUUID() studentId?: string;
   @IsOptional() @IsString() status?: string;

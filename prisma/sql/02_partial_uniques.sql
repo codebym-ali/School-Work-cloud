@@ -16,10 +16,25 @@ CREATE UNIQUE INDEX IF NOT EXISTS student_enrollments_one_active_per_year
   ON student_enrollments (student_id, academic_year_id)
   WHERE status = 'ACTIVE';
 
--- One batch-generated invoice per (student, month, year) — idempotent generation (§12).
-CREATE UNIQUE INDEX IF NOT EXISTS fee_invoices_one_batch_per_student_month
+-- One invoice per (student, month, year) — idempotent generation (§12).
+--
+-- â  **This used to be `WHERE batch_id IS NOT NULL`, and that gap was about to be walked into.**
+-- It constrained only invoices a BATCH created, so the moment a per-student path existed
+-- (Fees Billing Plan, B1) the same child could be billed twice for one month -- once by the batch,
+-- once ad hoc -- and the database would not have objected. For money a read-then-write check in a
+-- service is not a constraint: two requests both pass it. The service check makes the refusal
+-- civil; this index is what makes it true.
+--
+-- Predicated on `month IS NOT NULL` rather than left unconditional, because that is honest about
+-- what it enforces: **Postgres treats NULLs as DISTINCT**, so rows with no month would slip past an
+-- unconditional index anyway and the WHERE clause says so out loud rather than implying cover it
+-- does not give. (The same behaviour `fee_invoices.psid` deliberately relies on, three indexes
+-- down.) A periodic invoice always carries a month -- charge-once items ride on one rather than
+-- inventing month-less invoices.
+DROP INDEX IF EXISTS fee_invoices_one_batch_per_student_month;
+CREATE UNIQUE INDEX IF NOT EXISTS fee_invoices_one_per_student_month
   ON fee_invoices (school_id, student_id, month, year)
-  WHERE batch_id IS NOT NULL;
+  WHERE month IS NOT NULL;
 
 -- Non-cash payments: unique transaction reference per (school, method) (§12).
 CREATE UNIQUE INDEX IF NOT EXISTS fee_payments_unique_txn_ref

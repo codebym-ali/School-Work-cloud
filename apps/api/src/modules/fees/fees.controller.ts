@@ -29,6 +29,7 @@ import {
   UpdateFeeStructureDto,
   ClaimListQuery,
   CreateInvoiceBatchDto,
+  CreateStudentInvoiceDto,
   RejectClaimDto,
   SubmitClaimDto,
   DefaultersQuery,
@@ -163,6 +164,22 @@ export class FeesController {
   @Post('invoice-batches')
   createBatch(@Body() dto: CreateInvoiceBatchDto) {
     return this.invoicing.createBatch(dto);
+  }
+
+  /**
+   * Invoice ONE student (Fees Billing Plan, B1) — the cashier's "open the child, press generate"
+   * path, and the only way to bill a student admitted after their class's batch already ran.
+   *
+   * ⚠️ **Exactly the roles the batch has — OWNER_ADMIN and ACCOUNTANT.** The first draft added
+   * CAMPUS_ADMIN, which would have made the new path WIDER than the one it parallels; a campus
+   * admin can read fees but has never been able to create them. The service adds `fees.invoicing` and the
+   * campus check off the student's own enrolment, because a caller must not be trusted to say which
+   * class prices a child.
+   */
+  @Roles('OWNER_ADMIN', 'ACCOUNTANT')
+  @Post('invoices')
+  createInvoice(@Body() dto: CreateStudentInvoiceDto, @Headers('idempotency-key') key: string) {
+    return this.invoicing.createForStudent(dto, key);
   }
 
   @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT')

@@ -202,23 +202,49 @@ describe('Attendance + absence SMS (e2e, §9/§14)', () => {
           .set('Host', host).set('Cookie', cookies).set('X-CSRF-Token', csrf)
           .send({ timezone });
 
-      // A deadline one minute AHEAD of the current UTC wall clock: not yet due in UTC...
-      const utcNow = new Intl.DateTimeFormat('en-GB', {
-        timeZone: 'UTC', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
-      }).format(new Date());
-      const [h, m] = utcNow.split(':').map(Number);
+      /** The wall clock in a zone right now, "HH:MM" — the same comparison the product makes. */
+      const hhmmIn = (timeZone: string) =>
+        new Intl.DateTimeFormat('en-GB', { timeZone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+          .format(new Date());
+
+      /**
+       * ⚠️ **The zones are ordered by their WALL CLOCK, not by their offset — and the earlier
+       * version was wrong about that.** It assumed "Karachi is five hours ahead, so its local time
+       * is later in the day", set the deadline just past UTC's clock, and expected UTC to be
+       * not-due and Karachi due.
+       *
+       * That holds only until 19:00 UTC. After it, Karachi has rolled past midnight and reads
+       * **00:xx — EARLIER in the day than UTC's 19:xx** — so the deadline had passed in UTC and
+       * not in Karachi, the exact opposite, and the suite went red every evening for a reason that
+       * had nothing to do with the product. *An offset is not an ordering once a date boundary sits
+       * between the two.*
+       *
+       * The invariant under test is unchanged: with ONE deadline, the zone decides the answer. So
+       * place the deadline between the two clocks, whichever way round they happen to be.
+       */
+      const zones = [
+        { tz: 'UTC', at: hhmmIn('UTC') },
+        { tz: 'Asia/Karachi', at: hhmmIn('Asia/Karachi') },
+      ].sort((a, b) => a.at.localeCompare(b.at));
+      const [earlier, later] = zones;
+
+      // One minute past the earlier clock: not yet reached THERE, already behind in the later zone.
+      const [h, m] = earlier.at.split(':').map(Number);
       const plusOne = new Date(Date.UTC(2000, 0, 1, h, m + 1));
       const markBy = `${String(plusOne.getUTCHours()).padStart(2, '0')}:${String(plusOne.getUTCMinutes()).padStart(2, '0')}`;
 
-      // Skip the one minute a day where +1 wraps past midnight and the comparison flips meaning.
-      if (markBy === '00:00') return;
+      // No room to place a boundary between them (same minute, or +1 wrapped past midnight).
+      if (markBy === '00:00' || markBy > later.at) return;
 
       await setMarkBy(markBy);
-      await setTz('UTC');
+
+      // The deadline sits just past the EARLIER clock, so it has not been reached there…
+      await setTz(earlier.tz);
       expect((await get('/api/v1/attendance/unmarked-today')).body.due).toBe(false);
 
-      // ...but already past in a zone five hours ahead. Same server, same instant, same setting.
-      await setTz('Asia/Karachi');
+      // …and is already behind the later one. Same server, same instant, same setting — only the
+      // school's zone differs.
+      await setTz(later.tz);
       expect((await get('/api/v1/attendance/unmarked-today')).body.due).toBe(true);
 
       await setTz('Asia/Karachi');
@@ -242,7 +268,23 @@ describe('Attendance + absence SMS (e2e, §9/§14)', () => {
    * who need to know the gate is locked. This asserts a TEACHER can read it.
    */
   describe('closure notice (app shell)', () => {
-    const todayIso = new Date().toISOString().slice(0, 10);
+    /**
+     * ⚠️ **The SCHOOL's today, not the server's** — and reading it from the tenant's own setting
+     * rather than hard-coding the zone, so this cannot drift if the fixture's timezone changes.
+     *
+     * This was `new Date().toISOString().slice(0, 10)`, the server's UTC date. `closureNotice()`
+     * resolves "today" in the school's zone (correctly — that is the whole point of the deadline
+     * test above), so after 19:00 UTC the tenant is already on the next day in Asia/Karachi and a
+     * holiday created for the UTC date is *yesterday's*. The endpoint returned `closure: null` and
+     * the failure read as "the closure notice is broken" when the test was the thing on the wrong
+     * clock. **A test that asserts timezone correctness must not compute its own dates in UTC.**
+     */
+    let todayIso: string;
+    beforeAll(async () => {
+      const settings = await get('/api/v1/school-settings');
+      const tz = (settings.body as { timezone?: string }).timezone ?? 'UTC';
+      todayIso = new Intl.DateTimeFormat('en-CA', { timeZone: tz }).format(new Date());
+    });
 
     it('says nothing when the school is open', async () => {
       const res = await get('/api/v1/attendance/closure-notice');

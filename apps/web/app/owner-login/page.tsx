@@ -4,6 +4,10 @@ import Link from 'next/link';
 import { api } from '@/lib/api';
 import { EmailPasswordSignIn } from '@/components/email-password-signin';
 
+// Demo credentials pre-filled ONLY in `next dev` (production ships empty fields) — moved here from
+// `/login` at O2, because the staff door now refuses this account.
+const IS_DEV = process.env.NODE_ENV === 'development';
+
 /**
  * The school owner's own entrance (Owner Login Plan, O1).
  *
@@ -26,6 +30,7 @@ export default function OwnerLoginPage() {
       title="🔑 School owner"
       subtitle="Sign in to manage your school."
       signIn={api.ownerLogin}
+      prefill={IS_DEV ? { email: 'owner@demo.pk', password: 'Owner!Secret12' } : undefined}
       footer={
         <p className="muted" style={{ margin: 0, fontSize: 13, textAlign: 'center' }}>
           Staff or teacher? <Link href="/login">Sign in with your email →</Link>

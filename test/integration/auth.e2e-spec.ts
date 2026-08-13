@@ -253,11 +253,31 @@ describe('Auth + tenancy pipeline (e2e)', () => {
       expect(res.body.error.code).toBe('ACCOUNT_LOCKED');
     });
 
-    it('still admits the owner at the staff door — O2 has not shipped yet', async () => {
-      // Documents the phase boundary rather than leaving it implicit: O0/O1 make the owner's door
-      // owner-only; closing /login to owners is O2, and this case flips to 401 then.
+    it('refuses the owner at the STAFF door — the doors are mutually exclusive (O2)', async () => {
+      // The other half of the boundary. Without this the owner merely had a second entrance and
+      // the separation was a label.
       const res = await post('/auth/login', { email: ownerEmail, password });
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(401);
+      expect(res.headers['set-cookie']).toBeUndefined();
+    });
+
+    it('refuses the owner at the staff door INDISTINGUISHABLY from a wrong password', async () => {
+      // ⚠️ The mirror-image oracle. If /login answered an owner differently from a bad password,
+      // the STAFF page would become the owner-detector — the exact leak the owner door exists to
+      // prevent, reintroduced from the other side. This is the assertion the 33 other suites do not
+      // make: they use the `auto` door helper and would not notice if this boundary disappeared.
+      const wrongDoor = await post('/auth/login', { email: ownerEmail, password });
+      const wrongPassword = await post('/auth/login', { email: ownerEmail, password: 'NotIt!12345' });
+      expect({ ...wrongDoor.body.error, requestId: undefined })
+        .toEqual({ ...wrongPassword.body.error, requestId: undefined });
+    });
+
+    it('a dual-role owner is refused at the staff door too — a second role is not a way back in', async () => {
+      // I6: holding OWNER_ADMIN decides the door, whatever else you hold. The tempting alternative
+      // ("allowed at the staff door if they also hold a staff role") would let an owner keep /login
+      // simply by being granted TEACHER, and the boundary would evaporate.
+      const res = await post('/auth/login', { email: dualEmail, password });
+      expect(res.status).toBe(401);
     });
   });
 });

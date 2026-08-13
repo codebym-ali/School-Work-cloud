@@ -11,6 +11,7 @@ import { ProvisioningService } from '../../apps/api/src/modules/platform/provisi
 import { admissionController } from './support/admission';
 import { SMS_QUEUE } from '../../apps/api/src/modules/comms/sms/sms.types';
 import { destroyTenant } from './support/tenant';
+import { loginRequest } from './support/login';
 
 /**
  * Campus scoping (blueprint §22.8, security playbook P1.7). One school with TWO campuses
@@ -64,7 +65,7 @@ describe('Campus scoping (e2e, §22.8 / P1.7)', () => {
     return r.send(b);
   };
   const login = async (e: string, pw: string) => {
-    const res = await request(server()).post('/api/v1/auth/login').set('Host', host).send({ email: e, password: pw });
+    const res = await loginRequest(server(), host, e, pw);
     return res.headers['set-cookie'] as unknown as string[];
   };
   // A recent past, non-weekly-off (default off is SUNDAY) date for attendance marking.

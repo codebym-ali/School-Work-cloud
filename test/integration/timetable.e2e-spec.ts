@@ -9,6 +9,7 @@ import { AppModule } from '../../apps/api/src/app.module';
 import { ProvisioningService } from '../../apps/api/src/modules/platform/provisioning.service';
 import { destroyTenant } from './support/tenant';
 import { admissionController } from './support/admission';
+import { loginRequest } from './support/login';
 
 /**
  * Timetable (§23) — the grid, and the rules that stop it lying.
@@ -52,7 +53,7 @@ describe('Timetable (e2e, §23)', () => {
     request(server()).delete(p).set('Host', host).set('Cookie', ownerCookies).set('X-CSRF-Token', ownerCsrf);
   const get = (p: string, cookies = ownerCookies) => request(server()).get(p).set('Host', host).set('Cookie', cookies);
   const login = async (e: string, pw: string) => {
-    const res = await request(server()).post('/api/v1/auth/login').set('Host', host).send({ email: e, password: pw });
+    const res = await loginRequest(server(), host, e, pw);
     return res.headers['set-cookie'] as unknown as string[];
   };
   const setSlot = (b: object) => post('/api/v1/timetable/slots', b);

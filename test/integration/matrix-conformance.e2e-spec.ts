@@ -9,6 +9,7 @@ import { AppModule } from '../../apps/api/src/app.module';
 import { ProvisioningService } from '../../apps/api/src/modules/platform/provisioning.service';
 import { MATRIX_ROLES, PERMISSION_MATRIX, type MatrixRole } from '../matrix/permission-matrix';
 import { destroyTenant } from './support/tenant';
+import { loginRequest } from './support/login';
 
 /**
  * Matrix-conformance harness (blueprint §23, playbook P1.14). Seeds one user per role,
@@ -34,7 +35,7 @@ describe('Matrix conformance (e2e, §23 / P1.14)', () => {
   const server = () => app.getHttpServer();
   const csrfOf = (c: string[]) => (c.find((x) => x.startsWith('csrf=')) ?? '').split(';')[0].slice(5);
   const login = async (email: string, password: string) => {
-    const res = await request(server()).post('/api/v1/auth/login').set('Host', host).send({ email, password });
+    const res = await loginRequest(server(), host, email, password);
     return res.headers['set-cookie'] as unknown as string[];
   };
 

@@ -11,6 +11,7 @@ import { ProvisioningService } from '../../apps/api/src/modules/platform/provisi
 import { admissionController } from './support/admission';
 import { SMS_QUEUE } from '../../apps/api/src/modules/comms/sms/sms.types';
 import { destroyTenant } from './support/tenant';
+import { loginRequest } from './support/login';
 
 /**
  * Guardian-of-student ownership (blueprint §22.8, playbook P1.7). A PARENT is confined
@@ -46,7 +47,7 @@ describe('Guardian ownership (e2e, §22.8 / P1.7)', () => {
   };
   const ownerPost = (p: string, b: object = {}) => authed('post', p, ownerCookies, ownerCsrf).send(b);
   const login = async (e: string, pw: string) => {
-    const res = await request(server()).post('/api/v1/auth/login').set('Host', host).send({ email: e, password: pw });
+    const res = await loginRequest(server(), host, e, pw);
     return res.headers['set-cookie'] as unknown as string[];
   };
 

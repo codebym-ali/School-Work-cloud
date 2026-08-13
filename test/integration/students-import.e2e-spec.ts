@@ -8,6 +8,7 @@ import { AppModule } from '../../apps/api/src/app.module';
 import { ProvisioningService } from '../../apps/api/src/modules/platform/provisioning.service';
 import { admissionController } from './support/admission';
 import { destroyTenant } from './support/tenant';
+import { loginRequest } from './support/login';
 
 /**
  * Bulk student CSV import (§22.6). Verifies: the file is validated as a whole (bad rows
@@ -46,7 +47,7 @@ describe('Students CSV import (e2e, §22.6)', () => {
     const prov = await provisioning.provisionSchool({ name: 'Import School', subdomain: sub, ownerEmail: email, ownerPassword: password });
     schoolId = prov.schoolId;
 
-    const login = await request(server()).post('/api/v1/auth/login').set('Host', host).send({ email, password });
+    const login = await loginRequest(server(), host, email, password);
     cookies = login.headers['set-cookie'] as unknown as string[];
     csrf = (cookies.find((x) => x.startsWith('csrf=')) ?? '').split(';')[0].slice(5);
 

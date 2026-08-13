@@ -9,6 +9,7 @@ import { AppModule } from '../../apps/api/src/app.module';
 import { ProvisioningService } from '../../apps/api/src/modules/platform/provisioning.service';
 import { admissionController } from './support/admission';
 import { destroyTenant } from './support/tenant';
+import { loginRequest } from './support/login';
 
 /**
  * Teacher self-service ("my classes" + rosters, §9/§11). A teacher sees only the sections
@@ -35,7 +36,7 @@ describe('Teaching self-service (e2e)', () => {
   const server = () => app.getHttpServer();
   const csrfOf = (c: string[]) => (c.find((x) => x.startsWith('csrf=')) ?? '').split(';')[0].slice(5);
   const login = async (e: string, pw: string) => {
-    const res = await request(server()).post('/api/v1/auth/login').set('Host', host).send({ email: e, password: pw });
+    const res = await loginRequest(server(), host, e, pw);
     return res.headers['set-cookie'] as unknown as string[];
   };
   const ownerPost = (p: string, b: object = {}) =>

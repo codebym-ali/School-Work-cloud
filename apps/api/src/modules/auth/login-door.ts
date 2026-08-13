@@ -21,14 +21,11 @@ export function doorAllows(door: LoginDoor, roles: readonly Role[]): boolean {
   const isOwner = roles.includes(Role.OWNER_ADMIN);
   if (door === 'owner') return isOwner;
 
-  // ⚠️ **The staff door still admits owners — for now, and only until O2.**
+  // ⚠️ **The staff door refuses owners (O2).** This is the half that makes the two doors mutually
+  // exclusive; without it the owner simply had a second entrance and the separation was a label.
   //
-  // O0/O1 ship the owner's entrance without disturbing anything: `/owner-login` is owner-only from
-  // the moment it exists, while `/login` keeps working for everybody, so no existing session, test
-  // or seed script changes. That makes the separation real in one direction only.
-  //
-  // O2 closes it by returning `!isOwner` here — one line — and that is the change that makes the
-  // two doors mutually exclusive. It is deliberately a separate phase because it also stops
-  // `owner@demo.pk` working at `/login`, and rewrites the ~37 test files that sign in as an owner.
-  return true;
+  // The refusal is delivered by the caller as the same `invalid()` a wrong password produces, doing
+  // the same work — otherwise this line would turn `/login` into an owner-detector, leaking which
+  // address owns the school, which is precisely the leak the owner door exists to prevent.
+  return !isOwner;
 }

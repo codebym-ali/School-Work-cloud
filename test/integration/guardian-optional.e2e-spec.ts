@@ -8,6 +8,7 @@ import { AppModule } from '../../apps/api/src/app.module';
 import { ProvisioningService } from '../../apps/api/src/modules/platform/provisioning.service';
 import { destroyTenant } from './support/tenant';
 import { admissionController } from './support/admission';
+import { loginRequest } from './support/login';
 
 /**
  * Guardian is OPTIONAL at admission (§8) — a walk-in can be seated before the guardian's
@@ -60,7 +61,7 @@ describe('Guardian optional at admission (e2e)', () => {
     schoolId = prov.schoolId;
     campusId = prov.campusId;
 
-    const login = await request(server()).post('/api/v1/auth/login').set('Host', host).send(owner);
+    const login = await loginRequest(server(), host, owner.email, owner.password);
     cookies = login.headers['set-cookie'] as unknown as string[];
 
     await post('/api/v1/academic-years', { name: '2026-27', startDate: '2026-04-01', endDate: '2027-03-31', isCurrent: true });

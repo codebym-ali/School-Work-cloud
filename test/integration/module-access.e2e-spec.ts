@@ -7,6 +7,7 @@ import { PlatformPrismaService } from '@database';
 import { AppModule } from '../../apps/api/src/app.module';
 import { ProvisioningService } from '../../apps/api/src/modules/platform/provisioning.service';
 import { destroyTenant } from './support/tenant';
+import { loginRequest } from './support/login';
 
 /**
  * Module (functionality) access (§23 extension). A granted role unlocks all of its modules by
@@ -31,7 +32,7 @@ describe('Module access (e2e, §23)', () => {
 
   const server = () => app.getHttpServer();
   const login = async (email: string, password: string) =>
-    (await request(server()).post('/api/v1/auth/login').set('Host', host).send({ email, password })).headers['set-cookie'] as unknown as string[];
+    (await loginRequest(server(), host, email, password)).headers['set-cookie'] as unknown as string[];
   const csrfOf = (c: string[]) => (c.find((x) => x.startsWith('csrf=')) ?? '').split(';')[0].slice(5);
   const send = (method: 'post' | 'patch', p: string, b: object, cookies: string[]) =>
     request(server())[method](p).set('Host', host).set('Cookie', cookies).set('X-CSRF-Token', csrfOf(cookies)).set('Idempotency-Key', randomUUID()).send(b);

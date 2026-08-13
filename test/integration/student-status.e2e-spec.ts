@@ -8,6 +8,7 @@ import { AppModule } from '../../apps/api/src/app.module';
 import { ProvisioningService } from '../../apps/api/src/modules/platform/provisioning.service';
 import { admissionController } from './support/admission';
 import { destroyTenant } from './support/tenant';
+import { loginRequest } from './support/login';
 
 /**
  * Student lifecycle status (SUSPENDED / RESTRICTED / STRUCK_OFF …) and the owner-only
@@ -54,7 +55,7 @@ describe('Student status + delete guard (e2e)', () => {
     const prov = await provisioning.provisionSchool({ name: 'SSt School', subdomain: sub, ownerEmail: owner.email, ownerPassword: owner.password });
     schoolId = prov.schoolId;
 
-    const login = await request(server()).post('/api/v1/auth/login').set('Host', host).send(owner);
+    const login = await loginRequest(server(), host, owner.email, owner.password);
     cookies = login.headers['set-cookie'] as unknown as string[];
     await post('/api/v1/academic-years', { name: '2026-27', startDate: '2026-04-01', endDate: '2027-03-31', isCurrent: true }, cookies);
     const klass = await post('/api/v1/classes', { campusId: prov.campusId, name: 'Grade 9', order: 9 }, cookies);

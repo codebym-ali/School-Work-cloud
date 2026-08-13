@@ -7,6 +7,7 @@ import { PlatformPrismaService } from '@database';
 import { AppModule } from '../../apps/api/src/app.module';
 import { ProvisioningService } from '../../apps/api/src/modules/platform/provisioning.service';
 import { destroyTenant } from './support/tenant';
+import { loginRequest } from './support/login';
 
 /**
  * HR access (RBAC): only OWNER_ADMIN may grant the HR_MANAGER role on an EXISTING employee,
@@ -31,7 +32,7 @@ describe('HR access grant (e2e, RBAC)', () => {
 
   const server = () => app.getHttpServer();
   const login = async (email: string, password: string) => {
-    const res = await request(server()).post('/api/v1/auth/login').set('Host', host).send({ email, password });
+    const res = await loginRequest(server(), host, email, password);
     return { status: res.status, cookies: res.headers['set-cookie'] as unknown as string[] };
   };
   const csrfOf = (c: string[]) => (c.find((x) => x.startsWith('csrf=')) ?? '').split(';')[0].slice(5);

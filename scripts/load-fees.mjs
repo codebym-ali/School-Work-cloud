@@ -72,11 +72,17 @@ async function pool(items, worker, concurrency) {
 }
 
 // ── Login ──────────────────────────────────────────────────────────────────────
-const login = await fetch(`${API}/api/v1/auth/login`, {
+// ⚠️ Two doors since the Owner Login Plan (O2): the school owner signs in at
+// `/auth/owner-login` and everyone else at `/auth/login`, each refusing the other's people. This
+// driver defaults to `owner@demo.pk`, so it tries the staff door and falls back — which keeps it
+// working whichever account `EMAIL` names.
+const doLogin = (path) => fetch(`${API}${path}`, {
   method: 'POST',
   headers: { Host: HOST, 'Content-Type': 'application/json' },
   body: JSON.stringify({ email: EMAIL, password: PASSWORD }),
 });
+let login = await doLogin('/api/v1/auth/login');
+if (login.status !== 200) login = await doLogin('/api/v1/auth/owner-login');
 if (login.status !== 200) { console.error(`login failed: ${login.status}`); process.exit(1); }
 const setCookies = login.headers.getSetCookie();
 cookieHeader = setCookies.map((c) => c.split(';')[0]).join('; ');

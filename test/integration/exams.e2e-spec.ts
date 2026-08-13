@@ -11,6 +11,7 @@ import { admissionController } from './support/admission';
 import { SMS_QUEUE } from '../../apps/api/src/modules/comms/sms/sms.types';
 import { destroyTenant } from './support/tenant';
 import { drainSmsFor } from './support/sms';
+import { loginRequest } from './support/login';
 
 /**
  * M5 gate (roadmap M5): enter/publish marks + parent views report card.
@@ -59,7 +60,7 @@ describe('Exams & report cards (e2e, §11)', () => {
 
     const prov = await app.get(ProvisioningService, { strict: false }).provisionSchool({ name: 'Exam School', subdomain: sub, ownerEmail: email, ownerPassword: password });
     schoolId = prov.schoolId;
-    const login = await request(server()).post('/api/v1/auth/login').set('Host', host).send({ email, password });
+    const login = await loginRequest(server(), host, email, password);
     cookies = login.headers['set-cookie'] as unknown as string[];
     csrf = csrfOf(cookies);
 

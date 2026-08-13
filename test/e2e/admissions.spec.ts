@@ -20,7 +20,7 @@ test.describe('admissions', () => {
     test.skip(settings.admissionsMode !== 'PIPELINE', 'This tenant is DIRECT — it has no enquiry pipeline to drive.');
 
     const officer = await e2eOfficer(page);
-    await login(page, officer.email, officer.password, '**/admissions');
+    await login(page, officer.email, officer.password, '**/admissions', 'staff');
 
     const ts = Date.now();
     const studentName = `Test Applicant ${ts}`;

@@ -9,6 +9,7 @@ import { AppModule } from '../../apps/api/src/app.module';
 import { ProvisioningService } from '../../apps/api/src/modules/platform/provisioning.service';
 import { admissionController } from './support/admission';
 import { destroyTenant } from './support/tenant';
+import { loginRequest } from './support/login';
 
 /**
  * Student self-service portal (§28, matrix §23 STUDENT column). Read-only, self-scoped:
@@ -37,7 +38,7 @@ describe('Student portal (e2e, §28)', () => {
 
   const server = () => app.getHttpServer();
   const login = async (email: string, password: string) => {
-    const res = await request(server()).post('/api/v1/auth/login').set('Host', host).send({ email, password });
+    const res = await loginRequest(server(), host, email, password);
     return res.headers['set-cookie'] as unknown as string[];
   };
   const csrfOf = (c: string[]) => (c.find((x) => x.startsWith('csrf=')) ?? '').split(';')[0].slice(5);

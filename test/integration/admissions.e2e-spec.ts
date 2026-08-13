@@ -8,6 +8,7 @@ import { PlatformPrismaService } from '@database';
 import { ProvisioningService } from '../../apps/api/src/modules/platform/provisioning.service';
 import { admissionController } from './support/admission';
 import { destroyTenant } from './support/tenant';
+import { loginRequest } from './support/login';
 
 /**
  * M2 milestone gate (roadmap M2): the ADMIT journey end-to-end —
@@ -58,10 +59,7 @@ describe('Admit journey (e2e, §8)', () => {
     schoolId = res.schoolId;
     campusId = res.campusId;
 
-    const login = await request(server())
-      .post('/api/v1/auth/login')
-      .set('Host', host)
-      .send({ email: ownerEmail, password: ownerPassword });
+    const login = await loginRequest(server(), host, ownerEmail, ownerPassword);
     expect(login.status).toBe(200);
     cookies = login.headers['set-cookie'] as unknown as string[];
     csrf = csrfOf(cookies);
@@ -249,8 +247,7 @@ describe('Admit journey (e2e, §8)', () => {
       const email = 'campusadmin@adm.pk';
       const created = await post('/api/v1/users', { email, roles: ['CAMPUS_ADMIN'], campusId, password: 'Campus!Secret12' });
       expect([200, 201]).toContain(created.status);
-      const caLogin = await request(server()).post('/api/v1/auth/login').set('Host', host)
-        .send({ email, password: 'Campus!Secret12' });
+      const caLogin = await loginRequest(server(), host, email, 'Campus!Secret12');
       expect(caLogin.status).toBe(200);
       const caCookies = caLogin.headers['set-cookie'] as unknown as string[];
       const caCsrf = csrfOf(caCookies);
@@ -269,8 +266,7 @@ describe('Admit journey (e2e, §8)', () => {
       // ends" was a claim in a comment rather than a tested rule.
       const farEmail = 'northadmin@adm.pk';
       await post('/api/v1/users', { email: farEmail, roles: ['CAMPUS_ADMIN'], campusId: otherCampus.body.id, password: 'North!Secret12' });
-      const farLogin = await request(server()).post('/api/v1/auth/login').set('Host', host)
-        .send({ email: farEmail, password: 'North!Secret12' });
+      const farLogin = await loginRequest(server(), host, farEmail, 'North!Secret12');
       const farCookies = farLogin.headers['set-cookie'] as unknown as string[];
 
       const pullIn = await request(app.getHttpServer()).post('/api/v1/enrollments/transfer')

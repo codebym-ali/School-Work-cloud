@@ -7,6 +7,7 @@ import { PlatformPrismaService } from '@database';
 import { AppModule } from '../../apps/api/src/app.module';
 import { ProvisioningService } from '../../apps/api/src/modules/platform/provisioning.service';
 import { destroyTenant } from './support/tenant';
+import { loginRequest } from './support/login';
 
 /**
  * Users & roles (§23, §22.8): the owner provisions a campus-admin login bound to a campus,
@@ -28,7 +29,7 @@ describe('Users & roles (e2e, §23)', () => {
 
   const server = () => app.getHttpServer();
   const login = async (email: string, password: string) => {
-    const res = await request(server()).post('/api/v1/auth/login').set('Host', host).send({ email, password });
+    const res = await loginRequest(server(), host, email, password);
     return { status: res.status, cookies: res.headers['set-cookie'] as unknown as string[] };
   };
   const csrfOf = (c: string[]) => (c.find((x) => x.startsWith('csrf=')) ?? '').split(';')[0].slice(5);

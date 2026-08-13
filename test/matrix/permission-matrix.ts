@@ -30,6 +30,20 @@ export interface MatrixRow {
   scopeGated?: boolean;
 }
 
+/**
+ * ⚠️ **The two sign-in doors are deliberately NOT rows here, and that is not an oversight.**
+ *
+ * `/auth/login` and `/auth/owner-login` are `@Public()`. This harness drives every row with a
+ * ROLE'S SESSION COOKIE and asserts 403 vs not-403 — but a login route takes *credentials*, has no
+ * session to present, and refuses the wrong door with **401**, deliberately indistinguishable from
+ * a wrong password. A row here would therefore assert nothing while looking like coverage, which is
+ * worse than the gap it appears to close.
+ *
+ * The boundary is measured directly in `auth.e2e-spec.ts` instead: the owner door refuses a
+ * non-owner (and never leaks an `mfaToken`), the staff door refuses an owner, both refusals are
+ * byte-identical to a wrong password, and a dual-role owner is refused at the staff door. **Measured
+ * by a different instrument, not unmeasured.**
+ */
 export const PERMISSION_MATRIX: MatrixRow[] = [
   { label: 'list students', method: 'get', path: '/api/v1/students', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ADMISSION_CONTROLLER'], scopeGated: true },
   // Creating a student is admission-controller-only (segregation of duties); owner/campus are read-only here.

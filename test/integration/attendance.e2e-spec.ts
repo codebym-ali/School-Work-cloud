@@ -15,6 +15,7 @@ import { SMS_QUEUE } from '../../apps/api/src/modules/comms/sms/sms.types';
 import { destroyTenant } from './support/tenant';
 import { drainSmsFor } from './support/sms';
 import * as argon2 from 'argon2';
+import { loginRequest } from './support/login';
 
 /**
  * M3 gate (roadmap M3): mark attendance green + absence SMS verified.
@@ -87,7 +88,7 @@ describe('Attendance + absence SMS (e2e, §9/§14)', () => {
     schoolId = prov.schoolId;
     campusId = prov.campusId;
 
-    const login = await request(server()).post('/api/v1/auth/login').set('Host', host).send({ email: ownerEmail, password: ownerPassword });
+    const login = await loginRequest(server(), host, ownerEmail, ownerPassword);
     cookies = login.headers['set-cookie'] as unknown as string[];
     csrf = csrfOf(cookies);
 
@@ -136,7 +137,7 @@ describe('Attendance + absence SMS (e2e, §9/§14)', () => {
     });
     const year = await platform.academicYear.findFirst({ where: { schoolId, isCurrent: true } });
     await post('/api/v1/teacher-assignments', { staffId: staff.staffId, academicYearId: year!.id, sectionId });
-    const res = await request(server()).post('/api/v1/auth/login').set('Host', host).send({ email, password });
+    const res = await loginRequest(server(), host, email, password);
     return res.headers['set-cookie'] as unknown as string[];
   }
 

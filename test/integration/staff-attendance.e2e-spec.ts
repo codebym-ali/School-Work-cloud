@@ -8,6 +8,7 @@ import { PlatformPrismaService } from '@database';
 import { AppModule } from '../../apps/api/src/app.module';
 import { ProvisioningService } from '../../apps/api/src/modules/platform/provisioning.service';
 import { destroyTenant } from './support/tenant';
+import { loginRequest } from './support/login';
 
 /**
  * Staff attendance marking (§9/§13).
@@ -48,7 +49,7 @@ describe('Staff attendance marking (e2e)', () => {
   };
   const ownerPost = (p: string, b: object = {}) => authed('post', p, ownerCookies, ownerCsrf).send(b);
   const login = async (e: string, pw: string) => {
-    const res = await request(server()).post('/api/v1/auth/login').set('Host', host).send({ email: e, password: pw });
+    const res = await loginRequest(server(), host, e, pw);
     return res.headers['set-cookie'] as unknown as string[];
   };
 

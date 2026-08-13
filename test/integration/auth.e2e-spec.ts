@@ -16,6 +16,7 @@ import { destroyTenant } from './support/tenant';
 describe('Auth + tenancy pipeline (e2e)', () => {
   let app: INestApplication;
   let platform: PlatformPrismaService;
+  let campusAId: string;
 
   const schoolA = randomUUID();
   const schoolB = randomUUID();
@@ -41,6 +42,7 @@ describe('Auth + tenancy pipeline (e2e)', () => {
     // School A + a CAMPUS_ADMIN (not in the mandatory-MFA set, so login is one-step).
     await platform.school.create({ data: { id: schoolA, name: 'Demo A', subdomain: subA } });
     const campusA = await platform.campus.create({ data: { schoolId: schoolA, name: 'Main A' } });
+    campusAId = campusA.id;
     await platform.user.create({
       data: {
         schoolId: schoolA,
@@ -193,29 +195,23 @@ describe('Auth + tenancy pipeline (e2e)', () => {
     });
 
     /**
-     * ⚠️ **`.failing` — asserts what SHOULD happen, and records that it currently does not.**
-     *
-     * `TenantTransactionInterceptor` opens one `$transaction` per request, and a failed login
-     * **throws** — so `registerFailure()`'s write is rolled back with everything else.
-     * `failedLoginCount` never rises, and **§22.3 account lockout (10 attempts → 15-minute lock)
-     * has therefore never fired in a running system.** Nothing tested it, which is how it survived.
-     *
-     * Discovered 2026-08-12 while building the owner door; **pre-existing, not caused by it** — the
-     * control below fails identically on the untouched `/auth/login` path. It flips to a hard error
-     * the moment somebody fixes the rollback, which is the prompt to delete this marker.
+     * The regression guard for the defect this work uncovered: the per-request `$transaction` was
+     * rolling `registerFailure()` back, so `failedLoginCount` never rose and **§22.3 lockout had
+     * never fired in a running system**. Fixed 2026-08-12 by writing failures outside the request
+     * transaction. Kept as a CONTROL on the untouched `/auth/login` path, because that is what
+     * proved the defect was pre-existing rather than a fault in the new owner door.
      */
-    it.failing('CONTROL: a wrong PASSWORD increments the counter (nothing to do with doors)', async () => {
+    it('CONTROL: a wrong PASSWORD increments the counter (nothing to do with doors)', async () => {
       const before = await platform.user.findFirstOrThrow({ where: { schoolId: schoolA, email: emailA } });
       await post('/auth/login', { email: emailA, password: 'DefinitelyWrong!9' });
       const after = await platform.user.findFirstOrThrow({ where: { schoolId: schoolA, email: emailA } });
       expect(after.failedLoginCount).toBe(before.failedLoginCount + 1);
     });
 
-    // ⚠️ `.failing` for the SAME pre-existing reason as the control above — the request
-    // transaction rolls the write back. **The security property O0 depends on still holds**: both
-    // paths perform the same write and both roll it back, so the two remain indistinguishable and
-    // no timing oracle appears. What is lost is the lockout, and that loss is not new.
-    it.failing('counts a wrong-door attempt as a failed login, exactly like a wrong password', async () => {
+    // I4: the two paths must cost the same. A wrong-door attempt that skipped the write would
+    // return measurably sooner than a wrong password, and the timing alone would rebuild the
+    // oracle the shared error message exists to prevent.
+    it('counts a wrong-door attempt as a failed login, exactly like a wrong password', async () => {
       // Read the COUNTER, not the clock: the point of the shared write is that the two paths cost
       // the same, and a timing assertion would be flaky where this is exact.
       const before = await platform.user.findFirstOrThrow({ where: { schoolId: schoolA, email: emailA } });
@@ -224,16 +220,37 @@ describe('Auth + tenancy pipeline (e2e)', () => {
       expect(after.failedLoginCount).toBe(before.failedLoginCount + 1);
     });
 
-    // ⚠️ `.failing`, same root cause — and this one MATTERS more than the counter: the audit row
-    // is the only trace a wrong-door attempt leaves, because the caller is deliberately told
-    // nothing. Until the rollback is fixed, **O0 ships a boundary with no visibility into who is
-    // testing it** (invariant I8 unmet).
-    it.failing('records the wrong-door attempt in the audit log — the only place it is visible', async () => {
+    // I8 — and this matters more than the counter: the caller is deliberately told nothing, so the
+    // audit row is the ONLY trace a wrong-door attempt leaves. Without it the door would be a
+    // boundary with no visibility into who is testing it.
+    it('records the wrong-door attempt in the audit log — the only place it is visible', async () => {
       await post('/auth/owner-login', { email: emailA, password });
       const rows = await platform.auditLog.findMany({
         where: { schoolId: schoolA, action: 'LOGIN_WRONG_DOOR' },
       });
       expect(rows.length).toBeGreaterThan(0);
+    });
+
+    it('locks the account after repeated failures — the rule that had never once fired', async () => {
+      // ⚠️ **§22.3 lockout had no test at all**, which is exactly how a rolled-back write survived
+      // in `main` unnoticed. Ten wrong passwords must leave the account LOCKED and refuse an
+      // otherwise-correct one.
+      const email = 'lockme@example.com';
+      const hash = await argon2.hash(password, { type: argon2.argon2id });
+      const victim = await platform.user.create({
+        data: { schoolId: schoolA, campusId: campusAId, email, passwordHash: hash, roles: ['TEACHER'], status: 'ACTIVE' },
+      });
+
+      for (let i = 0; i < 10; i += 1) await post('/auth/login', { email, password: 'Wrong!Password9' });
+
+      const after = await platform.user.findUniqueOrThrow({ where: { id: victim.id } });
+      expect(after.failedLoginCount).toBeGreaterThanOrEqual(10);
+      expect(after.status).toBe('LOCKED');
+
+      // …and the CORRECT password is now refused, which is the point of locking.
+      const res = await post('/auth/login', { email, password });
+      expect(res.status).toBe(401);
+      expect(res.body.error.code).toBe('ACCOUNT_LOCKED');
     });
 
     it('still admits the owner at the staff door — O2 has not shipped yet', async () => {

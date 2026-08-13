@@ -256,6 +256,31 @@ wait would have passed *before the form was ever submitted*. Now `!endsWith('-lo
 
 ---
 
+## O5 — Rename the owner's door to `/schooladmin-login` — ❌ **CONSIDERED AND DECLINED (2026-08-12)**
+
+Proposed by the operator, planned in full, then **dropped on their decision after review. The full
+plan has been deleted rather than parked** — it is not pending work.
+
+Kept only so nobody re-proposes it without the reasoning:
+
+- **"Admin" is the overloaded word in this product; "owner" is used exactly once.** There is
+  `CAMPUS_ADMIN` ("Campus Admin"), the vendor console at `/admin/login`, and `OWNER_ADMIN`. Moving
+  the owner's door to `schooladmin` heads *toward* the crowded word. `/owner-login` has one possible
+  referent; `/schooladmin-login` has two, and the wrong guess ends in a refusal that **deliberately
+  explains nothing** (I1).
+- **The URL is nearly invisible in normal use.** The owner arrives via the `/login` chooser (where
+  every logout and expiry lands), the link on `/staff-login`, or a bookmark — nobody types it.
+- **No user has been confused by it.** Pre-pilot, no support call, no evidence. Naming is cheapest
+  to settle *after* someone trips over it.
+- **It would have been the fourth change to login routing in one day**, each one invalidating
+  bookmarks, docs and brain references.
+
+⚠️ **The real inconsistency the proposal was reacting to is still open**: the UI labels this person
+**"School Admin"** (`roles.ts`) while the enum, the code and the URL all say **owner**. The cheaper
+and safer fix is the opposite direction — relabel to `Owner` (one line) so the product says one
+word, moving *away* from the "admin" collision instead of into it. **Not done; operator's call, and
+they may reasonably prefer the label their schools actually use.**
+
 ## 🔒 Security audit (2026-08-12)
 
 Audited against the real `AuthService`, not against this plan's prose. **Two findings were defects

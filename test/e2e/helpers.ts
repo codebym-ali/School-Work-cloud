@@ -23,7 +23,7 @@ export async function login(
   // the two doors are mutually exclusive — `/login` refuses an `OWNER_ADMIN` outright — so the
   // shared session every spec depends on has to be obtained at `/owner-login`. Specs signing in as
   // anyone else pass `'staff'`.
-  await page.goto(door === 'owner' ? '/owner-login' : '/login');
+  await page.goto(door === 'owner' ? '/owner-login' : '/staff-login');
   await page.getByLabel('Email').fill(email);
   await page.getByLabel('Password').fill(password);
   await page.getByRole('button', { name: /sign in/i }).click();

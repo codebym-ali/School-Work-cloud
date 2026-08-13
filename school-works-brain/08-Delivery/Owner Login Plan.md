@@ -1,9 +1,9 @@
-# Owner Login Plan (O0–O3)
+# Owner Login Plan (O0–O4)
 
 **Raised by the operator, 2026-08-12:** *"owner should have a separate login page from all those — no
 other user should use that login page."*
 
-**Status:** ✅ **COMPLETE — O0–O3 shipped 2026-08-12**, all eight invariants satisfied. The pre-existing lockout defect found during the build was fixed the same day (§Was blocked).
+**Status:** ✅ **COMPLETE — O0–O4 shipped 2026-08-12**, all eight invariants satisfied. The pre-existing lockout defect found during the build was fixed the same day (§Was blocked).
 Decisions taken 2026-08-12 (§Decisions); nine security findings folded into the phases (§Audit).
 
 ## What exists today
@@ -222,6 +222,37 @@ That is the point, and it will feel like a breakage the first time.
   enforcement point suffices (I3); why one shared rate-limit bucket (I7). Progress Tracker; §23 role
   table.
 - Record **S7 and S9 as open** (below) so the pen test inherits them.
+
+---
+
+## O4 — Route naming: three named doors behind one neutral `/login` — **SHIPPED 2026-08-12**
+
+Operator asked to rename the doors. The proposal was `/management-login`, `/school-admin/login`,
+`/student-login`; **three objections were raised and two of them changed the outcome.**
+
+- ⚠️ **`/school-admin/login` was dropped: it sits one word from `/admin/login`, the VENDOR
+  console** — a separate `PlatformUser` table with no RLS, its own cookies and a `typ:'platform'`
+  JWT. Confusing those two in a runbook, a bookmark or a firewall rule is easy and the consequence
+  is not cosmetic. (The instinct was sound though: `OWNER_ADMIN`'s UI label *is* "School Admin".)
+- **Grammar made consistent.** Mixing `/x-login` with `/x/login` invites a guess and a 404.
+- **"Management" excluded most of that door's users** — it serves teachers and office staff as much
+  as managers. `/staff-login` says who it is for.
+
+⚠️ **The naming was the smaller half. `/login` cannot be a door at all** — it is the redirect
+target for every 401 and every logout (`(app)/layout` ×2, `me-more`, the root page) and for the
+per-campus links `?campus=`. At that moment the visitor is **signed out, so nothing knows their
+role**, and since O2 the doors refuse each other's people — so whichever form sat there would
+refuse somebody on every session expiry. **A signed-out owner bounced onto the staff form, refused
+by a message that deliberately explains nothing, is the concrete case.**
+
+So: `/staff-login`, `/owner-login`, `/student-login` are the doors, and **`/login` is a chooser**
+that names all three. Every existing redirect and bookmark keeps working, and the campus name is
+forwarded to the staff door only — an owner belongs to no campus and a student signs in with a
+registration number.
+
+⚠️ **A guard broke silently in the move and had to be caught by reading, not by running:** three
+specs waited with `!pathname.startsWith('/login')`, which `/staff-login` does not match — so the
+wait would have passed *before the form was ever submitted*. Now `!endsWith('-login')`.
 
 ---
 

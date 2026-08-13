@@ -33,7 +33,7 @@ export default function OwnerLoginPage() {
       prefill={IS_DEV ? { email: 'owner@demo.pk', password: 'Owner!Secret12' } : undefined}
       footer={
         <p className="muted" style={{ margin: 0, fontSize: 13, textAlign: 'center' }}>
-          Staff or teacher? <Link href="/login">Sign in with your email →</Link>
+          Staff or teacher? <Link href="/staff-login">Sign in with your email →</Link>
         </p>
       }
     />

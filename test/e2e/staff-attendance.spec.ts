@@ -42,7 +42,24 @@ test.describe('staff attendance', () => {
         await expect(teacher.getByRole('heading', { name: 'My Attendance' })).toBeVisible();
 
         const button = teacher.getByRole('button', { name: /Check in/ });
-        const nonWorking = teacher.getByText(/holiday or weekly off/i);
+        // ⚠️ **Anchored on the phrase BOTH closure branches share, not on one wording.**
+        // This guard used to read `/holiday or weekly off/i` — the app's copy at the time. When
+        // `my-attendance` was changed to name the closure ("School is closed today — Eid" vs
+        // "Today is a weekly off"), deliberately, so a teacher could tell a shut school from a
+        // broken button, this guard matched neither. It then skipped nothing and failed on the
+        // missing Check in button **every Saturday**, blaming the product for being right.
+        // "No attendance is taken" is the sentence that states the condition, and both branches
+        // end with it.
+        const nonWorking = teacher.getByText(/no attendance is taken/i);
+
+        // ⚠️ **Settle the control BEFORE branching on it.** `isVisible()` does not auto-wait, and
+        // the check-in control renders from its own fetch, after the heading. Asking "is it a
+        // closure?" the instant the heading appears answers "no" because NEITHER outcome has
+        // rendered yet — so the guard fell through on a working day and a closed one alike, and
+        // the 5s wait below then blamed the missing button. Waiting on `button.or(nonWorking)`
+        // makes the branch read a settled page, whichever way the day went. (Same defect, same
+        // fix, as the `fee-claims` loading race.)
+        await expect(button.or(nonWorking).first()).toBeVisible();
         if (await nonWorking.isVisible().catch(() => false)) {
           test.skip(true, 'today is a non-working day for this school');
         }

@@ -434,4 +434,41 @@ Blueprint's AWS reference (RDS/ECS/S3/KMS…) is replaced by **Contabo + Coolify
 - **Both were tests, not product — and that was established before touching anything**, by reading `closureNotice()` and `isPastLocalTime()` (both correct) and by stashing every local change to confirm the same two failed on a clean tree. ⚠️ **I had already told the operator this was "a real latent bug in the closure/deadline handling". It was not**, and the correction mattered: the product had the harder half right all along.
 - **Green at one hour is not green.** The corrected test only exercises the ordering the current clock produces. It was proved general by swapping the zone pair for one that reads *later* than UTC right now (`Europe/Moscow`) and re-running — **both branches pass at the same instant**, which is the closest thing to time travel the suite allows.
 
+## A token is not a colour, it is every pair sitting on it (added 2026-08-15)
+- ⚠️ **Changing one background token broke contrast on every screen at once.** `--muted` `#6b7280`
+  measured **4.51** on the old `--bg` `#f6f7f9` — it cleared the 4.5 floor by one hundredth. The
+  retheme moved `--bg` to `#eef2f8` and the same pair fell to **4.30**. Nothing else changed.
+  **A background token change is a contrast change to every pair painted on it**, and a value
+  sitting on the threshold is not passing, it is waiting. Replacements are now chosen with headroom.
+- **On a dark fill the grey ramp inverts.** `#64748b` is a muted colour *for light backgrounds*;
+  on the navy sidebar it measured **3.28** and had never been legible. Pick from the light end.
+- ⚠️ **`--brand` lives in four places and only one of them is CSS.** `globals.css`, `layout.tsx`
+  `themeColor`, and `app/manifest.ts` `theme_color`/`background_color` — the manifest is generated
+  in TypeScript and **cannot read a custom property**. U0 moved the token and left the manifest, so
+  the *installed* app wore the previous identity on the Android status bar and splash: the single
+  most framing surface in the product, behind by one version, with a green suite.
+- **Audit contrast by computing rendered pairs off the live DOM**, walking up to the first opaque
+  background and compositing alpha on the way — not by reading the token table. The token table
+  cannot see `.chip.active .badge`, which is white on 25% white over navy.
+- **A stylesheet class vocabulary that tests assert against is a public API.** 71 Playwright
+  references decided this was a retheme rather than a Tailwind migration. New classes go *alongside*.
+
+## A test can be wrong about the world, not just about the code (added 2026-08-15)
+- ⚠️ **Three separate attendance tests encoded assumptions the tenant never satisfied**, and each
+  one failed in a way that read as a product defect. A guard matched copy the app had deliberately
+  improved away from; a helper hard-coded "weekly off is SUNDAY" for a tenant that keeps Saturday
+  too; the same helper then dismissed holidays as a remote edge case and landed on **14 August**.
+  **"Rare" and "every year on a fixed date" are not the same thing.**
+- **Read the configuration, do not assume it.** The fixed helper asks the school for its own
+  `weeklyOffDays` and closures. A test that hard-codes policy is asserting a second, invisible
+  fixture that nothing keeps in step.
+- ⚠️ **A skip is not a pass, and a green suite full of skips is not evidence.** Both fixes were
+  proved by temporarily making today a working day and confirming each **body** runs to completion —
+  the same non-vacuity discipline as probing a rule by breaking it.
+- **Sometimes there is genuinely no legal input, and saying so beats manufacturing one.**
+  `StudentEnrollment.startedAt` is `@default(now())` with no override, and the register refuses any
+  date the enrolment was not active on. So a freshly seeded student can only be marked **today**,
+  and on a weekly off no date exists. The spec skips saying exactly that; reaching for
+  `allowHolidayOverride` would have kept it green while quietly testing a different claim.
+
 **Source:** [[consistency-register]] · [[school-management-master-blueprint]] §2–§34

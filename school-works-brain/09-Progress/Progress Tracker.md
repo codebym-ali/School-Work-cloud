@@ -1,7 +1,7 @@
 ---
 title: Progress Tracker
 type: status
-updated: 2026-08-11
+updated: 2026-08-15
 current_milestone: M7 in progress — hardening done; only VPS-bound items (deploy/DR-drill/pen-test/pilot) remain
 overall: 6 of 7 milestones (GA) — full v1 domain built; M7 hardening complete
 ---
@@ -11,7 +11,7 @@ overall: 6 of 7 milestones (GA) — full v1 domain built; M7 hardening complete
 > [!info] Living document — update at the **end of every phase**.
 > Procedure at the bottom. Related: [[Roadmap & Milestones]] · [[Testing & Quality]].
 
-**Last updated:** 2026-08-11 · **Stack:** Contabo VPS + Coolify + self-hosted Postgres 16 + Redis + Cloudflare R2 (see [[Deployment & Operations]]) · **Repo:** NestJS monorepo (`apps/api`, `apps/worker`, `libs/common`, `libs/database`).
+**Last updated:** 2026-08-15 · **Stack:** Contabo VPS + Coolify + self-hosted Postgres 16 + Redis + Cloudflare R2 (see [[Deployment & Operations]]) · **Repo:** NestJS monorepo (`apps/api`, `apps/worker`, `libs/common`, `libs/database`).
 
 ## Milestone status
 
@@ -1067,6 +1067,20 @@ existed and four of its rules were wrong, each of them about money.
   - **A test asserting timezone correctness must not compute its own dates in UTC.** The closure case created a holiday for the SERVER's date, so after 19:00 UTC it was yesterday's to the tenant and the endpoint correctly returned `closure: null`. It now reads the timezone from the tenant's settings rather than hard-coding it.
   - **Green at one hour is not green:** proved general by swapping the zone pair for one reading *later* than UTC right now (`Europe/Moscow`) — both orderings pass at the same instant.
   - **Gates:** unit 62 · integration **925/925 across 36 suites** · isolation 7 · lints · typechecks. First fully green run of the day.
+- [x] **UI retheme U0–U5 SHIPPED 2026-08-15.** See [[UI Retheme Plan]] and [[School-Admin.pk Design Reference]]. Applied the reference's design *language* to `apps/web` — tokens, a two-font split, a navy card-header pattern, pill CTAs, brand-tinted shadows.
+  - **A retheme, not a rewrite — decided by evidence.** `apps/web` has no Tailwind: one hand-rolled `globals.css` driving a semantic class vocabulary that **71 Playwright assertions depend on**. Migrating to utilities would have broken the suite that gates every other change, in exchange for nothing the variables could not already do. The 15-class vocabulary is unchanged; 5 classes were added alongside it.
+  - **The identity was deliberately shifted off the reference.** School-Admin.pk is a direct competitor with 500+ schools; copying their exact palette and font pairing would have made us look like the incumbent. Patterns taken, hues moved: brand `#17365c` (not their `#234777`), accent `#a1741c` (not their `#df9118`), **Bitter** headings (not Roboto Slab). Both fonts self-hosted via `next/font` — the CSP would block a CDN.
+  - ⚠️ **The retheme broke contrast that had been passing by 0.01, everywhere at once.** `--muted` `#6b7280` measured **4.51** on the old `--bg` `#f6f7f9`. Moving `--bg` to the blue-grey `#eef2f8` dropped the same pair to **4.30**, putting every muted-on-field label under the floor on every screen. Now `#5b6472` (5.32 on `--bg`, 5.98 on `--card`) — chosen with headroom precisely because the old value proved that sitting on the threshold is not passing.
+  - ⚠️ **The sidebar group labels had never been legible:** slate-500 `#64748b` on the navy sidebar is **3.28**. On a dark fill the ramp inverts — pick the light end, not the muted end. Now `#94a3b8` at 6.08.
+  - ⚠️ **`app/manifest.ts` was left behind by the retheme**, and it is the one surface where that is most visible: the installed app painted the **old** brand on the Android status bar and the **old** field on the splash. The manifest is generated in TS and cannot read a CSS custom property, so `--brand` lives in three places that must move together — `globals.css`, `layout.tsx` `themeColor`, `manifest.ts` `theme_color`. `installable.spec.ts` now asserts all of it, including the manifest colours, which nothing covered before.
+  - **Contrast was audited by computing rendered pairs off the live DOM**, compositing alpha layers up to the first opaque background — not by eyeballing tokens. Eight failures on the dashboard, then zero across dashboard, students, fees, classes, the workbench, campuses and all four login doors, at 375/768/1440. Every hard-coded hex left in the stylesheet was measured too (`.marks` 4.83–6.47, `.now` 6.71/10.35, sidebar 10.50/12.22). **K2 holds: `--accent` is never a text colour** — its one text use is `--accent-ink` `#7a570f` at 6.57.
+  - **K3 teacher shell green:** four tabs at 375, sidebar at 1440, `/home` reachable, `group-label` count 0 for teachers.
+  - **Gates:** unit 62 · integration 925 · isolation 7 · **Playwright 37 passed / 5 skipped / 0 failed** · lints · typechecks · api+worker+web builds.
+- [x] **Two more attendance tests were wrong about the school, not the product — 2026-08-15.** Both surfaced during the U5 run because **it was a Saturday**, and both were proven pre-existing by stashing every UI change and re-running.
+  - **`staff-attendance` skipped nothing every Saturday.** Its guard matched `/holiday or weekly off/i` — copy the app had *deliberately* moved away from, so a teacher could tell a shut school from a broken button. It matched neither branch, fell through, and failed on the correctly-absent Check-in button. Re-anchored on *"no attendance is taken"*, the sentence both branches share. ⚠️ **It also had a race:** `isVisible()` does not auto-wait and the control renders from its own fetch, so the guard read a page where *neither* outcome existed yet. Now waits on `button.or(nonWorking)` first — same defect and same fix as the `fee-claims` loading race.
+  - **`safeAttendanceDate()` asserted a configuration this tenant never had.** It walked back over Sundays only, commented *"the school's default weekly-off (SUNDAY)"* — but the demo tenant keeps **Saturday and Sunday**. It now reads the school's own `weeklyOffDays`. ⚠️ **And closures, which a first pass dismissed as a remote edge case:** the very next run walked back off Saturday onto **14 August, Independence Day**. "Rare" and "every year on a fixed date" are not the same thing.
+  - ⚠️ **The deeper constraint, now documented in the spec:** `StudentEnrollment.startedAt` is `@default(now())` with no API override, and the register refuses any date the enrolment was not active on — deliberately, so backfilling cannot invent a record for a child who had not joined. **So a freshly seeded student can only ever be marked TODAY**, and on a weekly off there is no legal date at all. The spec now skips saying exactly that, rather than reaching for `allowHolidayOverride`, which would silently convert it into a test of a different claim.
+  - **Both fixes were proven non-vacuous by making today a working day** (weekly off temporarily `["SUNDAY"]`, restored after): each test body passes fully, rather than being green because it skips.
 - [ ] Phone OTP verification flow (§14) — deferred from M3
 - [ ] Swagger/OpenAPI explorer + generated typed client
 - [x] Frontend (Next.js) — scaffold + role-based screens + Playwright E2E done (see M7 in-flight above); UI/UX in [[05-ui-ux-specification]]. Remaining: OpenAPI-generated typed client (kept hand-written types in `lib/api.ts` for now).

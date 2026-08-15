@@ -3,8 +3,9 @@ import { gotoApp, seedClassSectionStudent, safeAttendanceDate } from './helpers'
 
 /**
  * Marks attendance for a fresh, self-contained class/section/student on a valid past,
- * non-weekly-off date (backend rejects future dates and unoverridden weekly-off days —
- * default weekly-off is SUNDAY). Asserts the save succeeded, that the posted bulk
+ * non-weekly-off date (backend rejects future dates and unoverridden weekly-off days — the
+ * helper reads the school's OWN `weeklyOffDays`, because this tenant keeps Saturday off too and
+ * assuming Sunday made this spec fail every Saturday). Asserts the save succeeded, that the posted bulk
  * payload carries the chosen status (a value that's easy to drop — see the exams
  * marks-entry race we fixed), and that the status persists on roster reload.
  */
@@ -18,7 +19,23 @@ test.describe('attendance', () => {
 
     // Pick the fresh section (label is "<class> — <section>") and a safe date.
     await page.locator('label:text-is("Section") + select').selectOption({ label: `${className} — ${sectionName}` });
-    await page.locator('label:text-is("Date") + input').fill(safeAttendanceDate());
+
+    // ⚠️ **Two rules meet here, and on a weekly off they leave no legal date at all.**
+    // `StudentEnrollment.startedAt` is `@default(now())` and admission takes no override, so a
+    // freshly seeded student is enrolled from TODAY. The register separately refuses any date the
+    // enrolment was not active on — deliberately, so backfilling a week cannot invent a record for
+    // a child who had not joined. So the only date this fixture can ever be marked on is today,
+    // and when today is a weekly off or a closure there is none.
+    // Skipping says that; marking with `allowHolidayOverride` would quietly convert this into a
+    // test of the override path, which is a different claim and is covered elsewhere.
+    const date = await safeAttendanceDate(page);
+    const today = new Date().toISOString().slice(0, 10);
+    test.skip(
+      date !== today,
+      `today (${today}) is a non-working day, and the newest markable day (${date}) predates this ` +
+      `fixture's enrolment — students are enrolled from today and cannot be marked before that`,
+    );
+    await page.locator('label:text-is("Date") + input').fill(date);
     await page.getByRole('button', { name: 'Load roster' }).click();
 
     const row = page.locator('tbody tr', { hasText: studentName });

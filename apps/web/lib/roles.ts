@@ -3,6 +3,10 @@
  * The API is the source of truth (returns 403); this only shapes the UI so users don't
  * see screens they can't use. `roles: undefined` ⇒ any authenticated user.
  */
+// Type-only, so this stays a plain module: `IconName` is erased at compile time and importing it
+// pulls no React component into anything that only wants the nav table.
+import type { IconName } from '@/components/icon';
+
 export type Role =
   | 'PLATFORM_ADMIN'
   | 'OWNER_ADMIN'
@@ -42,7 +46,13 @@ export const NAV_GROUPS: NavGroup[] = [
 export interface NavItem {
   href: string;
   label: string;
-  icon: string;
+  /**
+   * ⚠️ **A name from the icon set, not a glyph.** This was `string` holding an emoji, which is
+   * why the sidebar could never match the palette: an emoji is painted by the OS in its own fixed
+   * colours and cannot inherit `currentColor`. Typing it as `IconName` means a new nav entry
+   * cannot quietly reintroduce one — it has to pick an icon that actually exists.
+   */
+  icon: IconName;
   group: NavGroup;
   roles?: Role[];
   /** Reachable by link but not listed in the sidebar. Kept in NAV so `navItemFor` still
@@ -51,91 +61,91 @@ export interface NavItem {
 }
 
 export const NAV: NavItem[] = [
-  { href: '/dashboard', label: 'Dashboard', icon: '📊', group: 'Overview', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT'] },
+  { href: '/dashboard', label: 'Dashboard', icon: 'dashboard', group: 'Overview', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT'] },
 
-  { href: '/admissions', label: 'Admissions', icon: '📝', group: 'Enrollment', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ADMISSION_CONTROLLER'] },
+  { href: '/admissions', label: 'Admissions', icon: 'admissions', group: 'Enrollment', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ADMISSION_CONTROLLER'] },
   // Owner included: assigning a campus's admission officer is owner-only, so hiding the screen
   // from them left the one person who can do it unable to find it.
-  { href: '/admissions-team', label: 'Admission Portal', icon: '🎓', group: 'Enrollment', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
+  { href: '/admissions-team', label: 'Admission Portal', icon: 'admissions-team', group: 'Enrollment', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
   // ADMISSION_CONTROLLER included: the API has always permitted them here, and **CSV import is
   // ADMISSION_CONTROLLER-only** while its button lives on this screen — so the one role allowed
   // to bulk-import students could not open the page that does it, and the feature was unusable
   // by anybody. Same shape as the teacher who could be marked absent but could not reach their
   // own attendance: a nav that is stricter than the API silently removes a capability.
-  { href: '/students', label: 'Students', icon: '👥', group: 'Enrollment', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ADMISSION_CONTROLLER'] },
+  { href: '/students', label: 'Students', icon: 'students', group: 'Enrollment', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ADMISSION_CONTROLLER'] },
 
-  { href: '/classes', label: 'Classes', icon: '📚', group: 'Academics', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
-  { href: '/attendance', label: 'Attendance', icon: '✅', group: 'Academics', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'TEACHER'] },
-  { href: '/leaves', label: 'Leave requests', icon: '🗓️', group: 'Academics', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
-  { href: '/my-classes', label: 'My Classes', icon: '📚', group: 'Academics', roles: ['TEACHER'] },
+  { href: '/classes', label: 'Classes', icon: 'classes', group: 'Academics', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
+  { href: '/attendance', label: 'Attendance', icon: 'attendance', group: 'Academics', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'TEACHER'] },
+  { href: '/leaves', label: 'Leave requests', icon: 'leaves', group: 'Academics', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
+  { href: '/my-classes', label: 'My Classes', icon: 'classes', group: 'Academics', roles: ['TEACHER'] },
   // The editor is admin-only (§23: CRUD for owner, own-campus for a campus admin). A teacher gets
   // `/my-timetable` below rather than this screen — they read their week, they do not build it.
-  { href: '/timetable', label: 'Timetable', icon: '🕘', group: 'Academics', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
+  { href: '/timetable', label: 'Timetable', icon: 'timetable', group: 'Academics', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
   // Arranging cover is a permission grant — it lets one teacher write to another class's
   // register — so it sits with the people who approve leave, not with teachers.
-  { href: '/cover', label: 'Cover', icon: '🔁', group: 'Academics', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
-  { href: '/exams', label: 'Exams & Results', icon: '📄', group: 'Academics', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'TEACHER'] },
-  { href: '/reports', label: 'Reports', icon: '📈', group: 'Academics', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT'] },
+  { href: '/cover', label: 'Cover', icon: 'cover', group: 'Academics', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
+  { href: '/exams', label: 'Exams & Results', icon: 'exams', group: 'Academics', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'TEACHER'] },
+  { href: '/reports', label: 'Reports', icon: 'reports', group: 'Academics', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT'] },
   // Academic performance, not money — the accountant is deliberately excluded.
-  { href: '/performance', label: 'Performance', icon: '🎯', group: 'Academics', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
+  { href: '/performance', label: 'Performance', icon: 'performance', group: 'Academics', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
 
-  { href: '/fees', label: 'Fees', icon: '💳', group: 'Finance', roles: ['OWNER_ADMIN', 'ACCOUNTANT'] },
+  { href: '/fees', label: 'Fees', icon: 'fees', group: 'Finance', roles: ['OWNER_ADMIN', 'ACCOUNTANT'] },
   // A campus admin may READ the queue (it is their campus's money) but only the cashier and the
   // owner may verify — confirming a submission is what issues the receipt.
-  { href: '/fee-claims', label: 'Payment submissions', icon: '🧾', group: 'Finance', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT'] },
+  { href: '/fee-claims', label: 'Payment submissions', icon: 'fee-claims', group: 'Finance', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT'] },
 
   // The HR manager's single home. Recruitment was removed 2026-07-30 and this role's real job
   // is owning the campus staff record, so there is one staff screen, role-shaped, rather than a
   // second list of the same people.
-  { href: '/staff', label: 'Staff', icon: '🧑‍💼', group: 'People', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'HR_MANAGER'] },
+  { href: '/staff', label: 'Staff', icon: 'staff', group: 'People', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'HR_MANAGER'] },
 
-  { href: '/setup', label: 'School configuration', icon: '⚙️', group: 'Administration', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
+  { href: '/setup', label: 'School configuration', icon: 'setup', group: 'Administration', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
   // Campus admins can READ the rules they work under (weekly off, backfill window); only the
   // owner may change them, which the page states rather than hiding.
-  { href: '/settings', label: 'School settings', icon: '🎚️', group: 'Administration', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
-  { href: '/campuses', label: 'Campus Hub', icon: '🏢', group: 'Administration', roles: ['OWNER_ADMIN'] },
+  { href: '/settings', label: 'School settings', icon: 'settings', group: 'Administration', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
+  { href: '/campuses', label: 'Campus Hub', icon: 'campuses', group: 'Administration', roles: ['OWNER_ADMIN'] },
   // Closures are dated RECORDS, not a setting, so they get their own screen rather than another
   // section on School settings — the weekly off is one recurring rule; this is a register with
   // its own create and delete. TEACHER can read it: a teacher who cannot see the closures is a
   // teacher who turns up at a locked school. The screen hides the write controls from them.
-  { href: '/calendar', label: 'School calendar', icon: '📅', group: 'Administration', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'TEACHER'] },
+  { href: '/calendar', label: 'School calendar', icon: 'calendar', group: 'Administration', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'TEACHER'] },
 
   // Teacher phone shell (Teacher Mobile Home Plan M0/M1). `hidden` keeps them out of the sidebar
   // - they are tab-bar destinations - while still being IN `NAV`, which is what makes
   // `navItemFor` role-gate them. Leaving them out entirely would have made both routes reachable
   // by every signed-in role, since the shell treats an unknown path as unrestricted.
-  { href: '/home', label: 'Home', icon: '🏠', group: 'My Portal', roles: ['TEACHER'], hidden: true },
-  { href: '/me-more', label: 'More', icon: '👤', group: 'My Portal', roles: ['TEACHER'], hidden: true },
+  { href: '/home', label: 'Home', icon: 'home', group: 'My Portal', roles: ['TEACHER'], hidden: true },
+  { href: '/me-more', label: 'More', icon: 'profile', group: 'My Portal', roles: ['TEACHER'], hidden: true },
 
-  { href: '/me', label: 'My Dashboard', icon: '🏠', group: 'My Portal', roles: ['STUDENT'] },
-  { href: '/me/attendance', label: 'My Attendance', icon: '✅', group: 'My Portal', roles: ['STUDENT'] },
-  { href: '/me/timetable', label: 'My Timetable', icon: '🕘', group: 'My Portal', roles: ['STUDENT'] },
-  { href: '/me/results', label: 'My Results', icon: '📄', group: 'My Portal', roles: ['STUDENT'] },
-  { href: '/me/fees', label: 'My Fees', icon: '💳', group: 'My Portal', roles: ['STUDENT'] },
+  { href: '/me', label: 'My Dashboard', icon: 'home', group: 'My Portal', roles: ['STUDENT'] },
+  { href: '/me/attendance', label: 'My Attendance', icon: 'attendance', group: 'My Portal', roles: ['STUDENT'] },
+  { href: '/me/timetable', label: 'My Timetable', icon: 'timetable', group: 'My Portal', roles: ['STUDENT'] },
+  { href: '/me/results', label: 'My Results', icon: 'exams', group: 'My Portal', roles: ['STUDENT'] },
+  { href: '/me/fees', label: 'My Fees', icon: 'fees', group: 'My Portal', roles: ['STUDENT'] },
 
 
   // TEACHER included: the endpoint always permitted them (it is self-scoped, not role-scoped),
   // but the nav did not — so a teacher had no way to reach their own attendance at all, which
   // is the surface a teacher most needs now that they can check themselves in.
-  { href: '/my-attendance', label: 'My Attendance', icon: '✅', group: 'My Portal', roles: ['STAFF', 'TEACHER'] },
+  { href: '/my-attendance', label: 'My Attendance', icon: 'attendance', group: 'My Portal', roles: ['STAFF', 'TEACHER'] },
   // TEACHER only: `/timetable/mine` resolves a staff profile OR a student enrolment, and a
   // non-teaching staff member has neither periods nor a reason to look for them.
-  { href: '/my-timetable', label: 'My Timetable', icon: '🕘', group: 'My Portal', roles: ['TEACHER'] },
+  { href: '/my-timetable', label: 'My Timetable', icon: 'timetable', group: 'My Portal', roles: ['TEACHER'] },
   // TEACHER added 2026-08-07, closing the gap this comment used to describe: `staff-leaves` has
   // always permitted teachers, but the nav did not — so a teacher who could be marked absent had
   // no way to file the leave that would have made it ON_LEAVE, and an authorised absence landed
   // as a plain absence that payroll then deducted. Same shape as `/my-attendance` above: a nav
   // stricter than the API does not restrict a capability, it deletes it.
-  { href: '/my-leaves', label: 'My Leaves', icon: '🗓️', group: 'My Portal', roles: ['STAFF', 'TEACHER'] },
-  { href: '/my-payslips', label: 'My Payslips', icon: '💵', group: 'My Portal', roles: ['STAFF', 'TEACHER'] },
+  { href: '/my-leaves', label: 'My Leaves', icon: 'leaves', group: 'My Portal', roles: ['STAFF', 'TEACHER'] },
+  { href: '/my-payslips', label: 'My Payslips', icon: 'payslips', group: 'My Portal', roles: ['STAFF', 'TEACHER'] },
 
   // HR reads the register but never marks it — attendance feeds pay, and the same boundary
   // that keeps salary structures owner-only applies here.
-  { href: '/staff-attendance', label: 'Staff Attendance', icon: '🗓️', group: 'People', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'HR_MANAGER'] },
+  { href: '/staff-attendance', label: 'Staff Attendance', icon: 'leaves', group: 'People', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'HR_MANAGER'] },
 
   // Account security is every user's own business — no `roles` (any authenticated) and reached
   // from the top bar rather than the sidebar.
-  { href: '/security', label: 'Security', icon: '🔒', group: 'My Portal', hidden: true },
+  { href: '/security', label: 'Security', icon: 'lock', group: 'My Portal', hidden: true },
 ];
 
 /** Roles the API mandates MFA for (mirrors MANDATORY_MFA_ROLES in auth.service). */
@@ -263,15 +273,15 @@ export function groupedNav(
  * the fifth is always the one nobody taps. Everything visited monthly rather than hourly - leaves,
  * payslips, exams, calendar, my attendance - lives behind **Me**.
  */
-const TEACHER_TABS: { href: string; label: string; icon: string }[] = [
-  { href: '/home', label: 'Home', icon: '🏠' },
-  { href: '/attendance', label: 'Attendance', icon: '✅' },
-  { href: '/my-timetable', label: 'Week', icon: '🕘' },
+const TEACHER_TABS: { href: string; label: string; icon: IconName }[] = [
+  { href: '/home', label: 'Home', icon: 'home' },
+  { href: '/attendance', label: 'Attendance', icon: 'attendance' },
+  { href: '/my-timetable', label: 'Week', icon: 'timetable' },
   // "More", not "Me": for a teacher who also keeps the books this tab holds Dashboard, Fees,
   // Payment submissions and Reports — a whole second job under a person icon. It was already
   // slightly wrong for a plain teacher, whose Exams & Results and School calendar are not
   // personal either.
-  { href: '/me-more', label: 'More', icon: '👤' },
+  { href: '/me-more', label: 'More', icon: 'profile' },
 ];
 
 /**

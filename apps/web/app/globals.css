@@ -19,6 +19,12 @@
   --brand: #17365c;
   --brand-dark: #0f2440;
   --brand-tint: #eef2f8;
+  /* A lighter step of the SAME hue, for the non-peak columns of a single-series chart: the story
+     is "which month stands out", so the peak takes the full brand and the rest recede. Emphasis,
+     not a second category — giving the other months their own hue would spend the identity
+     channel re-encoding what the bar height already says. 3.14:1 on white, so it still reads as
+     a mark rather than a ghost. */
+  --brand-soft: #7d93b2;
   /* accent — fills, badges, icons */
   --accent: #a1741c;
   --accent-light: #d69e2e;
@@ -111,10 +117,17 @@ button:hover:not(:disabled) { background: var(--brand-dark); }
 :where(button, .chip, a.metric-link, input, select, textarea):focus-visible {
   outline: none; box-shadow: 0 0 0 3px rgb(23 54 92 / .28);
 }
+/* ⚠️ **An inline `<svg>` sits on the text baseline, which puts it visibly too low.** Most
+   icons here live in a flex container that centres them, but a few ride inside a sentence (the
+   closure toast, a chip). `vertical-align` is the only thing that fixes those, and it is harmless
+   where flex already owns the alignment because flex items ignore it. */
+svg { vertical-align: -0.15em; }
 button:disabled { opacity: .6; cursor: default; }
 .ghost {
   background: transparent; color: var(--brand); border: 1px solid var(--border);
   border-radius: var(--r-md); font-weight: 600;
+  /* inline-flex so a leading icon centres against the label instead of sitting on the baseline */
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
 }
 .ghost:hover:not(:disabled) { background: var(--brand-tint); }
 
@@ -213,7 +226,7 @@ a.metric-link.pipeline-card .metric-go { opacity: 1; margin-top: 0; }
   font-weight: 700; font-size: 14px; line-height: 1.3;
 }
 /* The leading glyph. `flex: none` so a long title never squeezes it into an ellipse. */
-.panel > header .ico { flex: none; font-size: 16px; line-height: 1; }
+.panel > header .ico { flex: none; display: inline-flex; align-items: center; }
 /* Push anything after the title to the far end of the bar — a count, a `.dot-live`, a link. */
 .panel > header .spacer { margin-left: auto; }
 /* ⚠️ **A link in the header is invisible without this.** The global `a { color: var(--brand) }`
@@ -338,7 +351,8 @@ a.metric-link.pipeline-card .metric-go { opacity: 1; margin-top: 0; }
 /* App shell */
 .shell { display: grid; grid-template-columns: 220px 1fr; min-height: 100vh; }
 .sidebar { background: var(--brand-dark); color: #cbd5e1; padding: 20px 12px; }
-.sidebar .brand { color: #fff; font-weight: 700; padding: 8px 12px 16px; font-size: 16px; }
+.sidebar .brand { color: #fff; font-weight: 700; padding: 8px 12px 16px; font-size: 16px;
+  display: flex; align-items: center; gap: 8px; }
 .sidebar .nav-group { margin-bottom: 14px; }
 .sidebar .group-label {
   /* ⚠️ 6.08 on the navy sidebar. The previous `#64748b` measured **3.28** — slate-500 is a
@@ -352,7 +366,13 @@ a.metric-link.pipeline-card .metric-go { opacity: 1; margin-top: 0; }
   color: #cbd5e1; text-decoration: none; padding: 9px 12px;
   border-radius: 8px; font-size: 14px; margin-bottom: 2px;
 }
-.sidebar a .nav-icon { font-size: 15px; line-height: 1; width: 18px; text-align: center; flex: none; }
+/* ⚠️ **Sized in `px`, not `font-size`** — these hold an inline SVG now, not an emoji glyph, and
+   `font-size` does nothing to an `<svg>` with explicit width/height. The box stays 18px so the
+   labels keep the alignment they had when the icons were text. */
+.sidebar a .nav-icon { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; flex: none; }
+/* The whole point of the set: the glyph takes the colour of whatever contains it, so one icon
+   serves the resting link, the hover, and the active row without a second asset. */
+.sidebar a .nav-icon svg { display: block; }
 .sidebar a:hover { background: rgb(255 255 255 / .08); color: #fff; }
 .sidebar a.active { background: var(--brand); color: #fff; }
 /* Cap the reading width — full-viewport forms on a wide monitor turn into columns of
@@ -521,7 +541,7 @@ input.invalid, select.invalid { border-color: var(--danger); }
     text-decoration: none; color: var(--muted); font-size: 11px;
   }
   .tabbar .tab.active { color: var(--brand); font-weight: 600; }
-  .tabbar .tab-icon { font-size: 20px; line-height: 1; }
+  .tabbar .tab-icon { display: inline-flex; align-items: center; justify-content: center; height: 22px; }
   /* The bar is fixed, so the last thing on every page would sit underneath it. */
   .has-tabbar .content { padding-bottom: calc(76px + env(safe-area-inset-bottom, 0px)); }
   /* With a tab bar there is nothing left for the drawer to do, and two navigations on one
@@ -676,6 +696,47 @@ input.invalid, select.invalid { border-color: var(--danger); }
   .stacked td[data-label='']::before { content: none; }
   .stacked td[data-label=''] { justify-content: flex-start; }
 }
+
+/* ── Charts (V2) ────────────────────────────────────────────────────────────────────────
+   Boxes, not SVG — see the note at the top of `components/charts.tsx`. In a scaled `viewBox` the
+   labels shrank with the width and measured 7px on a phone; in HTML the type is real CSS px at
+   every width. */
+.chart { margin: 0; display: flex; flex-direction: column; gap: 10px; }
+
+/* Part-to-whole. The `gap` IS the mandated 2px surface separation between touching bands — it
+   takes space out of the row instead of adding a stroke's worth of non-data ink. */
+.bar-stack {
+  display: flex; gap: 2px; height: 22px;          /* ≤24px: a band that fills its slot reads as a block */
+  border-radius: var(--r-sm); overflow: hidden;    /* rounds the OUTER ends only; interiors stay square */
+}
+.bar-stack .seg { flex-basis: 0; min-width: 3px; } /* a 1-of-500 band must still be visible and hoverable */
+
+.chart-legend { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px 16px; }
+.chart-legend li { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+.chart-legend .sw { width: 10px; height: 10px; border-radius: 3px; flex: none; }
+/* Text never wears the data colour — the swatch beside it carries the identity. */
+.chart-legend .k { color: var(--muted); }
+.chart-legend .v { color: var(--ink); font-weight: 700; font-variant-numeric: tabular-nums; }
+
+.columns { display: flex; align-items: flex-end; gap: 4px; }
+.columns .col { flex: 1 1 0; display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 0; }
+/* Reserved whether or not this column is the peak, so the row's baseline does not jump by the
+   height of one label. The `' '` in the markup is what keeps the box occupied. */
+.columns .peak {
+  font-size: 12px; font-weight: 700; color: var(--ink);
+  font-variant-numeric: tabular-nums; white-space: nowrap; line-height: 1.2; min-height: 15px;
+}
+.columns .track { width: 100%; height: 96px; display: flex; align-items: flex-end; }
+.columns .fill {
+  width: 100%; max-width: 44px; margin: 0 auto;   /* cap the width so a 6-column row keeps its air */
+  background: var(--brand-soft);
+  border-radius: 4px 4px 0 0;                      /* rounded data-end, square at the baseline */
+}
+.columns .fill.is-peak { background: var(--brand); }
+/* Hairline, solid, one step off the surface: the baseline is the only rule this chart needs,
+   because the peak is directly labelled. */
+.columns .tick { font-size: 11px; color: var(--muted); border-top: 1px solid var(--border);
+  width: 100%; text-align: center; padding-top: 4px; }
 
 /* ── My Timetable, day at a time (M3) ────────────────────────────────────────
    A week IS a grid, so the desktop keeps one. On a phone six columns either scroll

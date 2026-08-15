@@ -1,5 +1,6 @@
 'use client';
 
+import { Icon } from '@/components/icon';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
@@ -65,7 +66,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           <button className="nav-overlay" aria-label="Close menu" onClick={() => setNavOpen(false)} />
         )}
         <aside className={`sidebar${navOpen ? ' open' : ''}`} id="app-nav">
-          <div className="brand">🏫 {panelLabel(me.roles)}</div>
+          <div className="brand"><Icon name="school" size={19} /> {panelLabel(me.roles)}</div>
           {teacherShell ? (
             <TeacherSidebarNav roles={me.roles} admissionsMode={me.admissionsMode} />
           ) : (
@@ -74,7 +75,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 <div className="group-label">{group}</div>
                 {items.map((n) => (
                   <Link key={n.href} href={n.href} className={pathname.startsWith(n.href) ? 'active' : ''}>
-                    <span className="nav-icon" aria-hidden="true">{n.icon}</span>
+                    <span className="nav-icon"><Icon name={n.icon} size={18} /></span>
                     {n.label}
                   </Link>
                 ))}
@@ -91,7 +92,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               aria-controls="app-nav"
               onClick={() => setNavOpen(true)}
             >
-              ☰
+              <Icon name="menu" size={20} />
             </button>
             <div className="who topbar-desktop">{me.email} · {me.roles.join(', ')}</div>
             <div className="row" style={{ gap: 8 }}>
@@ -101,7 +102,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               {/* Hidden in the phone shell: identity, Security and Sign out all live under the
                   Me tab there, and repeating them costs ~50px of an 812px screen. The bell stays —
                   it is the one thing in this bar that is time-sensitive. */}
-              <Link className="ghost small topbar-desktop" href="/security" style={{ textDecoration: 'none' }}>🔒 Security</Link>
+              <Link className="ghost small topbar-desktop" href="/security" style={{ textDecoration: 'none' }}><Icon name="lock" size={15} /> Security</Link>
               <button className="ghost small topbar-desktop" onClick={async () => { await api.logout().catch(() => {}); router.replace('/login'); }}>
                 Sign out
               </button>
@@ -119,7 +120,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             */}
           {closure && (
             <div className="toast warn" role="status">
-              🔴 <strong>School {closure.when === 'TODAY' ? 'is closed today' : 'is closed tomorrow'} — {closure.name}.</strong>{' '}
+              <Icon name="alert" size={17} /> <strong>School {closure.when === 'TODAY' ? 'is closed today' : 'is closed tomorrow'} — {closure.name}.</strong>{' '}
               No classes, and no attendance is taken.
             </div>
           )}

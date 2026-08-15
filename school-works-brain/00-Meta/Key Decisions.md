@@ -471,4 +471,37 @@ Blueprint's AWS reference (RDS/ECS/S3/KMS…) is replaced by **Contabo + Coolify
   and on a weekly off no date exists. The spec skips saying exactly that; reaching for
   `allowHolidayOverride` would have kept it green while quietly testing a different claim.
 
+## An emoji is not an icon (added 2026-08-15)
+- ⚠️ **An emoji cannot participate in a design system, and no amount of token work changes that.**
+  It is a text glyph the operating system paints in its own fixed, multi-colour way: it cannot
+  inherit `currentColor`, so it cannot be brand-tinted, cannot go white on a navy header, cannot
+  dim when disabled, and renders as a different picture on every platform. The product shipped
+  **zero SVG** and 23 emoji in `NAV`; against a deliberate palette they read as random, correctly.
+- **Type the icon slot.** `NavItem.icon` moved from `string` to a union of icon names, so a future
+  entry cannot quietly reintroduce a glyph — and the compiler found four more the eye had missed.
+- **One `<svg>` wrapper for the whole set**, paths only per icon: the box, stroke and colour
+  behaviour cannot then drift between icons, which is what makes a set look like a set.
+
+## Charts: the medium and the palette are both engineering decisions (added 2026-08-15)
+- ⚠️ **A `viewBox` scales its own text.** The first version of the dashboard charts was SVG and
+  looked correct on a laptop; at 375px the peak label measured **7px tall**, because 21 units of a
+  1000-unit box is 6.6px once the box is 314px wide. **For rectangular forms — a stacked bar is a
+  row of widths, a column chart a row of heights — plain HTML is the better medium**, because the
+  type stays real CSS pixels at every width.
+- ⚠️ **The intuitive status palette is unreadable, and it is the one the competitor uses.**
+  Measured under Machado–Oliveira–Fernandes: absent-red ↔ present-green is **ΔE 5.3 (deuteranopia)**
+  and late-orange ↔ absent-red is **ΔE 8.8 (normal vision)**. Present-versus-absent is the most
+  important distinction on a school register and it was invisible to a deuteranope.
+- **Segment ORDER is an accessibility control, not a style choice.** Only neighbouring bands touch,
+  so putting blue `leave` between red and green fixed the worst pair without changing any hue.
+- **Chart fills are a different slot from badge status tokens.** `--ok`/`--warn`/`--danger` are
+  text-on-tint pairs solving a 4.5:1 *text* problem; chart fills solve a mark-*separation* problem.
+  Same meanings, different constraints — merging them breaks one of the two.
+- **Plot the remainder or the chart is false.** A part-to-whole chart *claims* its parts sum to the
+  whole, so "not yet marked" has to be a band. Omitting it renders a register with one child marked
+  and sixteen blank as "100% present" — the same reassuring lie the coverage line already exists to
+  defuse, but this time built into the geometry.
+- **Zero must render as zero.** A `min-height` added so a small month stays visible was also
+  drawing true zeros as 2px stubs, i.e. "a little" where there was nothing.
+
 **Source:** [[consistency-register]] · [[school-management-master-blueprint]] §2–§34

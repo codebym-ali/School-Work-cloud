@@ -1,5 +1,6 @@
 'use client';
 
+import { Icon } from '@/components/icon';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
@@ -42,7 +43,7 @@ export default function MePage() {
           <ul className="day-rail">
             {items.map((n) => (
               <li key={n.href} style={{ gridTemplateColumns: '26px 1fr', alignItems: 'center' }}>
-                <span aria-hidden="true" style={{ fontSize: 17 }}>{n.icon}</span>
+                <Icon name={n.icon} size={18} />
                 <Link href={n.href} style={{ color: 'inherit', textDecoration: 'none', minHeight: 44, display: 'flex', alignItems: 'center' }}>
                   <span className="what">{n.label}</span>
                 </Link>

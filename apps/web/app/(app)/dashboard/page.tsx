@@ -1,5 +1,7 @@
 'use client';
 
+import { Icon, type IconName } from '@/components/icon';
+import { RegisterBar, CollectionsTrend } from '@/components/charts';
 import { useEffect, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { api, type AdmissionsSummary, type Dashboard, type NotificationItem, type StaffDaySummary } from '@/lib/api';
@@ -24,7 +26,7 @@ type Tile = {
   key: keyof Dashboard;
   label: string;
   href: string;
-  icon: string;
+  icon: IconName;
   tone: Tone;
   /** Render the numeral through `.money` (currency prefix, separators, two decimals). */
   money?: boolean;
@@ -45,33 +47,33 @@ type Tile = {
 const money = (v: number) =>
   `Rs ${v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-const SECTIONS: Array<{ title: string; icon: string; tiles: Tile[] }> = [
+const SECTIONS: Array<{ title: string; icon: IconName; tiles: Tile[] }> = [
   {
     title: 'Academics & Enrollment',
-    icon: '🎓',
+    icon: 'admissions-team',
     tiles: [
-      { key: 'enrollmentCount', label: 'Active students', href: '/students', icon: '👥', tone: 'info' },
-      { key: 'todayAttendancePercent', label: "Today's attendance", href: '/attendance', icon: '✅', tone: 'ok', fmt: (v) => `${v}%`, alert: (v) => v < 75, alertTone: 'warn' },
-      { key: 'pendingLeaves', label: 'Pending leaves', href: '/leaves', icon: '🗓️', tone: 'info', alert: (v) => v > 0, alertTone: 'warn' },
+      { key: 'enrollmentCount', label: 'Active students', href: '/students', icon: 'students', tone: 'info' },
+      { key: 'todayAttendancePercent', label: "Today's attendance", href: '/attendance', icon: 'attendance', tone: 'ok', fmt: (v) => `${v}%`, alert: (v) => v < 75, alertTone: 'warn' },
+      { key: 'pendingLeaves', label: 'Pending leaves', href: '/leaves', icon: 'leaves', tone: 'info', alert: (v) => v > 0, alertTone: 'warn' },
     ],
   },
   {
     title: 'Finance',
-    icon: '💳',
+    icon: 'fees',
     // Money in is `ok`; money that did not arrive is `danger`. That pairing is the whole point of
     // the section — the two numbers are the same fact from opposite ends.
     tiles: [
-      { key: 'monthCollections', label: 'Collections (month)', href: '/fees', icon: '💳', tone: 'ok', money: true },
-      { key: 'defaulterCount', label: 'Defaulters', href: '/reports', icon: '📈', tone: 'info', alert: (v) => v > 0, alertTone: 'danger' },
+      { key: 'monthCollections', label: 'Collections (month)', href: '/fees', icon: 'fees', tone: 'ok', money: true },
+      { key: 'defaulterCount', label: 'Defaulters', href: '/reports', icon: 'trend-up', tone: 'info', alert: (v) => v > 0, alertTone: 'danger' },
     ],
   },
   {
     title: 'Communication',
-    icon: '📨',
+    icon: 'message',
     // `danger`, not `warn`: a failed SMS is not something waiting to be done, it is a message the
     // parent never received. Nothing will retry it unless somebody looks.
     tiles: [
-      { key: 'failedSmsCount', label: 'Failed SMS', href: '/reports', icon: '📨', tone: 'info', alert: (v) => v > 0, alertTone: 'danger' },
+      { key: 'failedSmsCount', label: 'Failed SMS', href: '/reports', icon: 'message', tone: 'info', alert: (v) => v > 0, alertTone: 'danger' },
     ],
   },
 ];
@@ -88,11 +90,11 @@ const greeting = () => {
  * (`a.metric-link:focus-visible` in globals.css is what a keyboard user steers by).
  */
 function Stat({ href, icon, tone, value, caption }: {
-  href: string; icon: string; tone: Tone; value: ReactNode; caption: string;
+  href: string; icon: IconName; tone: Tone; value: ReactNode; caption: string;
 }) {
   return (
     <Link href={href} className={`stat metric-link is-${tone}`}>
-      <span className={`ico is-${tone}`} aria-hidden="true">{icon}</span>
+      <span className={`ico is-${tone}`}><Icon name={icon} size={20} /></span>
       <div className="value">{value}</div>
       <div className="caption">{caption}</div>
     </Link>
@@ -185,7 +187,7 @@ export default function DashboardPage() {
           the only place it is allowed to appear (it measures 4.17:1 — below the floor for text). */}
       <section className={needsAttention ? 'panel panel--accent' : 'panel'}>
         <header>
-          <span className="ico" aria-hidden="true">{needsAttention ? '⚠️' : '✅'}</span>
+          <span className="ico"><Icon name={needsAttention ? 'alert' : 'check-circle'} size={18} /></span>
           {needsAttention ? 'Needs attention' : 'All clear'}
           {needsAttention
             ? <span className="badge warn">{reachableAttention.length}</span>
@@ -213,7 +215,7 @@ export default function DashboardPage() {
         return (
           <section className="panel" key={s.title}>
             <header>
-              <span className="ico" aria-hidden="true">{s.icon}</span>
+              <span className="ico"><Icon name={s.icon} size={18} /></span>
               {s.title}
             </header>
             <div className="body stack">
@@ -240,6 +242,17 @@ export default function DashboardPage() {
                   </span>
                 </div>
               )}
+              {/* The chart earns its place by answering what the percentage cannot: WHAT the day
+                  was made of. "100%" over one marked register and sixteen blank ones is true and
+                  useless — the bar shows the sixteen. */}
+              {showCoverage && data?.attendanceBreakdown && (
+                <RegisterBar b={data.attendanceBreakdown} />
+              )}
+              {/* Six months of context under the month's total: one figure says how much, the
+                  trend says whether that is normal. */}
+              {s.title === 'Finance' && data?.collectionsTrend?.length ? (
+                <CollectionsTrend points={data.collectionsTrend} money={money} />
+              ) : null}
             </div>
           </section>
         );
@@ -255,7 +268,7 @@ export default function DashboardPage() {
            thing, and a fix that only works at one call site is a fix that gets re-discovered. */
         <section className="panel card">
           <header>
-            <span className="ico" aria-hidden="true">🗓️</span>
+            <span className="ico"><Icon name="calendar" size={18} /></span>
             Staff today
           </header>
           <div className="body stack">
@@ -264,16 +277,16 @@ export default function DashboardPage() {
                 <div className="grid">
                   {/* Present folds in the late arrivals — they are at work; lateness is the
                       register's business, not the headcount's. */}
-                  <Stat href={`/staff-attendance?date=${staff.date}`} icon="✅" tone="ok"
+                  <Stat href={`/staff-attendance?date=${staff.date}`} icon="check-circle" tone="ok"
                         value={String(staff.present + staff.late)} caption="Present" />
-                  <Stat href={`/staff-attendance?date=${staff.date}`} icon="🚫" tone={staff.absent ? 'danger' : 'info'}
+                  <Stat href={`/staff-attendance?date=${staff.date}`} icon="x-circle" tone={staff.absent ? 'danger' : 'info'}
                         value={String(staff.absent)} caption="Absent" />
-                  <Stat href={`/staff-attendance?date=${staff.date}`} icon="🌴" tone="info"
+                  <Stat href={`/staff-attendance?date=${staff.date}`} icon="leave" tone="info"
                         value={String(staff.onLeave)} caption="On leave" />
                   {/* Called out as its own tile because nothing derives absence yet: a big "not
                       marked" is the real state of the register, and folding it into "absent"
                       would be a lie about people who may well have been at work all day. */}
-                  <Stat href={`/staff-attendance?date=${staff.date}`} icon="❓" tone={staff.unmarked ? 'warn' : 'ok'}
+                  <Stat href={`/staff-attendance?date=${staff.date}`} icon="unknown" tone={staff.unmarked ? 'warn' : 'ok'}
                         value={String(staff.unmarked)} caption="Not marked" />
                 </div>
                 <div className="statline">
@@ -296,13 +309,13 @@ export default function DashboardPage() {
       {adm && (
         <section className="panel">
           <header>
-            <span className="ico" aria-hidden="true">📝</span>
+            <span className="ico"><Icon name="admissions" size={18} /></span>
             Admissions
           </header>
           <div className="body stack">
             <div className="grid">
-              <Stat href="/admissions" icon="📥" tone="info" value={String(adm.totals.open)} caption="Open inquiries" />
-              <Stat href="/admissions" icon="🎓" tone="ok" value={String(adm.admittedThisMonth)} caption="Admitted this month" />
+              <Stat href="/admissions" icon="inbox" tone="info" value={String(adm.totals.open)} caption="Open inquiries" />
+              <Stat href="/admissions" icon="admissions-team" tone="ok" value={String(adm.admittedThisMonth)} caption="Admitted this month" />
             </div>
             <div className="statline">
               <span>Conversion rate</span>

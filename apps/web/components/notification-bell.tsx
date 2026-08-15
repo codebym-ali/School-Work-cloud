@@ -1,5 +1,6 @@
 'use client';
 
+import { Icon } from '@/components/icon';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { api, type NotificationItem } from '@/lib/api';
@@ -75,7 +76,7 @@ export function NotificationBell() {
         aria-expanded={open}
         aria-label={unread > 0 ? `Notifications, ${unread} new` : 'Notifications'}
       >
-        🔔{unread > 0 && <span className="badge warn" style={{ marginLeft: 6 }}>{unread}</span>}
+        <Icon name="bell" size={17} />{unread > 0 && <span className="badge warn" style={{ marginLeft: 6 }}>{unread}</span>}
       </button>
 
       {open && (

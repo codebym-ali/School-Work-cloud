@@ -78,9 +78,21 @@ export interface Dashboard {
   defaulterCount: number; pendingLeaves: number | null; failedSmsCount: number | null;
   /** Coverage travels WITH the percentage: 100% off two marked registers is not 100% attendance. */
   todayAttendanceMarked: number | null; todayAttendanceExpected: number | null;
+  /** Today's register by what actually happened. Ops data, so `null` for an ACCOUNTANT — the
+   *  same gate as the percentage it breaks down. */
+  attendanceBreakdown: AttendanceBreakdown | null;
+  /** Six months of collections, oldest first. Financial, so every dashboard role gets it. */
+  collectionsTrend: CollectionPoint[];
   /** Metric keys this role should see — the UI renders only these cards (role-shaping). */
   visible: string[];
 }
+/** `unmarked` is not a status: it is the registers nobody has filled in, and it is what stops a
+ *  part-to-whole chart implying the whole school has been accounted for. */
+export interface AttendanceBreakdown {
+  present: number; late: number; leave: number; absent: number; unmarked: number;
+}
+/** `month` is `YYYY-MM` so it sorts as a string and needs no date parsing to plot. */
+export interface CollectionPoint { month: string; collected: number; }
 /** A declared school closure. `campusId: null` ⇒ the whole school. */
 export interface Holiday {
   id: string; date: string; name: string; campusId: string | null;

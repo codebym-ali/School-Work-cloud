@@ -1,4 +1,4 @@
-import { IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Min } from 'class-validator';
+import { ArrayMaxSize, ArrayMinSize, IsArray, IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Min } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class TimetableQuery {
@@ -32,4 +32,28 @@ export class SetSlotDto {
 
   @IsOptional() @IsString() @MaxLength(40)
   room?: string;
+}
+
+/**
+ * Copy one day's lessons onto others.
+ *
+ * ⚠️ **Copying to a sibling SECTION is deliberately not here.** Two sections of one class running the
+ * same grid clash on the same teacher at *every* row — that is the normal outcome, not an edge case
+ * — and `TimetableSlot.staffId` is NOT NULL, so there is no "copy the subjects, leave the teachers
+ * blank" escape without a schema change reaching attendance and cover. It needs its own decision.
+ */
+export class CopyDayDto {
+  @IsUUID()
+  sectionId!: string;
+
+  @IsOptional() @IsUUID()
+  academicYearId?: string;
+
+  @Type(() => Number) @IsInt() @Min(1) @Max(7)
+  fromDay!: number;
+
+  /** At most six, because there are only six other days. */
+  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(6)
+  @Type(() => Number) @IsInt({ each: true }) @Min(1, { each: true }) @Max(7, { each: true })
+  toDays!: number[];
 }

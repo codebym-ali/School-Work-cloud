@@ -12,7 +12,10 @@ import {
 import { TenantPrismaService } from '@database';
 import { BellScheduleService } from '../bell-schedule/bell-schedule.service';
 import { SetupService } from '../setup/setup.service';
-import type { SetSlotDto, TimetableQuery } from './dto/timetable.dto';
+import type { CopyDayDto, SetSlotDto, TimetableQuery } from './dto/timetable.dto';
+
+/** Named here as well as on the client: an error that says "day 3" makes the reader do the lookup. */
+const DAY_NAMES = ['', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
 /** What one section's bell looks like, or null when the school has not set its timings. */
 type ResolvedBell = Awaited<ReturnType<BellScheduleService['resolveForSection']>>;
@@ -277,7 +280,7 @@ export class TimetableService {
     const teaching = day?.rows.filter((r) => r.isTeaching) ?? [];
     if (teaching.some((r) => r.periodNo === dto.periodNo)) return;
 
-    const dayName = ['', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'][dto.dayOfWeek];
+    const dayName = DAY_NAMES[dto.dayOfWeek];
     throw new AppError(
       ErrorCodes.VALIDATION_FAILED,
       HttpStatus.UNPROCESSABLE_ENTITY,
@@ -316,6 +319,72 @@ export class TimetableService {
       HttpStatus.CONFLICT,
       `${staffName} already teaches ${clash.section.class.name}-${clash.section.name} in period ${dto.periodNo} that day`,
     );
+  }
+
+  /**
+   * Copy one day's lessons onto other days — the difference between 60 saves and 720.
+   *
+   * **Every cell goes through `setSlot`**, so the five placement rules apply exactly as they do to a
+   * hand-typed cell: the teacher-clash check, the subject-belongs-to-the-class check, the
+   * left-the-school check, the campus pair check, and the period-exists check. Reimplementing any of
+   * them here would be the third place one rule lives — the mistake `whoIsAway()` and
+   * `assertSectionHasRoom` were both extracted to undo.
+   *
+   * `{ created, skipped }` per §25.3, and **each skip names its own reason** rather than returning a
+   * count: "3 skipped" on a fee-season-sized grid is not something anybody can act on, while
+   * "Tuesday period 1 — Nadia Iqbal already teaches Grade 9-A" is.
+   *
+   * ⚠️ **Nothing is overwritten.** A cell that already holds a lesson is skipped, not replaced —
+   * `setSlot` on its own would happily replace it, and a copy that silently destroys a day somebody
+   * built by hand is a worse outcome than a copy that does less than asked.
+   */
+  async copyDay(dto: CopyDayDto) {
+    const academicYearId = dto.academicYearId ?? (await this.setup.requireCurrentYearId());
+    const source = await this.db.timetableSlot.findMany({
+      where: { sectionId: dto.sectionId, academicYearId, dayOfWeek: dto.fromDay },
+      orderBy: { periodNo: 'asc' },
+    });
+    if (source.length === 0) {
+      throw new AppError(
+        ErrorCodes.VALIDATION_FAILED,
+        HttpStatus.UNPROCESSABLE_ENTITY,
+        `${DAY_NAMES[dto.fromDay]} has no lessons to copy.`,
+      );
+    }
+
+    const targets = [...new Set(dto.toDays)].filter((d) => d !== dto.fromDay).sort();
+    const existing = await this.db.timetableSlot.findMany({
+      where: { sectionId: dto.sectionId, academicYearId, dayOfWeek: { in: targets } },
+      select: { dayOfWeek: true, periodNo: true },
+    });
+    const taken = new Set(existing.map((e) => `${e.dayOfWeek}:${e.periodNo}`));
+
+    let created = 0;
+    const skipped: Array<{ dayOfWeek: number; periodNo: number; reason: string }> = [];
+    for (const dayOfWeek of targets) {
+      for (const s of source) {
+        if (taken.has(`${dayOfWeek}:${s.periodNo}`)) {
+          skipped.push({ dayOfWeek, periodNo: s.periodNo, reason: `${DAY_NAMES[dayOfWeek]} period ${s.periodNo} already has a lesson.` });
+          continue;
+        }
+        try {
+          await this.setSlot({
+            sectionId: dto.sectionId, academicYearId,
+            dayOfWeek, periodNo: s.periodNo,
+            subjectId: s.subjectId, staffId: s.staffId, room: s.room ?? undefined,
+          });
+          created++;
+        } catch (e) {
+          // ⚠️ Only application refusals are collected. Every rule above throws BEFORE touching the
+          // database, so catching here cannot leave a poisoned transaction — which is exactly the
+          // trap the fee-season load test hit when an idempotency reserve swallowed its own P2002.
+          // A genuine DB error must still abort the whole copy.
+          if (!(e instanceof AppError)) throw e;
+          skipped.push({ dayOfWeek, periodNo: s.periodNo, reason: e.message });
+        }
+      }
+    }
+    return { created, skipped };
   }
 
   /** Empty one cell. Idempotent: clearing an empty cell is a no-op, not a 404. */

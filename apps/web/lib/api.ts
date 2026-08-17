@@ -870,6 +870,13 @@ export const api = {
     setSlot: (body: { sectionId: string; dayOfWeek: number; periodNo: number; subjectId: string; staffId: string; room?: string }) =>
       apiPost<TimetableSlot>('/timetable/slots', body),
     clearSlot: (id: string) => apiDelete<{ deleted: boolean }>(`/timetable/slots/${id}`),
+    /**
+     * Copy one day's lessons onto others. A partial copy is the normal outcome on a half-built
+     * week, so `skipped` carries a reason per cell rather than a count.
+     */
+    copyDay: (body: { sectionId: string; fromDay: number; toDays: number[] }) =>
+      apiPost<{ created: number; skipped: Array<{ dayOfWeek: number; periodNo: number; reason: string }> }>(
+        '/timetable/copy-day', body),
   },
   /**
    * The school's timings — which periods exist, when they ring, and where the breaks fall.

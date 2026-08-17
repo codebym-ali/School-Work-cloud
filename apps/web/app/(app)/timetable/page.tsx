@@ -13,8 +13,10 @@ import { DAY_SHORT, byCell, periodTime, teacherLabel, weekShape } from '@/lib/ti
  * cell posts, and whatever the API says is shown verbatim, including which class already has that
  * teacher. That is also why the error is worth reading rather than a generic "conflict".
  *
- * The grid's size comes from the data (`gridShape`), so a school running Monday–Saturday over ten
- * periods is not squeezed into someone else's idea of a week.
+ * The grid's size comes from the school's DECLARED day (`weekShape`) when it has one, and falls
+ * back to inferring it from the data when it does not — so a school running Monday–Saturday over ten
+ * periods is not squeezed into someone else's idea of a week, and a short Friday shows as short
+ * rather than as four empty cells nobody is meant to fill.
  */
 export default function TimetablePage() {
   const [coverage, setCoverage] = useState<TimetableCoverage | null>(null);
@@ -26,6 +28,9 @@ export default function TimetablePage() {
   const [draft, setDraft] = useState({ subjectId: '', staffId: '', room: '' });
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [copyFrom, setCopyFrom] = useState(1);
+  const [copyTo, setCopyTo] = useState<number[]>([]);
+  const [skipped, setSkipped] = useState<Array<{ dayOfWeek: number; periodNo: number; reason: string }>>([]);
 
   useEffect(() => {
     api.timetable.coverage().then((c) => {
@@ -67,6 +72,33 @@ export default function TimetablePage() {
       // Shown as-is: the server names the clashing class and period, which is the only version of
       // this message anyone can act on.
       setMsg({ ok: false, text: e instanceof ApiError ? e.message : 'Could not save that period.' });
+    } finally { setBusy(false); }
+  }
+
+  /**
+   * Copy one day's lessons onto others — 60 saves instead of 720 on a 15-section school.
+   *
+   * A partial copy is the ordinary outcome once a week is half built, so the result is reported
+   * rather than treated as success-or-failure: the skipped cells are listed with the server's own
+   * reason, which names the clashing class or the day that is too short.
+   */
+  async function copyDay() {
+    if (!copyFrom || copyTo.length === 0) return;
+    setBusy(true);
+    setMsg(null);
+    try {
+      const res = await api.timetable.copyDay({ sectionId, fromDay: copyFrom, toDays: copyTo });
+      await load();
+      setCopyTo([]);
+      setSkipped(res.skipped);
+      setMsg({
+        ok: true,
+        text: res.skipped.length
+          ? `Copied ${res.created} ${res.created === 1 ? 'lesson' : 'lessons'}. ${res.skipped.length} could not be placed.`
+          : `Copied ${res.created} ${res.created === 1 ? 'lesson' : 'lessons'}.`,
+      });
+    } catch (e) {
+      setMsg({ ok: false, text: e instanceof ApiError ? e.message : 'Could not copy that day.' });
     } finally { setBusy(false); }
   }
 
@@ -128,6 +160,43 @@ export default function TimetablePage() {
       {/* Advisory, and it says so. A coordinator allocates the load first and places it second;
           before this, nothing could tell them a week was two Maths periods short until November.
           Nothing here refuses anything — overshooting mid-build then rebalancing is normal. */}
+      {grid && grid.slots.length > 0 && (
+        <div className="card stack" style={{ gap: 8 }}>
+          <div className="section-title" style={{ margin: 0 }}>Copy a day</div>
+          <div className="inline-form">
+            <div style={{ minWidth: 150 }}>
+              <label htmlFor="tt-copy-from">From</label>
+              <select id="tt-copy-from" value={copyFrom} onChange={(e) => setCopyFrom(Number(e.target.value))}>
+                {days.map((d) => <option key={d} value={d}>{DAY_SHORT[d]}</option>)}
+              </select>
+            </div>
+            <div className="stack" style={{ gap: 4 }}>
+              <label>To</label>
+              <div className="chips">
+                {days.filter((d) => d !== copyFrom).map((d) => (
+                  <button key={d} type="button" className={copyTo.includes(d) ? 'small' : 'ghost small'}
+                    aria-pressed={copyTo.includes(d)}
+                    onClick={() => setCopyTo(copyTo.includes(d) ? copyTo.filter((x) => x !== d) : [...copyTo, d])}>
+                    {DAY_SHORT[d]}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <button disabled={busy || copyTo.length === 0} onClick={copyDay}>{busy ? 'Copying…' : 'Copy'}</button>
+          </div>
+          {/* Nothing is overwritten, and saying so up front is the difference between a button
+              people use and one they are afraid of. */}
+          <p className="muted" style={{ margin: 0, fontSize: 12 }}>
+            Lessons already on the target day are kept — nothing is overwritten.
+          </p>
+          {skipped.length > 0 && (
+            <ul className="muted" style={{ margin: 0, fontSize: 12, paddingLeft: 18 }}>
+              {skipped.map((s, i) => <li key={i}>{s.reason}</li>)}
+            </ul>
+          )}
+        </div>
+      )}
+
       {grid && grid.load.some((l) => l.target !== null) && (
         <div className="card stack" style={{ gap: 6 }}>
           <div className="section-title" style={{ margin: 0 }}>Weekly load</div>

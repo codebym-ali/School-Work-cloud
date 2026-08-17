@@ -390,6 +390,67 @@ describe('Bell schedule (e2e)', () => {
     expect(elective).toBeTruthy();
   });
 
+  // ── copy lessons across days (P3) ─────────────────────────────────────────
+
+  it('copies a day onto others, reporting what it could not place and why', async () => {
+    const id = await mkSchedule({ campusId, name: 'Regular', isDefault: true });
+    for (const d of [1, 2, 3]) await put(`/api/v1/bell-schedules/${id}/days/${d}`, regularDay);
+
+    await post('/api/v1/timetable/slots', { sectionId: sectionA, dayOfWeek: 1, periodNo: 1, subjectId, staffId });
+    await post('/api/v1/timetable/slots', { sectionId: sectionA, dayOfWeek: 1, periodNo: 2, subjectId, staffId });
+    // Tuesday period 1 is already taken by hand — a half-built week is the normal state to copy into.
+    await post('/api/v1/timetable/slots', { sectionId: sectionA, dayOfWeek: 2, periodNo: 1, subjectId, staffId });
+
+    const res = await post('/api/v1/timetable/copy-day', { sectionId: sectionA, fromDay: 1, toDays: [2, 3] });
+    expect(res.status).toBe(201);
+    expect(res.body.created).toBe(3); // Tue p2, Wed p1, Wed p2
+    expect(res.body.skipped).toHaveLength(1);
+    // The reason travels with the skip. "1 skipped" is not something anybody can act on.
+    expect(res.body.skipped[0]).toMatchObject({ dayOfWeek: 2, periodNo: 1 });
+    expect(res.body.skipped[0].reason).toMatch(/already has a lesson/i);
+  });
+
+  it('never overwrites a lesson somebody placed by hand', async () => {
+    const id = await mkSchedule({ campusId, name: 'Regular', isDefault: true });
+    for (const d of [1, 2]) await put(`/api/v1/bell-schedules/${id}/days/${d}`, regularDay);
+
+    const other = (await post('/api/v1/subjects', { classId, name: 'Urdu' })).body.id;
+    await post('/api/v1/timetable/slots', { sectionId: sectionA, dayOfWeek: 1, periodNo: 1, subjectId, staffId });
+    await post('/api/v1/timetable/slots', { sectionId: sectionA, dayOfWeek: 2, periodNo: 1, subjectId: other, staffId });
+
+    await post('/api/v1/timetable/copy-day', { sectionId: sectionA, fromDay: 1, toDays: [2] });
+
+    // `setSlot` on its own would have replaced it. A copy that silently destroys a day somebody
+    // built by hand is worse than a copy that does less than it was asked to.
+    const grid = await get(`/api/v1/timetable/section/${sectionA}`);
+    const tue = grid.body.slots.find((s: { dayOfWeek: number; periodNo: number }) => s.dayOfWeek === 2 && s.periodNo === 1);
+    expect(tue.subject.name).toBe('Urdu');
+  });
+
+  it('applies the period rule to copied cells, so a short Friday stays short', async () => {
+    const id = await mkSchedule({ campusId, name: 'Regular', isDefault: true });
+    await put(`/api/v1/bell-schedules/${id}/days/1`, regularDay); // 4 periods
+    await put(`/api/v1/bell-schedules/${id}/days/5`, {
+      startsAt: '08:00', rows: [{ isTeaching: true, minutes: 35 }, { isTeaching: true, minutes: 35 }],
+    });
+    for (const periodNo of [1, 2, 3, 4]) {
+      await post('/api/v1/timetable/slots', { sectionId: sectionA, dayOfWeek: 1, periodNo, subjectId, staffId });
+    }
+
+    const res = await post('/api/v1/timetable/copy-day', { sectionId: sectionA, fromDay: 1, toDays: [5] });
+    // Two land, two are refused BY THE SAME RULE a hand-typed cell meets — which is the whole
+    // argument for routing every copied cell through `setSlot` instead of writing rows directly.
+    expect(res.body.created).toBe(2);
+    expect(res.body.skipped).toHaveLength(2);
+    expect(res.body.skipped[0].reason).toMatch(/Friday has 2 periods/);
+  });
+
+  it('refuses to copy a day that has nothing on it', async () => {
+    const res = await post('/api/v1/timetable/copy-day', { sectionId: sectionA, fromDay: 7, toDays: [1] });
+    expect(res.status).toBe(422);
+    expect(res.body.error.message).toMatch(/Sunday has no lessons/i);
+  });
+
   // ── campus scope ──────────────────────────────────────────────────────────
 
   it('keeps a campus admin inside their own campus, in both directions', async () => {

@@ -125,6 +125,32 @@ export default function TimetablePage() {
             </p>)}
       </div>
 
+      {/* Advisory, and it says so. A coordinator allocates the load first and places it second;
+          before this, nothing could tell them a week was two Maths periods short until November.
+          Nothing here refuses anything — overshooting mid-build then rebalancing is normal. */}
+      {grid && grid.load.some((l) => l.target !== null) && (
+        <div className="card stack" style={{ gap: 6 }}>
+          <div className="section-title" style={{ margin: 0 }}>Weekly load</div>
+          <div className="chips">
+            {grid.load.filter((l) => l.target !== null).map((l) => {
+              const short = l.placed < (l.target ?? 0);
+              const over = l.placed > (l.target ?? 0);
+              return (
+                <span key={l.subjectId} className="chip"
+                  title={short ? `${(l.target ?? 0) - l.placed} still to place` : over ? 'More than allocated' : 'Complete'}
+                  style={over ? { color: 'var(--accent-ink)' } : short ? undefined : { color: 'var(--ok-ink)' }}>
+                  {l.name} — {l.placed} of {l.target}
+                </span>
+              );
+            })}
+          </div>
+          <p className="muted" style={{ margin: 0, fontSize: 12 }}>
+            Advisory only — nothing is refused. Set a subject&apos;s weekly periods on{' '}
+            <a href="/setup">School configuration</a>.
+          </p>
+        </div>
+      )}
+
       {grid && (
         <div className="card" style={{ overflowX: 'auto' }}>
           <table>

@@ -74,7 +74,52 @@ export class TimetableService {
     // timings, and the client falls back to the old inferred shape — this must not become a
     // breaking change for a school with an existing grid and no schedule.
     const bell = await this.bell.resolveForSection(sectionId, academicYearId);
-    return { sectionId, academicYearId, section, bell, slots: this.withTimes(slots, bell) };
+    return {
+      sectionId,
+      academicYearId,
+      section,
+      bell,
+      load: await this.subjectLoad(sectionId, section.class.id, slots),
+      slots: this.withTimes(slots, bell),
+    };
+  }
+
+  /**
+   * "Maths — 4 of 6 placed." Advisory: it is reported, never enforced.
+   *
+   * A coordinator allocates the load first — Maths 6, English 6, Urdu 5 — and *then* places it. The
+   * grid could never say a week was two Maths periods short, so nobody found out until November.
+   *
+   * ⚠️ **Iterates `SectionSubject`, not `Subject`.** `SectionSubject` exists precisely because two
+   * sections of one class may take different subjects (streams, electives); listing every subject of
+   * the class would report a Computer shortfall against a section that does not take Computer. Falls
+   * back to the class's subjects only when a section has declared none, since an empty
+   * `SectionSubject` set means "not configured", not "takes nothing".
+   */
+  private async subjectLoad(sectionId: string, classId: string, slots: { subjectId: string }[]) {
+    const chosen = await this.db.sectionSubject.findMany({
+      where: { sectionId },
+      select: { subject: { select: { id: true, name: true, periodsPerWeek: true } } },
+    });
+    const subjects = chosen.length
+      ? chosen.map((c) => c.subject)
+      : await this.db.subject.findMany({
+          where: { classId, isActive: true },
+          select: { id: true, name: true, periodsPerWeek: true },
+        });
+
+    const placed = new Map<string, number>();
+    for (const s of slots) placed.set(s.subjectId, (placed.get(s.subjectId) ?? 0) + 1);
+
+    return subjects
+      .map((s) => ({
+        subjectId: s.id,
+        name: s.name,
+        /** Null ⇒ the school has not allocated a load, which is not the same as allocating zero. */
+        target: s.periodsPerWeek ?? null,
+        placed: placed.get(s.id) ?? 0,
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
   }
 
   /**

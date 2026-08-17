@@ -16,7 +16,7 @@ import { ConfirmDialog } from '../confirm-dialog';
  */
 export function SubjectCatalogue({
   className, subjects, sections, assignments, catalogue, canEdit,
-  onAdd, onRename, onRemove,
+  onAdd, onRename, onRemove, onSetLoad,
 }: {
   className: string;
   subjects: Subject[];
@@ -27,6 +27,8 @@ export function SubjectCatalogue({
   onAdd: (names: string[]) => Promise<string | null> | void;
   onRename: (id: string, name: string) => Promise<string | null> | void;
   onRemove: (id: string) => Promise<string | null> | void;
+  /** `null` clears the allocation — distinct from allocating zero. */
+  onSetLoad: (id: string, periodsPerWeek: number | null) => Promise<string | null> | void;
 }) {
   const [input, setInput] = useState('');
   const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null);
@@ -93,6 +95,9 @@ export function SubjectCatalogue({
             <thead>
               <tr>
                 <th>Subject</th>
+                {/* The load a coordinator allocates BEFORE placing anything on the grid. Advisory:
+                    the timetable reports "Maths 4 of 6" and never refuses the seventh. */}
+                <th style={{ width: 120 }}>Periods/week</th>
                 <th>Studied by</th>
                 <th>Teachers</th>
                 {canEdit && <th style={{ width: 150 }}></th>}
@@ -133,6 +138,27 @@ export function SubjectCatalogue({
                         </div>
                       ) : (
                         <strong style={{ fontWeight: 600 }}>{s.name}</strong>
+                      )}
+                    </td>
+                    <td>
+                      {canEdit ? (
+                        <input
+                          type="number" min={1} max={60}
+                          aria-label={`Periods per week for ${s.name}`}
+                          style={{ width: 76 }}
+                          placeholder="—"
+                          defaultValue={s.periodsPerWeek ?? ''}
+                          onBlur={(e) => {
+                            const raw = e.target.value.trim();
+                            // Blank clears it. "Not allocated" is a real state and must stay
+                            // reachable — otherwise the only way back from a wrong number is a
+                            // different wrong number.
+                            const next = raw === '' ? null : Math.max(1, Math.min(60, Number(raw) || 1));
+                            if (next !== (s.periodsPerWeek ?? null)) onSetLoad(s.id, next);
+                          }}
+                        />
+                      ) : (
+                        <span className="muted">{s.periodsPerWeek ?? '—'}</span>
                       )}
                     </td>
                     <td className="muted" style={{ fontSize: 13 }}>

@@ -430,15 +430,26 @@ model Section {
 }
 
 model Subject {
-  id        String   @id @default(uuid()) @db.Uuid
-  schoolId  String   @map("school_id") @db.Uuid
-  school    School   @relation(fields: [schoolId], references: [id])
-  classId   String   @map("class_id") @db.Uuid
-  class     Class    @relation(fields: [classId, schoolId], references: [id, schoolId])
-  name      String
-  isActive  Boolean  @default(true) @map("is_active")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  id             String   @id @default(uuid()) @db.Uuid
+  schoolId       String   @map("school_id") @db.Uuid
+  school         School   @relation(fields: [schoolId], references: [id])
+  classId        String   @map("class_id") @db.Uuid
+  class          Class    @relation(fields: [classId, schoolId], references: [id, schoolId])
+  name           String
+  /// How many periods a week this subject is meant to get — the load a coordinator allocates
+  /// BEFORE placing anything on the grid ("Maths 6, English 6, Urdu 5, …").
+  ///
+  /// **Advisory, never enforced** (same posture as `sectionCapacityMode: ADVISORY`): the editor
+  /// reads "Maths — 4 of 6 placed" and nothing is ever refused, because a coordinator mid-build
+  /// legitimately overshoots and rebalances afterwards. Null means the school has not allocated a
+  /// load for this subject, which is different from allocating zero.
+  ///
+  /// Lives on `Subject` — already keyed `(classId, name)` — because the load is a class-level
+  /// academic decision: every section of Grade 9 gets the same six Maths periods.
+  periodsPerWeek Int?     @map("periods_per_week")
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
 
   examResults        ExamResult[]
   sections           SectionSubject[]

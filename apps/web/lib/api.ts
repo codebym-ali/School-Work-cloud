@@ -267,7 +267,7 @@ export interface Inquiry {
   desiredClassId: string; status: string; statusReason: string | null; createdAt: string;
   entryTest?: EntryTest | null; admission?: { id: string; studentId: string } | null;
 }
-export interface Subject { id: string; name: string; classId: string }
+export interface Subject { id: string; name: string; classId: string; periodsPerWeek: number | null }
 export interface SubjectCatalogueEntry { name: string; classCount: number }
 export interface Term { id: string; name: string; academicYearId: string; startDate: string; endDate: string }
 export interface GradeBand { label: string; minPercent: string; maxPercent: string; gradePoint: string }
@@ -334,6 +334,8 @@ export interface SectionTimetable {
   section: { id: string; name: string; class: { id: string; name: string; campusId: string } };
   /** The declared day this grid renders. Null ⇒ no timings set, and the shape is inferred instead. */
   bell: BellSchedule | null;
+  /** Advisory weekly load per subject. `target: null` ⇒ the school has not allocated one. */
+  load: Array<{ subjectId: string; name: string; target: number | null; placed: number }>;
   slots: TimetableSlot[];
 }
 /** `as` says which week you were given — a teacher's, a student's, or neither. */
@@ -911,8 +913,12 @@ export const api = {
     /** Every subject in scope — one call instead of one per class on the Setup screen. */
     listAll: () => apiGet<Subject[]>('/subjects'),
     catalogue: () => apiGet<SubjectCatalogueEntry[]>('/subjects/catalogue'),
-    create: (classId: string, name: string) => apiPost<Subject>('/subjects', { classId, name }),
+    create: (classId: string, name: string, periodsPerWeek?: number) =>
+      apiPost<Subject>('/subjects', { classId, name, periodsPerWeek }),
     rename: (id: string, name: string) => apiPatch<Subject>(`/subjects/${id}`, { name }),
+    /** Weekly load. `null` clears it — "not allocated" is a real state, distinct from zero. */
+    setLoad: (id: string, periodsPerWeek: number | null) =>
+      apiPatch<Subject>(`/subjects/${id}`, { periodsPerWeek }),
     remove: (id: string) => apiDelete<null>(`/subjects/${id}`),
   },
   terms: {

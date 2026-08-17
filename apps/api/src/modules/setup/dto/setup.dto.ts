@@ -107,6 +107,9 @@ export class UpdateSectionDto {
 
 export class UpdateSubjectDto {
   @IsOptional() @IsString() @MinLength(1) @MaxLength(80) name?: string;
+
+  /** Weekly load. `null` clears it — "not allocated" is a real state, distinct from zero. */
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(60) periodsPerWeek?: number | null;
 }
 
 export class SetSectionSubjectsDto {
@@ -121,6 +124,10 @@ export class CreateSubjectDto {
 
   @IsString() @MinLength(1) @MaxLength(80)
   name!: string;
+
+  /** How many periods a week this subject should get. Advisory — nothing is ever refused on it. */
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(60)
+  periodsPerWeek?: number;
 }
 
 // ── Holidays / closures ──────────────────────────────────────────────────────

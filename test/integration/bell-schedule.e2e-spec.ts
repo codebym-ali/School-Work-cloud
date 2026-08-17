@@ -131,7 +131,15 @@ describe('Bell schedule (e2e)', () => {
   });
 
   afterEach(async () => {
+    // FK order: lessons reference subjects, subjects are referenced by section_subjects.
     await platform.timetableSlot.deleteMany({ where: { schoolId } });
+    await platform.sectionSubject.deleteMany({ where: { schoolId } });
+    // ⚠️ The weekly load and the section's subject list are BOTH sticky, and both are read by the
+    // load meter — so leaving either behind lets one case decide another one's answer. The
+    // "unallocated is not zero" case would read `target: 2` purely because the case above it ran
+    // first, and would then pass or fail on test ORDER rather than on behaviour.
+    await platform.subject.deleteMany({ where: { schoolId, NOT: { id: subjectId } } });
+    await platform.subject.updateMany({ where: { schoolId }, data: { periodsPerWeek: null } });
     await platform.bellScheduleClass.deleteMany({ where: { schoolId } });
     await platform.bellPeriod.deleteMany({ where: { schoolId } });
     await platform.bellSchedule.deleteMany({ where: { schoolId } });
@@ -341,6 +349,45 @@ describe('Bell schedule (e2e)', () => {
     const grid = await get(`/api/v1/timetable/section/${sectionA}`);
     expect(grid.body.bell).toBeNull();
     expect(grid.body.slots[0].startTime).toBeNull();
+  });
+
+  // ── advisory subject load (P2) ────────────────────────────────────────────
+
+  it('reports the weekly load as placed-of-target, and never refuses an overshoot', async () => {
+    await patch(`/api/v1/subjects/${subjectId}`, { periodsPerWeek: 2 });
+    for (const periodNo of [1, 2, 3]) {
+      const r = await post('/api/v1/timetable/slots', { sectionId: sectionA, dayOfWeek: 1, periodNo, subjectId, staffId });
+      // Three placed against a target of two. Advisory means advisory — the third is accepted,
+      // because a coordinator mid-build overshoots and rebalances, and a rule that blocks that
+      // makes the tool worse than paper.
+      expect(r.status).toBe(201);
+    }
+    const grid = await get(`/api/v1/timetable/section/${sectionA}`);
+    const maths = grid.body.load.find((l: { name: string }) => l.name === 'Mathematics');
+    expect(maths).toMatchObject({ target: 2, placed: 3 });
+  });
+
+  it('distinguishes an unallocated load from a load of zero', async () => {
+    const grid = await get(`/api/v1/timetable/section/${sectionA}`);
+    const maths = grid.body.load.find((l: { name: string }) => l.name === 'Mathematics');
+    // Null, not 0. "We have not decided how many periods Maths gets" and "Maths gets none" are
+    // different statements, and only one of them should light up a shortfall chip.
+    expect(maths.target).toBeNull();
+    expect(maths.placed).toBe(0);
+  });
+
+  it('counts only the subjects this section actually takes', async () => {
+    const elective = (await post('/api/v1/subjects', { classId, name: 'Computer', periodsPerWeek: 2 })).body.id;
+    // The section takes Maths and not Computer — which is exactly what `section_subjects` is for.
+    await put(`/api/v1/sections/${sectionA}/subjects`, { subjectIds: [subjectId] });
+
+    const grid = await get(`/api/v1/timetable/section/${sectionA}`);
+    const names = grid.body.load.map((l: { name: string }) => l.name);
+    expect(names).toEqual(['Mathematics']);
+    // Iterating the CLASS's subjects would report a Computer shortfall against a section that does
+    // not study it — the A12 finding, and the reason this reads SectionSubject.
+    expect(names).not.toContain('Computer');
+    expect(elective).toBeTruthy();
   });
 
   // ── campus scope ──────────────────────────────────────────────────────────

@@ -145,3 +145,9 @@ ALTER TABLE bell_periods
 ALTER TABLE bell_periods DROP CONSTRAINT IF EXISTS chk_bell_period_day_of_week;
 ALTER TABLE bell_periods
   ADD CONSTRAINT chk_bell_period_day_of_week CHECK (day_of_week BETWEEN 1 AND 7);
+
+-- A subject's weekly load is a real allocation or absent — never zero-or-negative. NULL means "not
+-- allocated", which is a different statement from "allocated zero", and the column keeps both.
+ALTER TABLE subjects DROP CONSTRAINT IF EXISTS chk_subject_periods_per_week;
+ALTER TABLE subjects
+  ADD CONSTRAINT chk_subject_periods_per_week CHECK (periods_per_week IS NULL OR periods_per_week > 0);

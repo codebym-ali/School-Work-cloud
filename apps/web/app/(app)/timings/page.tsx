@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { api, ApiError, type BellSchedule, type Campus } from '@/lib/api';
+import { api, ApiError, apiGet, type BellSchedule, type Campus, type Klass } from '@/lib/api';
 import { DAY_NAMES, DAY_SHORT } from '@/lib/timetable';
 import { type DraftRow, daySummary, previewDay } from '@/lib/timings';
 
@@ -29,6 +29,10 @@ export default function TimingsPage() {
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [newName, setNewName] = useState('Regular');
   const [newCampus, setNewCampus] = useState('');
+  const [classes, setClasses] = useState<Klass[]>([]);
+  const [wingName, setWingName] = useState('');
+  const [wingClasses, setWingClasses] = useState<string[]>([]);
+  const [showWing, setShowWing] = useState(false);
 
   const schedule = schedules.find((s) => s.id === scheduleId) ?? null;
 
@@ -49,6 +53,7 @@ export default function TimingsPage() {
   useEffect(() => {
     load();
     api.campuses.list().then((c) => { setCampuses(c); if (c[0]) setNewCampus(c[0].id); }).catch(() => {});
+    apiGet<Klass[]>('/classes').then(setClasses).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -104,6 +109,43 @@ export default function TimingsPage() {
     } finally { setBusy(false); }
   }
 
+  /**
+   * A wing schedule — Primary out at 12:30 while Secondary runs to 14:00, on one campus.
+   *
+   * ⚠️ A class may follow exactly ONE schedule, and the server refuses a second naming the first.
+   * That is not a tidiness rule: two schedules claiming one class is precisely what would make
+   * `periodNo` mean two different things for that class's sections, and it is the invariant that
+   * let the seasonal-variant idea be cut rather than modelled.
+   */
+  async function createWing() {
+    const campusId = schedule?.campusId ?? newCampus;
+    if (!campusId || !wingName.trim() || wingClasses.length === 0) return;
+    setBusy(true);
+    setMsg(null);
+    try {
+      const created = await api.bellSchedules.create({ campusId, name: wingName.trim(), classIds: wingClasses });
+      await load(created.id);
+      setWingName(''); setWingClasses([]); setShowWing(false);
+      setMsg({ ok: true, text: `"${created.name}" created. Compose its days — the classes on it now follow these timings.` });
+    } catch (e) {
+      setMsg({ ok: false, text: e instanceof ApiError ? e.message : 'Could not create the wing schedule.' });
+    } finally { setBusy(false); }
+  }
+
+  async function removeSchedule(id: string, name: string) {
+    setBusy(true);
+    setMsg(null);
+    try {
+      await api.bellSchedules.remove(id);
+      await load();
+      // Nothing is stranded: those classes fall back to the campus default, or to no timings at
+      // all — which is a supported state, not a broken one.
+      setMsg({ ok: true, text: `"${name}" retired. Its classes now follow the campus default.` });
+    } catch (e) {
+      setMsg({ ok: false, text: e instanceof ApiError ? e.message : 'Could not retire that schedule.' });
+    } finally { setBusy(false); }
+  }
+
   async function createSchedule() {
     setBusy(true);
     setMsg(null);
@@ -151,22 +193,67 @@ export default function TimingsPage() {
         </div>
       ) : (
         <>
-          {schedules.length > 1 && (
-            <div className="card">
-              <div className="inline-form">
-                <div style={{ minWidth: 280 }}>
-                  <label htmlFor="tm-schedule">Schedule</label>
-                  <select id="tm-schedule" value={scheduleId} onChange={(e) => setScheduleId(e.target.value)}>
-                    {schedules.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.campusName} — {s.name}{s.isDefault ? ' (default)' : ` (${s.classes.length} classes)`}
-                      </option>
-                    ))}
-                  </select>
+          <div className="card stack" style={{ gap: 8 }}>
+            <div className="inline-form">
+              <div style={{ minWidth: 300 }}>
+                <label htmlFor="tm-schedule">Schedule</label>
+                <select id="tm-schedule" value={scheduleId} onChange={(e) => setScheduleId(e.target.value)}>
+                  {schedules.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.campusName} — {s.name}{s.isDefault ? ' (campus default)' : ` (${s.classes.length} ${s.classes.length === 1 ? 'class' : 'classes'})`}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <button className="ghost small" onClick={() => setShowWing(!showWing)}>
+                {showWing ? 'Cancel' : '+ Wing schedule'}
+              </button>
+              {schedule && !schedule.isDefault && (
+                <button className="ghost small" style={{ color: '#b91c1c' }} disabled={busy}
+                  onClick={() => removeSchedule(schedule.id, schedule.name)}>Retire</button>
+              )}
+            </div>
+
+            <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+              {schedule?.isDefault
+                ? 'The campus default — every class that is not on a wing schedule follows it.'
+                : `Followed by ${schedule?.classes.map((c) => c.name).join(', ') || 'no classes'}.`}
+            </p>
+
+            {showWing && (
+              <div className="stack" style={{ gap: 8 }}>
+                <div className="inline-form">
+                  <div style={{ minWidth: 220 }}>
+                    <label htmlFor="tm-wing">Name</label>
+                    <input id="tm-wing" placeholder="Primary Wing" value={wingName}
+                      onChange={(e) => setWingName(e.target.value)} />
+                  </div>
+                  <button disabled={busy || !wingName.trim() || wingClasses.length === 0} onClick={createWing}>
+                    {busy ? 'Creating…' : 'Create'}
+                  </button>
+                </div>
+                <div className="stack" style={{ gap: 4 }}>
+                  <label>Classes that follow it</label>
+                  <div className="chips">
+                    {classes
+                      .filter((k) => k.campusId === (schedule?.campusId ?? newCampus))
+                      .map((k) => (
+                        <button key={k.id} type="button" aria-pressed={wingClasses.includes(k.id)}
+                          className={wingClasses.includes(k.id) ? 'small' : 'ghost small'}
+                          onClick={() => setWingClasses(wingClasses.includes(k.id)
+                            ? wingClasses.filter((x) => x !== k.id) : [...wingClasses, k.id])}>
+                          {k.name}
+                        </button>
+                      ))}
+                  </div>
+                  <p className="muted" style={{ margin: 0, fontSize: 12 }}>
+                    A class can only follow one schedule — picking one already on another wing is
+                    refused, and the message names where it sits.
+                  </p>
                 </div>
               </div>
-            </div>
-          )}
+            )}
+          </div>
 
           <div className="chips" aria-label="Day">
             {[1, 2, 3, 4, 5, 6, 7].map((d) => {

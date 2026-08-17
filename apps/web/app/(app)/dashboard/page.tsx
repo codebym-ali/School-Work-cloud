@@ -84,19 +84,32 @@ const greeting = () => {
 };
 
 /**
- * One metric tile: circular icon badge, big numeral, small uppercase caption (design reference §5,
- * "Student Statistics"). Every tile is a link — these are the way into the screen behind the
- * number, and always have been, so `.metric-link` stays for the hover lift and the focus ring
- * (`a.metric-link:focus-visible` in globals.css is what a keyboard user steers by).
+ * One metric tile: circular icon badge, then the numeral **stacked over** its caption (design
+ * reference §5, "Student Statistics"). Every tile is a link — these are the way into the screen
+ * behind the number — so `.metric-link` stays for the focus ring (`a.metric-link:focus-visible`
+ * in globals.css is what a keyboard user steers by).
+ *
+ * ⚠️ **The numeral and caption are stacked, not side by side, and that is a bug fix rather than
+ * a restyle.** Laid out as three flex children in a ROW, the tile's width was the *sum* of icon +
+ * numeral + caption: "Rs 90,000.00 / Collections (month)" needed **311px** in a **228px** grid
+ * cell and spilled **73px into the next tile**, where the neighbour's opaque background covered
+ * it on hover. Stacking makes the width `max(numeral, caption)` instead of their sum, which is
+ * what the reference does and what stops the tile outgrowing its column.
+ *
+ * `stat--money` exists because a currency string is intrinsically several times longer than a
+ * count — "Rs 90,000.00" against "17" — so it takes a smaller step of the same scale. One size
+ * for both means either a tiny count or an overflowing total.
  */
-function Stat({ href, icon, tone, value, caption }: {
-  href: string; icon: IconName; tone: Tone; value: ReactNode; caption: string;
+function Stat({ href, icon, tone, value, caption, money }: {
+  href: string; icon: IconName; tone: Tone; value: ReactNode; caption: string; money?: boolean;
 }) {
   return (
-    <Link href={href} className={`stat metric-link is-${tone}`}>
+    <Link href={href} className={`stat metric-link is-${tone}${money ? ' stat--money' : ''}`}>
       <span className={`ico is-${tone}`}><Icon name={icon} size={20} /></span>
-      <div className="value">{value}</div>
-      <div className="caption">{caption}</div>
+      <span className="stat-text">
+        <span className="value">{value}</span>
+        <span className="caption">{caption}</span>
+      </span>
     </Link>
   );
 }
@@ -228,6 +241,7 @@ export default function DashboardPage() {
                     tone={toneOf(t)}
                     value={display(t)}
                     caption={t.label}
+                    money={t.money}
                   />
                 ))}
               </div>

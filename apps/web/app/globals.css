@@ -158,7 +158,9 @@ h1 { font-size: 22px; margin: 0 0 4px; }
       in practice. It only engages where the alternative was overflow.
    ⚠️ The clamp floor is 20px and must stay ≥19px: the status colours below rely on the
    numeral qualifying as WCAG "large text". */
-.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 14px; }
+/* 220px, not 200: the widest tile content (a money numeral over its caption) needs it, and a
+   column narrower than its contents is how the previous overflow reached a neighbour. */
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; }
 .metric {
   border: 1px solid var(--border); border-radius: var(--r-lg); padding: 16px;
   background: var(--card); box-shadow: var(--shadow-card);
@@ -188,7 +190,20 @@ h1 { font-size: 22px; margin: 0 0 4px; }
    rule paints them brand-on-white, which on a .metric would be white text on a white card —
    the same defect that once hid the admissions chip labels. */
 .metric-link { display: block; text-align: left; text-decoration: none; color: var(--ink); background: var(--card); transition: box-shadow .15s ease, transform .15s ease, border-color .15s ease; }
-.metric-link:hover { transform: translateY(-2px); box-shadow: var(--shadow-raise); border-color: var(--brand); }
+/* ⚠️ **The lift belongs to a CARD, not to a row.** `.metric` is a bordered, padded tile and
+   lifting it reads correctly. A `.stat` is a row *inside* a panel that is already a card, and
+   lifting it out of its own container is what made hover look wrong — `transform` also opens a
+   stacking context, so the raised row painted its opaque background over any neighbour's content.
+   Scoped to `.metric` so the staff-attendance tiles keep the behaviour they were designed with. */
+.metric.metric-link:hover { transform: translateY(-2px); box-shadow: var(--shadow-raise); border-color: var(--brand); }
+/* ⚠️ Transparent at rest, overriding `.metric-link`'s `--card` fill. A `.metric` needs an opaque
+   white fill because it IS the card; a `.stat` sits inside one, so the fill bought nothing and
+   was the thing that hid a neighbour's text when it overlapped. Transparent means the worst a
+   future overflow can do is look untidy rather than delete information. */
+.stat.metric-link { background: transparent; }
+/* A row states "you can click me" by tinting and outlining in place — no lift, no shadow, no
+   stacking context, so it can never cover what is beside it. */
+.stat.metric-link:hover { background: var(--brand-tint); border-color: var(--brand); }
 .metric-link .metric-go { font-size: 12px; color: var(--brand); margin-top: 8px; opacity: 0; transition: opacity .15s ease; }
 .metric-link:hover .metric-go { opacity: 1; }
 button.metric-link { width: 100%; font: inherit; cursor: pointer; }
@@ -275,7 +290,19 @@ a.metric-link.pipeline-card .metric-go { opacity: 1; margin-top: 0; }
   /* Same reason as `.metric`: the numeral clamp below is tile-relative, and cqi units need a
      container to resolve against. Without this they would silently fall back to the viewport. */
   container-type: inline-size;
+  /* ⚠️ A real box, because this is also a `.metric-link` and therefore hoverable. It had
+     `padding: 0`, no radius and no border, so the hover state painted a hard-edged white slab
+     tight around the text with a 32px shadow hanging off it. */
+  padding: 10px 12px; border-radius: var(--r-md);
+  /* Transparent, not absent: `.metric-link:hover` sets `border-color` only, and a colour on a
+     zero-width border paints nothing — which is why the hover had no outline at all. Reserving
+     the 1px here also means hover cannot shift the layout by a pixel. */
+  border: 1px solid transparent;
 }
+/* The numeral sits OVER its caption. As three flex children in a row the tile's width was their
+   sum, and the money tile outgrew its grid column by 87px. `min-width: 0` lets this column
+   actually shrink inside the flex row rather than forcing the tile wider than its cell. */
+.stat .stat-text { display: flex; flex-direction: column; min-width: 0; gap: 1px; }
 .stat .ico {
   flex: none; width: 40px; height: 40px; border-radius: var(--r-pill);
   display: grid; place-items: center;
@@ -290,10 +317,15 @@ a.metric-link.pipeline-card .metric-go { opacity: 1; margin-top: 0; }
 .stat .ico.is-warn   { background: var(--warn-tint);   color: var(--warn-ink); }
 .stat .ico.is-danger { background: var(--danger-tint); color: var(--danger-ink); }
 .stat .value {
-  font-size: clamp(20px, 16cqi, 28px);   /* 28px in practice; see the .metric note above */
-  font-weight: 800; color: var(--brand); line-height: 1.1;
+  font-size: clamp(18px, 13cqi, 26px);
+  font-weight: 800; color: var(--brand); line-height: 1.15;
   white-space: nowrap; font-variant-numeric: tabular-nums;
 }
+/* ⚠️ **Currency takes a smaller step, and that is not a preference.** "Rs 90,000.00" is ~9×
+   the glyph count of "17"; at one shared size either the count looks weak or the total overflows
+   its column — which is exactly what happened. Sized so a seven-figure total still fits the
+   narrowest column the grid will produce. */
+.stat--money .value { font-size: clamp(15px, 9cqi, 20px); }
 .stat .caption {
   font-size: 11px; text-transform: uppercase; letter-spacing: .04em;
   color: var(--muted); line-height: 1.3;
@@ -310,6 +342,16 @@ a.metric-link.pipeline-card .metric-go { opacity: 1; margin-top: 0; }
 .stat.is-warn .value   { color: var(--warn); }
 .stat.is-danger .value { color: var(--danger); }
 .stat.is-info .value   { color: var(--info); }
+/* ⚠️ **The money numeral is BELOW that threshold, so it takes the -ink variants — exactly what
+   the note above prescribes.** `.stat--money` sets ~18px to stop a currency string overflowing its
+   column, and 18.27px bold is *not* WCAG large text (that starts at 18.66px): the floor jumps from
+   3:1 to 4.5:1 and `--ok` at 3.25 fails. This is the second time in this stylesheet that shrinking
+   type has silently changed which contrast floor applies — **a font-size change is a contrast
+   change**, and the saturated status tokens only ever cleared the large-text floor. */
+.stat--money.is-ok .value     { color: var(--ok-ink); }
+.stat--money.is-warn .value   { color: var(--warn-ink); }
+.stat--money.is-danger .value { color: var(--danger-ink); }
+.stat--money.is-info .value   { color: var(--info-ink); }
 
 /* ══ U3 · Money ══════════════════════════════════════════════════════════════
    Amounts are compared down a column, so the digits must line up (tabular figures) and the

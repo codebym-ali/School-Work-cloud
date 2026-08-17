@@ -1,7 +1,7 @@
 ---
 title: Timetable & Bell Schedule Plan (period times, day shape, subject load)
 type: plan
-status: PLANNED — v2 after audit, 2026-08-17. Decisions taken, nothing built yet.
+status: COMPLETE — P0–P5 SHIPPED 2026-08-17 (v2 plan, audited before building)
 updated: 2026-08-17
 ---
 
@@ -13,6 +13,9 @@ updated: 2026-08-17
 > found in the plan itself**, one of which would have punched the first hole in tenant isolation with
 > all three layers blind to it. §13 records what changed and why — that appendix is the most useful
 > part of this document for the next plan anyone writes here.
+
+> [!success] **BUILT 2026-08-17 — all six phases. §14 records what shipped, what the plan got wrong
+> in the build, and the two things the plan asked for that were deliberately not done.**
 
 ## 1. What happens today, checked in the code
 
@@ -386,3 +389,88 @@ critical.** Recorded in full because the corrections are worth more than the pla
 was found by asking *"what does this Prisma shorthand actually create?"* — and answering it exposed a
 standing blind spot in the CI gate that the whole tenancy story rests on. **Auditing the plan was
 cheaper than auditing the product, and it found a product defect.**
+
+
+## 14. As built — P0–P5, 2026-08-17
+
+Six phases in one session. **Gates at the end:** unit **69** · integration **991/991 across 37
+suites** · isolation 7 · Playwright **42 passed / 2 skipped / 0 failed** · matrix **562** · RLS
+coverage **+ the new tenant-enrolment check** · migration safety · lint (api + web) · root / e2e /
+web typechecks · api+worker builds.
+
+### What each phase actually did
+
+- **P0** — `bell_schedules` / `bell_schedule_classes` / `bell_periods`, the whole-day `PUT`, the
+  *School Timings* screen, three partial uniques, four CHECKs, four audit actions. Plus the RLS-gate
+  fix (below), which is the part that mattered most and had nothing to do with timetables.
+- **P1** — `weekShape()` renders the declared day; `periodsByDay` gives each day its own count;
+  times ride every lesson, resolved **per section** in the service so the three screens cannot
+  disagree; `assertPeriodExists` conditional on a schedule existing.
+- **P2** — `Subject.periodsPerWeek`, a Periods/week column, and a "Maths — 4 of 6" strip. Advisory.
+- **P3** — `POST /timetable/copy-day`, every cell routed through `setSlot` so all five placement
+  rules apply, `{ created, skipped }` with a reason per skip, nothing overwritten.
+- **P4** — the wing override exposed (model shipped in P0, exactly so this needed no migration).
+- **P5** — 7 matrix rows, the timetable's **first ever** Playwright spec, full-suite verification.
+
+### ⚠️ The most valuable thing built was not a timetable feature
+
+`scripts/check-rls-coverage.mjs` selects `WHERE column_name = 'school_id'`, so **a tenant table
+without that column was never a candidate and passed green.** It detected a forgotten policy and
+could not detect a forgotten column — and `05_rls.sql` and the Prisma extension share the same
+assumption, so all three isolation layers fail together on that one case.
+
+Proven, not argued: created a bare `_BellScheduleToClass` table (exactly what Prisma's implicit m2m
+would have produced) and watched **`✔ RLS coverage` print while it sat there unprotected**, then
+watched the new enrolment check fail with exit 1. Both directions measured.
+
+### Where the plan was wrong, and what was done instead
+
+| | The plan said | What shipped, and why |
+|---|---|---|
+| **Breaks in the grid** | render as full-width bands | **Not done.** Each day is composed independently, so the assembly is row 1 on Monday and absent on Friday; one band across seven columns draws a break on days that do not have it. Breaks stay on the day-oriented Timings screen. |
+| **`gridShape()`** | "is deleted" | **Kept as the fallback.** Deleting it contradicts the conditional check in §3.5 — a school with no timings still needs a grid. The plan held two incompatible sentences and only the audit's A3 caught one of them. |
+| **Nested create** | (unstated) | §3.1's own comment named the composite-FK trap and the first draft of `create()` walked into it anyway — nested `classes: { create: [...] }` with `schoolId`. Attachments are top-level creates. **Writing a rule down is not the same as following it.** |
+| **`isDefault`** | derived from "has no classes" | **Stored.** A partial index predicate cannot reach into another table, so deriving it would have left the rule enforceable only in the service — and F0 settled that a uniqueness invariant here gets both layers. |
+
+### The probes, all nine
+
+Each phase was broken under its own tests before being believed:
+
+- one-schedule-per-class removed → **2 fail** · retain-count ignoring which classes follow the bell →
+  **1** · campus check removed → **1**
+- period check removed → **1** · period check made **unconditional** → **14**, thirteen of them in
+  the *existing* timetable spec — which is exactly what every school with a grid and no timings would
+  have experienced on deploy
+- load meter iterating the class's subjects instead of the section's → **1**
+- copy overwriting an occupied cell → **2**
+- absent-period cells rendered as ordinary empty ones → **1 Playwright failure**
+
+### Two test-quality problems found while writing the tests
+
+- ⚠️ **`periodsPerWeek` and `section_subjects` are both sticky**, and both feed the load meter. With
+  no `afterEach` reset the "unallocated is not zero" case read `target: 2` purely because the case
+  above it had run first — it would have passed or failed on **test order**, not on behaviour.
+- Two failures in the first integration run were **my spec's fault, not the product's**: arithmetic
+  in an asserted end-time, and a fixture reaching for a far-campus class that the (correct)
+  cross-campus rule refused. Fifth time in this repo that a test has been wrong about the world
+  rather than about the code.
+
+### Verified live, on demo
+
+Mon–Thu 4 periods with a 15-minute assembly and a mid-morning break; **Friday 2 periods**; the grid
+showing Friday period 1 at **08:00–08:40** against Mon–Thu's **08:15–08:55**, Friday periods 3–4 as
+**—**, and no Saturday or Sunday column at all. Creating a second wing over a class already on one
+returned **"8th already follows \"Primary Wing\". A class can only follow one schedule."**
+
+**Demo left with the `Regular` default schedule in place and the test wing retired** — the tenant
+holds zero timetable slots, so no lesson anywhere is affected by it.
+
+### Still open, deliberately
+
+- **Copy lessons to a sibling section** — needs its own decision (teacher-substitution map, or not
+  at all). Reason recorded in `CopyDayDto`.
+- **Copy a year's grid forward.** Slots and schedules are both year-scoped, so a rollover still
+  rebuilds every grid by hand. Highest-value thing not in this plan, unchanged.
+- **Seasonal (Ramadan) variants** — §7. Editing the timings is the mechanism, and the retain-and-warn
+  rule is what makes it safe.
+- **Exam weeks and half days** — `Holiday` still does not intersect the timetable.

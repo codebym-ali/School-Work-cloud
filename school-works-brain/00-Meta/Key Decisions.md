@@ -521,6 +521,10 @@ Blueprint's AWS reference (RDS/ECS/S3/KMS…) is replaced by **Contabo + Coolify
 
 ## ⚠️ An implicit Prisma many-to-many is a hole in tenancy the CI gate cannot see (added 2026-08-17)
 
+- ✅ **Gate fixed and proven the same day** (bell-schedule P0). `check-rls-coverage.mjs` now also
+  asserts that no `public` table outside a four-name allowlist lacks `school_id`. Demonstrated in both
+  directions: a bare `_BellScheduleToClass` table made `✔ RLS coverage` print while it sat there
+  unprotected, and made the new check exit 1.
 - **Never write `classes Class[]` on both sides of a relation in this schema.** Prisma creates an
   *implicit* join table with only `A`/`B` uuid columns and **no `school_id`** — so `05_rls.sql`, which
   loops tables that carry `school_id`, gives it no policy, and the Prisma extension, which merges

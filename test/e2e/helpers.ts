@@ -99,6 +99,21 @@ export async function apiSetupPost<T = unknown>(page: Page, path: string, body: 
 }
 
 /**
+ * Authenticated same-origin PUT. Needed because a bell-schedule day is written as a whole — the
+ * only granularity at which a day-level invariant can hold — so there is no POST to seed one with.
+ */
+export async function apiSetupPut<T = unknown>(page: Page, path: string, body: unknown): Promise<T> {
+  const cookies = await page.context().cookies();
+  const csrf = cookies.find((c) => c.name === 'csrf')?.value ?? '';
+  const res = await page.request.put(`http://localhost:3001/api/v1${path}`, {
+    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
+    data: body,
+  });
+  if (!res.ok()) throw new Error(`Setup PUT ${path} failed: ${res.status()} ${await res.text()}`);
+  return res.json() as Promise<T>;
+}
+
+/**
  * Authenticated same-origin DELETE, for a spec tidying up what it created.
  *
  * These specs run against the operator's real demo tenant, so anything a spec creates and does

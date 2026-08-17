@@ -1,7 +1,7 @@
 import { Body, Controller, Delete, Get, Param, Post, Query } from '@nestjs/common';
 import { Roles } from '@common';
 import { TimetableService } from './timetable.service';
-import { SetSlotDto, TimetableQuery } from './dto/timetable.dto';
+import { CopyDayDto, SetSlotDto, TimetableQuery } from './dto/timetable.dto';
 
 /**
  * Timetable (blueprint §23 row "Teacher assignments & timetable").
@@ -45,6 +45,16 @@ export class TimetableController {
   @Post('slots')
   setSlot(@Body() dto: SetSlotDto) {
     return this.timetable.setSlot(dto);
+  }
+
+  /**
+   * Copy one day's lessons onto others. Returns `{ created, skipped }` — a partial copy is the
+   * normal outcome once a week is half built, so it is reported rather than treated as failure.
+   */
+  @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
+  @Post('copy-day')
+  copyDay(@Body() dto: CopyDayDto) {
+    return this.timetable.copyDay(dto);
   }
 
   @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')

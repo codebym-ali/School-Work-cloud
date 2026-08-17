@@ -1,7 +1,7 @@
 ---
 title: Key Decisions
 type: meta
-updated: 2026-07-14
+updated: 2026-08-17
 ---
 
 # Key Decisions
@@ -518,5 +518,42 @@ Blueprint's AWS reference (RDS/ECS/S3/KMS…) is replaced by **Contabo + Coolify
 - **Now names the fault and offers a way forward** — status, a Try again, and a Sign in link. The
   same shape as the guard that refused ADMISSION fee structures: **saying no loudly beats failing
   silently**, because a silent failure is indistinguishable from a crash.
+
+## ⚠️ An implicit Prisma many-to-many is a hole in tenancy the CI gate cannot see (added 2026-08-17)
+
+- ✅ **Gate fixed and proven the same day** (bell-schedule P0). `check-rls-coverage.mjs` now also
+  asserts that no `public` table outside a four-name allowlist lacks `school_id`. Demonstrated in both
+  directions: a bare `_BellScheduleToClass` table made `✔ RLS coverage` print while it sat there
+  unprotected, and made the new check exit 1.
+- **Never write `classes Class[]` on both sides of a relation in this schema.** Prisma creates an
+  *implicit* join table with only `A`/`B` uuid columns and **no `school_id`** — so `05_rls.sql`, which
+  loops tables that carry `school_id`, gives it no policy, and the Prisma extension, which merges
+  `schoolId` into every operation, has nothing to merge into. A table holding tenant data, unprotected.
+- ⚠️ **And `scripts/check-rls-coverage.mjs` passes it green.** The query starts
+  `WHERE c.column_name = 'school_id'`, so a table without that column is never a candidate. **The gate
+  can only police tables that already opted in** — it detects a forgotten policy, never a forgotten
+  column. All three isolation layers share one assumption and fail together when it does not hold.
+- **Every many-to-many here is an explicit tenant-chained model** — `SectionSubject`,
+  `StudentGuardian`, `TeacherAssignment` — each with `schoolId` and composite `(id, schoolId)` FKs.
+  Verified while auditing the timetable plan: **0** implicit join tables exist across 37 migrations.
+  The convention was universal and undocumented, which is how a plan reached for the shorthand.
+- **Found by auditing a PLAN, not the product**, by asking what a piece of Prisma shorthand actually
+  creates. The gate hardening (assert no `public` table outside a small allowlist lacks `school_id`)
+  is scoped into [[Timetable & Bell Schedule Plan]] P0.
+
+## Make the bad state inexpressible before you make it invalid (added 2026-08-17)
+
+- The timetable plan's first draft required bell-schedule rows to be **contiguous** (no gaps, no
+  overlaps) while offering **row-level** add/remove/reorder. A whole-day invariant cannot be checked on
+  a single-row write: you either accept an edit that breaks the day or reject a legal intermediate one.
+- **The fix was not better validation.** The day is written atomically, and **the client sends
+  durations while the server computes every time from the day's start.** There is no input that
+  expresses a gap or an overlap, so neither can be created, and `sequence` and `periodNo` are assigned
+  rather than typed — which also removes the "period 7 that no bell rings for".
+- Same shape as two rules already here: `Student.userId` makes cross-student portal access
+  *structurally* impossible rather than guarded, and `/portal/*` takes no id from the client at all.
+  **A constraint the API cannot violate beats one it must remember not to.**
+- The general form: when a rule spans several rows, look for the write granularity that makes it a
+  property of the input rather than a check on the output.
 
 **Source:** [[consistency-register]] · [[school-management-master-blueprint]] §2–§34

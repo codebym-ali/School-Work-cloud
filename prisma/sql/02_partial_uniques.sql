@@ -104,3 +104,35 @@ CREATE UNIQUE INDEX IF NOT EXISTS cover_one_per_section_period
 CREATE UNIQUE INDEX IF NOT EXISTS cover_one_per_section_day
   ON cover_assignments (school_id, section_id, date)
   WHERE period_no IS NULL;
+
+-- ── Bell schedule ───────────────────────────────────────────────────────────
+-- One default (campus fallback) schedule per campus, per academic year.
+--
+-- `is_default` is a stored column rather than "the schedule with no classes attached", because a
+-- partial index predicate cannot reach into another table — deriving it would have left this rule
+-- enforceable only in the service, and F0 (the accountant seat) settled that a uniqueness invariant
+-- here gets both layers.
+--
+-- Predicated on `deleted_at IS NULL` so retiring a schedule frees the slot at once, exactly like the
+-- campus-seat indexes above.
+CREATE UNIQUE INDEX IF NOT EXISTS bell_schedules_one_default
+  ON bell_schedules (campus_id, academic_year_id)
+  WHERE is_default AND deleted_at IS NULL;
+
+-- Names are unique per campus+year, case-insensitively — "Primary" and "primary" are one schedule
+-- to everybody except a database. Mirrors the campus-name rule (2026-07-xx Users & roles).
+CREATE UNIQUE INDEX IF NOT EXISTS bell_schedules_name_per_campus_year
+  ON bell_schedules (campus_id, academic_year_id, lower(name))
+  WHERE deleted_at IS NULL;
+
+-- One period number per day, per schedule.
+--
+-- PARTIAL, because `period_no` is NULL on breaks and **Postgres treats NULLs as DISTINCT**. A plain
+-- `UNIQUE (schedule_id, day_of_week, period_no)` would accept two period-3s while happily allowing
+-- the several breaks a real day needs — the NULL behaviour is wanted on one side of this column and
+-- fatal on the other, in the SAME column. Third appearance of this rule in this file:
+-- `fee_invoices.psid` relies on it deliberately, `cover_assignments` needed two indexes to work
+-- around it. Do not "simplify" this into an unconditional unique.
+CREATE UNIQUE INDEX IF NOT EXISTS bell_periods_one_period_no
+  ON bell_periods (schedule_id, day_of_week, period_no)
+  WHERE period_no IS NOT NULL;

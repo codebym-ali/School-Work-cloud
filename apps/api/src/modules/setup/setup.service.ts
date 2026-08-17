@@ -574,7 +574,14 @@ export class SetupService {
   // ── Subjects ───────────────────────────────────────────────────────────────
   async createSubject(dto: CreateSubjectDto) {
     await this.assertClassCampus(dto.classId);
-    return this.db.subject.create({ data: { schoolId: this.sid, classId: dto.classId, name: normalizeSubjectName(dto.name) } });
+    return this.db.subject.create({
+      data: {
+        schoolId: this.sid,
+        classId: dto.classId,
+        name: normalizeSubjectName(dto.name),
+        periodsPerWeek: dto.periodsPerWeek ?? null,
+      },
+    });
   }
 
   async subjectCatalogue() {
@@ -683,7 +690,16 @@ export class SetupService {
     const subject = await this.db.subject.findFirst({ where: { id }, select: { classId: true } });
     if (!subject) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'Subject not found');
     await this.assertClassCampus(subject.classId);
-    return this.db.subject.update({ where: { id }, data: { name: dto.name ? normalizeSubjectName(dto.name) : undefined } });
+    return this.db.subject.update({
+      where: { id },
+      data: {
+        name: dto.name ? normalizeSubjectName(dto.name) : undefined,
+        // `undefined` leaves the load alone; `null` clears it. Those are different requests, so
+        // the check is against `undefined` rather than falsiness — `?? undefined` would silently
+        // turn "stop allocating a load for this subject" into a no-op.
+        periodsPerWeek: dto.periodsPerWeek === undefined ? undefined : dto.periodsPerWeek,
+      },
+    });
   }
 
   async deleteSubject(id: string): Promise<void> {

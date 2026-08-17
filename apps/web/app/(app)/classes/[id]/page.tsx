@@ -223,6 +223,9 @@ export default function ClassDetailPage() {
             names.length === 1 ? 'Subject added' : `${names.length} subjects added`)}
         onRename={(id, name) => run(`subject:${id}`, () => api.subjects.rename(id, name), 'Subject renamed')}
         onRemove={(id) => run(`subject:${id}`, () => api.subjects.remove(id), 'Subject removed')}
+        onSetLoad={(id, periodsPerWeek) =>
+          run(`subject-load:${id}`, () => api.subjects.setLoad(id, periodsPerWeek),
+            periodsPerWeek === null ? 'Weekly load cleared' : `Weekly load set to ${periodsPerWeek}`)}
       />
 
       <SectionList

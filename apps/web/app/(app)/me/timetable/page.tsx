@@ -57,6 +57,11 @@ export default function MyTimetable() {
                     <td key={d} style={{ verticalAlign: 'top', minWidth: 130 }}>
                       {slot ? (
                         <div className="stack" style={{ gap: 1 }}>
+                          {/* When, before what — a student reading their week is placing the
+                              lesson in the day. Absent until the school sets its timings. */}
+                          {slot.startTime && (
+                            <span className="muted" style={{ fontSize: 11 }}>{slot.startTime}–{slot.endTime}</span>
+                          )}
                           <strong style={{ fontSize: 13 }}>{slot.subject.name}</strong>
                           <span className="muted" style={{ fontSize: 12 }}>{teacherLabel(slot)}</span>
                           {slot.room && <span className="muted" style={{ fontSize: 12 }}>{slot.room}</span>}

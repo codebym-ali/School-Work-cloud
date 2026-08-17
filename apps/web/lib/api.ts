@@ -267,7 +267,7 @@ export interface Inquiry {
   desiredClassId: string; status: string; statusReason: string | null; createdAt: string;
   entryTest?: EntryTest | null; admission?: { id: string; studentId: string } | null;
 }
-export interface Subject { id: string; name: string; classId: string }
+export interface Subject { id: string; name: string; classId: string; periodsPerWeek: number | null }
 export interface SubjectCatalogueEntry { name: string; classCount: number }
 export interface Term { id: string; name: string; academicYearId: string; startDate: string; endDate: string }
 export interface GradeBand { label: string; minPercent: string; maxPercent: string; gradePoint: string }
@@ -323,6 +323,8 @@ export interface SetOfficerResult {
 // ── Staff / Teachers (HR, §13) ───────────────────────────────────────────────
 export interface TimetableSlot {
   id: string; dayOfWeek: number; periodNo: number; room: string | null;
+  /** From the section's bell. **Null when the school has not set its timings** — not a zero. */
+  startTime: string | null; endTime: string | null;
   subject: { id: string; name: string };
   staff: { id: string; fullName: string | null; employeeCode: string };
   section: { id: string; name: string; class: { id: string; name: string; campusId: string } };
@@ -330,13 +332,49 @@ export interface TimetableSlot {
 export interface SectionTimetable {
   sectionId: string; academicYearId: string;
   section: { id: string; name: string; class: { id: string; name: string; campusId: string } };
+  /** The declared day this grid renders. Null ⇒ no timings set, and the shape is inferred instead. */
+  bell: BellSchedule | null;
+  /** Advisory weekly load per subject. `target: null` ⇒ the school has not allocated one. */
+  load: Array<{ subjectId: string; name: string; target: number | null; placed: number }>;
   slots: TimetableSlot[];
 }
 /** `as` says which week you were given — a teacher's, a student's, or neither. */
-export interface MyTimetable { as: 'TEACHER' | 'STUDENT' | 'NONE'; academicYearId: string; slots: TimetableSlot[] }
+export interface MyTimetable {
+  as: 'TEACHER' | 'STUDENT' | 'NONE'; academicYearId: string;
+  /** Present for a student (one section). A teacher's week can cross wings, so times ride the slots. */
+  bell?: BellSchedule | null;
+  slots: TimetableSlot[];
+}
 export interface TimetableCoverage {
   academicYearId: string;
   sections: Array<{ sectionId: string; className: string; sectionName: string; slots: number }>;
+}
+
+// ── Bell schedule (the school's own clock) ───────────────────────────────────
+/** One row of a composed day. Teaching rows are numbered; breaks carry a label instead. */
+export interface BellRow {
+  id: string; sequence: number; isTeaching: boolean;
+  periodNo: number | null; label: string | null;
+  startTime: string; endTime: string;
+}
+export interface BellDay {
+  dayOfWeek: number;
+  /** Null on a day nobody has composed — which is a different answer from "no periods". */
+  startsAt: string | null; endsAt: string | null;
+  teachingPeriods: number;
+  rows: BellRow[];
+}
+export interface BellSchedule {
+  id: string; name: string; isDefault: boolean;
+  campusId: string; campusName: string; academicYearId: string;
+  classes: Array<{ id: string; name: string }>;
+  /** Always seven entries, Monday first — an uncomposed day is present and empty. */
+  days: BellDay[];
+}
+/** What the client sends for one day: a start time and a duration per row. Never a time per row. */
+export interface BellDayInput {
+  startsAt: string;
+  rows: Array<{ isTeaching: boolean; label?: string; minutes: number }>;
 }
 export interface CoverRow {
   id: string; date: string; periodNo: number | null; reason: string | null;
@@ -832,6 +870,31 @@ export const api = {
     setSlot: (body: { sectionId: string; dayOfWeek: number; periodNo: number; subjectId: string; staffId: string; room?: string }) =>
       apiPost<TimetableSlot>('/timetable/slots', body),
     clearSlot: (id: string) => apiDelete<{ deleted: boolean }>(`/timetable/slots/${id}`),
+    /**
+     * Copy one day's lessons onto others. A partial copy is the normal outcome on a half-built
+     * week, so `skipped` carries a reason per cell rather than a count.
+     */
+    copyDay: (body: { sectionId: string; fromDay: number; toDays: number[] }) =>
+      apiPost<{ created: number; skipped: Array<{ dayOfWeek: number; periodNo: number; reason: string }> }>(
+        '/timetable/copy-day', body),
+  },
+  /**
+   * The school's timings — which periods exist, when they ring, and where the breaks fall.
+   *
+   * ⚠️ `setDay` sends **durations, not times**. The server walks the day from `startsAt`, so a gap
+   * or an overlap between rows is not rejected — there is no field in which to express one.
+   */
+  bellSchedules: {
+    list: () => apiGet<{ academicYearId: string; schedules: BellSchedule[] }>('/bell-schedules'),
+    get: (id: string) => apiGet<BellSchedule>(`/bell-schedules/${id}`),
+    create: (body: { campusId: string; name: string; isDefault?: boolean; classIds?: string[] }) =>
+      apiPost<BellSchedule>('/bell-schedules', body),
+    update: (id: string, body: { name?: string; classIds?: string[] }) =>
+      apiPatch<BellSchedule>(`/bell-schedules/${id}`, body),
+    remove: (id: string) => apiDelete<{ deleted: boolean }>(`/bell-schedules/${id}`),
+    /** `retainedLessons` counts lessons left sitting on periods the shortened day no longer has. */
+    setDay: (id: string, dayOfWeek: number, body: BellDayInput) =>
+      apiPut<BellSchedule & { retainedLessons: number }>(`/bell-schedules/${id}/days/${dayOfWeek}`, body),
   },
   /**
    * Cover — who is taking a class when its teacher is away.
@@ -857,8 +920,12 @@ export const api = {
     /** Every subject in scope — one call instead of one per class on the Setup screen. */
     listAll: () => apiGet<Subject[]>('/subjects'),
     catalogue: () => apiGet<SubjectCatalogueEntry[]>('/subjects/catalogue'),
-    create: (classId: string, name: string) => apiPost<Subject>('/subjects', { classId, name }),
+    create: (classId: string, name: string, periodsPerWeek?: number) =>
+      apiPost<Subject>('/subjects', { classId, name, periodsPerWeek }),
     rename: (id: string, name: string) => apiPatch<Subject>(`/subjects/${id}`, { name }),
+    /** Weekly load. `null` clears it — "not allocated" is a real state, distinct from zero. */
+    setLoad: (id: string, periodsPerWeek: number | null) =>
+      apiPatch<Subject>(`/subjects/${id}`, { periodsPerWeek }),
     remove: (id: string) => apiDelete<null>(`/subjects/${id}`),
   },
   terms: {

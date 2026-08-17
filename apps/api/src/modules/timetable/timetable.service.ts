@@ -10,8 +10,15 @@ import {
   TenantContext,
 } from '@common';
 import { TenantPrismaService } from '@database';
+import { BellScheduleService } from '../bell-schedule/bell-schedule.service';
 import { SetupService } from '../setup/setup.service';
-import type { SetSlotDto, TimetableQuery } from './dto/timetable.dto';
+import type { CopyDayDto, SetSlotDto, TimetableQuery } from './dto/timetable.dto';
+
+/** Named here as well as on the client: an error that says "day 3" makes the reader do the lookup. */
+const DAY_NAMES = ['', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+
+/** What one section's bell looks like, or null when the school has not set its timings. */
+type ResolvedBell = Awaited<ReturnType<BellScheduleService['resolveForSection']>>;
 
 /**
  * The weekly timetable (blueprint §23 "Teacher assignments & timetable"; the grid was marked
@@ -33,6 +40,7 @@ export class TimetableService {
     private readonly tenantPrisma: TenantPrismaService,
     private readonly ctx: TenantContext,
     private readonly setup: SetupService,
+    private readonly bell: BellScheduleService,
   ) {}
 
   private get db() {
@@ -64,7 +72,57 @@ export class TimetableService {
       include: TimetableService.INCLUDE,
       orderBy: [{ dayOfWeek: 'asc' }, { periodNo: 'asc' }],
     });
-    return { sectionId, academicYearId, section, slots };
+    // The grid's shape now comes from the school's declared day rather than from `max(periodNo)`
+    // over whatever has been typed so far. `bell` is null for a school that has not set its
+    // timings, and the client falls back to the old inferred shape — this must not become a
+    // breaking change for a school with an existing grid and no schedule.
+    const bell = await this.bell.resolveForSection(sectionId, academicYearId);
+    return {
+      sectionId,
+      academicYearId,
+      section,
+      bell,
+      load: await this.subjectLoad(sectionId, section.class.id, slots),
+      slots: this.withTimes(slots, bell),
+    };
+  }
+
+  /**
+   * "Maths — 4 of 6 placed." Advisory: it is reported, never enforced.
+   *
+   * A coordinator allocates the load first — Maths 6, English 6, Urdu 5 — and *then* places it. The
+   * grid could never say a week was two Maths periods short, so nobody found out until November.
+   *
+   * ⚠️ **Iterates `SectionSubject`, not `Subject`.** `SectionSubject` exists precisely because two
+   * sections of one class may take different subjects (streams, electives); listing every subject of
+   * the class would report a Computer shortfall against a section that does not take Computer. Falls
+   * back to the class's subjects only when a section has declared none, since an empty
+   * `SectionSubject` set means "not configured", not "takes nothing".
+   */
+  private async subjectLoad(sectionId: string, classId: string, slots: { subjectId: string }[]) {
+    const chosen = await this.db.sectionSubject.findMany({
+      where: { sectionId },
+      select: { subject: { select: { id: true, name: true, periodsPerWeek: true } } },
+    });
+    const subjects = chosen.length
+      ? chosen.map((c) => c.subject)
+      : await this.db.subject.findMany({
+          where: { classId, isActive: true },
+          select: { id: true, name: true, periodsPerWeek: true },
+        });
+
+    const placed = new Map<string, number>();
+    for (const s of slots) placed.set(s.subjectId, (placed.get(s.subjectId) ?? 0) + 1);
+
+    return subjects
+      .map((s) => ({
+        subjectId: s.id,
+        name: s.name,
+        /** Null ⇒ the school has not allocated a load, which is not the same as allocating zero. */
+        target: s.periodsPerWeek ?? null,
+        placed: placed.get(s.id) ?? 0,
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
   }
 
   /**
@@ -85,7 +143,9 @@ export class TimetableService {
         include: TimetableService.INCLUDE,
         orderBy: [{ dayOfWeek: 'asc' }, { periodNo: 'asc' }],
       });
-      return { as: 'TEACHER' as const, academicYearId, slots };
+      // Per section, not per teacher: a teacher's week can legitimately cross a wing boundary, and
+      // "period 3" is 10:20 on one side of it and 09:45 on the other.
+      return { as: 'TEACHER' as const, academicYearId, slots: await this.withTimesAcrossSections(slots, academicYearId) };
     }
 
     const enrolment = await this.db.studentEnrollment.findFirst({
@@ -101,7 +161,36 @@ export class TimetableService {
       include: TimetableService.INCLUDE,
       orderBy: [{ dayOfWeek: 'asc' }, { periodNo: 'asc' }],
     });
-    return { as: 'STUDENT' as const, academicYearId, slots };
+    const bell = await this.bell.resolveForSection(enrolment.sectionId, academicYearId);
+    return { as: 'STUDENT' as const, academicYearId, bell, slots: this.withTimes(slots, bell) };
+  }
+
+  /**
+   * Attach each lesson's clock time, read from the section's own bell.
+   *
+   * Done here rather than on each screen so `/timetable`, `/my-timetable` and `/me/timetable`
+   * cannot disagree about when period 3 is — the same reason `lib/timetable.ts` exists on the
+   * client. Null times are the honest answer for a school with no timings, not a zero.
+   */
+  private withTimes<T extends { dayOfWeek: number; periodNo: number }>(slots: T[], bell: ResolvedBell) {
+    return slots.map((s) => {
+      const row = bell?.days
+        .find((d) => d.dayOfWeek === s.dayOfWeek)
+        ?.rows.find((r) => r.periodNo === s.periodNo);
+      return { ...s, startTime: row?.startTime ?? null, endTime: row?.endTime ?? null };
+    });
+  }
+
+  /** The same, for lessons spanning several sections. One resolution per section, not per lesson. */
+  private async withTimesAcrossSections<T extends { sectionId: string; dayOfWeek: number; periodNo: number }>(
+    slots: T[],
+    academicYearId: string,
+  ) {
+    const bells = new Map<string, ResolvedBell>();
+    for (const sectionId of new Set(slots.map((s) => s.sectionId))) {
+      bells.set(sectionId, await this.bell.resolveForSection(sectionId, academicYearId));
+    }
+    return slots.map((s) => this.withTimes([s], bells.get(s.sectionId) ?? null)[0]);
   }
 
   /**
@@ -147,6 +236,7 @@ export class TimetableService {
         `${staffName} has left the school`);
     }
 
+    await this.assertPeriodExists(dto, academicYearId);
     await this.assertTeacherFree(dto, academicYearId, staffName);
 
     const existing = await this.db.timetableSlot.findFirst({
@@ -168,6 +258,36 @@ export class TimetableService {
           },
           include: TimetableService.INCLUDE,
         });
+  }
+
+  /**
+   * The period has to be one the school actually rings a bell for.
+   *
+   * ⚠️ **Conditional on a schedule existing, and that is the whole design.** A school that has not
+   * set its timings resolves to `null` and keeps a fully working editor — exactly as before this
+   * feature. An unconditional check would have meant every existing school woke up on deploy unable
+   * to write to its own grid, which is an additive feature turned into a breaking change.
+   *
+   * The message names the count, because "period 6 does not exist" is only actionable next to
+   * "Friday has 5 periods" — the day is short on purpose and the answer is usually to pick another
+   * day, not to lengthen this one.
+   */
+  private async assertPeriodExists(dto: SetSlotDto, academicYearId: string): Promise<void> {
+    const bell = await this.bell.resolveForSection(dto.sectionId, academicYearId);
+    if (!bell) return;
+
+    const day = bell.days.find((d) => d.dayOfWeek === dto.dayOfWeek);
+    const teaching = day?.rows.filter((r) => r.isTeaching) ?? [];
+    if (teaching.some((r) => r.periodNo === dto.periodNo)) return;
+
+    const dayName = DAY_NAMES[dto.dayOfWeek];
+    throw new AppError(
+      ErrorCodes.VALIDATION_FAILED,
+      HttpStatus.UNPROCESSABLE_ENTITY,
+      teaching.length === 0
+        ? `${dayName} has no periods in "${bell.name}" — set the timings for that day first.`
+        : `${dayName} has ${teaching.length} period${teaching.length === 1 ? '' : 's'} in "${bell.name}".`,
+    );
   }
 
   /**
@@ -199,6 +319,72 @@ export class TimetableService {
       HttpStatus.CONFLICT,
       `${staffName} already teaches ${clash.section.class.name}-${clash.section.name} in period ${dto.periodNo} that day`,
     );
+  }
+
+  /**
+   * Copy one day's lessons onto other days — the difference between 60 saves and 720.
+   *
+   * **Every cell goes through `setSlot`**, so the five placement rules apply exactly as they do to a
+   * hand-typed cell: the teacher-clash check, the subject-belongs-to-the-class check, the
+   * left-the-school check, the campus pair check, and the period-exists check. Reimplementing any of
+   * them here would be the third place one rule lives — the mistake `whoIsAway()` and
+   * `assertSectionHasRoom` were both extracted to undo.
+   *
+   * `{ created, skipped }` per §25.3, and **each skip names its own reason** rather than returning a
+   * count: "3 skipped" on a fee-season-sized grid is not something anybody can act on, while
+   * "Tuesday period 1 — Nadia Iqbal already teaches Grade 9-A" is.
+   *
+   * ⚠️ **Nothing is overwritten.** A cell that already holds a lesson is skipped, not replaced —
+   * `setSlot` on its own would happily replace it, and a copy that silently destroys a day somebody
+   * built by hand is a worse outcome than a copy that does less than asked.
+   */
+  async copyDay(dto: CopyDayDto) {
+    const academicYearId = dto.academicYearId ?? (await this.setup.requireCurrentYearId());
+    const source = await this.db.timetableSlot.findMany({
+      where: { sectionId: dto.sectionId, academicYearId, dayOfWeek: dto.fromDay },
+      orderBy: { periodNo: 'asc' },
+    });
+    if (source.length === 0) {
+      throw new AppError(
+        ErrorCodes.VALIDATION_FAILED,
+        HttpStatus.UNPROCESSABLE_ENTITY,
+        `${DAY_NAMES[dto.fromDay]} has no lessons to copy.`,
+      );
+    }
+
+    const targets = [...new Set(dto.toDays)].filter((d) => d !== dto.fromDay).sort();
+    const existing = await this.db.timetableSlot.findMany({
+      where: { sectionId: dto.sectionId, academicYearId, dayOfWeek: { in: targets } },
+      select: { dayOfWeek: true, periodNo: true },
+    });
+    const taken = new Set(existing.map((e) => `${e.dayOfWeek}:${e.periodNo}`));
+
+    let created = 0;
+    const skipped: Array<{ dayOfWeek: number; periodNo: number; reason: string }> = [];
+    for (const dayOfWeek of targets) {
+      for (const s of source) {
+        if (taken.has(`${dayOfWeek}:${s.periodNo}`)) {
+          skipped.push({ dayOfWeek, periodNo: s.periodNo, reason: `${DAY_NAMES[dayOfWeek]} period ${s.periodNo} already has a lesson.` });
+          continue;
+        }
+        try {
+          await this.setSlot({
+            sectionId: dto.sectionId, academicYearId,
+            dayOfWeek, periodNo: s.periodNo,
+            subjectId: s.subjectId, staffId: s.staffId, room: s.room ?? undefined,
+          });
+          created++;
+        } catch (e) {
+          // ⚠️ Only application refusals are collected. Every rule above throws BEFORE touching the
+          // database, so catching here cannot leave a poisoned transaction — which is exactly the
+          // trap the fee-season load test hit when an idempotency reserve swallowed its own P2002.
+          // A genuine DB error must still abort the whole copy.
+          if (!(e instanceof AppError)) throw e;
+          skipped.push({ dayOfWeek, periodNo: s.periodNo, reason: e.message });
+        }
+      }
+    }
+    return { created, skipped };
   }
 
   /** Empty one cell. Idempotent: clearing an empty cell is a no-op, not a 404. */

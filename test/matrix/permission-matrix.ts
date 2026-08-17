@@ -211,6 +211,23 @@ export const PERMISSION_MATRIX: MatrixRow[] = [
   // teach — "who has 9-B before me" is a real question. Campus scope still applies in-service.
   { label: 'read a section timetable', method: 'get', path: '/api/v1/timetable/section/00000000-0000-0000-0000-000000000000', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'TEACHER'], scopeGated: true },
   { label: 'timetable coverage', method: 'get', path: '/api/v1/timetable/coverage', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
+  // Copying a day is bulk authoring, so it sits with authoring — not with the teacher who reads it.
+  { label: 'copy a timetable day', method: 'post', path: '/api/v1/timetable/copy-day', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
+  // ── School timings (bell schedule) ────────────────────────────────────────
+  // The day's shape is a structural setting, like campuses and classes: the office declares it and
+  // everyone else reads its consequences through the grid. A campus admin is narrowed to their own
+  // campus in-service (§22.8), which `bell-schedule.e2e` asserts in both directions.
+  //
+  // ⚠️ Reads are gated too, and deliberately so. A guarded write does not imply a guarded read is a
+  // lesson this repo has paid for twice — `GET /enrollments` had no `@Roles` at all, and four fee
+  // reads returned a named child's concessions to any session. A teacher gets the times through
+  // their own week, which needs no id and no role list.
+  { label: 'list bell schedules', method: 'get', path: '/api/v1/bell-schedules', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'], scopeGated: true },
+  { label: 'read a bell schedule', method: 'get', path: '/api/v1/bell-schedules/00000000-0000-0000-0000-000000000000', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'], scopeGated: true },
+  { label: 'create a bell schedule', method: 'post', path: '/api/v1/bell-schedules', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
+  { label: 'update a bell schedule', method: 'patch', path: '/api/v1/bell-schedules/00000000-0000-0000-0000-000000000000', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
+  { label: 'retire a bell schedule', method: 'delete', path: '/api/v1/bell-schedules/00000000-0000-0000-0000-000000000000', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
+  { label: 'compose a school day', method: 'put', path: '/api/v1/bell-schedules/00000000-0000-0000-0000-000000000000/days/1', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
   // ⚠️ `GET /timetable/mine` has no row, for the same reason as `/staff-leaves/balance`: it is
   // ownership-gated, not role-gated. It takes no id and resolves the caller's own staff profile or
   // enrolment, so a role list would be the wrong question. Proved in `timetable.e2e` with a real

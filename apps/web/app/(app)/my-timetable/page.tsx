@@ -100,11 +100,17 @@ export default function MyTimetablePage() {
           <p className="muted" style={{ margin: 0 }}>Nothing scheduled for you today.</p>
         ) : (
           <table>
-            <thead><tr><th style={{ width: 70 }}>Period</th><th>Class</th><th>Subject</th><th>Room</th></tr></thead>
+            <thead><tr><th style={{ width: 96 }}>Period</th><th>Class</th><th>Subject</th><th>Room</th></tr></thead>
             <tbody>
               {today.map((s) => (
                 <tr key={s.id}>
-                  <td><strong>{s.periodNo}</strong></td>
+                  {/* The time is the half a teacher checking their phone mid-morning actually
+                      wants. Null when the school has not set its timings — the period number
+                      alone is still the truth, so nothing is invented to fill the gap. */}
+                  <td>
+                    <strong>{s.periodNo}</strong>
+                    {s.startTime && <div className="muted" style={{ fontSize: 11 }}>{s.startTime}–{s.endTime}</div>}
+                  </td>
                   <td>{sectionLabel(s)}</td>
                   <td>{s.subject.name}</td>
                   <td className="muted">{s.room ?? '—'}</td>
@@ -149,7 +155,11 @@ export default function MyTimetablePage() {
                       <span className="p">P{s.periodNo}</span>
                       <span>
                         <span className="what">{sectionLabel(s)} · {s.subject.name}</span>
-                        {s.room && <><br /><span className="where">{s.room}</span></>}
+                        {(s.startTime || s.room) && (
+                          <><br /><span className="where">
+                            {[s.startTime && `${s.startTime}–${s.endTime}`, s.room].filter(Boolean).join(' · ')}
+                          </span></>
+                        )}
                       </span>
                     </li>
                   ))}

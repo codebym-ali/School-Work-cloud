@@ -31,6 +31,8 @@ describe('Bell schedule (e2e)', () => {
   let classId: string;
   let sectionA: string;
   let farClassId: string;
+  let subjectId: string;
+  let staffId: string;
 
   const sub = `bell-${randomUUID().slice(0, 8)}`;
   const host = `${sub}.localhost`;
@@ -108,6 +110,12 @@ describe('Bell schedule (e2e)', () => {
     // the boundary to catch. A boundary test whose fixture is entirely on one side cannot fail.
     farCampusId = (await post('/api/v1/campuses', { name: 'Far Campus' })).body.id;
     farClassId = (await post('/api/v1/classes', { campusId: farCampusId, name: 'Grade 1', order: 1 })).body.id;
+
+    subjectId = (await post('/api/v1/subjects', { classId, name: 'Mathematics' })).body.id;
+    staffId = (await post('/api/v1/staff', {
+      email: 'bellteach@bell.pk', campusId, staffType: 'TEACHER', employeeCode: 'BT1',
+      designation: 'Teacher', joinedAt: '2026-04-01', fullName: 'Bell Teacher',
+    })).body.staffId;
 
     const ca = await post('/api/v1/users', {
       email: campusAdmin.email, roles: ['CAMPUS_ADMIN'], campusId, password: campusAdmin.password,
@@ -239,12 +247,6 @@ describe('Bell schedule (e2e)', () => {
     const id = await mkSchedule({ campusId, name: 'Regular', isDefault: true });
     await put(`/api/v1/bell-schedules/${id}/days/1`, regularDay); // 4 teaching periods
 
-    const subjectId = (await post('/api/v1/subjects', { classId, name: 'Mathematics' })).body.id;
-    const staff = await post('/api/v1/staff', {
-      email: 'bellteach@bell.pk', campusId, staffType: 'TEACHER', employeeCode: 'BT1',
-      designation: 'Teacher', joinedAt: '2026-04-01', fullName: 'Bell Teacher',
-    });
-    const staffId = staff.body.staffId as string;
     for (const periodNo of [3, 4]) {
       const slot = await post('/api/v1/timetable/slots', {
         sectionId: sectionA, dayOfWeek: 1, periodNo, subjectId, staffId,
@@ -276,7 +278,9 @@ describe('Bell schedule (e2e)', () => {
       designation: 'Teacher', joinedAt: '2026-04-01', fullName: 'Other Teacher',
     });
     await put(`/api/v1/bell-schedules/${wing}/days/1`, regularDay);
-    // A lesson in period 4 for a class that does NOT follow this wing schedule.
+    // A lesson in period 4 for a class that does NOT follow this wing schedule. Grade 10 has no
+    // schedule of its own and no campus default here, so the period check lets it through — which
+    // is the point of the check being conditional.
     await post('/api/v1/timetable/slots', {
       sectionId: otherSection, dayOfWeek: 1, periodNo: 4, subjectId: otherSubject, staffId: staff.body.staffId,
     });
@@ -287,6 +291,56 @@ describe('Bell schedule (e2e)', () => {
     // Zero, not one: Grade 10 rings to the campus default, so shortening the Primary wing's day
     // says nothing about it. Counting every slot on the campus would have reported 1 here.
     expect(shrunk.body.retainedLessons).toBe(0);
+  });
+
+  // ── the grid reads the declared day (P1) ──────────────────────────────────
+
+  it('refuses a lesson in a period the day does not have, and says how many it has', async () => {
+    const id = await mkSchedule({ campusId, name: 'Regular', isDefault: true });
+    await put(`/api/v1/bell-schedules/${id}/days/5`, {
+      startsAt: '08:00', rows: [{ isTeaching: true, minutes: 35 }, { isTeaching: true, minutes: 35 }],
+    });
+
+    const ok = await post('/api/v1/timetable/slots', { sectionId: sectionA, dayOfWeek: 5, periodNo: 2, subjectId, staffId });
+    expect(ok.status).toBe(201);
+
+    const tooLate = await post('/api/v1/timetable/slots', { sectionId: sectionA, dayOfWeek: 5, periodNo: 3, subjectId, staffId });
+    expect(tooLate.status).toBe(422);
+    // Naming the count is what makes it actionable: a short Friday is deliberate, so the answer is
+    // usually "put it on another day", not "make Friday longer".
+    expect(tooLate.body.error.message).toMatch(/Friday has 2 periods in "Regular"/);
+  });
+
+  it('leaves a school with no timings exactly as it was — additive, not breaking', async () => {
+    // No schedule exists in this test (afterEach clears them), which is the state EVERY existing
+    // school is in on the day this ships. An unconditional period check would have taken the grid
+    // away from all of them at once.
+    const res = await post('/api/v1/timetable/slots', { sectionId: sectionA, dayOfWeek: 1, periodNo: 9, subjectId, staffId });
+    expect(res.status).toBe(201);
+  });
+
+  it('carries the clock time on every lesson it returns', async () => {
+    const id = await mkSchedule({ campusId, name: 'Regular', isDefault: true });
+    await put(`/api/v1/bell-schedules/${id}/days/1`, regularDay);
+    await post('/api/v1/timetable/slots', { sectionId: sectionA, dayOfWeek: 1, periodNo: 2, subjectId, staffId });
+
+    const grid = await get(`/api/v1/timetable/section/${sectionA}`);
+    expect(grid.status).toBe(200);
+    // The grid's shape is the declared day, not `max(periodNo)` over what has been typed.
+    expect(grid.body.bell.name).toBe('Regular');
+    expect(grid.body.bell.days.find((d: { dayOfWeek: number }) => d.dayOfWeek === 1).teachingPeriods).toBe(4);
+    // Period 2 is 08:55–09:35 once the assembly and period 1 are accounted for — a time the grid
+    // could not have shown at all before, and the reason `withTimes` lives in the service rather
+    // than on three separate screens.
+    expect(grid.body.slots[0].startTime).toBe('08:55');
+    expect(grid.body.slots[0].endTime).toBe('09:35');
+  });
+
+  it('gives a school with no timings null times rather than an invented zero', async () => {
+    await post('/api/v1/timetable/slots', { sectionId: sectionA, dayOfWeek: 1, periodNo: 1, subjectId, staffId });
+    const grid = await get(`/api/v1/timetable/section/${sectionA}`);
+    expect(grid.body.bell).toBeNull();
+    expect(grid.body.slots[0].startTime).toBeNull();
   });
 
   // ── campus scope ──────────────────────────────────────────────────────────

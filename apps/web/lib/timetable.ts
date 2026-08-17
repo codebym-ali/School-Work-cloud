@@ -1,4 +1,4 @@
-import type { TimetableSlot } from '@/lib/api';
+import type { BellSchedule, TimetableSlot } from '@/lib/api';
 
 /**
  * Shared timetable shaping — used by the admin editor, the teacher week and the student week.
@@ -24,12 +24,56 @@ export function todayDow(): number {
 }
 
 /**
- * Which days and periods a grid should show.
+ * Which days and periods a grid should show — **the school's declared day when there is one.**
  *
- * **Derived from the timetable itself, never from a fixed 7×8.** A school that teaches Monday to
- * Saturday over 8 periods should not be shown a Sunday column it will never fill, and one running
- * 10 periods must not have the last two cut off. `minDays`/`minPeriods` keep an *empty* grid
- * usable — there has to be something to click before the first slot exists.
+ * `gridShape` below infers the shape from the slots themselves, which is a guess: it reads
+ * `max(periodNo)` over whatever has been typed so far, floored at 6. That is all there ever was
+ * before the bell schedule existed, and it is why an 8-period school saw 6 rows and Friday looked
+ * exactly like Tuesday.
+ *
+ * With a bell, the answer is **declared**: `periodsByDay` says how many periods each day actually
+ * has, so a short Friday is short on the grid too, and a cell past a day's last period is not an
+ * empty slot waiting to be filled — it does not exist. Without one (`bell === null`, the state every
+ * existing school is in) it falls back to the old inference, unchanged.
+ *
+ * ⚠️ **Breaks are deliberately not rendered as bands in this week grid.** The plan called for it, and
+ * it cannot be honest here: each day is composed independently, so the assembly is row 1 on Monday
+ * and absent on Friday, and one shared band across seven columns would be drawing a break on days
+ * that do not have it. Breaks live on the School Timings screen, which is day-oriented, and in the
+ * per-lesson times below.
+ */
+export function weekShape(
+  bell: BellSchedule | null | undefined,
+  slots: TimetableSlot[],
+  opts: { minDays?: number; minPeriods?: number } = {},
+) {
+  const composed = bell?.days.filter((d) => d.teachingPeriods > 0) ?? [];
+  if (composed.length === 0) {
+    // Either no schedule, or one created and never composed. Both mean "nothing declared yet".
+    return { ...gridShape(slots, opts), periodsByDay: null, declared: false };
+  }
+  const maxDay = Math.max(...composed.map((d) => d.dayOfWeek));
+  const maxPeriods = Math.max(...composed.map((d) => d.teachingPeriods));
+  const periodsByDay = new Map(composed.map((d) => [d.dayOfWeek, d.teachingPeriods]));
+  return {
+    days: Array.from({ length: maxDay }, (_, i) => i + 1),
+    periods: Array.from({ length: maxPeriods }, (_, i) => i + 1),
+    periodsByDay,
+    declared: true,
+  };
+}
+
+/** When one period runs on one day — the times differ per day, so this is never a per-row label. */
+export function periodTime(bell: BellSchedule | null | undefined, dayOfWeek: number, periodNo: number) {
+  const row = bell?.days.find((d) => d.dayOfWeek === dayOfWeek)?.rows.find((r) => r.periodNo === periodNo);
+  return row ? { startTime: row.startTime, endTime: row.endTime } : null;
+}
+
+/**
+ * The old inferred shape, now the **fallback** rather than the default.
+ *
+ * `minDays`/`minPeriods` keep an *empty* grid usable — there has to be something to click before
+ * the first slot exists.
  */
 export function gridShape(slots: TimetableSlot[], opts: { minDays?: number; minPeriods?: number } = {}) {
   const { minDays = 5, minPeriods = 6 } = opts;

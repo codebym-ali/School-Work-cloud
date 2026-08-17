@@ -10,8 +10,12 @@ import {
   TenantContext,
 } from '@common';
 import { TenantPrismaService } from '@database';
+import { BellScheduleService } from '../bell-schedule/bell-schedule.service';
 import { SetupService } from '../setup/setup.service';
 import type { SetSlotDto, TimetableQuery } from './dto/timetable.dto';
+
+/** What one section's bell looks like, or null when the school has not set its timings. */
+type ResolvedBell = Awaited<ReturnType<BellScheduleService['resolveForSection']>>;
 
 /**
  * The weekly timetable (blueprint §23 "Teacher assignments & timetable"; the grid was marked
@@ -33,6 +37,7 @@ export class TimetableService {
     private readonly tenantPrisma: TenantPrismaService,
     private readonly ctx: TenantContext,
     private readonly setup: SetupService,
+    private readonly bell: BellScheduleService,
   ) {}
 
   private get db() {
@@ -64,7 +69,12 @@ export class TimetableService {
       include: TimetableService.INCLUDE,
       orderBy: [{ dayOfWeek: 'asc' }, { periodNo: 'asc' }],
     });
-    return { sectionId, academicYearId, section, slots };
+    // The grid's shape now comes from the school's declared day rather than from `max(periodNo)`
+    // over whatever has been typed so far. `bell` is null for a school that has not set its
+    // timings, and the client falls back to the old inferred shape — this must not become a
+    // breaking change for a school with an existing grid and no schedule.
+    const bell = await this.bell.resolveForSection(sectionId, academicYearId);
+    return { sectionId, academicYearId, section, bell, slots: this.withTimes(slots, bell) };
   }
 
   /**
@@ -85,7 +95,9 @@ export class TimetableService {
         include: TimetableService.INCLUDE,
         orderBy: [{ dayOfWeek: 'asc' }, { periodNo: 'asc' }],
       });
-      return { as: 'TEACHER' as const, academicYearId, slots };
+      // Per section, not per teacher: a teacher's week can legitimately cross a wing boundary, and
+      // "period 3" is 10:20 on one side of it and 09:45 on the other.
+      return { as: 'TEACHER' as const, academicYearId, slots: await this.withTimesAcrossSections(slots, academicYearId) };
     }
 
     const enrolment = await this.db.studentEnrollment.findFirst({
@@ -101,7 +113,36 @@ export class TimetableService {
       include: TimetableService.INCLUDE,
       orderBy: [{ dayOfWeek: 'asc' }, { periodNo: 'asc' }],
     });
-    return { as: 'STUDENT' as const, academicYearId, slots };
+    const bell = await this.bell.resolveForSection(enrolment.sectionId, academicYearId);
+    return { as: 'STUDENT' as const, academicYearId, bell, slots: this.withTimes(slots, bell) };
+  }
+
+  /**
+   * Attach each lesson's clock time, read from the section's own bell.
+   *
+   * Done here rather than on each screen so `/timetable`, `/my-timetable` and `/me/timetable`
+   * cannot disagree about when period 3 is — the same reason `lib/timetable.ts` exists on the
+   * client. Null times are the honest answer for a school with no timings, not a zero.
+   */
+  private withTimes<T extends { dayOfWeek: number; periodNo: number }>(slots: T[], bell: ResolvedBell) {
+    return slots.map((s) => {
+      const row = bell?.days
+        .find((d) => d.dayOfWeek === s.dayOfWeek)
+        ?.rows.find((r) => r.periodNo === s.periodNo);
+      return { ...s, startTime: row?.startTime ?? null, endTime: row?.endTime ?? null };
+    });
+  }
+
+  /** The same, for lessons spanning several sections. One resolution per section, not per lesson. */
+  private async withTimesAcrossSections<T extends { sectionId: string; dayOfWeek: number; periodNo: number }>(
+    slots: T[],
+    academicYearId: string,
+  ) {
+    const bells = new Map<string, ResolvedBell>();
+    for (const sectionId of new Set(slots.map((s) => s.sectionId))) {
+      bells.set(sectionId, await this.bell.resolveForSection(sectionId, academicYearId));
+    }
+    return slots.map((s) => this.withTimes([s], bells.get(s.sectionId) ?? null)[0]);
   }
 
   /**
@@ -147,6 +188,7 @@ export class TimetableService {
         `${staffName} has left the school`);
     }
 
+    await this.assertPeriodExists(dto, academicYearId);
     await this.assertTeacherFree(dto, academicYearId, staffName);
 
     const existing = await this.db.timetableSlot.findFirst({
@@ -168,6 +210,36 @@ export class TimetableService {
           },
           include: TimetableService.INCLUDE,
         });
+  }
+
+  /**
+   * The period has to be one the school actually rings a bell for.
+   *
+   * ⚠️ **Conditional on a schedule existing, and that is the whole design.** A school that has not
+   * set its timings resolves to `null` and keeps a fully working editor — exactly as before this
+   * feature. An unconditional check would have meant every existing school woke up on deploy unable
+   * to write to its own grid, which is an additive feature turned into a breaking change.
+   *
+   * The message names the count, because "period 6 does not exist" is only actionable next to
+   * "Friday has 5 periods" — the day is short on purpose and the answer is usually to pick another
+   * day, not to lengthen this one.
+   */
+  private async assertPeriodExists(dto: SetSlotDto, academicYearId: string): Promise<void> {
+    const bell = await this.bell.resolveForSection(dto.sectionId, academicYearId);
+    if (!bell) return;
+
+    const day = bell.days.find((d) => d.dayOfWeek === dto.dayOfWeek);
+    const teaching = day?.rows.filter((r) => r.isTeaching) ?? [];
+    if (teaching.some((r) => r.periodNo === dto.periodNo)) return;
+
+    const dayName = ['', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'][dto.dayOfWeek];
+    throw new AppError(
+      ErrorCodes.VALIDATION_FAILED,
+      HttpStatus.UNPROCESSABLE_ENTITY,
+      teaching.length === 0
+        ? `${dayName} has no periods in "${bell.name}" — set the timings for that day first.`
+        : `${dayName} has ${teaching.length} period${teaching.length === 1 ? '' : 's'} in "${bell.name}".`,
+    );
   }
 
   /**

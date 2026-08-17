@@ -323,6 +323,8 @@ export interface SetOfficerResult {
 // ── Staff / Teachers (HR, §13) ───────────────────────────────────────────────
 export interface TimetableSlot {
   id: string; dayOfWeek: number; periodNo: number; room: string | null;
+  /** From the section's bell. **Null when the school has not set its timings** — not a zero. */
+  startTime: string | null; endTime: string | null;
   subject: { id: string; name: string };
   staff: { id: string; fullName: string | null; employeeCode: string };
   section: { id: string; name: string; class: { id: string; name: string; campusId: string } };
@@ -330,10 +332,17 @@ export interface TimetableSlot {
 export interface SectionTimetable {
   sectionId: string; academicYearId: string;
   section: { id: string; name: string; class: { id: string; name: string; campusId: string } };
+  /** The declared day this grid renders. Null ⇒ no timings set, and the shape is inferred instead. */
+  bell: BellSchedule | null;
   slots: TimetableSlot[];
 }
 /** `as` says which week you were given — a teacher's, a student's, or neither. */
-export interface MyTimetable { as: 'TEACHER' | 'STUDENT' | 'NONE'; academicYearId: string; slots: TimetableSlot[] }
+export interface MyTimetable {
+  as: 'TEACHER' | 'STUDENT' | 'NONE'; academicYearId: string;
+  /** Present for a student (one section). A teacher's week can cross wings, so times ride the slots. */
+  bell?: BellSchedule | null;
+  slots: TimetableSlot[];
+}
 export interface TimetableCoverage {
   academicYearId: string;
   sections: Array<{ sectionId: string; className: string; sectionName: string; slots: number }>;

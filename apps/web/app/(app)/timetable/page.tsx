@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { api, ApiError, type ManagedTeacher, type SectionTimetable, type Subject, type TimetableCoverage } from '@/lib/api';
-import { DAY_SHORT, byCell, gridShape, teacherLabel } from '@/lib/timetable';
+import { DAY_SHORT, byCell, periodTime, teacherLabel, weekShape } from '@/lib/timetable';
 
 /**
  * Timetable editor (§23 "teacher assignments & timetable editor (clash warnings)").
@@ -77,8 +77,11 @@ export default function TimetablePage() {
   }
 
   const cells = byCell(grid?.slots ?? []);
-  const { days, periods } = gridShape(grid?.slots ?? []);
+  const bell = grid?.bell ?? null;
+  const { days, periods, periodsByDay, declared } = weekShape(bell, grid?.slots ?? []);
   const staffOptions = staff.filter((s) => s.employmentStatus === 'ACTIVE');
+  /** A period a given day does not have. Not an empty cell — a cell that does not exist. */
+  const outsideDay = (d: number, p: number) => periodsByDay !== null && p > (periodsByDay.get(d) ?? 0);
 
   return (
     <div className="stack">
@@ -109,6 +112,17 @@ export default function TimetablePage() {
             No section has a timetable yet. Pick a section and click any cell to start.
           </p>
         )}
+        {/* Which shape this grid is: the school's declared day, or the old guess. The difference
+            matters — under a guess, "period 7" exists only because somebody typed into it. */}
+        {grid && (declared
+          ? <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+              Periods and times come from <strong>{bell?.name}</strong>. A day shows only the periods
+              it actually has. <a href="/timings">Change the timings →</a>
+            </p>
+          : <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+              No timings set for this campus, so the grid is guessing how many periods there are and
+              cannot show when they run. <a href="/timings">Set the school timings →</a>
+            </p>)}
       </div>
 
       {grid && (
@@ -127,8 +141,24 @@ export default function TimetablePage() {
                   {days.map((d) => {
                     const slot = cells.get(`${d}:${p}`);
                     const isEditing = editing?.day === d && editing?.period === p;
+                    const time = periodTime(bell, d, p);
+                    if (outsideDay(d, p)) {
+                      // The honest rendering of a short Friday: the cell is absent, not empty. An
+                      // empty clickable cell would invite a lesson the API would then refuse.
+                      return (
+                        <td key={d} className="muted" style={{ verticalAlign: 'top', minWidth: 150, textAlign: 'center' }}
+                          aria-label={`${DAY_SHORT[d]} has no period ${p}`}>
+                          —
+                        </td>
+                      );
+                    }
                     return (
                       <td key={d} style={{ verticalAlign: 'top', minWidth: 150 }}>
+                        {time && (
+                          <div className="muted" style={{ fontSize: 11, marginBottom: 2 }}>
+                            {time.startTime}–{time.endTime}
+                          </div>
+                        )}
                         {isEditing ? (
                           <div className="stack" style={{ gap: 4 }}>
                             <select value={draft.subjectId} onChange={(e) => setDraft({ ...draft, subjectId: e.target.value })}>

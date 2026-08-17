@@ -113,3 +113,35 @@ ALTER TABLE students
 ALTER TABLE sms_logs DROP CONSTRAINT IF EXISTS chk_sms_segments_non_negative;
 ALTER TABLE sms_logs
   ADD CONSTRAINT chk_sms_segments_non_negative CHECK (segments >= 0);
+
+-- ── Bell schedule ───────────────────────────────────────────────────────────
+-- Times are school-local wall clock stored as zero-padded HH:MM. The format is the reason the column
+-- is text rather than `time`: zero-padded HH:MM sorts lexicographically in chronological order and
+-- every other clock value in this product (attendanceMarkByTime, staffAttendance.dayStartTime) is
+-- already this shape. Text without a CHECK, though, is just a string — the API validates it, and this
+-- is what stops anything else from writing "8:00" or "25:61".
+ALTER TABLE bell_periods DROP CONSTRAINT IF EXISTS chk_bell_period_times;
+ALTER TABLE bell_periods
+  ADD CONSTRAINT chk_bell_period_times CHECK (
+    start_time ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$' AND
+    end_time   ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$'
+  );
+
+-- A day runs forwards. (The server computes both ends from a start time plus durations, so this can
+-- only fire if something other than the API writes the table — which is exactly when it is wanted.)
+ALTER TABLE bell_periods DROP CONSTRAINT IF EXISTS chk_bell_period_order;
+ALTER TABLE bell_periods
+  ADD CONSTRAINT chk_bell_period_order CHECK (end_time > start_time);
+
+-- `period_no` and `is_teaching` are two ways of saying one thing, so they must never disagree: a
+-- teaching row is numbered, a break is not. Without this the table can hold a "break" occupying
+-- period 3, which renders as a lesson slot nobody can fill.
+ALTER TABLE bell_periods DROP CONSTRAINT IF EXISTS chk_bell_period_teaching_numbered;
+ALTER TABLE bell_periods
+  ADD CONSTRAINT chk_bell_period_teaching_numbered CHECK (
+    (is_teaching AND period_no IS NOT NULL) OR (NOT is_teaching AND period_no IS NULL)
+  );
+
+ALTER TABLE bell_periods DROP CONSTRAINT IF EXISTS chk_bell_period_day_of_week;
+ALTER TABLE bell_periods
+  ADD CONSTRAINT chk_bell_period_day_of_week CHECK (day_of_week BETWEEN 1 AND 7);

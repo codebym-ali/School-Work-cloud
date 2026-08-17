@@ -19,7 +19,7 @@
 export type IconName =
   // navigation
   | 'dashboard' | 'admissions' | 'admissions-team' | 'students' | 'classes' | 'attendance'
-  | 'leaves' | 'timetable' | 'cover' | 'exams' | 'reports' | 'performance' | 'fees'
+  | 'leaves' | 'timetable' | 'timings' | 'cover' | 'exams' | 'reports' | 'performance' | 'fees'
   | 'fee-claims' | 'staff' | 'setup' | 'settings' | 'campuses' | 'calendar' | 'home'
   | 'profile' | 'payslips' | 'lock' | 'school'
   // dashboard + chrome
@@ -41,6 +41,9 @@ const PATHS: Record<IconName, React.ReactNode> = {
   attendance: <><rect x="3" y="4.5" width="18" height="16.5" rx="2" /><path d="M3 9.5h18" /><path d="M8 3v3M16 3v3" /><path d="m8.5 14.5 2.3 2.3 4.4-4.4" /></>,
   leaves: <><rect x="3" y="4.5" width="18" height="16.5" rx="2" /><path d="M3 9.5h18" /><path d="M8 3v3M16 3v3" /><path d="M12 12.5v5M9.5 15h5" /></>,
   timetable: <><circle cx="12" cy="12" r="9" /><path d="M12 6.8V12l3.4 2" /></>,
+  // A day as a strip of rows with a time column down the left — deliberately NOT another clock,
+  // since `timetable` already owns that shape and these two sit next to each other in the nav.
+  timings: <><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M3 9.5h18M3 15h18" /><path d="M8 4v16" /></>,
   cover: <><path d="M3.5 9A8.5 8.5 0 0 1 18 6.2l2.5 2.3" /><path d="M20.5 4v4.5H16" /><path d="M20.5 15A8.5 8.5 0 0 1 6 17.8L3.5 15.5" /><path d="M3.5 20v-4.5H8" /></>,
   exams: <><path d="M15.5 3H6.5A1.5 1.5 0 0 0 5 4.5v15A1.5 1.5 0 0 0 6.5 21h11a1.5 1.5 0 0 0 1.5-1.5V6.5Z" /><path d="M15 3v3.5h4" /><path d="m8.5 14 2 2 3.5-3.5" /></>,
   reports: <><path d="M3 20.5h18" /><rect x="4.5" y="11" width="4" height="7" rx="1" /><rect x="10" y="6.5" width="4" height="11.5" rx="1" /><rect x="15.5" y="14" width="4" height="4" rx="1" /></>,

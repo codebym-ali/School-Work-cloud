@@ -31,6 +31,18 @@ export const AuditActions = {
   SUBJECT_DELETED: 'SUBJECT_DELETED',
   TEACHER_ASSIGNMENT_REMOVED: 'TEACHER_ASSIGNMENT_REMOVED',
 
+  /**
+   * The school's own clock (bell schedule). Changing a day reshapes every register and every
+   * teacher's week on that day, and — because there is deliberately no dated seasonal variant —
+   * editing the timings IS how a school runs a Ramadan or exam schedule. So the log is the only
+   * place the previous shape survives, which is exactly the argument Cover made for auditing a
+   * permission grant. `oldValue`/`newValue` carry the composed day, not the whole schedule.
+   */
+  BELL_SCHEDULE_CREATED: 'BELL_SCHEDULE_CREATED',
+  BELL_SCHEDULE_UPDATED: 'BELL_SCHEDULE_UPDATED',
+  BELL_SCHEDULE_DELETED: 'BELL_SCHEDULE_DELETED',
+  BELL_SCHEDULE_DAY_SET: 'BELL_SCHEDULE_DAY_SET',
+
   // auth / platform (M1)
   ROLE_CHANGED: 'ROLE_CHANGED',
   USER_DISABLED: 'USER_DISABLED',

@@ -197,7 +197,6 @@ enum EmploymentType {
   VISITING
 }
 
-
 enum DocumentType {
   LEAVING_CERT
   CHARACTER_CERT
@@ -264,8 +263,11 @@ model School {
   enrollments         StudentEnrollment[]
   staffProfiles       StaffProfile[]
   teacherAssignments  TeacherAssignment[]
-  timetableSlots     TimetableSlot[]
-  coverAssignments   CoverAssignment[]
+  timetableSlots      TimetableSlot[]
+  coverAssignments    CoverAssignment[]
+  bellSchedules       BellSchedule[]
+  bellScheduleClasses BellScheduleClass[]
+  bellPeriods         BellPeriod[]
   inquiries           Inquiry[]
   feeHeads            FeeHead[]
   feeStructures       FeeStructure[]
@@ -335,12 +337,13 @@ model Campus {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  users               User[]
-  classes             Class[]
-  inquiries           Inquiry[]
-  enrollments         StudentEnrollment[]
-  holidays            Holiday[]
-  feeStructures       FeeStructure[]
+  users         User[]
+  classes       Class[]
+  inquiries     Inquiry[]
+  enrollments   StudentEnrollment[]
+  holidays      Holiday[]
+  feeStructures FeeStructure[]
+  bellSchedules BellSchedule[]
 
   @@unique([id, schoolId]) // composite target for child tenant-chain FKs
   @@unique([schoolId, name])
@@ -364,6 +367,7 @@ model AcademicYear {
   timetableSlots     TimetableSlot[]
   feeStructures      FeeStructure[]
   invoiceBatches     FeeInvoiceBatch[]
+  bellSchedules      BellSchedule[]
 
   @@unique([id, schoolId])
   @@unique([schoolId, name])
@@ -392,6 +396,7 @@ model Class {
   examDefinitions ExamDefinition[]
   inquiries       Inquiry[]
   invoiceBatches  FeeInvoiceBatch[]
+  bellSchedules   BellScheduleClass[]
 
   @@unique([id, schoolId])
   @@unique([campusId, name])
@@ -439,7 +444,7 @@ model Subject {
   sections           SectionSubject[]
   teacherAssignments TeacherAssignment[]
   timetableSlots     TimetableSlot[]
-  classTests    ClassTest[]
+  classTests         ClassTest[]
 
   @@unique([id, schoolId])
   @@unique([classId, name])
@@ -484,22 +489,22 @@ model Holiday {
 
 // ── Identity ─────────────────────────────────────────────────────────────────
 model User {
-  id                String     @id @default(uuid()) @db.Uuid
-  schoolId          String     @map("school_id") @db.Uuid
-  school            School     @relation(fields: [schoolId], references: [id])
-  campusId          String?    @map("campus_id") @db.Uuid
-  campus            Campus?    @relation(fields: [campusId, schoolId], references: [id, schoolId])
-  email             String
-  phone             String?
-  passwordHash      String?    @map("password_hash") // null while INVITED
-  roles             Role[]
-  status            UserStatus @default(INVITED)
-  failedLoginCount  Int        @default(0) @map("failed_login_count")
-  lockedUntil       DateTime?  @map("locked_until")
-  mfaSecretEnc      String?    @map("mfa_secret_enc") // encrypted TOTP secret
-  mfaEnabled        Boolean    @default(false) @map("mfa_enabled")
-  passwordChangedAt DateTime?  @map("password_changed_at")
-  lastLoginAt       DateTime?  @map("last_login_at")
+  id                  String     @id @default(uuid()) @db.Uuid
+  schoolId            String     @map("school_id") @db.Uuid
+  school              School     @relation(fields: [schoolId], references: [id])
+  campusId            String?    @map("campus_id") @db.Uuid
+  campus              Campus?    @relation(fields: [campusId, schoolId], references: [id, schoolId])
+  email               String
+  phone               String?
+  passwordHash        String?    @map("password_hash") // null while INVITED
+  roles               Role[]
+  status              UserStatus @default(INVITED)
+  failedLoginCount    Int        @default(0) @map("failed_login_count")
+  lockedUntil         DateTime?  @map("locked_until")
+  mfaSecretEnc        String?    @map("mfa_secret_enc") // encrypted TOTP secret
+  mfaEnabled          Boolean    @default(false) @map("mfa_enabled")
+  passwordChangedAt   DateTime?  @map("password_changed_at")
+  lastLoginAt         DateTime?  @map("last_login_at")
   /// When this user last opened their notifications (Notifications Plan, N1).
   ///
   /// The whole of "unread", in one column. Notifications are DERIVED, not stored — an item is
@@ -509,23 +514,23 @@ model User {
   /// the thing it copied.
   ///
   /// Null means "never opened", which correctly makes everything new on first sight.
-  notificationsSeenAt DateTime? @map("notifications_seen_at")
-  deletedAt         DateTime?  @map("deleted_at")
-  createdAt         DateTime   @default(now()) @map("created_at")
-  updatedAt         DateTime   @updatedAt @map("updated_at")
+  notificationsSeenAt DateTime?  @map("notifications_seen_at")
+  deletedAt           DateTime?  @map("deleted_at")
+  createdAt           DateTime   @default(now()) @map("created_at")
+  updatedAt           DateTime   @updatedAt @map("updated_at")
 
-  refreshTokens              RefreshToken[]
-  parentProfile              ParentProfile?
-  student                    Student?             @relation("StudentLogin")
-  staffProfile               StaffProfile?
-  collectedPayments          FeePayment[]
-  approvedDiscounts          Discount[]
-  markedAttendance           AttendanceRecord[]
-  markedStaffAttendance      StaffAttendance[]    @relation("StaffAttendanceMarkedBy")
-  arrangedCovers             CoverAssignment[]    @relation("CoverArrangedBy")
-  submittedFeeClaims         FeePaymentClaim[]    @relation("ClaimSubmittedBy")
-  reviewedFeeClaims          FeePaymentClaim[]    @relation("ClaimReviewedBy")
-  moduleAccess               ModuleAccess[]
+  refreshTokens         RefreshToken[]
+  parentProfile         ParentProfile?
+  student               Student?           @relation("StudentLogin")
+  staffProfile          StaffProfile?
+  collectedPayments     FeePayment[]
+  approvedDiscounts     Discount[]
+  markedAttendance      AttendanceRecord[]
+  markedStaffAttendance StaffAttendance[]  @relation("StaffAttendanceMarkedBy")
+  arrangedCovers        CoverAssignment[]  @relation("CoverArrangedBy")
+  submittedFeeClaims    FeePaymentClaim[]  @relation("ClaimSubmittedBy")
+  reviewedFeeClaims     FeePaymentClaim[]  @relation("ClaimReviewedBy")
+  moduleAccess          ModuleAccess[]
 
   // Actor back-relations. Every *_by_id column references a real user so the audit trail
   // cannot point at a ghost; `onDelete` is Prisma's default Restrict, which never fires in
@@ -546,8 +551,8 @@ model User {
   updatedSmsTemplates    SmsTemplate[]
   issuedDocuments        Document[]
   auditLogs              AuditLog[]
-  createdClassTests          ClassTest[]
-  mfaRecoveryCodes           MfaRecoveryCode[]
+  createdClassTests      ClassTest[]
+  mfaRecoveryCodes       MfaRecoveryCode[]
 
   @@unique([id, schoolId])
   // Partial unique in 02_partial_uniques.sql: (school_id, email) WHERE deleted_at IS NULL.
@@ -715,7 +720,7 @@ model StudentEnrollment {
   attendanceRecords AttendanceRecord[]
   invoices          FeeInvoice[]
   examResults       ExamResult[]
-  classTestScores  ClassTestScore[]
+  classTestScores   ClassTestScore[]
 
   @@unique([id, schoolId])
   // Partial unique in SQL migration: one status=ACTIVE per (student, academic_year)
@@ -750,8 +755,8 @@ model StaffProfile {
 
   assignments      TeacherAssignment[]
   timetableSlots   TimetableSlot[]
-  coveringFor      CoverAssignment[] @relation("CoverCovering")
-  coveredWhileAway CoverAssignment[] @relation("CoverAbsent")
+  coveringFor      CoverAssignment[]   @relation("CoverCovering")
+  coveredWhileAway CoverAssignment[]   @relation("CoverAbsent")
   attendance       StaffAttendance[]
   leaves           StaffLeave[]
   salaryStructures SalaryStructure[]
@@ -881,7 +886,7 @@ model FeeStructure {
   /// price in force at the time, and rewriting it would silently restate what families were
   /// charged. Invoicing picks the latest row whose `effectiveFrom` is on or before the month
   /// being billed. Mirrors `SalaryStructure.effectiveFrom`.
-  effectiveFrom  DateTime     @default(dbgenerated("CURRENT_DATE")) @map("effective_from") @db.Date
+  effectiveFrom DateTime @default(dbgenerated("CURRENT_DATE")) @map("effective_from") @db.Date
 
   isActive  Boolean  @default(true) @map("is_active")
   createdAt DateTime @default(now()) @map("created_at")
@@ -982,9 +987,9 @@ model FeePaymentClaim {
 
   /// A family pays for a CHILD, so the claim is anchored to the student even when the invoice
   /// it settles is obvious.
-  studentId String  @map("student_id") @db.Uuid
-  student   Student @relation(fields: [studentId, schoolId], references: [id, schoolId])
-  invoiceId String  @map("invoice_id") @db.Uuid
+  studentId String     @map("student_id") @db.Uuid
+  student   Student    @relation(fields: [studentId, schoolId], references: [id, schoolId])
+  invoiceId String     @map("invoice_id") @db.Uuid
   invoice   FeeInvoice @relation(fields: [invoiceId, schoolId], references: [id, schoolId])
 
   amount         Decimal       @db.Decimal(12, 2)
@@ -1354,6 +1359,122 @@ model ReportCard {
   @@map("report_cards")
 }
 
+// ── Bell schedule (the school's own clock) ───────────────────────────────────
+/// What a school day looks like: which periods exist, when they start, and where the breaks fall.
+///
+/// `TimetableSlot` says *what* happens in period 3 and could never say *when*: `period_no` is a bare
+/// ordinal, and the grid inferred how many periods a class had from `max(period_no)` over whatever
+/// somebody had already typed, floored at 6. So an 8-period school saw 6 rows, a break could not be
+/// represented at all, and Friday — a short day in almost every school here — rendered exactly like
+/// Tuesday, with its empty cells unable to say whether they were unfilled or non-existent.
+///
+/// **Exactly one schedule resolves for any section in any academic year** (a schedule listing its
+/// class, else the campus default). That is what keeps `period_no` meaning one thing, and it is
+/// enforced at write time by `bell_schedule_classes.@@unique([classId, scheduleId])` plus the
+/// one-default-per-campus partial index — never resolved by precedence at read time.
+model BellSchedule {
+  id             String              @id @default(uuid()) @db.Uuid
+  schoolId       String              @map("school_id") @db.Uuid
+  school         School              @relation(fields: [schoolId], references: [id])
+  campusId       String              @map("campus_id") @db.Uuid
+  campus         Campus              @relation(fields: [campusId, schoolId], references: [id, schoolId])
+  /// Year-scoped like `TimetableSlot`. Without this, reading last year's grid would resolve against
+  /// THIS year's bell — two models that must agree, scoped differently.
+  academicYearId String              @map("academic_year_id") @db.Uuid
+  academicYear   AcademicYear        @relation(fields: [academicYearId, schoolId], references: [id, schoolId])
+  name           String              @db.VarChar(60) // "Regular", "Primary Wing"
+  /// The campus fallback: used by any class not named on a wing schedule. One per campus+year
+  /// (partial unique in SQL).
+  ///
+  /// Stored rather than derived from "has no classes attached", because a partial index predicate
+  /// cannot reach into another table — so deriving it would leave the rule enforceable only in the
+  /// service, and the F0 accountant seat established the house rule that a uniqueness invariant gets
+  /// both layers: the index is the safety under a race, the service check is what makes the refusal
+  /// civil. A default carries no classes; a non-default must carry at least one, or it is unreachable.
+  isDefault      Boolean             @default(false) @map("is_default")
+  classes        BellScheduleClass[]
+  periods        BellPeriod[]
+  deletedAt      DateTime?           @map("deleted_at")
+  createdAt      DateTime            @default(now()) @map("created_at")
+  updatedAt      DateTime            @updatedAt @map("updated_at")
+
+  @@unique([id, schoolId])
+  @@index([schoolId, campusId, academicYearId])
+  @@map("bell_schedules")
+}
+
+/// Which classes follow a non-default schedule — the "wing override" (Primary out at 12:30).
+///
+/// ⚠️ **EXPLICIT join model, never `classes Class[]`.** An *implicit* Prisma many-to-many creates a
+/// join table carrying only `A`/`B` columns and **no `school_id`** — so `prisma/sql/05_rls.sql`,
+/// which loops tables that have `school_id`, gives it no policy; the Prisma tenant extension has
+/// nothing to merge into; and `scripts/check-rls-coverage.mjs` never even considers it, because that
+/// query starts from `WHERE column_name = 'school_id'`. All three isolation layers share one
+/// assumption and would have failed together. Every m2m in this schema is explicit and tenant-chained
+/// for exactly this reason — see `SectionSubject`, `StudentGuardian`, `TeacherAssignment`.
+model BellScheduleClass {
+  id         String       @id @default(uuid()) @db.Uuid
+  schoolId   String       @map("school_id") @db.Uuid
+  school     School       @relation(fields: [schoolId], references: [id])
+  scheduleId String       @map("schedule_id") @db.Uuid
+  schedule   BellSchedule @relation(fields: [scheduleId, schoolId], references: [id, schoolId], onDelete: Cascade)
+  classId    String       @map("class_id") @db.Uuid
+  class      Class        @relation(fields: [classId, schoolId], references: [id, schoolId])
+  createdAt  DateTime     @default(now()) @map("created_at")
+
+  /// A class sits in at most one schedule — resolution decided at write time, never at read time.
+  /// (Scoped per schedule here; the cross-schedule rule is checked in the service, since a class
+  /// could otherwise be attached to two schedules of the same campus+year.)
+  @@unique([classId, scheduleId])
+  @@index([schoolId, scheduleId])
+  @@index([classId, schoolId])
+  @@map("bell_schedule_classes")
+}
+
+/// One row of one day — a teaching period, or a break/assembly.
+///
+/// `dayOfWeek` sits here rather than on a day parent so that **every day is composed independently**:
+/// Friday is not a flag or a special case, it is simply a day built with fewer rows.
+///
+/// ⚠️ `startTime`/`endTime` are **computed by the server**, never sent by the client. The write takes
+/// the day's start plus each row's duration and walks the list, so a gap or an overlap is not
+/// "rejected" — it is inexpressible. `sequence` and `periodNo` are assigned for the same reason: a
+/// hand-typed period number is how you get a period 7 that no bell rings for.
+model BellPeriod {
+  id         String       @id @default(uuid()) @db.Uuid
+  schoolId   String       @map("school_id") @db.Uuid
+  school     School       @relation(fields: [schoolId], references: [id])
+  scheduleId String       @map("schedule_id") @db.Uuid
+  schedule   BellSchedule @relation(fields: [scheduleId, schoolId], references: [id, schoolId], onDelete: Cascade)
+  dayOfWeek  Int          @map("day_of_week") // 1=Mon … 7=Sun, matching TimetableSlot
+  sequence   Int // order down the day, breaks included
+  /// The only distinction that carries behaviour. A break and an assembly differ by `label`, not by
+  /// anything the system does — an enum here would have been three untested branches.
+  isTeaching Boolean      @map("is_teaching")
+  /// Teaching rows only, numbered 1..n down the day. This is what `TimetableSlot.periodNo` refers to.
+  ///
+  /// ⚠️ Nullable, and **Postgres treats NULLs as DISTINCT** — which is exactly right for breaks (a day
+  /// may hold several) and useless for teaching rows, where a plain unique key would NOT stop two
+  /// period-3s. Hence the partial index in `02_partial_uniques.sql`. Third appearance of this one
+  /// behaviour in this schema: relied on for `fee_invoices.psid`, a hole in `cover_assignments`, and
+  /// both at once here.
+  periodNo   Int?         @map("period_no")
+  label      String?      @db.VarChar(30) // "Break", "Lunch", "Assembly", "Jumma"
+  /// School-local wall clock, "HH:MM". VarChar rather than `@db.Time` deliberately: zero-padded
+  /// HH:MM sorts lexicographically in chronological order, it is how every other clock value in this
+  /// product is already represented (`attendanceMarkByTime`, `staffAttendance.dayStartTime`), and the
+  /// existing `isPastLocalTime()`/`localHhMm()` helpers take it unchanged. `@db.Time` would hand
+  /// TypeScript a Date on 1970-01-01 that every call site has to strip. Format is CHECKed in SQL.
+  startTime  String       @map("start_time") @db.VarChar(5)
+  endTime    String       @map("end_time") @db.VarChar(5)
+  createdAt  DateTime     @default(now()) @map("created_at")
+  updatedAt  DateTime     @updatedAt @map("updated_at")
+
+  @@unique([scheduleId, dayOfWeek, sequence])
+  @@index([schoolId, scheduleId, dayOfWeek])
+  @@map("bell_periods")
+}
+
 // ── Timetable (v1: assignments feed it; visual grid v1.5) ────────────────────
 /// One period of one section's week.
 ///
@@ -1405,21 +1526,21 @@ model TimetableSlot {
 /// so creating and removing it are both audited, and it is refused into a month whose payroll is
 /// APPROVED.
 model CoverAssignment {
-  id       String   @id @default(uuid()) @db.Uuid
-  schoolId String   @map("school_id") @db.Uuid
-  school   School   @relation(fields: [schoolId], references: [id])
+  id        String   @id @default(uuid()) @db.Uuid
+  schoolId  String   @map("school_id") @db.Uuid
+  school    School   @relation(fields: [schoolId], references: [id])
   /// One day. Cover is not a contract — a fortnight of absence is fourteen rows, so the model
   /// stays simple and the UI does the repetition.
-  date     DateTime @db.Date
-  sectionId String  @map("section_id") @db.Uuid
-  section   Section @relation(fields: [sectionId, schoolId], references: [id, schoolId])
+  date      DateTime @db.Date
+  sectionId String   @map("section_id") @db.Uuid
+  section   Section  @relation(fields: [sectionId, schoolId], references: [id, schoolId])
   /// NULL when the school runs no timetable — then it means "cover 9-A all day", which is how a
   /// school without a published grid actually works. `timetable_slots` shipped with zero rows in
   /// every school, so requiring a period would have made this unusable where it is needed most.
-  periodNo Int?     @map("period_no")
+  periodNo  Int?     @map("period_no")
 
-  coveringStaffId String       @map("covering_staff_id") @db.Uuid
-  coveringStaff   StaffProfile @relation("CoverCovering", fields: [coveringStaffId, schoolId], references: [id, schoolId])
+  coveringStaffId String        @map("covering_staff_id") @db.Uuid
+  coveringStaff   StaffProfile  @relation("CoverCovering", fields: [coveringStaffId, schoolId], references: [id, schoolId])
   /// Who is away. Nullable on purpose: a class can need someone for reasons the register does not
   /// know — a teacher pulled into a meeting — and refusing to record cover without a matching
   /// absence would make the office lie to the system in order to use it.
@@ -1705,17 +1826,17 @@ model ClassTestScore {
 /// Stored as argon2 hashes exactly like passwords: the plaintext is shown ONCE at generation and
 /// is unrecoverable afterwards. A code is consumed on use (`used_at`), never reusable.
 model MfaRecoveryCode {
-  id       String    @id @default(uuid()) @db.Uuid
-  schoolId String    @map("school_id") @db.Uuid
-  school   School    @relation(fields: [schoolId], references: [id])
-  userId   String    @map("user_id") @db.Uuid
+  id        String    @id @default(uuid()) @db.Uuid
+  schoolId  String    @map("school_id") @db.Uuid
+  school    School    @relation(fields: [schoolId], references: [id])
+  userId    String    @map("user_id") @db.Uuid
   // Cascade: a recovery code exists only to recover THIS user's second factor, so it must
   // not outlive the account. Declared here as well as in the migration, or every `migrate diff`
   // reports the mismatch as drift.
-  user     User      @relation(fields: [userId, schoolId], references: [id, schoolId], onDelete: Cascade)
-  codeHash String    @map("code_hash")
-  usedAt   DateTime? @map("used_at")
-  createdAt DateTime @default(now()) @map("created_at")
+  user      User      @relation(fields: [userId, schoolId], references: [id, schoolId], onDelete: Cascade)
+  codeHash  String    @map("code_hash")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
 
   @@index([userId, schoolId])
   @@index([schoolId, userId, usedAt])

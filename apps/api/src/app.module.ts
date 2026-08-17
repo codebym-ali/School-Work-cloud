@@ -35,6 +35,7 @@ import { CommsModule } from './modules/comms/comms.module';
 import { AttendanceModule } from './modules/attendance/attendance.module';
 import { LeavesModule } from './modules/leaves/leaves.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
+import { BellScheduleModule } from './modules/bell-schedule/bell-schedule.module';
 import { TimetableModule } from './modules/timetable/timetable.module';
 import { CoverModule } from './modules/cover/cover.module';
 import { FeesModule } from './modules/fees/fees.module';
@@ -85,6 +86,7 @@ import { UploadsModule } from './modules/uploads/uploads.module';
     AttendanceModule,
     LeavesModule,
     NotificationsModule,
+    BellScheduleModule,
     TimetableModule,
     CoverModule,
     FeesModule,

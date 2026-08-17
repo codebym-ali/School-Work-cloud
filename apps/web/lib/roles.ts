@@ -81,6 +81,10 @@ export const NAV: NavItem[] = [
   // The editor is admin-only (§23: CRUD for owner, own-campus for a campus admin). A teacher gets
   // `/my-timetable` below rather than this screen — they read their week, they do not build it.
   { href: '/timetable', label: 'Timetable', icon: 'timetable', group: 'Academics', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
+  // Directly under Timetable, because it is the thing you must set FIRST: the grid renders the day
+  // this screen declares. Same roles as the editor — a campus admin composes their own campus's day
+  // and the service refuses anyone else's.
+  { href: '/timings', label: 'School Timings', icon: 'timings', group: 'Academics', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
   // Arranging cover is a permission grant — it lets one teacher write to another class's
   // register — so it sits with the people who approve leave, not with teachers.
   { href: '/cover', label: 'Cover', icon: 'cover', group: 'Academics', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },

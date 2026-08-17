@@ -338,6 +338,33 @@ export interface TimetableCoverage {
   academicYearId: string;
   sections: Array<{ sectionId: string; className: string; sectionName: string; slots: number }>;
 }
+
+// ── Bell schedule (the school's own clock) ───────────────────────────────────
+/** One row of a composed day. Teaching rows are numbered; breaks carry a label instead. */
+export interface BellRow {
+  id: string; sequence: number; isTeaching: boolean;
+  periodNo: number | null; label: string | null;
+  startTime: string; endTime: string;
+}
+export interface BellDay {
+  dayOfWeek: number;
+  /** Null on a day nobody has composed — which is a different answer from "no periods". */
+  startsAt: string | null; endsAt: string | null;
+  teachingPeriods: number;
+  rows: BellRow[];
+}
+export interface BellSchedule {
+  id: string; name: string; isDefault: boolean;
+  campusId: string; campusName: string; academicYearId: string;
+  classes: Array<{ id: string; name: string }>;
+  /** Always seven entries, Monday first — an uncomposed day is present and empty. */
+  days: BellDay[];
+}
+/** What the client sends for one day: a start time and a duration per row. Never a time per row. */
+export interface BellDayInput {
+  startsAt: string;
+  rows: Array<{ isTeaching: boolean; label?: string; minutes: number }>;
+}
 export interface CoverRow {
   id: string; date: string; periodNo: number | null; reason: string | null;
   section: { id: string; name: string; class: { id: string; name: string; campusId: string } };
@@ -832,6 +859,24 @@ export const api = {
     setSlot: (body: { sectionId: string; dayOfWeek: number; periodNo: number; subjectId: string; staffId: string; room?: string }) =>
       apiPost<TimetableSlot>('/timetable/slots', body),
     clearSlot: (id: string) => apiDelete<{ deleted: boolean }>(`/timetable/slots/${id}`),
+  },
+  /**
+   * The school's timings — which periods exist, when they ring, and where the breaks fall.
+   *
+   * ⚠️ `setDay` sends **durations, not times**. The server walks the day from `startsAt`, so a gap
+   * or an overlap between rows is not rejected — there is no field in which to express one.
+   */
+  bellSchedules: {
+    list: () => apiGet<{ academicYearId: string; schedules: BellSchedule[] }>('/bell-schedules'),
+    get: (id: string) => apiGet<BellSchedule>(`/bell-schedules/${id}`),
+    create: (body: { campusId: string; name: string; isDefault?: boolean; classIds?: string[] }) =>
+      apiPost<BellSchedule>('/bell-schedules', body),
+    update: (id: string, body: { name?: string; classIds?: string[] }) =>
+      apiPatch<BellSchedule>(`/bell-schedules/${id}`, body),
+    remove: (id: string) => apiDelete<{ deleted: boolean }>(`/bell-schedules/${id}`),
+    /** `retainedLessons` counts lessons left sitting on periods the shortened day no longer has. */
+    setDay: (id: string, dayOfWeek: number, body: BellDayInput) =>
+      apiPut<BellSchedule & { retainedLessons: number }>(`/bell-schedules/${id}/days/${dayOfWeek}`, body),
   },
   /**
    * Cover — who is taking a class when its teacher is away.

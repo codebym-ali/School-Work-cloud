@@ -1,27 +1,101 @@
+/* ── Design tokens (UI Retheme Plan, U0) ──────────────────────────────────────
+ *
+ * The language is taken from [[School-Admin.pk Design Reference]] — navy + one warm accent,
+ * brand-tinted shadows, colour as meaning — but the HUES ARE DELIBERATELY NOT THEIRS.
+ *
+ * ⚠️ They are a direct competitor selling to the same schools. Design patterns are ideas and
+ * free to use; a palette is an identity. Adopting theirs verbatim would invite "this looks like
+ * School-Admin" from buyers who already know the incumbent — which helps them, not us.
+ *
+ * The shift also pays for itself in contrast, measured rather than eyeballed:
+ *   navy  #17365c on white = 12.22:1  (theirs: #234777 = 9.38)
+ *   brass #a1741c on white =  4.17:1  (theirs: #df9118 = 2.56 — unusable for anything but a fill)
+ *
+ * ⚠️ **--accent is still not safe for small text on white** (4.17 < 4.5). It is a FILL behind
+ * white, a badge, an icon, or large/bold text. Never body copy. See --accent-ink for that case.
+ */
 :root {
-  --bg: #f6f7f9;
+  /* brand */
+  --brand: #17365c;
+  --brand-dark: #0f2440;
+  --brand-tint: #eef2f8;
+  /* A lighter step of the SAME hue, for the non-peak columns of a single-series chart: the story
+     is "which month stands out", so the peak takes the full brand and the rest recede. Emphasis,
+     not a second category — giving the other months their own hue would spend the identity
+     channel re-encoding what the bar height already says. 3.14:1 on white, so it still reads as
+     a mark rather than a ghost. */
+  --brand-soft: #7d93b2;
+  /* accent — fills, badges, icons */
+  --accent: #a1741c;
+  --accent-light: #d69e2e;
+  --accent-dark: #7a570f;
+  --accent-tint: #fdf6e7;
+  /* --accent-ink: the one accent value that passes 4.5:1, for the rare accent TEXT on white. */
+  --accent-ink: #7a570f;
+
+  /* surface + ink */
+  --bg: #eef2f8;
   --card: #ffffff;
-  --ink: #1a1f2b;
-  --muted: #6b7280;
-  --brand: #3355cc;
+  --ink: #1a1a2e;
+  /* ⚠️ **Darkened BY the retheme, not despite it.** The old `#6b7280` measured 4.51 on the old
+     `--bg` `#f6f7f9` — it cleared the 4.5 floor by one hundredth. Moving `--bg` to the blue-grey
+     `#eef2f8` dropped the same pair to **4.30**, putting every "muted on the page field" label
+     (the topbar identity, every `p.muted` subtitle) under the floor at once. This value measures
+     5.32 on `--bg` and 5.98 on `--card`, so the next background tweak does not re-break it. */
+  --muted: #5b6472;
+  --light: #9ca3af;
   --border: #e5e7eb;
-  --danger: #c0392b;
+
+  /* status — meaning, never decoration. Tuned values: a stock green beside these reads wrong. */
+  --ok: #00a544;
+  --ok-tint: #dcfce7;
+  --ok-ink: #166534;
+  --danger: #e40014;
+  --danger-tint: #fee2e2;
+  --danger-ink: #991b1b;
+  --warn: #f05100;
+  --warn-tint: #fff1e5;
+  --warn-ink: #92400e;
+  --info: #155dfc;
+  --info-tint: #dbeafe;
+  --info-ink: #1e3a8a;
+
+  /* shape */
+  --r-sm: 6px; --r-md: 8px; --r-lg: 12px; --r-xl: 16px; --r-pill: 9999px;
+
+  /* elevation — brand-tinted, never black. This is the signature of the reference language:
+     a neutral grey shadow is what makes an interface look assembled rather than designed. */
+  --shadow-card: 0 10px 30px -10px rgb(23 54 92 / .10);
+  --shadow-raise: 0 8px 32px rgb(23 54 92 / .20);
+  --shadow-accent: 0 10px 30px rgb(161 116 28 / .35);
+  --glow-live: 0 0 8px rgb(0 165 68 / .55);
+
+  /* type */
+  --font-body: var(--font-roboto), -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-heading: var(--font-bitter), Georgia, serif;
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
 body {
   background: var(--bg);
   color: var(--ink);
-  font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  /* ⚠️ Base stays 15px. The reference sits at 16, and the plan said to follow — but a base-size
+     change re-flows every screen in the app at once, which is a legibility decision of its own and
+     does not belong inside a colour/type retheme. One variable at a time. */
+  font: 15px/1.5 var(--font-body);
 }
+/* ⚠️ `.section-title` was in this list and has been removed on purpose — see the rule itself.
+   Numerals stay on the heading face: that is where the slab actually earns its keep. */
+h1, h2, h3, .metric .value, .stat .value { font-family: var(--font-heading); }
 a { color: var(--brand); }
 
 .container { max-width: 960px; margin: 0 auto; padding: 24px 20px; }
 .card {
   background: var(--card);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--r-lg);
   padding: 24px;
+  box-shadow: var(--shadow-card);
 }
 .center { min-height: 100vh; display: grid; place-items: center; padding: 20px; }
 .stack > * + * { margin-top: 12px; }
@@ -29,39 +103,113 @@ a { color: var(--brand); }
 label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
 input {
   width: 100%; padding: 10px 12px; border: 1px solid var(--border);
-  border-radius: 8px; font-size: 15px; background: #fff;
+  border-radius: var(--r-md); font-size: 15px; background: var(--card);
 }
 button {
-  background: var(--brand); color: #fff; border: 0; border-radius: 8px;
-  padding: 10px 16px; font-size: 15px; cursor: pointer;
+  background: var(--brand); color: #fff; border: 0; border-radius: var(--r-pill);
+  padding: 10px 24px; font-size: 15px; font-weight: 700; cursor: pointer;
+  transition: background .15s ease, box-shadow .15s ease;
 }
+button:hover:not(:disabled) { background: var(--brand-dark); }
+/* ⚠️ There was NO visible focus style anywhere in this stylesheet — a keyboard user could not
+   see where they were. Rank is expressed by SHAPE (pill action vs 8px navigation), so focus has to
+   be carried by a ring rather than by the fill. */
+:where(button, .chip, a.metric-link, input, select, textarea):focus-visible {
+  outline: none; box-shadow: 0 0 0 3px rgb(23 54 92 / .28);
+}
+/* ⚠️ **An inline `<svg>` sits on the text baseline, which puts it visibly too low.** Most
+   icons here live in a flex container that centres them, but a few ride inside a sentence (the
+   closure toast, a chip). `vertical-align` is the only thing that fixes those, and it is harmless
+   where flex already owns the alignment because flex items ignore it. */
+svg { vertical-align: -0.15em; }
 button:disabled { opacity: .6; cursor: default; }
-.ghost { background: transparent; color: var(--brand); border: 1px solid var(--border); }
+.ghost {
+  background: transparent; color: var(--brand); border: 1px solid var(--border);
+  border-radius: var(--r-md); font-weight: 600;
+  /* inline-flex so a leading icon centres against the label instead of sitting on the baseline */
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+}
+.ghost:hover:not(:disabled) { background: var(--brand-tint); }
 
 .error { color: var(--danger); font-size: 14px; }
 h1 { font-size: 22px; margin: 0 0 4px; }
 .sub { color: var(--muted); margin: 0 0 20px; }
 
-.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 14px; }
-.metric { border: 1px solid var(--border); border-radius: 10px; padding: 16px; background: #fff; }
-.metric .value { font-size: 28px; font-weight: 600; }
+/* ── The metric tile, and the "Rs 80,000" wrap bug ───────────────────────────
+   OBSERVED IN THE BROWSER: a money value inside `.metric .value` broke onto two lines.
+   Cause: a FIXED 28px/800 numeral inside a FLUID tile. At the old 180px floor the tile's
+   content box is 180 − 32 (padding) − 2 (border) = 146px, and "Rs 80,000" sets at ~151px
+   on the heading face. It missed by five pixels, so it wrapped.
+
+   Shrinking the numeral everywhere would have been the wrong fix — the tile is the thing
+   that was too small, and it was too small everywhere. Note that six call sites had already
+   worked around it by inlining `minmax(200px,1fr)` on their own `.grid`. That is the bug
+   reporting itself. So the fix is three parts, in order of who is actually at fault:
+
+   1. The tile gets the room it needed: floor 180 → 200px (tablet 160 → 180). "Rs 80,000"
+      now fits at the full 28px, which is what the design asked for in the first place.
+   2. `white-space: nowrap` + tabular figures: a monetary amount is ONE token. Breaking
+      "Rs 1,850,000" after the "Rs" produces a number that is briefly a different number,
+      which on a fees screen is worse than an overflow.
+   3. A container-query clamp as the floor under (1): the numeral tracks the TILE's width,
+      not the viewport's, so a genuinely cramped tile scales the digits down instead of
+      spilling them. cqi = 1% of the container's inline size, so 13cqi resolves to ≥28px
+      (and is therefore clamped to exactly 28px) on every tile ≥ ~215px — i.e. everywhere
+      in practice. It only engages where the alternative was overflow.
+   ⚠️ The clamp floor is 20px and must stay ≥19px: the status colours below rely on the
+   numeral qualifying as WCAG "large text". */
+/* 220px, not 200: the widest tile content (a money numeral over its caption) needs it, and a
+   column narrower than its contents is how the previous overflow reached a neighbour. */
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; }
+.metric {
+  border: 1px solid var(--border); border-radius: var(--r-lg); padding: 16px;
+  background: var(--card); box-shadow: var(--shadow-card);
+  /* ⚠️ Makes the tile a query container for the clamp above. Side effect: layout
+     containment, so the tile is also the containing block for any absolutely positioned
+     descendant. Nothing positions inside a metric today; if something starts to, this is why. */
+  container-type: inline-size;
+}
+.metric .value {
+  font-size: clamp(20px, 13cqi, 28px);
+  font-weight: 800; color: var(--brand); line-height: 1.15;
+  white-space: nowrap; font-variant-numeric: tabular-nums;
+}
 .metric .label { font-size: 13px; color: var(--muted); }
+/* ⚠️ Deliberately NOT on var(--font-heading) any more (U3). At 12px, uppercase and
+   letter-spaced, a slab serif's serifs are just noise and the thing reads as a heading that
+   got shrunk. This is a LABEL for the block beneath it — it names a region, it does not open
+   one — and 700-weight uppercase sans is what says that unambiguously. The real headings
+   (h1–h3) and the numerals keep the slab, so the two roles stay visually distinct. */
 .section-title {
+  font-family: var(--font-body);
   font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
-  color: var(--muted); margin: 4px 0 10px;
+  color: var(--muted); margin: 4px 0 10px; line-height: 1.3;
 }
 /* A metric may be a link OR a button (a count that is its own filter), so this is no longer
    scoped to `a`. NOTE the button case must restate `background` and `color`: the global button
    rule paints them brand-on-white, which on a .metric would be white text on a white card —
    the same defect that once hid the admissions chip labels. */
-.metric-link { display: block; text-align: left; text-decoration: none; color: var(--ink); background: #fff; transition: box-shadow .15s ease, transform .15s ease, border-color .15s ease; }
-.metric-link:hover { transform: translateY(-2px); box-shadow: 0 6px 16px rgba(15, 23, 42, 0.08); border-color: var(--brand); }
+.metric-link { display: block; text-align: left; text-decoration: none; color: var(--ink); background: var(--card); transition: box-shadow .15s ease, transform .15s ease, border-color .15s ease; }
+/* ⚠️ **The lift belongs to a CARD, not to a row.** `.metric` is a bordered, padded tile and
+   lifting it reads correctly. A `.stat` is a row *inside* a panel that is already a card, and
+   lifting it out of its own container is what made hover look wrong — `transform` also opens a
+   stacking context, so the raised row painted its opaque background over any neighbour's content.
+   Scoped to `.metric` so the staff-attendance tiles keep the behaviour they were designed with. */
+.metric.metric-link:hover { transform: translateY(-2px); box-shadow: var(--shadow-raise); border-color: var(--brand); }
+/* ⚠️ Transparent at rest, overriding `.metric-link`'s `--card` fill. A `.metric` needs an opaque
+   white fill because it IS the card; a `.stat` sits inside one, so the fill bought nothing and
+   was the thing that hid a neighbour's text when it overlapped. Transparent means the worst a
+   future overflow can do is look untidy rather than delete information. */
+.stat.metric-link { background: transparent; }
+/* A row states "you can click me" by tinting and outlining in place — no lift, no shadow, no
+   stacking context, so it can never cover what is beside it. */
+.stat.metric-link:hover { background: var(--brand-tint); border-color: var(--brand); }
 .metric-link .metric-go { font-size: 12px; color: var(--brand); margin-top: 8px; opacity: 0; transition: opacity .15s ease; }
 .metric-link:hover .metric-go { opacity: 1; }
 button.metric-link { width: 100%; font: inherit; cursor: pointer; }
 button.metric-link[aria-pressed='true'] { border-color: var(--brand); box-shadow: inset 0 0 0 1px var(--brand); }
-.metric-alert { border-left: 4px solid #d97706; }
-.metric-alert .value { color: #b45309; }
+.metric-alert { border-left: 4px solid var(--accent); }
+.metric-alert .value { color: var(--accent-ink); }
 /* Pipeline summary cards keep their call-to-action visible (they're the route into a whole screen). */
 a.metric-link.pipeline-card .metric-go { opacity: 1; margin-top: 0; }
 .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
@@ -69,13 +217,190 @@ a.metric-link.pipeline-card .metric-go { opacity: 1; margin-top: 0; }
    chips to opposite edges of a wide container instead of keeping them together. */
 .chips { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 
+/* ══ U2 · The card header bar ════════════════════════════════════════════════
+   The signature device of the reference language: a solid navy bar with a white icon and
+   title, joined to a white body. It is what makes a dozen unrelated panels read as one
+   system rather than a dozen cards that happen to share a radius.
+
+   ⚠️ `.panel` is ADDITIVE. `.card` is unchanged and keeps its exact current meaning — 22
+   Playwright assertions depend on it (K1). A panel is a card that has a title bar; anything
+   without a title bar stays a `.card`. */
+.panel {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-card);
+  /* Load-bearing: the header is flush to the edges, so without clipping its square top
+     corners punch straight through the panel's rounded ones. */
+  overflow: hidden;
+}
+.panel > header {
+  display: flex; align-items: center; gap: 8px;
+  background: var(--brand); color: #fff;
+  padding: 12px 16px;
+  font-weight: 700; font-size: 14px; line-height: 1.3;
+}
+/* The leading glyph. `flex: none` so a long title never squeezes it into an ellipse. */
+.panel > header .ico { flex: none; display: inline-flex; align-items: center; }
+/* Push anything after the title to the far end of the bar — a count, a `.dot-live`, a link. */
+.panel > header .spacer { margin-left: auto; }
+/* ⚠️ **A link in the header is invisible without this.** The global `a { color: var(--brand) }`
+   paints it navy, and the header IS navy — the same class of defect that once hid the admissions
+   chip labels (white-on-white) and the Setup wizard's step numbers. Anything placed on a brand fill
+   has to restate its colour. */
+.panel > header a { color: #fff; text-decoration: underline; text-underline-offset: 2px; }
+.panel > header a:hover { color: var(--brand-tint); }
+/* Trailing status — a count or a live dot — sits right without needing a .spacer wrapper. */
+.panel > header > .badge:last-child,
+.panel > header > .dot-live:last-child { margin-left: auto; }
+
+/* `padding: 0` so `.panel` COMPOSES with `.card`. A spec locates the staff summary as
+   `.card` filtered by its title, so that panel must carry both classes — and `.card`'s 24px
+   padding would otherwise inset the header bar from the panel's edges, leaving a white margin
+   around a bar whose whole job is to be flush. Declared here rather than fixed inline at the one
+   call site, so every future `.panel.card` composes correctly. */
+.panel { padding: 0; }
+.panel > .body { padding: 16px; }
+/* A panel is often a table's frame. The table already draws its own border and radius, which
+   would double up inside the body, so a bare table in a panel drops both and goes edge to edge. */
+.panel > .body > table:only-child { border: 0; border-radius: 0; }
+
+/* ⚠️ CONTRAST, MEASURED: white on --accent (#a1741c) is 4.17:1. That clears WCAG AA for
+   LARGE text (3:1) and for non-text UI, but it is *below* the 4.5:1 floor for small text.
+   The accent header is therefore reserved for the one or two panels that genuinely need to
+   outrank the navy ones, and its title is set a step larger and heavier than the navy bar's
+   to sit as close to the large-text threshold as 14–15px allows.
+   If the U5 contrast audit enforces 4.5:1 across the board, the fix is --accent-dark
+   (#7a570f, 6.6:1 on white) here — NOT a lighter title. */
+/* ⚠️ `--accent-dark`, NOT `--accent`, and the difference is a real one measured rather than
+   argued: white on `--accent` (#a1741c) is **4.17:1**, and a 14–15px bold title is NOT "large text"
+   by WCAG (that starts at 18.66px bold), so it fails the 4.5:1 floor. `--accent-dark` (#7a570f)
+   gives **6.57:1**.
+   The first pass set this to `--accent` and compensated by bumping the title to 15px/800 — which
+   does not help, because 15px bold is still small text. **Making the type bigger is the tempting
+   fix that does not work; changing the fill is the one that does.** */
+.panel--accent > header { background: var(--accent-dark); font-size: 15px; font-weight: 800; }
+
+/* ══ U3 · The stat tile ══════════════════════════════════════════════════════
+   Circular filled icon badge, a large numeral, a small uppercase caption — the reference's
+   Student Statistics block. Distinct from `.metric`: a metric is a whole bordered tile, a
+   stat is a ROW that can live inside a panel body, a metric, or a bare grid cell. */
+.stat {
+  display: flex; align-items: center; gap: 12px;
+  /* Same reason as `.metric`: the numeral clamp below is tile-relative, and cqi units need a
+     container to resolve against. Without this they would silently fall back to the viewport. */
+  container-type: inline-size;
+  /* ⚠️ A real box, because this is also a `.metric-link` and therefore hoverable. It had
+     `padding: 0`, no radius and no border, so the hover state painted a hard-edged white slab
+     tight around the text with a 32px shadow hanging off it. */
+  padding: 10px 12px; border-radius: var(--r-md);
+  /* Transparent, not absent: `.metric-link:hover` sets `border-color` only, and a colour on a
+     zero-width border paints nothing — which is why the hover had no outline at all. Reserving
+     the 1px here also means hover cannot shift the layout by a pixel. */
+  border: 1px solid transparent;
+}
+/* The numeral sits OVER its caption. As three flex children in a row the tile's width was their
+   sum, and the money tile outgrew its grid column by 87px. `min-width: 0` lets this column
+   actually shrink inside the flex row rather than forcing the tile wider than its cell. */
+.stat .stat-text { display: flex; flex-direction: column; min-width: 0; gap: 1px; }
+.stat .ico {
+  flex: none; width: 40px; height: 40px; border-radius: var(--r-pill);
+  display: grid; place-items: center;
+  font-size: 18px; line-height: 1;
+  /* Neutral default; the is-* modifiers below carry the meaning. */
+  background: var(--brand-tint); color: var(--brand);
+}
+/* Tint background + matching -ink glyph. The -ink values are the dark end of each status
+   ramp precisely so this pairing clears 4.5:1 — do not swap in the saturated token here. */
+.stat .ico.is-info   { background: var(--info-tint);   color: var(--info-ink); }
+.stat .ico.is-ok     { background: var(--ok-tint);     color: var(--ok-ink); }
+.stat .ico.is-warn   { background: var(--warn-tint);   color: var(--warn-ink); }
+.stat .ico.is-danger { background: var(--danger-tint); color: var(--danger-ink); }
+.stat .value {
+  font-size: clamp(18px, 13cqi, 26px);
+  font-weight: 800; color: var(--brand); line-height: 1.15;
+  white-space: nowrap; font-variant-numeric: tabular-nums;
+}
+/* ⚠️ **Currency takes a smaller step, and that is not a preference.** "Rs 90,000.00" is ~9×
+   the glyph count of "17"; at one shared size either the count looks weak or the total overflows
+   its column — which is exactly what happened. Sized so a seven-figure total still fits the
+   narrowest column the grid will produce. */
+.stat--money .value { font-size: clamp(15px, 9cqi, 20px); }
+.stat .caption {
+  font-size: 11px; text-transform: uppercase; letter-spacing: .04em;
+  color: var(--muted); line-height: 1.3;
+}
+/* Status colour on the NUMERAL, and only where the number means something (present, absent,
+   overdue) — never as decoration.
+   ⚠️ These use the SATURATED tokens, not the -ink ones, and that is only legitimate because
+   the numeral is ≥20px at weight 800, i.e. WCAG "large text" (≥18.66px bold), where the floor
+   is 3:1 rather than 4.5:1. Measured on white: --ok 3.25 · --warn 3.57 · --danger 4.87 ·
+   --info 5.25. So --ok and --warn PASS HERE AND NOWHERE SMALLER. Anything under 19px, or any
+   drop below weight 700, must switch to the -ink variants — which is exactly what
+   `.statline .v` below does. */
+.stat.is-ok .value     { color: var(--ok); }
+.stat.is-warn .value   { color: var(--warn); }
+.stat.is-danger .value { color: var(--danger); }
+.stat.is-info .value   { color: var(--info); }
+/* ⚠️ **The money numeral is BELOW that threshold, so it takes the -ink variants — exactly what
+   the note above prescribes.** `.stat--money` sets ~18px to stop a currency string overflowing its
+   column, and 18.27px bold is *not* WCAG large text (that starts at 18.66px): the floor jumps from
+   3:1 to 4.5:1 and `--ok` at 3.25 fails. This is the second time in this stylesheet that shrinking
+   type has silently changed which contrast floor applies — **a font-size change is a contrast
+   change**, and the saturated status tokens only ever cleared the large-text floor. */
+.stat--money.is-ok .value     { color: var(--ok-ink); }
+.stat--money.is-warn .value   { color: var(--warn-ink); }
+.stat--money.is-danger .value { color: var(--danger-ink); }
+.stat--money.is-info .value   { color: var(--info-ink); }
+
+/* ══ U3 · Money ══════════════════════════════════════════════════════════════
+   Amounts are compared down a column, so the digits must line up (tabular figures) and the
+   column must be right-aligned. `nowrap` for the same reason as the metric numeral: an amount
+   split across two lines is momentarily a different amount.
+   Beats the `th, td { text-align: left }` default on specificity, so it works as a cell class. */
+.money { font-variant-numeric: tabular-nums; white-space: nowrap; text-align: right; }
+
+/* ══ U3 · The label/value line ═══════════════════════════════════════════════
+   A finance row where the VALUE'S COLOUR carries the meaning. The label is styled by
+   inheritance rather than by a class, so it works whatever the other half is marked up as —
+   only `.v` needs a hook. */
+.statline {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+  padding: 8px 0; border-top: 1px solid var(--border);
+  color: var(--muted); font-size: 13px;
+}
+.statline:first-child { border-top: 0; }
+.statline .v {
+  color: var(--ink); font-weight: 700; font-size: 14px;
+  text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums;
+}
+/* ⚠️ -ink variants, NOT the saturated tokens: this is 14px text, so the 4.5:1 floor applies
+   and --ok (3.25:1) / --warn (3.57:1) would both fail. Same palette as `.badge`, so a value
+   and its badge say the same thing in the same colour. */
+.statline .v.is-ok     { color: var(--ok-ink); }
+.statline .v.is-warn   { color: var(--warn-ink); }
+.statline .v.is-danger { color: var(--danger-ink); }
+.statline .v.is-info   { color: var(--info-ink); }
+
+/* Live indicator. The glow is what distinguishes "this is updating now" from a plain green
+   status dot; ⚠️ it is never the only signal — pair it with a word, or it means nothing to a
+   colour-blind user and nothing at all to a screen reader. */
+.dot-live {
+  display: inline-block; flex: none; width: 8px; height: 8px;
+  border-radius: var(--r-pill); background: var(--ok); box-shadow: var(--glow-live);
+}
+
 /* App shell */
 .shell { display: grid; grid-template-columns: 220px 1fr; min-height: 100vh; }
-.sidebar { background: #101726; color: #cbd5e1; padding: 20px 12px; }
-.sidebar .brand { color: #fff; font-weight: 700; padding: 8px 12px 16px; font-size: 16px; }
+.sidebar { background: var(--brand-dark); color: #cbd5e1; padding: 20px 12px; }
+.sidebar .brand { color: #fff; font-weight: 700; padding: 8px 12px 16px; font-size: 16px;
+  display: flex; align-items: center; gap: 8px; }
 .sidebar .nav-group { margin-bottom: 14px; }
 .sidebar .group-label {
-  color: #64748b; font-size: 11px; font-weight: 700; letter-spacing: 0.06em;
+  /* ⚠️ 6.08 on the navy sidebar. The previous `#64748b` measured **3.28** — slate-500 is a
+     colour for LIGHT backgrounds, and it was never legible here. On a dark fill the ramp inverts:
+     pick the light end, not the muted end. */
+  color: #94a3b8; font-size: 11px; font-weight: 700; letter-spacing: 0.06em;
   text-transform: uppercase; padding: 6px 12px 4px;
 }
 .sidebar a {
@@ -83,8 +408,14 @@ a.metric-link.pipeline-card .metric-go { opacity: 1; margin-top: 0; }
   color: #cbd5e1; text-decoration: none; padding: 9px 12px;
   border-radius: 8px; font-size: 14px; margin-bottom: 2px;
 }
-.sidebar a .nav-icon { font-size: 15px; line-height: 1; width: 18px; text-align: center; flex: none; }
-.sidebar a:hover { background: #1c2740; color: #fff; }
+/* ⚠️ **Sized in `px`, not `font-size`** — these hold an inline SVG now, not an emoji glyph, and
+   `font-size` does nothing to an `<svg>` with explicit width/height. The box stays 18px so the
+   labels keep the alignment they had when the icons were text. */
+.sidebar a .nav-icon { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; flex: none; }
+/* The whole point of the set: the glyph takes the colour of whatever contains it, so one icon
+   serves the resting link, the hover, and the active row without a second asset. */
+.sidebar a .nav-icon svg { display: block; }
+.sidebar a:hover { background: rgb(255 255 255 / .08); color: #fff; }
 .sidebar a.active { background: var(--brand); color: #fff; }
 /* Cap the reading width — full-viewport forms on a wide monitor turn into columns of
    narrow boxes. `min-width: 0` lets grid children shrink instead of forcing overflow. */
@@ -101,27 +432,34 @@ a.metric-link.pipeline-card .metric-go { opacity: 1; margin-top: 0; }
 .toolbar { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 16px; }
 .toolbar > div { min-width: 140px; }
 .field-inline { display: inline-block; margin-right: 10px; }
-select { width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 15px; background: #fff; }
-table { width: 100%; border-collapse: collapse; background: #fff; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+select { width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--r-md); font-size: 15px; background: var(--card); }
+/* Zebra-free by design: hairline --border rows are enough separation, and alternating fills
+   compete with the status tints that actually carry meaning in these tables. */
+table { width: 100%; border-collapse: collapse; background: var(--card); border: 1px solid var(--border); border-radius: var(--r-lg); overflow: hidden; }
 th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); font-size: 14px; }
-th { background: #f9fafb; color: var(--muted); font-weight: 600; }
+/* 12px uppercase muted: the header row is a set of LABELS, so it is typeset like `.section-title`
+   rather than like data. The tint (was a hard-coded #f9fafb) puts it on the brand ramp. */
+th {
+  background: var(--brand-tint); color: var(--muted);
+  font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em;
+}
 tr:last-child td { border-bottom: 0; }
 /* `color` is load-bearing: the global `button` rule sets `color: #fff` for solid brand buttons,
    so a chip that overrides only `background` renders white-on-white and its label vanishes. The
    count badge kept showing (`.badge` carries its own colour) and the active chip kept showing
    (it restores the brand background), which is why the labels looked simply absent. */
-.chip { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 999px; font-size: 13px; border: 1px solid var(--border); background: #fff; color: var(--ink); cursor: pointer; }
-.chip:hover { background: #f9fafb; }
+.chip { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: var(--r-pill); font-size: 13px; border: 1px solid var(--border); background: var(--card); color: var(--ink); cursor: pointer; }
+.chip:hover { background: var(--brand-tint); }
 .chip.active { background: var(--brand); color: #fff; border-color: var(--brand); }
 .chip.active .badge { background: rgba(255,255,255,.25); color: #fff; }
-.badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; background: #eef2ff; color: #3730a3; }
-.badge.ok { background: #dcfce7; color: #166534; }
-.badge.warn { background: #fef3c7; color: #92400e; }
-.badge.bad { background: #fee2e2; color: #991b1b; }
+.badge { display: inline-block; padding: 2px 8px; border-radius: var(--r-pill); font-size: 12px; background: var(--info-tint); color: var(--info-ink); }
+.badge.ok { background: var(--ok-tint); color: var(--ok-ink); }
+.badge.warn { background: var(--warn-tint); color: var(--warn-ink); }
+.badge.bad { background: var(--danger-tint); color: var(--danger-ink); }
 .muted { color: var(--muted); }
-.toast { padding: 10px 12px; border-radius: 8px; font-size: 14px; margin-bottom: 14px; }
-.toast.ok { background: #dcfce7; color: #166534; }
-.toast.err { background: #fee2e2; color: #991b1b; }
+.toast { padding: 10px 12px; border-radius: var(--r-md); font-size: 14px; margin-bottom: 14px; }
+.toast.ok { background: var(--ok-tint); color: var(--ok-ink); }
+.toast.err { background: var(--danger-tint); color: var(--danger-ink); }
 .small { padding: 6px 10px; font-size: 13px; }
 .inline-form { display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-end; }
 /* ── Forms ───────────────────────────────────────────────────────────────────
@@ -139,16 +477,19 @@ input.invalid, select.invalid { border-color: var(--danger); }
 /* Step header — same numbered pattern as the Setup screen. */
 .steps { display: flex; gap: 8px; flex-wrap: wrap; }
 .step-pill {
-  display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 999px;
-  border: 1px solid var(--border); background: #fff; color: var(--ink); font-size: 14px; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: var(--r-pill);
+  border: 1px solid var(--border); background: var(--card); color: var(--ink); font-size: 14px; cursor: pointer;
 }
 .step-pill .n {
-  width: 22px; height: 22px; border-radius: 999px; display: grid; place-items: center;
-  font-size: 12px; font-weight: 700; background: #e5e7eb; color: #374151;
+  width: 22px; height: 22px; border-radius: var(--r-pill); display: grid; place-items: center;
+  font-size: 12px; font-weight: 700; background: var(--border); color: var(--muted);
 }
 .step-pill.active { border-color: var(--brand); box-shadow: 0 0 0 1px var(--brand) inset; }
 .step-pill.active .n { background: var(--brand); color: #fff; }
-.step-pill.done .n { background: #16a34a; color: #fff; }
+/* ⚠️ --ok-ink, not --ok. This is 12px white-on-fill; white on --ok (#00a544) measures 3.25:1
+   and white on the old hard-coded #16a34a measured 3.35:1 — both under the 4.5:1 floor, so the
+   step number was quietly unreadable. --ok-ink (#166534) clears it comfortably. */
+.step-pill.done .n { background: var(--ok-ink); color: #fff; }
 
 /* Actions stay reachable on a long form instead of sitting 2000px down. */
 .form-actions {
@@ -166,7 +507,8 @@ input.invalid, select.invalid { border-color: var(--danger); }
 @media (max-width: 1024px) {
   .shell { grid-template-columns: 190px 1fr; }
   .content { padding: 20px 18px; }
-  .grid { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
+  /* 180, not 160: same reasoning as the desktop floor — the tile has to hold a money value. */
+  .grid { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
   /* Two columns: a third and a quarter both become halves. */
   .f-third, .f-quarter { grid-column: span 6; }
 }
@@ -241,7 +583,7 @@ input.invalid, select.invalid { border-color: var(--danger); }
     text-decoration: none; color: var(--muted); font-size: 11px;
   }
   .tabbar .tab.active { color: var(--brand); font-weight: 600; }
-  .tabbar .tab-icon { font-size: 20px; line-height: 1; }
+  .tabbar .tab-icon { display: inline-flex; align-items: center; justify-content: center; height: 22px; }
   /* The bar is fixed, so the last thing on every page would sit underneath it. */
   .has-tabbar .content { padding-bottom: calc(76px + env(safe-area-inset-bottom, 0px)); }
   /* With a tab bar there is nothing left for the drawer to do, and two navigations on one
@@ -396,6 +738,47 @@ input.invalid, select.invalid { border-color: var(--danger); }
   .stacked td[data-label='']::before { content: none; }
   .stacked td[data-label=''] { justify-content: flex-start; }
 }
+
+/* ── Charts (V2) ────────────────────────────────────────────────────────────────────────
+   Boxes, not SVG — see the note at the top of `components/charts.tsx`. In a scaled `viewBox` the
+   labels shrank with the width and measured 7px on a phone; in HTML the type is real CSS px at
+   every width. */
+.chart { margin: 0; display: flex; flex-direction: column; gap: 10px; }
+
+/* Part-to-whole. The `gap` IS the mandated 2px surface separation between touching bands — it
+   takes space out of the row instead of adding a stroke's worth of non-data ink. */
+.bar-stack {
+  display: flex; gap: 2px; height: 22px;          /* ≤24px: a band that fills its slot reads as a block */
+  border-radius: var(--r-sm); overflow: hidden;    /* rounds the OUTER ends only; interiors stay square */
+}
+.bar-stack .seg { flex-basis: 0; min-width: 3px; } /* a 1-of-500 band must still be visible and hoverable */
+
+.chart-legend { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px 16px; }
+.chart-legend li { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+.chart-legend .sw { width: 10px; height: 10px; border-radius: 3px; flex: none; }
+/* Text never wears the data colour — the swatch beside it carries the identity. */
+.chart-legend .k { color: var(--muted); }
+.chart-legend .v { color: var(--ink); font-weight: 700; font-variant-numeric: tabular-nums; }
+
+.columns { display: flex; align-items: flex-end; gap: 4px; }
+.columns .col { flex: 1 1 0; display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 0; }
+/* Reserved whether or not this column is the peak, so the row's baseline does not jump by the
+   height of one label. The `' '` in the markup is what keeps the box occupied. */
+.columns .peak {
+  font-size: 12px; font-weight: 700; color: var(--ink);
+  font-variant-numeric: tabular-nums; white-space: nowrap; line-height: 1.2; min-height: 15px;
+}
+.columns .track { width: 100%; height: 96px; display: flex; align-items: flex-end; }
+.columns .fill {
+  width: 100%; max-width: 44px; margin: 0 auto;   /* cap the width so a 6-column row keeps its air */
+  background: var(--brand-soft);
+  border-radius: 4px 4px 0 0;                      /* rounded data-end, square at the baseline */
+}
+.columns .fill.is-peak { background: var(--brand); }
+/* Hairline, solid, one step off the surface: the baseline is the only rule this chart needs,
+   because the peak is directly labelled. */
+.columns .tick { font-size: 11px; color: var(--muted); border-top: 1px solid var(--border);
+  width: 100%; text-align: center; padding-top: 4px; }
 
 /* ── My Timetable, day at a time (M3) ────────────────────────────────────────
    A week IS a grid, so the desktop keeps one. On a phone six columns either scroll

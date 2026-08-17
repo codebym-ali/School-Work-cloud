@@ -39,6 +39,14 @@ test.describe('installable', () => {
     expect(sizes).toContain('512x512');
     expect(m.icons.some((i: { purpose?: string }) => i.purpose === 'maskable')).toBe(true);
 
+    // ⚠️ **The retheme colours, asserted where they are actually SERVED.** `manifest.ts` copies
+    // `--brand` and `--bg` by hand — TypeScript cannot read a CSS custom property — and U0 moved
+    // both tokens without moving these, so the installed app wore the previous identity: the old
+    // brand on the Android status bar, the old field on the splash. Nothing failed, because the
+    // only colour under test was the meta tag. These two lines are the other half.
+    expect(m.theme_color, 'manifest theme_color must track --brand').toBe('#17365c');
+    expect(m.background_color, 'manifest background_color must track --bg').toBe('#eef2f8');
+
     // `start_url` and `scope` must stay RELATIVE. Each school is its own subdomain, so an absolute
     // URL here would point every tenant's installed app at whichever school was hardcoded.
     expect(m.start_url.startsWith('/')).toBe(true);
@@ -68,7 +76,13 @@ test.describe('installable', () => {
     await expect(page.locator('link[rel="manifest"]')).toHaveAttribute('href', /manifest\.webmanifest$/);
     // Android paints the status bar from this; without it an installed window still looks like a
     // web page, which is most of what "installed" means to a teacher.
-    await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute('content', '#3355cc');
+    // ⚠️ **Pinned to the literal brand on purpose — this is the assertion that caught the U0
+    // retheme leaving `app/manifest.ts` behind.** The meta tag moved to the new brand and the
+    // manifest did not, so an installed app painted one colour in the status bar and another on
+    // the splash. A regex or a "matches the manifest" comparison would have agreed with both and
+    // caught nothing. When the brand moves, three places move together: `globals.css` `--brand`,
+    // `layout.tsx` `themeColor`, and `manifest.ts` `theme_color` — and this line is what says so.
+    await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute('content', '#17365c');
 
     // ⚠️ `viewport-fit=cover` is load-bearing, not cosmetic: `env(safe-area-inset-*)` evaluates to
     // ZERO without it, so the teacher tab bar and the register's save bar would sit under the home

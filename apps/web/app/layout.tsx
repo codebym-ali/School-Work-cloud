@@ -1,5 +1,20 @@
 import type { Metadata, Viewport } from 'next';
+import { Roboto, Bitter } from 'next/font/google';
 import './globals.css';
+
+/**
+ * Two families, split by role (UI Retheme Plan, U1) — the highest character-per-byte change in the
+ * whole retheme. A slab serif over a neutral sans reads as a school ledger; a single sans reads as
+ * a generic admin panel.
+ *
+ * **Bitter, not Roboto Slab.** Same institutional feel, deliberately not the competitor's exact
+ * pairing — see the note above the tokens in globals.css.
+ *
+ * `next/font` self-hosts these at build time, so there is no runtime request to a font CDN — which
+ * this app's CSP would block anyway.
+ */
+const roboto = Roboto({ subsets: ['latin'], weight: ['400', '500', '700'], variable: '--font-roboto', display: 'swap' });
+const bitter = Bitter({ subsets: ['latin'], weight: ['600', '700', '800'], variable: '--font-bitter', display: 'swap' });
 
 export const metadata: Metadata = {
   title: 'School Management',
@@ -35,12 +50,14 @@ export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
   viewportFit: 'cover',
-  themeColor: '#3355cc',
+  // Paints the Android status bar — must move with the brand token, or an installed app
+  // wears the old colour on the one surface a retheme cannot reach from CSS.
+  themeColor: '#17365c',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="en" className={`${roboto.variable} ${bitter.variable}`}>
       <body>{children}</body>
     </html>
   );

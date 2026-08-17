@@ -38,8 +38,14 @@ export default function manifest(): MetadataRoute.Manifest {
     scope: '/',
     display: 'standalone',
     orientation: 'portrait',
-    background_color: '#f6f7f9', // --bg, so the splash matches the first paint
-    theme_color: '#3355cc',      // --brand
+    // ⚠️ **These two mirror `--bg` and `--brand` by hand, and nothing enforces it.** The U0
+    // retheme moved both tokens and left these behind, so the installed app painted the OLD brand
+    // on the Android status bar and the OLD field on the splash — the one surface where being a
+    // retheme behind by one version is most visible, because it frames the whole window. The
+    // manifest is generated in TS, not CSS, so it cannot read a custom property; if the brand
+    // moves again, it moves here too.
+    background_color: '#eef2f8', // --bg, so the splash matches the first paint
+    theme_color: '#17365c',      // --brand
     icons: [
       { src: '/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
       { src: '/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },

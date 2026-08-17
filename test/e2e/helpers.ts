@@ -129,15 +129,44 @@ export async function apiSetupGet<T = unknown>(page: Page, path: string): Promis
   return res.json() as Promise<T>;
 }
 
+const WEEKDAYS = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'] as const;
+
 /**
- * A recent date safe for attendance marking: not in the future and not the school's
- * default weekly-off (SUNDAY). Walks back from today until it lands on a non-Sunday.
- * Returned as YYYY-MM-DD (UTC), matching the screen's `<input type="date">` value.
+ * A recent date safe for attendance marking: not in the future, and not one of **this school's**
+ * weekly-off days. Returned as YYYY-MM-DD (UTC), matching the screen's `<input type="date">`.
+ *
+ * ⚠️ **It reads the school's setting instead of assuming SUNDAY.** The previous version walked
+ * back only over `getUTCDay() === 0`, with a comment asserting "the school's default weekly-off
+ * (SUNDAY)". The demo tenant is configured **SUNDAY and SATURDAY**, so from a Saturday this
+ * returned that same Saturday, the backend correctly refused to mark a register on a weekly off,
+ * and the failure read as "saving attendance is broken" — a test asserting a configuration the
+ * tenant never had. The product was right, exactly as with the attendance timezone cases.
+ *
+ * ⚠️ **Closures are consulted too, and that is not belt-and-braces.** A first version skipped only
+ * weekly offs, on the argument that a holiday landing on the chosen day was a remote edge case.
+ * It failed on the very next run: walking back off Saturday landed on **14 August**, Pakistan's
+ * Independence Day, which is seeded and permanent. "Rare" and "every year on a fixed date" are
+ * not the same thing. The date has to be one the backend will actually accept, and the backend
+ * refuses both kinds of non-working day — so both are checked here.
  */
-export function safeAttendanceDate(): string {
+export async function safeAttendanceDate(page: Page): Promise<string> {
+  const settings = await apiSetupGet<{ weeklyOffDays: string[] }>(page, '/school-settings');
+  const off = new Set(settings.weeklyOffDays ?? ['SUNDAY']);
+  // School-wide closures and this tenant's campus ones alike: any row whose date matches is a day
+  // the register cannot be marked on without an override.
+  const holidays = await apiSetupGet<{ date: string }[]>(page, '/holidays');
+  const shut = new Set(holidays.map((h) => h.date.slice(0, 10)));
+
   const d = new Date();
-  while (d.getUTCDay() === 0) d.setUTCDate(d.getUTCDate() - 1);
-  return d.toISOString().slice(0, 10);
+  // 14 steps, not 7: a weekly off can sit next to a multi-day Eid break, and a fortnight back is
+  // still "recent" for a register. Throwing beats returning a date the API will reject, because
+  // the rejection surfaces as "saving attendance is broken" three assertions later.
+  for (let i = 0; i < 14; i++) {
+    const iso = d.toISOString().slice(0, 10);
+    if (!off.has(WEEKDAYS[d.getUTCDay()]) && !shut.has(iso)) return iso;
+    d.setUTCDate(d.getUTCDate() - 1);
+  }
+  throw new Error('safeAttendanceDate: no working day in the last 14 days for this school');
 }
 
 export interface SeededClass {

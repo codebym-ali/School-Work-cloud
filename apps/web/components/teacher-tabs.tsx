@@ -1,5 +1,6 @@
 'use client';
 
+import { Icon } from '@/components/icon';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { tabsFor } from '@/lib/roles';
@@ -52,7 +53,7 @@ export function TeacherTabs({ admissionsMode, roles }: Props) {
             className={`tab${active ? ' active' : ''}`}
             aria-current={active ? 'page' : undefined}
           >
-            <span className="tab-icon" aria-hidden="true">{t.icon}</span>
+            <span className="tab-icon"><Icon name={t.icon} size={22} /></span>
             <span className="tab-label">{t.label}</span>
           </Link>
         );
@@ -82,7 +83,7 @@ export function TeacherSidebarNav({ admissionsMode, roles }: Props) {
             className={active ? 'active' : ''}
             aria-current={active ? 'page' : undefined}
           >
-            <span className="nav-icon" aria-hidden="true">{t.icon}</span>
+            <span className="nav-icon"><Icon name={t.icon} size={18} /></span>
             {t.label}
           </Link>
         );

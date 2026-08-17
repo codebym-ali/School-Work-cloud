@@ -434,4 +434,89 @@ Blueprint's AWS reference (RDS/ECS/S3/KMS…) is replaced by **Contabo + Coolify
 - **Both were tests, not product — and that was established before touching anything**, by reading `closureNotice()` and `isPastLocalTime()` (both correct) and by stashing every local change to confirm the same two failed on a clean tree. ⚠️ **I had already told the operator this was "a real latent bug in the closure/deadline handling". It was not**, and the correction mattered: the product had the harder half right all along.
 - **Green at one hour is not green.** The corrected test only exercises the ordering the current clock produces. It was proved general by swapping the zone pair for one that reads *later* than UTC right now (`Europe/Moscow`) and re-running — **both branches pass at the same instant**, which is the closest thing to time travel the suite allows.
 
+## A token is not a colour, it is every pair sitting on it (added 2026-08-15)
+- ⚠️ **Changing one background token broke contrast on every screen at once.** `--muted` `#6b7280`
+  measured **4.51** on the old `--bg` `#f6f7f9` — it cleared the 4.5 floor by one hundredth. The
+  retheme moved `--bg` to `#eef2f8` and the same pair fell to **4.30**. Nothing else changed.
+  **A background token change is a contrast change to every pair painted on it**, and a value
+  sitting on the threshold is not passing, it is waiting. Replacements are now chosen with headroom.
+- **On a dark fill the grey ramp inverts.** `#64748b` is a muted colour *for light backgrounds*;
+  on the navy sidebar it measured **3.28** and had never been legible. Pick from the light end.
+- ⚠️ **`--brand` lives in four places and only one of them is CSS.** `globals.css`, `layout.tsx`
+  `themeColor`, and `app/manifest.ts` `theme_color`/`background_color` — the manifest is generated
+  in TypeScript and **cannot read a custom property**. U0 moved the token and left the manifest, so
+  the *installed* app wore the previous identity on the Android status bar and splash: the single
+  most framing surface in the product, behind by one version, with a green suite.
+- **Audit contrast by computing rendered pairs off the live DOM**, walking up to the first opaque
+  background and compositing alpha on the way — not by reading the token table. The token table
+  cannot see `.chip.active .badge`, which is white on 25% white over navy.
+- **A stylesheet class vocabulary that tests assert against is a public API.** 71 Playwright
+  references decided this was a retheme rather than a Tailwind migration. New classes go *alongside*.
+
+## A test can be wrong about the world, not just about the code (added 2026-08-15)
+- ⚠️ **Three separate attendance tests encoded assumptions the tenant never satisfied**, and each
+  one failed in a way that read as a product defect. A guard matched copy the app had deliberately
+  improved away from; a helper hard-coded "weekly off is SUNDAY" for a tenant that keeps Saturday
+  too; the same helper then dismissed holidays as a remote edge case and landed on **14 August**.
+  **"Rare" and "every year on a fixed date" are not the same thing.**
+- **Read the configuration, do not assume it.** The fixed helper asks the school for its own
+  `weeklyOffDays` and closures. A test that hard-codes policy is asserting a second, invisible
+  fixture that nothing keeps in step.
+- ⚠️ **A skip is not a pass, and a green suite full of skips is not evidence.** Both fixes were
+  proved by temporarily making today a working day and confirming each **body** runs to completion —
+  the same non-vacuity discipline as probing a rule by breaking it.
+- **Sometimes there is genuinely no legal input, and saying so beats manufacturing one.**
+  `StudentEnrollment.startedAt` is `@default(now())` with no override, and the register refuses any
+  date the enrolment was not active on. So a freshly seeded student can only be marked **today**,
+  and on a weekly off no date exists. The spec skips saying exactly that; reaching for
+  `allowHolidayOverride` would have kept it green while quietly testing a different claim.
+
+## An emoji is not an icon (added 2026-08-15)
+- ⚠️ **An emoji cannot participate in a design system, and no amount of token work changes that.**
+  It is a text glyph the operating system paints in its own fixed, multi-colour way: it cannot
+  inherit `currentColor`, so it cannot be brand-tinted, cannot go white on a navy header, cannot
+  dim when disabled, and renders as a different picture on every platform. The product shipped
+  **zero SVG** and 23 emoji in `NAV`; against a deliberate palette they read as random, correctly.
+- **Type the icon slot.** `NavItem.icon` moved from `string` to a union of icon names, so a future
+  entry cannot quietly reintroduce a glyph — and the compiler found four more the eye had missed.
+- **One `<svg>` wrapper for the whole set**, paths only per icon: the box, stroke and colour
+  behaviour cannot then drift between icons, which is what makes a set look like a set.
+
+## Charts: the medium and the palette are both engineering decisions (added 2026-08-15)
+- ⚠️ **A `viewBox` scales its own text.** The first version of the dashboard charts was SVG and
+  looked correct on a laptop; at 375px the peak label measured **7px tall**, because 21 units of a
+  1000-unit box is 6.6px once the box is 314px wide. **For rectangular forms — a stacked bar is a
+  row of widths, a column chart a row of heights — plain HTML is the better medium**, because the
+  type stays real CSS pixels at every width.
+- ⚠️ **The intuitive status palette is unreadable, and it is the one the competitor uses.**
+  Measured under Machado–Oliveira–Fernandes: absent-red ↔ present-green is **ΔE 5.3 (deuteranopia)**
+  and late-orange ↔ absent-red is **ΔE 8.8 (normal vision)**. Present-versus-absent is the most
+  important distinction on a school register and it was invisible to a deuteranope.
+- **Segment ORDER is an accessibility control, not a style choice.** Only neighbouring bands touch,
+  so putting blue `leave` between red and green fixed the worst pair without changing any hue.
+- **Chart fills are a different slot from badge status tokens.** `--ok`/`--warn`/`--danger` are
+  text-on-tint pairs solving a 4.5:1 *text* problem; chart fills solve a mark-*separation* problem.
+  Same meanings, different constraints — merging them breaks one of the two.
+- **Plot the remainder or the chart is false.** A part-to-whole chart *claims* its parts sum to the
+  whole, so "not yet marked" has to be a band. Omitting it renders a register with one child marked
+  and sixteen blank as "100% present" — the same reassuring lie the coverage line already exists to
+  defuse, but this time built into the geometry.
+- **Zero must render as zero.** A `min-height` added so a small month stays visible was also
+  drawing true zeros as 2px stubs, i.e. "a little" where there was nothing.
+
+## A failure path that renders nothing is a crash (added 2026-08-17)
+- ⚠️ **The app shell answered "the API is unreachable" with a WHITE PAGE.** `(app)/layout.tsx`
+  caught the `me()` rejection but handled **only 401**; every other outcome — 500, proxy failure,
+  dropped connection — fell through to `setReady(true)` with `me` still null, and `if (!me) return
+  null` rendered an empty document. No message, no retry, no route out, nothing logged.
+- **The trigger was environmental; the defect was ours.** A DNS failure exposed it, but any API
+  outage would blank the entire product for every user of a school, and the screen would give an
+  administrator nothing to report beyond "it's white".
+- **A caught error that only handles the expected status is not error handling.** The 401 branch is
+  the *ordinary* case (go and sign in). The branch that needed writing was the one nobody expected,
+  which is precisely the one that reaches a user during an incident.
+- **Now names the fault and offers a way forward** — status, a Try again, and a Sign in link. The
+  same shape as the guard that refused ADMISSION fee structures: **saying no loudly beats failing
+  silently**, because a silent failure is indistinguishable from a crash.
+
 **Source:** [[consistency-register]] · [[school-management-master-blueprint]] §2–§34

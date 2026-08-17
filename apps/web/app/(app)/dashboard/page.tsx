@@ -1,40 +1,79 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Icon, type IconName } from '@/components/icon';
+import { RegisterBar, CollectionsTrend } from '@/components/charts';
+import { useEffect, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { api, type AdmissionsSummary, type Dashboard, type NotificationItem, type StaffDaySummary } from '@/lib/api';
 import { useMe } from '@/lib/me-context';
 import { canReach } from '@/lib/roles';
 
+/**
+ * Tone is MEANING, never decoration (UI Retheme Plan U4, design reference §6.4). One rule, applied
+ * everywhere on this page so a colour can be read without checking what it is attached to:
+ *
+ *   ok     money in, a register that is complete, staff who turned up
+ *   danger money owed or a delivery that failed — someone loses something
+ *   warn   waiting on a human: pending, unmarked, below the line
+ *   info   a neutral count that is neither good nor bad news
+ *
+ * A count of zero is not an alert, so tiles carry a resting tone AND the tone they take once their
+ * threshold trips — "0 defaulters" in red would train people to ignore red.
+ */
+type Tone = 'ok' | 'warn' | 'danger' | 'info';
+
 type Tile = {
   key: keyof Dashboard;
   label: string;
   href: string;
-  icon: string;
+  icon: IconName;
+  tone: Tone;
+  /** Render the numeral through `.money` (currency prefix, separators, two decimals). */
+  money?: boolean;
   fmt?: (v: number) => string;
   alert?: (v: number) => boolean;
+  /** The tone once `alert` fires — the same number now means something different. */
+  alertTone?: Tone;
 };
 
-const SECTIONS: Array<{ title: string; tiles: Tile[] }> = [
+/**
+ * `Rs 1,850,000.00` — prefix, thousands separators, two decimals (design reference §5). It was
+ * `Rs ${v.toLocaleString()}` here and something else on every other screen.
+ *
+ * ⚠️ The locale is PINNED rather than left to the browser: South-Asian locales group by lakh
+ * (`Rs 18,50,000`), so an unpinned total silently regroups itself depending on which machine opens
+ * the dashboard — and a figure that renders two ways is a figure nobody can check against a ledger.
+ */
+const money = (v: number) =>
+  `Rs ${v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+const SECTIONS: Array<{ title: string; icon: IconName; tiles: Tile[] }> = [
   {
     title: 'Academics & Enrollment',
+    icon: 'admissions-team',
     tiles: [
-      { key: 'enrollmentCount', label: 'Active students', href: '/students', icon: '👥' },
-      { key: 'todayAttendancePercent', label: "Today's attendance", href: '/attendance', icon: '✅', fmt: (v) => `${v}%`, alert: (v) => v < 75 },
-      { key: 'pendingLeaves', label: 'Pending leaves', href: '/leaves', icon: '🗓️', alert: (v) => v > 0 },
+      { key: 'enrollmentCount', label: 'Active students', href: '/students', icon: 'students', tone: 'info' },
+      { key: 'todayAttendancePercent', label: "Today's attendance", href: '/attendance', icon: 'attendance', tone: 'ok', fmt: (v) => `${v}%`, alert: (v) => v < 75, alertTone: 'warn' },
+      { key: 'pendingLeaves', label: 'Pending leaves', href: '/leaves', icon: 'leaves', tone: 'info', alert: (v) => v > 0, alertTone: 'warn' },
     ],
   },
   {
     title: 'Finance',
+    icon: 'fees',
+    // Money in is `ok`; money that did not arrive is `danger`. That pairing is the whole point of
+    // the section — the two numbers are the same fact from opposite ends.
     tiles: [
-      { key: 'monthCollections', label: 'Collections (month)', href: '/fees', icon: '💳', fmt: (v) => `Rs ${v.toLocaleString()}` },
-      { key: 'defaulterCount', label: 'Defaulters', href: '/reports', icon: '📈', alert: (v) => v > 0 },
+      { key: 'monthCollections', label: 'Collections (month)', href: '/fees', icon: 'fees', tone: 'ok', money: true },
+      { key: 'defaulterCount', label: 'Defaulters', href: '/reports', icon: 'trend-up', tone: 'info', alert: (v) => v > 0, alertTone: 'danger' },
     ],
   },
   {
     title: 'Communication',
+    icon: 'message',
+    // `danger`, not `warn`: a failed SMS is not something waiting to be done, it is a message the
+    // parent never received. Nothing will retry it unless somebody looks.
     tiles: [
-      { key: 'failedSmsCount', label: 'Failed SMS', href: '/reports', icon: '📨', alert: (v) => v > 0 },
+      { key: 'failedSmsCount', label: 'Failed SMS', href: '/reports', icon: 'message', tone: 'info', alert: (v) => v > 0, alertTone: 'danger' },
     ],
   },
 ];
@@ -43,6 +82,37 @@ const greeting = () => {
   const h = new Date().getHours();
   return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
 };
+
+/**
+ * One metric tile: circular icon badge, then the numeral **stacked over** its caption (design
+ * reference §5, "Student Statistics"). Every tile is a link — these are the way into the screen
+ * behind the number — so `.metric-link` stays for the focus ring (`a.metric-link:focus-visible`
+ * in globals.css is what a keyboard user steers by).
+ *
+ * ⚠️ **The numeral and caption are stacked, not side by side, and that is a bug fix rather than
+ * a restyle.** Laid out as three flex children in a ROW, the tile's width was the *sum* of icon +
+ * numeral + caption: "Rs 90,000.00 / Collections (month)" needed **311px** in a **228px** grid
+ * cell and spilled **73px into the next tile**, where the neighbour's opaque background covered
+ * it on hover. Stacking makes the width `max(numeral, caption)` instead of their sum, which is
+ * what the reference does and what stops the tile outgrowing its column.
+ *
+ * `stat--money` exists because a currency string is intrinsically several times longer than a
+ * count — "Rs 90,000.00" against "17" — so it takes a smaller step of the same scale. One size
+ * for both means either a tiny count or an overflowing total.
+ */
+function Stat({ href, icon, tone, value, caption, money }: {
+  href: string; icon: IconName; tone: Tone; value: ReactNode; caption: string; money?: boolean;
+}) {
+  return (
+    <Link href={href} className={`stat metric-link is-${tone}${money ? ' stat--money' : ''}`}>
+      <span className={`ico is-${tone}`}><Icon name={icon} size={20} /></span>
+      <span className="stat-text">
+        <span className="value">{value}</span>
+        <span className="caption">{caption}</span>
+      </span>
+    </Link>
+  );
+}
 
 export default function DashboardPage() {
   const me = useMe();
@@ -79,13 +149,19 @@ export default function DashboardPage() {
   // campus admin, who sees the financial metric but has no Fees access).
   const visible = (t: Tile) => data.visible.includes(t.key) && canReach(me?.roles, t.href, me?.admissionsMode);
   const val = (t: Tile) => data[t.key] as number | null;
-  const display = (t: Tile) => {
-    const v = val(t);
-    return v == null ? '—' : t.fmt ? t.fmt(v) : String(v);
-  };
   const isAlert = (t: Tile) => {
     const v = val(t);
     return v != null && !!t.alert?.(v);
+  };
+  const toneOf = (t: Tile): Tone => (isAlert(t) && t.alertTone ? t.alertTone : t.tone);
+  const display = (t: Tile): ReactNode => {
+    const v = val(t);
+    if (v == null) return '—';
+    // ⚠️ `.money` is applied to an INLINE span rather than to `.value` itself: the class carries
+    // right-alignment for table rows, which inside a left-aligned tile would fling the numeral to
+    // one edge and leave its caption at the other. The tabular numerals still apply.
+    if (t.money) return <span className="money">{money(v)}</span>;
+    return t.fmt ? t.fmt(v) : String(v);
   };
 
   /**
@@ -101,8 +177,14 @@ export default function DashboardPage() {
    * ever seen "5 students ready to admit" or "3 staff not marked today". They get them in the bell.
    */
   const reachableAttention = attention.filter((a) => canReach(me?.roles, a.href, me?.admissionsMode));
+  const needsAttention = reachableAttention.length > 0;
 
   const empty = (data.enrollmentCount ?? 0) === 0;
+
+  // Attendance coverage, read once so the statline below can size the shortfall.
+  const marked = data.todayAttendanceMarked ?? 0;
+  const expected = data.todayAttendanceExpected ?? 0;
+  const registersComplete = expected > 0 && marked >= expected;
 
   return (
     <div className="stack">
@@ -113,101 +195,148 @@ export default function DashboardPage() {
         </p>
       </div>
 
-      <div className="card stack" style={{ borderLeft: reachableAttention.length ? '4px solid #d97706' : '4px solid #16a34a' }}>
-        <div className="row">
-          <strong style={{ fontSize: 15 }}>{reachableAttention.length ? '⚠ Needs attention' : '✓ All clear'}</strong>
-          {reachableAttention.length > 0 && <span className="badge warn">{reachableAttention.length}</span>}
+      {/* The one panel that changes colour by state rather than by subject: accent when something
+          is waiting, plain when nothing is. The accent is a FILL behind white header text, which is
+          the only place it is allowed to appear (it measures 4.17:1 — below the floor for text). */}
+      <section className={needsAttention ? 'panel panel--accent' : 'panel'}>
+        <header>
+          <span className="ico"><Icon name={needsAttention ? 'alert' : 'check-circle'} size={18} /></span>
+          {needsAttention ? 'Needs attention' : 'All clear'}
+          {needsAttention
+            ? <span className="badge warn">{reachableAttention.length}</span>
+            : <span className="dot-live" aria-hidden="true" />}
+        </header>
+        <div className="body">
+          {needsAttention ? (
+            <div className="chips">
+              {reachableAttention.map((a, i) => (
+                <Link key={i} className="chip" href={a.href}>{a.text} →</Link>
+              ))}
+            </div>
+          ) : (
+            <p className="muted" style={{ margin: 0 }}>Nothing is waiting on you right now.</p>
+          )}
         </div>
-        {reachableAttention.length === 0 ? (
-          <p className="muted" style={{ margin: 0, fontSize: 13 }}>Nothing is waiting on you right now.</p>
-        ) : (
-          <div className="row" style={{ justifyContent: 'flex-start', flexWrap: 'wrap', gap: 8 }}>
-            {reachableAttention.map((a, i) => (
-              <Link key={i} className="chip" href={a.href}>{a.text} →</Link>
-            ))}
-          </div>
-        )}
-      </div>
+      </section>
 
       {SECTIONS.map((s) => {
         const tiles = s.tiles.filter(visible);
         if (!tiles.length) return null;
+        // The coverage line belongs to the attendance tile, so it appears only when that tile does
+        // and only when a register was actually expected today.
+        const showCoverage = tiles.some((t) => t.key === 'todayAttendancePercent') && expected > 0;
         return (
-          <div key={s.title}>
-            <div className="section-title">{s.title}</div>
-            <div className="grid">
-              {tiles.map((t) => (
-                <Link key={t.key} href={t.href} className={`metric metric-link ${isAlert(t) ? 'metric-alert' : ''}`}>
-                  <div className="row" style={{ alignItems: 'flex-start' }}>
-                    <div className="value">{display(t)}</div>
-                    <span style={{ fontSize: 18 }} aria-hidden="true">{t.icon}</span>
-                  </div>
-                  <div className="label">{t.label}</div>
-                  {/* The coverage sits BESIDE the percentage, never inside it. "95%" over two of
-                      twenty marked registers is a reassuring lie; folding coverage in would make
-                      a different one (a half-marked school is not "50% attendance"). */}
-                  {t.key === 'todayAttendancePercent' && data.todayAttendanceExpected ? (
-                    <div className="muted" style={{ fontSize: 12 }}>
-                      from {data.todayAttendanceMarked} of {data.todayAttendanceExpected} marked
-                      {data.todayAttendanceExpected > (data.todayAttendanceMarked ?? 0) &&
-                        ` · ${data.todayAttendanceExpected - (data.todayAttendanceMarked ?? 0)} not yet`}
-                    </div>
-                  ) : null}
-                  <div className="metric-go">View →</div>
-                </Link>
-              ))}
+          <section className="panel" key={s.title}>
+            <header>
+              <span className="ico"><Icon name={s.icon} size={18} /></span>
+              {s.title}
+            </header>
+            <div className="body stack">
+              <div className="grid">
+                {tiles.map((t) => (
+                  <Stat
+                    key={t.key}
+                    href={t.href}
+                    icon={t.icon}
+                    tone={toneOf(t)}
+                    value={display(t)}
+                    caption={t.label}
+                    money={t.money}
+                  />
+                ))}
+              </div>
+              {/* The coverage sits BESIDE the percentage, never inside it. "95%" over two of
+                  twenty marked registers is a reassuring lie; folding coverage in would make
+                  a different one (a half-marked school is not "50% attendance"). */}
+              {showCoverage && (
+                <div className="statline">
+                  <span>Registers marked today</span>
+                  <span className={`v ${registersComplete ? 'is-ok' : 'is-warn'}`}>
+                    {marked} of {expected}{registersComplete ? '' : ` · ${expected - marked} not yet`}
+                  </span>
+                </div>
+              )}
+              {/* The chart earns its place by answering what the percentage cannot: WHAT the day
+                  was made of. "100%" over one marked register and sixteen blank ones is true and
+                  useless — the bar shows the sixteen. */}
+              {showCoverage && data?.attendanceBreakdown && (
+                <RegisterBar b={data.attendanceBreakdown} />
+              )}
+              {/* Six months of context under the month's total: one figure says how much, the
+                  trend says whether that is normal. */}
+              {s.title === 'Finance' && data?.collectionsTrend?.length ? (
+                <CollectionsTrend points={data.collectionsTrend} money={money} />
+              ) : null}
             </div>
-          </div>
+          </section>
         );
       })}
 
       {staff && canReach(me?.roles, '/staff-attendance', me?.admissionsMode) && (
-        <div>
-          <div className="section-title">People</div>
-          <Link href={`/staff-attendance?date=${staff.date}`} className="card metric-link pipeline-card" style={{ maxWidth: 420 }}>
-            <div className="row">
-              <strong style={{ fontSize: 14 }}>🗓️ Staff today</strong>
-              <span className="metric-go">Open register →</span>
-            </div>
+        /* ⚠️ **Both classes, deliberately.** `staff-attendance.spec.ts` locates this block as a
+           `.card` filtered by the text "Staff today", so dropping the class to make it a clean
+           `.panel` would turn a real guard red for a purely visual reason.
+           `.card` brings 24px of padding, which would inset the navy header bar from the panel's
+           edges — so `.panel { padding: 0 }` lives in globals.css and the two compose. That is
+           deliberately NOT an inline override here: the next `.panel.card` would hit the same
+           thing, and a fix that only works at one call site is a fix that gets re-discovered. */
+        <section className="panel card">
+          <header>
+            <span className="ico"><Icon name="calendar" size={18} /></span>
+            Staff today
+          </header>
+          <div className="body stack">
             {staff.workingDay ? (
               <>
-                <div className="value" style={{ marginTop: 6 }}>{staff.present + staff.late} of {staff.totalStaff}</div>
-                <div className="label">marked present</div>
-                <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>
-                  {staff.absent} absent · {staff.onLeave} on leave ·{' '}
-                  {/* Called out because nothing derives absence yet: a big "not marked" is the
-                      real state of the register, and folding it into "absent" would be a lie. */}
-                  <strong style={{ color: staff.unmarked ? '#b45309' : 'inherit' }}>{staff.unmarked} not marked</strong>
+                <div className="grid">
+                  {/* Present folds in the late arrivals — they are at work; lateness is the
+                      register's business, not the headcount's. */}
+                  <Stat href={`/staff-attendance?date=${staff.date}`} icon="check-circle" tone="ok"
+                        value={String(staff.present + staff.late)} caption="Present" />
+                  <Stat href={`/staff-attendance?date=${staff.date}`} icon="x-circle" tone={staff.absent ? 'danger' : 'info'}
+                        value={String(staff.absent)} caption="Absent" />
+                  <Stat href={`/staff-attendance?date=${staff.date}`} icon="leave" tone="info"
+                        value={String(staff.onLeave)} caption="On leave" />
+                  {/* Called out as its own tile because nothing derives absence yet: a big "not
+                      marked" is the real state of the register, and folding it into "absent"
+                      would be a lie about people who may well have been at work all day. */}
+                  <Stat href={`/staff-attendance?date=${staff.date}`} icon="unknown" tone={staff.unmarked ? 'warn' : 'ok'}
+                        value={String(staff.unmarked)} caption="Not marked" />
+                </div>
+                <div className="statline">
+                  <span>Marked present</span>
+                  <span className="v is-ok">{staff.present + staff.late} of {staff.totalStaff}</span>
                 </div>
               </>
             ) : (
-              <div className="muted" style={{ fontSize: 13, marginTop: 8 }}>
+              <p className="muted" style={{ margin: 0 }}>
                 {staff.holidayName ?? 'Weekly off'} — no register today.
-              </div>
+              </p>
             )}
-          </Link>
-        </div>
+            {/* Kept on both branches so the route into the register never disappears — it was the
+                whole card before, and a closed day is exactly when someone goes to check why. */}
+            <Link href={`/staff-attendance?date=${staff.date}`}>Open register →</Link>
+          </div>
+        </section>
       )}
 
       {adm && (
-        <div>
-          <div className="section-title">Pipelines</div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px,1fr))', gap: 14 }}>
-            {adm && (
-              <Link href="/admissions" className="card metric-link pipeline-card">
-                <div className="row">
-                  <strong style={{ fontSize: 14 }}>📝 Admissions</strong>
-                  <span className="metric-go">View pipeline →</span>
-                </div>
-                <div className="value" style={{ marginTop: 6 }}>{adm.totals.open}</div>
-                <div className="label">open inquiries</div>
-                <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>
-                  {adm.conversionRate}% conversion · {adm.admittedThisMonth} admitted this month
-                </div>
-              </Link>
-            )}
+        <section className="panel">
+          <header>
+            <span className="ico"><Icon name="admissions" size={18} /></span>
+            Admissions
+          </header>
+          <div className="body stack">
+            <div className="grid">
+              <Stat href="/admissions" icon="inbox" tone="info" value={String(adm.totals.open)} caption="Open inquiries" />
+              <Stat href="/admissions" icon="admissions-team" tone="ok" value={String(adm.admittedThisMonth)} caption="Admitted this month" />
+            </div>
+            <div className="statline">
+              <span>Conversion rate</span>
+              <span className="v is-info">{adm.conversionRate}%</span>
+            </div>
           </div>
-        </div>
+        </section>
       )}
 
       {empty && (

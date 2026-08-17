@@ -1,5 +1,6 @@
 'use client';
 
+import { Icon } from '@/components/icon';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
@@ -15,6 +16,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [me, setMe] = useState<Me | null>(null);
   const [closure, setClosure] = useState<ClosureNotice['closure']>(null);
   const [ready, setReady] = useState(false);
+  /** Why `me` could not be loaded, when the reason is NOT "you are signed out". See below. */
+  const [meError, setMeError] = useState<string | null>(null);
   // Below 720px the sidebar becomes a slide-over drawer (CSS drives the breakpoint; this
   // only tracks open/closed, so desktop is unaffected).
   const [navOpen, setNavOpen] = useState(false);
@@ -31,15 +34,43 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     api.me()
-      .then(setMe)
-      .catch((e) => { if (e instanceof ApiError && e.status === 401) router.replace('/login'); })
+      .then((m) => { setMe(m); setMeError(null); })
+      .catch((e) => {
+        // 401 is the ordinary case: not signed in, so go and sign in.
+        if (e instanceof ApiError && e.status === 401) { router.replace('/login'); return; }
+        // ⚠️ **Everything else used to be swallowed here, and the app rendered a WHITE PAGE.**
+        // `ready` flipped true, `me` stayed null, and `if (!me) return null` below returned an
+        // empty document — no message, no retry, no route out. Any API outage, proxy failure or
+        // dropped connection blanked the whole product for every user with no explanation, and
+        // nothing logged it. A failure path that renders nothing is indistinguishable from a
+        // crash, and it is the reason "the dashboard is white" was impossible to diagnose from
+        // the screen.
+        setMeError(e instanceof ApiError ? `The server responded with ${e.status}.` : 'The server could not be reached.');
+      })
       .finally(() => setReady(true));
     // Fails silently: a closure notice is worth showing, never worth blocking the app for.
     api.staff.closureNotice().then((r) => setClosure(r.closure)).catch(() => {});
   }, [router]);
 
   if (!ready) return <main className="container"><p className="muted">Loading…</p></main>;
-  if (!me) return null;
+  if (!me) {
+    // Reached when `me` failed for a reason other than 401 — the 401 path has already navigated
+    // away, so this is always a real fault worth naming rather than a signed-out user.
+    return (
+      <main className="container">
+        <div className="card stack" style={{ maxWidth: 520, margin: '48px auto' }}>
+          <h1 style={{ margin: 0 }}>Can’t reach the server</h1>
+          <p className="muted" style={{ margin: 0 }}>
+            {meError ?? 'The server could not be reached.'} Your work is safe — nothing was saved or lost.
+          </p>
+          <div className="row" style={{ justifyContent: 'flex-start', gap: 8 }}>
+            <button onClick={() => window.location.reload()}>Try again</button>
+            <Link className="ghost" href="/login" style={{ textDecoration: 'none' }}>Sign in</Link>
+          </div>
+        </div>
+      </main>
+    );
+  }
 
   // Show only the screens this role can use, grouped into sidebar categories;
   // gate the routed page centrally.
@@ -65,7 +96,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           <button className="nav-overlay" aria-label="Close menu" onClick={() => setNavOpen(false)} />
         )}
         <aside className={`sidebar${navOpen ? ' open' : ''}`} id="app-nav">
-          <div className="brand">🏫 {panelLabel(me.roles)}</div>
+          <div className="brand"><Icon name="school" size={19} /> {panelLabel(me.roles)}</div>
           {teacherShell ? (
             <TeacherSidebarNav roles={me.roles} admissionsMode={me.admissionsMode} />
           ) : (
@@ -74,7 +105,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 <div className="group-label">{group}</div>
                 {items.map((n) => (
                   <Link key={n.href} href={n.href} className={pathname.startsWith(n.href) ? 'active' : ''}>
-                    <span className="nav-icon" aria-hidden="true">{n.icon}</span>
+                    <span className="nav-icon"><Icon name={n.icon} size={18} /></span>
                     {n.label}
                   </Link>
                 ))}
@@ -91,7 +122,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               aria-controls="app-nav"
               onClick={() => setNavOpen(true)}
             >
-              ☰
+              <Icon name="menu" size={20} />
             </button>
             <div className="who topbar-desktop">{me.email} · {me.roles.join(', ')}</div>
             <div className="row" style={{ gap: 8 }}>
@@ -101,7 +132,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               {/* Hidden in the phone shell: identity, Security and Sign out all live under the
                   Me tab there, and repeating them costs ~50px of an 812px screen. The bell stays —
                   it is the one thing in this bar that is time-sensitive. */}
-              <Link className="ghost small topbar-desktop" href="/security" style={{ textDecoration: 'none' }}>🔒 Security</Link>
+              <Link className="ghost small topbar-desktop" href="/security" style={{ textDecoration: 'none' }}><Icon name="lock" size={15} /> Security</Link>
               <button className="ghost small topbar-desktop" onClick={async () => { await api.logout().catch(() => {}); router.replace('/login'); }}>
                 Sign out
               </button>
@@ -119,7 +150,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             */}
           {closure && (
             <div className="toast warn" role="status">
-              🔴 <strong>School {closure.when === 'TODAY' ? 'is closed today' : 'is closed tomorrow'} — {closure.name}.</strong>{' '}
+              <Icon name="alert" size={17} /> <strong>School {closure.when === 'TODAY' ? 'is closed today' : 'is closed tomorrow'} — {closure.name}.</strong>{' '}
               No classes, and no attendance is taken.
             </div>
           )}

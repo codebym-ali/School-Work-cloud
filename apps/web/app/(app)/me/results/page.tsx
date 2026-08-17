@@ -86,11 +86,13 @@ export default function MyResults() {
                     <div key={m.month} className="row" style={{ gap: 10 }}>
                       <span style={{ minWidth: 78, fontSize: 13 }}>{monthKeyLabel(m.month)}</span>
                       {/* A bar reads faster than a number when the point is the direction of travel. */}
-                      <span style={{ flex: 1, maxWidth: 220, background: '#e5e7eb', borderRadius: 999, height: 8 }}>
+                      <span style={{ flex: 1, maxWidth: 220, background: 'var(--border)', borderRadius: 999, height: 8 }}>
                         <span style={{
                           display: 'block', height: 8, borderRadius: 999,
                           width: `${m.percent ?? 0}%`,
-                          background: (m.percent ?? 0) >= 40 ? '#3355cc' : '#b91c1c',
+                          // Tokens, not the literals these were: `#3355cc` was the pre-U0 brand,
+                          // so this bar kept painting the old identity after every other surface moved.
+                          background: (m.percent ?? 0) >= 40 ? 'var(--brand)' : 'var(--danger)',
                         }} />
                       </span>
                       <span style={{ fontSize: 13, minWidth: 42 }}>{m.percent == null ? '—' : `${m.percent}%`}</span>

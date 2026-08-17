@@ -16,6 +16,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [me, setMe] = useState<Me | null>(null);
   const [closure, setClosure] = useState<ClosureNotice['closure']>(null);
   const [ready, setReady] = useState(false);
+  /** Why `me` could not be loaded, when the reason is NOT "you are signed out". See below. */
+  const [meError, setMeError] = useState<string | null>(null);
   // Below 720px the sidebar becomes a slide-over drawer (CSS drives the breakpoint; this
   // only tracks open/closed, so desktop is unaffected).
   const [navOpen, setNavOpen] = useState(false);
@@ -32,15 +34,43 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     api.me()
-      .then(setMe)
-      .catch((e) => { if (e instanceof ApiError && e.status === 401) router.replace('/login'); })
+      .then((m) => { setMe(m); setMeError(null); })
+      .catch((e) => {
+        // 401 is the ordinary case: not signed in, so go and sign in.
+        if (e instanceof ApiError && e.status === 401) { router.replace('/login'); return; }
+        // ⚠️ **Everything else used to be swallowed here, and the app rendered a WHITE PAGE.**
+        // `ready` flipped true, `me` stayed null, and `if (!me) return null` below returned an
+        // empty document — no message, no retry, no route out. Any API outage, proxy failure or
+        // dropped connection blanked the whole product for every user with no explanation, and
+        // nothing logged it. A failure path that renders nothing is indistinguishable from a
+        // crash, and it is the reason "the dashboard is white" was impossible to diagnose from
+        // the screen.
+        setMeError(e instanceof ApiError ? `The server responded with ${e.status}.` : 'The server could not be reached.');
+      })
       .finally(() => setReady(true));
     // Fails silently: a closure notice is worth showing, never worth blocking the app for.
     api.staff.closureNotice().then((r) => setClosure(r.closure)).catch(() => {});
   }, [router]);
 
   if (!ready) return <main className="container"><p className="muted">Loading…</p></main>;
-  if (!me) return null;
+  if (!me) {
+    // Reached when `me` failed for a reason other than 401 — the 401 path has already navigated
+    // away, so this is always a real fault worth naming rather than a signed-out user.
+    return (
+      <main className="container">
+        <div className="card stack" style={{ maxWidth: 520, margin: '48px auto' }}>
+          <h1 style={{ margin: 0 }}>Can’t reach the server</h1>
+          <p className="muted" style={{ margin: 0 }}>
+            {meError ?? 'The server could not be reached.'} Your work is safe — nothing was saved or lost.
+          </p>
+          <div className="row" style={{ justifyContent: 'flex-start', gap: 8 }}>
+            <button onClick={() => window.location.reload()}>Try again</button>
+            <Link className="ghost" href="/login" style={{ textDecoration: 'none' }}>Sign in</Link>
+          </div>
+        </div>
+      </main>
+    );
+  }
 
   // Show only the screens this role can use, grouped into sidebar categories;
   // gate the routed page centrally.

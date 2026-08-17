@@ -504,4 +504,19 @@ Blueprint's AWS reference (RDS/ECS/S3/KMS…) is replaced by **Contabo + Coolify
 - **Zero must render as zero.** A `min-height` added so a small month stays visible was also
   drawing true zeros as 2px stubs, i.e. "a little" where there was nothing.
 
+## A failure path that renders nothing is a crash (added 2026-08-17)
+- ⚠️ **The app shell answered "the API is unreachable" with a WHITE PAGE.** `(app)/layout.tsx`
+  caught the `me()` rejection but handled **only 401**; every other outcome — 500, proxy failure,
+  dropped connection — fell through to `setReady(true)` with `me` still null, and `if (!me) return
+  null` rendered an empty document. No message, no retry, no route out, nothing logged.
+- **The trigger was environmental; the defect was ours.** A DNS failure exposed it, but any API
+  outage would blank the entire product for every user of a school, and the screen would give an
+  administrator nothing to report beyond "it's white".
+- **A caught error that only handles the expected status is not error handling.** The 401 branch is
+  the *ordinary* case (go and sign in). The branch that needed writing was the one nobody expected,
+  which is precisely the one that reaches a user during an incident.
+- **Now names the fault and offers a way forward** — status, a Try again, and a Sign in link. The
+  same shape as the guard that refused ADMISSION fee structures: **saying no loudly beats failing
+  silently**, because a silent failure is indistinguishable from a crash.
+
 **Source:** [[consistency-register]] · [[school-management-master-blueprint]] §2–§34

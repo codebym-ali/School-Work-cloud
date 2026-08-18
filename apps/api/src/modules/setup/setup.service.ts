@@ -32,6 +32,12 @@ import type {
  * subjects — the structural data admissions/enrollment reference. All reads/writes
  * go through the tenant-bound client (RLS + extension scope every row to the school).
  */
+export interface CoverageGap {
+  classId: string; className: string;
+  sectionId: string; sectionName: string;
+  subjectId: string; subjectName: string;
+}
+
 @Injectable()
 export class SetupService {
   constructor(
@@ -570,6 +576,61 @@ export class SetupService {
       enrolled: year ? enrolled.get(s.id) ?? 0 : null,
     }));
   }
+
+  /**
+   * Every (section, subject) pair with nobody assigned to teach it, this year.
+   *
+   * ⚠️ **The one implementation of this fact.** It used to be computed on the server (inside
+   * `StaffService`) AND a second time in the browser, on `/classes`, by re-joining sections ×
+   * subjects × assignments. Two implementations of one derivation is a defect the day it is
+   * written — the audit's Law 4 — so the derivation lives here, on the Structure spine that owns
+   * these tables, and both `/staff` and `/classes` consume the result. `StaffService.coverageGaps`
+   * now delegates to this.
+   *
+   * Campus-scoped like every other oversight read. A section with no explicit `SectionSubject`
+   * rows falls back to its class's subjects, because an empty set means "not configured yet", not
+   * "teaches nothing".
+   */
+  async coverageGaps(): Promise<CoverageGap[]> {
+    const restricted = restrictedCampusId(this.ctx.user);
+    const year = await this.db.academicYear.findFirst({ where: { isCurrent: true }, select: { id: true } });
+    if (!year) return [];
+
+    const sections = await this.db.section.findMany({
+      where: { class: restricted ? { campusId: restricted } : {} },
+      include: {
+        class: { select: { id: true, name: true, campusId: true } },
+        subjects: { select: { subjectId: true } },
+      },
+    });
+    if (!sections.length) return [];
+
+    const [subjects, assignments] = await Promise.all([
+      this.db.subject.findMany({ select: { id: true, name: true, classId: true } }),
+      this.db.teacherAssignment.findMany({
+        where: { academicYearId: year.id },
+        select: { sectionId: true, subjectId: true },
+      }),
+    ]);
+    const covered = new Set(assignments.filter((a) => a.subjectId).map((a) => `${a.sectionId}:${a.subjectId}`));
+    const byId = new Map(subjects.map((s) => [s.id, s]));
+
+    const gaps: CoverageGap[] = [];
+    for (const sec of sections) {
+      const own = sec.subjects.map((l) => l.subjectId);
+      const taught = own.length ? own : subjects.filter((s) => s.classId === sec.class.id).map((s) => s.id);
+      for (const subjectId of taught) {
+        if (covered.has(`${sec.id}:${subjectId}`)) continue;
+        gaps.push({
+          classId: sec.class.id, className: sec.class.name,
+          sectionId: sec.id, sectionName: sec.name,
+          subjectId, subjectName: byId.get(subjectId)?.name ?? '—',
+        });
+      }
+    }
+    return gaps;
+  }
+
 
   // ── Subjects ───────────────────────────────────────────────────────────────
   async createSubject(dto: CreateSubjectDto) {

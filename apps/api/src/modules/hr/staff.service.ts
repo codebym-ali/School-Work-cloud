@@ -5,6 +5,7 @@ import { AuditService, TenantPrismaService } from '@database';
 import { PasswordService } from '../auth/password.service';
 import { AccessService } from '../access/access.service';
 import type { CreateSalaryStructureDto, CreateStaffDto, CreateTeacherAssignmentDto } from './dto/hr.dto';
+import { SetupService } from '../setup/setup.service';
 
 /** Staff HR (blueprint §13): profiles for all staff types, salary structures, teacher assignments. */
 @Injectable()
@@ -15,6 +16,7 @@ export class StaffService {
     private readonly passwords: PasswordService,
     private readonly audit: AuditService,
     private readonly access: AccessService,
+    private readonly setup: SetupService,
   ) {}
 
   private get db() {
@@ -143,7 +145,7 @@ export class StaffService {
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
     const yearStart = new Date(now.getFullYear(), 0, 1);
 
-    const [headcount, joinersThisMonth, joinersThisYear, staff, year] = await Promise.all([
+    const [headcount, joinersThisMonth, joinersThisYear, staff] = await Promise.all([
       this.db.staffProfile.count({ where: staffWhere }),
       this.db.staffProfile.count({ where: { ...staffWhere, joinedAt: { gte: monthStart } } }),
       this.db.staffProfile.count({ where: { ...staffWhere, joinedAt: { gte: yearStart } } }),
@@ -152,7 +154,6 @@ export class StaffService {
         include: { user: { select: { email: true, status: true } }, assignments: { select: { id: true }, take: 1 } },
         orderBy: { joinedAt: 'desc' },
       }),
-      this.db.academicYear.findFirst({ where: { isCurrent: true }, select: { id: true } }),
     ]);
 
     // "Onboarded" is not "the form was saved" — it is "they can sign in and they teach
@@ -169,7 +170,7 @@ export class StaffService {
       })
       .filter((x): x is NonNullable<typeof x> => x !== null);
 
-    return { headcount, joinersThisMonth, joinersThisYear, needsSetup, coverageGaps: year ? await this.coverageGaps(year.id, restricted) : [] };
+    return { headcount, joinersThisMonth, joinersThisYear, needsSetup, coverageGaps: await this.setup.coverageGaps() };
   }
 
   /**
@@ -177,41 +178,6 @@ export class StaffService {
    * "where do we need to hire?". A section that opts into its own subject list (electives) is
    * measured against that list; otherwise it inherits its class's catalogue.
    */
-  private async coverageGaps(academicYearId: string, restricted: string | null) {
-    const sections = await this.db.section.findMany({
-      where: { class: restricted ? { campusId: restricted } : {} },
-      include: {
-        class: { select: { id: true, name: true, campusId: true } },
-        subjects: { select: { subjectId: true } },
-      },
-    });
-    if (!sections.length) return [];
-
-    const [subjects, assignments] = await Promise.all([
-      this.db.subject.findMany({ select: { id: true, name: true, classId: true } }),
-      this.db.teacherAssignment.findMany({
-        where: { academicYearId },
-        select: { sectionId: true, subjectId: true },
-      }),
-    ]);
-    const covered = new Set(assignments.filter((a) => a.subjectId).map((a) => `${a.sectionId}:${a.subjectId}`));
-    const byId = new Map(subjects.map((s) => [s.id, s]));
-
-    const gaps: { classId: string; className: string; sectionId: string; sectionName: string; subjectId: string; subjectName: string }[] = [];
-    for (const sec of sections) {
-      const own = sec.subjects.map((l) => l.subjectId);
-      const taught = own.length ? own : subjects.filter((s) => s.classId === sec.class.id).map((s) => s.id);
-      for (const subjectId of taught) {
-        if (covered.has(`${sec.id}:${subjectId}`)) continue;
-        gaps.push({
-          classId: sec.class.id, className: sec.class.name,
-          sectionId: sec.id, sectionName: sec.name,
-          subjectId, subjectName: byId.get(subjectId)?.name ?? '—',
-        });
-      }
-    }
-    return gaps;
-  }
 
   async getStaff(id: string) {
     const staff = await this.db.staffProfile.findFirst({

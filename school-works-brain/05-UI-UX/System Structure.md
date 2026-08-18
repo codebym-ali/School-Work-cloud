@@ -112,14 +112,16 @@ assertion already added to `check-rls-coverage.mjs` — which exists precisely b
 *"could only police tables that had already opted in."* The same blindness applies here: nothing
 currently fails when a route is unreachable.
 
-### Law 4 — A derived fact has one implementation, server-side
+### Law 4 — A derived fact has one implementation, server-side  ✅ *(gaps: done, IA1)*
 
 > **A number computed in the browser that the server can compute is a second implementation, and a
 > defect the day it is written.**
 
-Closes *teacher gaps and seats filled, each computed twice*. The precedent is written down: three
-copies of the attendance percentage once gave a parent, a teacher and a director three different
-figures for one child.
+Closes *the teacher-gap fact, computed twice*. (⚠️ The seats figure looked like a second instance and
+was not — `section.enrolled` is server-computed and the client only sums it; verifying beat acting.
+The precedent this law rests on is written down: three copies of the attendance percentage once gave a
+parent, a teacher and a director three different figures for one child.) **Done in IA1**: gaps unified
+in `SetupService.coverageGaps`, both `/classes` and `/staff` read it, asserted equal by spec.
 
 ### Law 5 — A link lands on the row, not the page
 
@@ -236,5 +238,5 @@ The audit's failure was having no success criteria. These are countable, before 
 | Metric tiles that are dead ends | **31** | 0 |
 | Screens with their own campus selector | **12** | 0 (one in the shell) |
 | Routes with no UI and no listed exception | **18** | 0 |
-| Derived facts with >1 implementation | **2 known** | 0, with a gate |
+| Derived facts with >1 implementation | **1 real** (teacher gaps; the seats one was a false alarm — verified) | ✅ **0** (gaps unified in IA1) |
 | Largest nav group | **9** | ≤5 |

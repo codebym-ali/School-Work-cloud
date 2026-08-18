@@ -286,4 +286,39 @@ describe('Class structure — section subjects & teacher assignments (e2e)', () 
       expect(res.status).toBe(201);
     });
   });
+  describe('GET /classes/coverage — one source for the teacher-gap fact', () => {
+    const keys = (rows: Array<{ sectionId: string; subjectId: string }>) =>
+      rows.map((g) => `${g.sectionId}:${g.subjectId}`).sort();
+
+    it('agrees exactly with the /staff summary — the two 24s can no longer drift', async () => {
+      // ⚠️ Before IA1 this fact was computed in the browser on /classes AND on the server for
+      // /staff. They agreed by luck. Now both read `SetupService.coverageGaps`, and this asserts
+      // it: the same session, the same set, from two endpoints. If anyone re-introduces a second
+      // implementation or re-scopes one side, this fails.
+      const cov = await ownerGet('/api/v1/classes/coverage');
+      const summary = await ownerGet('/api/v1/staff/summary');
+      expect(cov.status).toBe(200);
+      expect(summary.status).toBe(200);
+      expect(keys(cov.body)).toEqual(keys(summary.body.coverageGaps));
+    });
+
+    it('is campus-scoped for a campus admin, exactly like the summary it feeds', async () => {
+      // ⚠️ Seed a GUARANTEED campus-B gap so this assertion cannot pass vacuously: a fresh subject
+      // on the campus-B class, with no teacher, is a gap the owner must see and the campus-A admin
+      // must not. (An earlier version asserted "no campus-B classId" against a fixture that happened
+      // to have none — removing the scoping filter changed nothing and the test proved nothing.)
+      const bGap = (await ownerPost('/api/v1/subjects', { classId: classOnB, name: `Scope ${randomUUID().slice(0, 6)}` })).body.id as string;
+
+      const ownerCov = await ownerGet('/api/v1/classes/coverage').expect(200);
+      expect(ownerCov.body.some((g: { subjectId: string }) => g.subjectId === bGap)).toBe(true);
+
+      const cov = await authed('get', '/api/v1/classes/coverage', adminCookies).expect(200);
+      const summary = await authed('get', '/api/v1/staff/summary', adminCookies).expect(200);
+      // A campus-A admin sees campus-A gaps only — and the two endpoints still agree under scoping.
+      expect(keys(cov.body)).toEqual(keys(summary.body.coverageGaps));
+      // The campus-B gap the owner just saw does NOT leak to the campus-A admin.
+      expect(cov.body.some((g: { subjectId: string }) => g.subjectId === bGap)).toBe(false);
+      expect(cov.body.every((g: { classId: string }) => g.classId !== classOnB)).toBe(true);
+    });
+  });
 });

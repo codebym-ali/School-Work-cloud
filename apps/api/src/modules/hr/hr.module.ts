@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { AccessModule } from '../access/access.module';
+import { SetupModule } from '../setup/setup.module';
 import { AuthModule } from '../auth/auth.module';
 import { StaffService } from './staff.service';
 import { PayrollService } from './payroll.service';
@@ -20,7 +21,7 @@ import {
  * typed in by hand, so it cannot go stale.
  */
 @Module({
-  imports: [AccessModule, AuthModule], // AuthModule exports PasswordService (staff logins)
+  imports: [AccessModule, AuthModule, SetupModule], // SetupModule exports the one coverage-gap impl // AuthModule exports PasswordService (staff logins)
   controllers: [StaffController, TeacherAssignmentsController, PayrollController, PayslipsController],
   providers: [StaffService, PayrollService],
   exports: [StaffService, PayrollService],

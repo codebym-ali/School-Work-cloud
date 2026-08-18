@@ -152,6 +152,19 @@ export class ClassController {
     return this.setup.listClasses(q.campusId);
   }
 
+  /**
+   * Every section-subject with no teacher this year, campus-scoped. The list the "Without a
+   * teacher" tile counts and the /classes filter narrows by — the SAME server fact /staff reads,
+   * so the two screens can no longer disagree (audit Law 4).
+   */
+  // Oversight data (which subjects have no teacher) — admins only, matching /staff. A campus
+  // admin is narrowed to their own campus inside coverageGaps().
+  @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
+  @Get('coverage')
+  coverage() {
+    return this.setup.coverageGaps();
+  }
+
   @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
   @Patch(':id')
   update(@Param('id') id: string, @Body() dto: UpdateClassDto) {

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import {
   api, apiGet, apiPost, ApiError,
+  type CoverageGap,
   type AcademicYear, type Campus, type Klass, type Section, type Subject,
   type SubjectCatalogueEntry, type TeacherAssignment,
 } from '@/lib/api';
@@ -35,6 +36,7 @@ export default function ClassesPage() {
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [catalogue, setCatalogue] = useState<SubjectCatalogueEntry[]>([]);
   const [assignments, setAssignments] = useState<TeacherAssignment[]>([]);
+  const [coverage, setCoverage] = useState<CoverageGap[]>([]);
   const [hasCurrentYear, setHasCurrentYear] = useState(true);
   const [search, setSearch] = useState('');
   const [onlyGaps, setOnlyGaps] = useState(false);
@@ -42,7 +44,7 @@ export default function ClassesPage() {
   const [loaded, setLoaded] = useState(false);
 
   async function reload() {
-    const [c, k, s, sub, cat, y, a] = await Promise.all([
+    const [c, k, s, sub, cat, y, a, cov] = await Promise.all([
       apiGet<Campus[]>('/campuses'),
       apiGet<Klass[]>('/classes'),
       apiGet<Section[]>('/sections'),
@@ -50,8 +52,9 @@ export default function ClassesPage() {
       api.subjects.catalogue().catch(() => [] as SubjectCatalogueEntry[]),
       apiGet<AcademicYear[]>('/academic-years').catch(() => [] as AcademicYear[]),
       api.teacherAssignments.list().catch(() => [] as TeacherAssignment[]),
+      api.classes.coverage().catch(() => [] as CoverageGap[]),
     ]);
-    setCampuses(c); setClasses(k); setSections(s); setSubjects(sub); setCatalogue(cat); setAssignments(a);
+    setCampuses(c); setClasses(k); setSections(s); setSubjects(sub); setCatalogue(cat); setAssignments(a); setCoverage(cov);
     setHasCurrentYear(y.some((x) => x.isCurrent));
   }
   useEffect(() => { reload().catch(() => {}).finally(() => setLoaded(true)); }, []);
@@ -83,18 +86,21 @@ export default function ClassesPage() {
    * fact server-computed, so the product answers one question two ways. Keeping it in ONE function
    * is what makes that a single-line swap rather than a hunt.
    */
+  /**
+   * Which classes have an unassigned subject, and how many — **counted from the server's list**.
+   *
+   * ⚠️ This used to re-join sections × subjects × assignments in the browser to DECIDE what a gap
+   * was: a second implementation of a fact `/staff` already computed server-side, so the two `24`s
+   * agreed only by luck (audit Law 4). Now the server decides (`GET /classes/coverage`) and this
+   * only counts the rows per class — the same thing `/staff` does with the same list. Counting a
+   * provided list is presentation; re-deriving the fact was the defect.
+   */
   const gapsByClass = useMemo(() => {
     const m = new Map<string, number>();
-    for (const sec of sections) {
-      const studied = sec.subjectIds?.length
-        ? subjects.filter((x) => sec.subjectIds!.includes(x.id))
-        : subjects.filter((x) => x.classId === sec.classId);
-      const n = studied.filter((x) => !assignments.some((a) => a.sectionId === sec.id && a.subjectId === x.id)).length;
-      if (n) m.set(sec.classId, (m.get(sec.classId) ?? 0) + n);
-    }
+    for (const g of coverage) m.set(g.classId, (m.get(g.classId) ?? 0) + 1);
     return m;
-  }, [sections, subjects, assignments]);
-  const gaps = [...gapsByClass.values()].reduce((n, x) => n + x, 0);
+  }, [coverage]);
+  const gaps = coverage.length;
 
   const query = search.trim().toLowerCase();
   const matches = (k: Klass) => {

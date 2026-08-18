@@ -423,6 +423,11 @@ a.metric-link.pipeline-card .metric-go { opacity: 1; margin-top: 0; }
 .content > * { max-width: 1180px; margin-left: auto; margin-right: auto; }
 .topbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 20px; }
 .topbar .who { color: var(--muted); font-size: 13px; }
+/* The campus lens sits in the topbar as a compact, quiet control — it is a scope selector a
+   director reaches for often, not a form field. Icon + borderless select so it reads as chrome. */
+.campus-lens { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
+.campus-lens select { border: 1px solid var(--border); border-radius: 8px; padding: 4px 8px; font-size: 13px; background: var(--card); color: var(--ink); max-width: 180px; }
+.campus-lens select:hover { border-color: var(--brand); }
 
 /* Mobile nav trigger — hidden until the sidebar collapses into a drawer. */
 .nav-toggle { display: none; background: transparent; color: var(--ink); border: 1px solid var(--border); padding: 8px 12px; font-size: 18px; line-height: 1; }

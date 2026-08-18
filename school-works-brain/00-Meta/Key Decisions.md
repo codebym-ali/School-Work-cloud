@@ -579,3 +579,19 @@ Blueprint's AWS reference (RDS/ECS/S3/KMS…) is replaced by **Contabo + Coolify
   not.**
 
 **Source:** [[consistency-register]] · [[school-management-master-blueprint]] §2–§34
+
+## Never run `next build` in a live `next dev` directory (added 2026-08-18)
+
+- `apps/web` was serving 500s (`Cannot find module './2422.js'`, production `BUILD_ID` against a
+  `development` runtime) after a `next build` was run as a merge gate while `next dev` was still
+  running on :3001. A production build rewrites `.next/` in production layout; the dev server watches
+  the same `.next/` and 500s on its next recompile when its chunk map no longer matches.
+- The live browser had worked minutes earlier — the corruption only surfaced on the dev server's
+  next recompile, so it looked like a code regression and was not. The code compiled cleanly in that
+  very build.
+- **Gate the web build without touching the dev server's `.next`:** stop `next dev` first, or build
+  into a throwaway dir (`next build` with a separate `distDir`), or rely on tsc + lint + Playwright
+  and run the production build only when no dev server is up. Recovery: stop dev, `rm -rf .next`,
+  restart dev.
+- Same family as the timebox rule: an environment failure that mimics a code regression wastes turns
+  if chased as code. Confirm the build/lint are green first — if they are, suspect the environment.

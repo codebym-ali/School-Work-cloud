@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
-import { api, ApiError, type Campus, type StaffDaySummary, type StaffRegisterRow } from '@/lib/api';
+import { api, ApiError, type StaffDaySummary, type StaffRegisterRow } from '@/lib/api';
+import { useCampusLens } from '@/lib/campus-lens';
 import { useMe } from '@/lib/me-context';
 import { attendanceBadge, humanizeStatus } from '@/lib/format';
 
@@ -39,13 +40,12 @@ const MARKED_BY: Record<string, string> = { SELF: 'Self', ADMIN: 'Office', SYSTE
  */
 export default function StaffAttendancePage() {
   const me = useMe();
-  const isOwner = (me?.roles ?? []).includes('OWNER_ADMIN');
   const canMark = (me?.roles ?? []).some((r) => r === 'OWNER_ADMIN' || r === 'CAMPUS_ADMIN');
 
+  const lens = useCampusLens();
+  const campusId = lens.campusId ?? ''; // campus now comes from the shell lens, not a local select
   const [date, setDate] = useState(today());
   const [status, setStatus] = useState('');
-  const [campusId, setCampusId] = useState('');
-  const [campuses, setCampuses] = useState<Campus[]>([]);
   const [summary, setSummary] = useState<StaffDaySummary | null>(null);
   const [rows, setRows] = useState<StaffRegisterRow[] | null>(null);
   const [err, setErr] = useState(false);
@@ -58,8 +58,6 @@ export default function StaffAttendancePage() {
     const q = new URLSearchParams(window.location.search);
     if (q.get('date')) setDate(q.get('date')!);
     if (q.get('status')) setStatus(q.get('status')!);
-    if (q.get('campusId')) setCampusId(q.get('campusId')!);
-    api.campuses.list().then(setCampuses).catch(() => setCampuses([]));
   }, []);
 
   const load = useCallback(async () => {
@@ -74,7 +72,7 @@ export default function StaffAttendancePage() {
   useEffect(() => {
     setRows(null);
     load().catch(() => setErr(true));
-    const q = new URLSearchParams({ date, ...(status ? { status } : {}), ...(campusId ? { campusId } : {}) });
+    const q = new URLSearchParams({ date, ...(status ? { status } : {}) });
     window.history.replaceState(null, '', `?${q.toString()}`);
   }, [load, date, status, campusId]);
 
@@ -111,14 +109,6 @@ export default function StaffAttendancePage() {
 
       <div className="inline-form">
         <div><label>Date</label><input type="date" max={today()} value={date} onChange={(e) => setDate(e.target.value)} /></div>
-        {isOwner && campuses.length > 1 && (
-          <div><label>Campus</label>
-            <select value={campusId} onChange={(e) => setCampusId(e.target.value)}>
-              <option value="">All campuses</option>
-              {campuses.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
-          </div>
-        )}
       </div>
 
       {summary && summary.workingDay && (

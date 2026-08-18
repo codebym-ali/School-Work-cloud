@@ -9,6 +9,7 @@ import {
 } from '@/lib/api';
 import { useMe } from '@/lib/me-context';
 import { Metric, MetricFilter } from '@/components/metric';
+import { useCampusLens } from '@/lib/campus-lens';
 
 type Msg = { ok: boolean; text: string } | null;
 const today = () => new Date().toISOString().slice(0, 10);
@@ -135,6 +136,7 @@ const DESIGNATION_PRESETS = [
 export default function StaffPage() {
   const me = useMe();
   const isOwner = (me?.roles ?? []).includes('OWNER_ADMIN');
+  const lens = useCampusLens();
 
   const [staff, setStaff] = useState<ManagedTeacher[]>([]);
   const [campuses, setCampuses] = useState<Campus[]>([]);
@@ -147,7 +149,6 @@ export default function StaffPage() {
   const [msg, setMsg] = useState<Msg>(null);
 
   // Filters — the "categorize by" controls.
-  const [fCampus, setFCampus] = useState('');
   const [fType, setFType] = useState('');
   const [fSubject, setFSubject] = useState('');
   const [fSearch, setFSearch] = useState('');
@@ -196,21 +197,23 @@ export default function StaffPage() {
     const q = fSearch.trim().toLowerCase();
     return staff.filter((t) => {
       if (fFocus === 'setup' && !setupIds.has(t.id)) return false;
-      if (fCampus && t.user.campusId !== fCampus) return false;
+      if (lens.campusId && t.user.campusId !== lens.campusId) return false;
       if (fType && t.staffType !== fType) return false;
       if (fSubject && !assignmentsOf(t.id).some((a) => a.subjectId === fSubject)) return false;
       if (q && !`${t.fullName ?? ''} ${t.user.email} ${t.employeeCode} ${t.designation}`.toLowerCase().includes(q)) return false;
       return true;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [staff, assignments, fCampus, fType, fSubject, fSearch, fFocus, setupIds]);
+  }, [staff, assignments, lens.campusId, fType, fSubject, fSearch, fFocus, setupIds]);
 
-  const groups = myCampuses
+  // The lens decides which campuses appear as headers; the local filters decide who is inside them.
+  const shownCampuses = lens.campusId ? myCampuses.filter((c) => c.id === lens.campusId) : myCampuses;
+  const groups = shownCampuses
     .map((c) => ({ id: c.id, name: c.name, items: filtered.filter((t) => t.user.campusId === c.id) }))
-    .filter((g) => g.items.length > 0 || (!fCampus && !fType && !fSubject && !fSearch && !fFocus));
+    .filter((g) => g.items.length > 0 || (!fType && !fSubject && !fSearch && !fFocus));
 
-  const clearFilters = () => { setFCampus(''); setFType(''); setFSubject(''); setFSearch(''); setFFocus(''); };
-  const anyFilter = Boolean(fCampus || fType || fSubject || fSearch || fFocus);
+  const clearFilters = () => { setFType(''); setFSubject(''); setFSearch(''); setFFocus(''); };
+  const anyFilter = Boolean(fType || fSubject || fSearch || fFocus);
 
   return (
     <div className="stack">
@@ -268,14 +271,9 @@ export default function StaffPage() {
           }} />
       )}
 
-      {/* Categorize-by filters */}
+      {/* Categorize-by filters. Campus is not here any more — it lives in the shell lens, so a
+          director sets the branch once and every oversight screen follows. */}
       <div className="inline-form">
-        <div><label>Campus</label>
-          <select value={fCampus} onChange={(e) => setFCampus(e.target.value)}>
-            <option value="">All campuses</option>
-            {myCampuses.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
-        </div>
         <div><label>Type</label>
           <select value={fType} onChange={(e) => setFType(e.target.value)}>
             <option value="">All types</option>

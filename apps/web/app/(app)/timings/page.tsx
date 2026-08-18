@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api, ApiError, apiGet, type BellSchedule, type Campus, type Klass } from '@/lib/api';
 import { DAY_NAMES, DAY_SHORT } from '@/lib/timetable';
+import { useCampusLens } from '@/lib/campus-lens';
 import { type DraftRow, daySummary, previewDay } from '@/lib/timings';
 
 /**
@@ -28,6 +29,7 @@ export default function TimingsPage() {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [newName, setNewName] = useState('Regular');
+  const lens = useCampusLens();
   const [newCampus, setNewCampus] = useState('');
   const [classes, setClasses] = useState<Klass[]>([]);
   const [wingName, setWingName] = useState('');
@@ -52,7 +54,7 @@ export default function TimingsPage() {
 
   useEffect(() => {
     load();
-    api.campuses.list().then((c) => { setCampuses(c); if (c[0]) setNewCampus(c[0].id); }).catch(() => {});
+    api.campuses.list().then((c) => { setCampuses(c); const pref = lens.campusId ?? c[0]?.id; if (pref) setNewCampus(pref); }).catch(() => {});
     apiGet<Klass[]>('/classes').then(setClasses).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

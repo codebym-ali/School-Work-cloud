@@ -16,13 +16,15 @@ import type { Campus, Klass, Subject } from '@/lib/api';
  * embeds class management at all, so this form is the only way a brand-new school creates its
  * first class — hiding it behind a threshold would lock a new school out entirely.
  */
-export function AddClassForm({ campuses, classes, subjects, onCreate }: {
+export function AddClassForm({ campuses, classes, subjects, onCreate, defaultCampusId }: {
   campuses: Campus[];
+  /** Pre-selects the campus the director is lensed into; the select stays editable. */
+  defaultCampusId?: string;
   classes: Klass[];
   subjects: Subject[];
   onCreate: (body: { campusId: string; name: string; order: number }, copySubjectsFrom: string | null) => Promise<string | null>;
 }) {
-  const [campusId, setCampusId] = useState('');
+  const [campusId, setCampusId] = useState(defaultCampusId ?? '');
   const [name, setName] = useState('');
   // 9th and 10th usually share most of their subjects — retyping them per class is the most
   // tedious part of setting up a school, so a new class can inherit an existing list.

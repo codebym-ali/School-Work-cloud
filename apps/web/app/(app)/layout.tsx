@@ -6,6 +6,8 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { api, ApiError, type ClosureNotice, type Me } from '@/lib/api';
 import { MeContext } from '@/lib/me-context';
+import { CampusLensContext, CAMPUS_LENS_KEY } from '@/lib/campus-lens';
+import type { Campus } from '@/lib/api';
 import { NotificationBell } from '@/components/notification-bell';
 import { groupedNav, hasAnyRole, navItemFor, panelLabel, usesTeacherShell, MFA_REQUIRED_ROLES } from '@/lib/roles';
 import { TeacherSidebarNav, TeacherTabs } from '@/components/teacher-tabs';
@@ -21,6 +23,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   // Below 720px the sidebar becomes a slide-over drawer (CSS drives the breakpoint; this
   // only tracks open/closed, so desktop is unaffected).
   const [navOpen, setNavOpen] = useState(false);
+  // Campus lens (owner with >1 campus only). Fetched here so it persists across every screen.
+  const [lensCampuses, setLensCampuses] = useState<Campus[]>([]);
+  const [lensCampusId, setLensCampusId] = useState<string | null>(null);
 
   // Close on navigation — otherwise the drawer covers the page you just opened.
   useEffect(() => { setNavOpen(false); }, [pathname]);
@@ -51,6 +56,19 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     // Fails silently: a closure notice is worth showing, never worth blocking the app for.
     api.staff.closureNotice().then((r) => setClosure(r.closure)).catch(() => {});
   }, [router]);
+
+  // The lens only exists for an owner (a campus-bound user has exactly one campus and no choice).
+  // Fetched once, and a previously-chosen branch is restored only if it still exists.
+  useEffect(() => {
+    if (!me?.roles.includes('OWNER_ADMIN')) return;
+    api.campuses.list().then((cs) => {
+      setLensCampuses(cs);
+      try {
+        const saved = window.localStorage.getItem(CAMPUS_LENS_KEY);
+        if (saved && cs.some((c) => c.id === saved)) setLensCampusId(saved);
+      } catch { /* localStorage may be unavailable; the lens just starts at All */ }
+    }).catch(() => {});
+  }, [me]);
 
   if (!ready) return <main className="container"><p className="muted">Loading…</p></main>;
   if (!me) {
@@ -89,8 +107,23 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
    */
   const teacherShell = usesTeacherShell(me.roles);
 
+  // The lens: an owner chooses; everyone else is fixed to their own campus (null for a single-campus
+  // owner = "all", which is the same one campus). The control shows only when there is a real choice.
+  const isOwner = me.roles.includes('OWNER_ADMIN');
+  const canChooseCampus = isOwner && lensCampuses.length > 1;
+  const activeCampusId = isOwner ? lensCampusId : (me.campusId ?? null);
+  const setLens = (id: string | null) => {
+    if (!canChooseCampus) return;
+    setLensCampusId(id);
+    try {
+      if (id) window.localStorage.setItem(CAMPUS_LENS_KEY, id);
+      else window.localStorage.removeItem(CAMPUS_LENS_KEY);
+    } catch { /* non-fatal */ }
+  };
+
   return (
     <MeContext.Provider value={me}>
+      <CampusLensContext.Provider value={{ campusId: activeCampusId, campuses: lensCampuses, canChoose: canChooseCampus, setCampus: setLens }}>
       <div className={`shell${teacherShell ? ' has-tabbar' : ''}`}>
         {navOpen && (
           <button className="nav-overlay" aria-label="Close menu" onClick={() => setNavOpen(false)} />
@@ -124,6 +157,15 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             >
               <Icon name="menu" size={20} />
             </button>
+            {canChooseCampus && (
+              <label className="campus-lens" title="Which campus you are viewing">
+                <Icon name="campuses" size={15} />
+                <select aria-label="Campus" value={activeCampusId ?? ''} onChange={(e) => setLens(e.target.value || null)}>
+                  <option value="">All campuses</option>
+                  {lensCampuses.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </label>
+            )}
             <div className="who topbar-desktop">{me.email} · {me.roles.join(', ')}</div>
             <div className="row" style={{ gap: 8 }}>
               {/* Beside Security, not on a dashboard — see the note on the closure banner below.
@@ -170,6 +212,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         {/* Outside `.content` so it is fixed to the viewport rather than to a scrolling column. */}
         {teacherShell && <TeacherTabs roles={me.roles} admissionsMode={me.admissionsMode} />}
       </div>
+      </CampusLensContext.Provider>
     </MeContext.Provider>
   );
 }

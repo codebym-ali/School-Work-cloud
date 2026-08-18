@@ -1,8 +1,9 @@
 'use client';
 
-import { type ChangeEvent, Suspense, useCallback, useEffect, useState } from 'react';
+import { type ChangeEvent, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { api, apiGet, apiPost, ApiError, type Campus, type ImportResult, type Invoice, type Klass, type Paged, type Payment, type Section, type Student, type StudentDetail, type StudentStatus } from '@/lib/api';
+import { useCampusLens } from '@/lib/campus-lens';
 import { classLabeller } from '@/lib/labels';
 import { hasModule, useMe } from '@/lib/me-context';
 import { STATUS_TRANSITIONS, STUDENT_STATUS, statusStyle } from '@/lib/student-status';
@@ -24,7 +25,8 @@ function StudentsInner() {
   const canAdmit = isAdmissionController && hasModule(me, 'admissions.admit');
   const router = useRouter();
   const params = useSearchParams();
-  const campusId = params.get('campusId') ?? '';
+  const lens = useCampusLens();
+  const campusId = lens.campusId ?? ''; // campus from the shell lens, not the URL
   const classId = params.get('classId') ?? '';
   const sectionId = params.get('sectionId') ?? '';
 
@@ -61,22 +63,31 @@ function StudentsInner() {
     apiGet<Section[]>('/sections').then(setSections).catch(() => {});
     load().catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [campusId, classId, sectionId, statusFilter, missingGuardian]);
+  }, [lens.campusId, classId, sectionId, statusFilter, missingGuardian]);
 
   // Push a new filter into the URL so the view is shareable and the effect reloads.
-  function setFilter(next: { campusId?: string; classId?: string; sectionId?: string }) {
-    const merged = { campusId, classId, sectionId, ...next };
+  // Campus is the shell lens now; only the class/section drill lives in the URL.
+  function setFilter(next: { classId?: string; sectionId?: string }) {
+    const merged = { classId, sectionId, ...next };
     const qs = new URLSearchParams();
-    if (merged.campusId) qs.set('campusId', merged.campusId);
     if (merged.classId) qs.set('classId', merged.classId);
     if (merged.sectionId) qs.set('sectionId', merged.sectionId);
     const q = qs.toString();
     router.replace(q ? `/students?${q}` : '/students');
   }
 
-  // A campus-bound admin only sees their own campus in the filter (the API force-scopes
-  // results regardless, so an all-campuses picker was just a confusing dead choice).
-  const myCampuses = isOwner ? campuses : campuses.filter((c) => c.id === me?.campusId);
+  // A class/section chosen inside one branch does not apply after the director switches branch.
+  // Reset the drill whenever the lens moves, so the cascade never carries a stale campus's class.
+  const lastLens = useRef(lens.campusId);
+  useEffect(() => {
+    if (lastLens.current !== lens.campusId) {
+      lastLens.current = lens.campusId;
+      if (classId || sectionId) router.replace('/students');
+    }
+  }, [lens.campusId, classId, sectionId, router]);
+
+  // Classes are scoped to the campus lens; the class/section drill operates within it. The API
+  // force-scopes a campus-bound user regardless, so the lens is convenience, never the boundary.
   const classesForCampus = campusId ? classes.filter((c) => c.campusId === campusId) : classes;
   const classLabel = classLabeller(classesForCampus, campuses);
   const sectionsForClass = classId ? sections.filter((s) => s.classId === classId) : [];
@@ -117,17 +128,11 @@ function StudentsInner() {
         <div className="row" style={{ gap: 8, alignItems: 'center' }}>
           <span className="muted">Showing</span>
           <span className="badge">{activeClass.name}{activeSection ? ` · Section ${activeSection.name}` : ''}</span>
-          <button className="ghost small" onClick={() => setFilter({ campusId: '', classId: '', sectionId: '' })}>Clear filter</button>
+          <button className="ghost small" onClick={() => setFilter({ classId: '', sectionId: '' })}>Clear filter</button>
         </div>
       )}
 
       <div className="inline-form">
-        <div><label>Campus</label>
-          <select value={campusId} onChange={(e) => setFilter({ campusId: e.target.value, classId: '', sectionId: '' })}>
-            <option value="">All campuses</option>
-            {myCampuses.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
-        </div>
         <div><label>Class</label>
           <select value={classId} onChange={(e) => setFilter({ classId: e.target.value, sectionId: '' })}>
             <option value="">All classes</option>

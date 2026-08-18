@@ -6,7 +6,8 @@ import {
   PERFORMANCE_RANGES, RANGE_LABEL,
   type Campus, type ClassPerformance, type ClassStudents, type PerformanceRange, type StudentPerformance,
 } from '@/lib/api';
-import { useMe } from '@/lib/me-context';
+import {} from '@/lib/me-context';
+import { useCampusLens } from '@/lib/campus-lens';
 import { Metric } from '@/components/metric';
 
 /**
@@ -36,12 +37,11 @@ function Score({ percent, trend }: { percent: number | null; trend?: number | nu
 }
 
 export default function PerformancePage() {
-  const me = useMe();
-  const isOwner = (me?.roles ?? []).includes('OWNER_ADMIN');
 
   const [range, setRange] = useState<PerformanceRange>('1m');
+  const lens = useCampusLens();
+  const campusId = lens.campusId ?? '';
   const [campuses, setCampuses] = useState<Campus[]>([]);
-  const [campusId, setCampusId] = useState('');
   const [classes, setClasses] = useState<ClassPerformance[] | null>(null);
   const [classView, setClassView] = useState<ClassStudents | null>(null);
   const [student, setStudent] = useState<StudentPerformance | null>(null);
@@ -117,14 +117,6 @@ export default function PerformancePage() {
             </button>
           ))}
         </div>
-        {isOwner && campuses.length > 1 && !classView && !student && (
-          <div><label>Campus</label>
-            <select value={campusId} onChange={(e) => setCampusId(e.target.value)}>
-              <option value="">All campuses</option>
-              {campuses.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
-          </div>
-        )}
       </div>
 
       {err && <p className="error">{err}</p>}

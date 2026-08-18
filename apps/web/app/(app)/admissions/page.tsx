@@ -8,6 +8,7 @@ import { hasModule, useMe } from '@/lib/me-context';
 import { classLabeller } from '@/lib/labels';
 import { canReach } from '@/lib/roles';
 import { Metric, MetricFilter } from '@/components/metric';
+import { useCampusLens } from '@/lib/campus-lens';
 import { DirectAdmission } from './direct-admission';
 
 const STATUSES = ['INQUIRY', 'ENTRY_TEST_SCHEDULED', 'ENTRY_TEST_PASSED', 'ENTRY_TEST_FAILED', 'ADMITTED', 'REJECTED', 'WITHDRAWN'];
@@ -19,6 +20,7 @@ const funnelBadge = (s: string) =>
 export default function AdmissionsPage() {
   const me = useMe();
   const isOwner = (me?.roles ?? []).includes('OWNER_ADMIN');
+  const lens = useCampusLens();
   const isAdmissionController = (me?.roles ?? []).includes('ADMISSION_CONTROLLER');
   // DIRECT (the default) means this school takes admissions on one form and never tracks
   // enquiries — so the pipeline, its funnel and every Inquiry-derived metric are hidden
@@ -150,7 +152,7 @@ export default function AdmissionsPage() {
       )}
 
       {adding && (
-        <NewInquiry campuses={isOwner ? campuses : campuses.filter((c) => c.id === me?.campusId)} classes={classes}
+        <NewInquiry defaultCampusId={lens.campusId ?? undefined} campuses={isOwner ? campuses : campuses.filter((c) => c.id === me?.campusId)} classes={classes}
           onDone={async (ok, text) => { setMsg({ ok, text }); if (ok) { setAdding(false); await load(); } }} />
       )}
 
@@ -182,9 +184,10 @@ export default function AdmissionsPage() {
   );
 }
 
-function NewInquiry({ campuses, classes, onDone }: { campuses: Campus[]; classes: Klass[]; onDone: (ok: boolean, text: string) => void }) {
+function NewInquiry({ campuses, classes, onDone, defaultCampusId }: { campuses: Campus[]; classes: Klass[]; onDone: (ok: boolean, text: string) => void; defaultCampusId?: string }) {
   const classLabel = classLabeller(classes, campuses);
-  const [f, setF] = useState<Record<string, string>>({});
+  // Pre-fills the branch the director is lensed into; the select stays editable.
+  const [f, setF] = useState<Record<string, string>>(defaultCampusId ? { campusId: defaultCampusId } : {});
   const set = (k: string, v: string) => setF({ ...f, [k]: v });
 
   async function submit() {

@@ -1,13 +1,19 @@
 ---
 title: Information Architecture Plan (categorisation — campus → class → section → subject)
 type: plan
-status: PLANNED — 2026-08-18, decisions open, nothing built
+status: SUPERSEDED BY ITS OWN AUDIT — v1 planned 2026-08-18, audited the same day. See §8–§9. Nothing built.
 updated: 2026-08-18
 ---
 
 # 🗂️ Where things live, and why nobody can find them
 
 > Related: [[Timetable & Bell Schedule Plan]] · [[UI Retheme Plan]] · [[Key Decisions]]
+
+> [!warning] **v1 of this plan was audited and failed on its central claim: it is not a whole-system
+> plan.** It generalised from one screen pair and proposed fixes shaped like that pair. The same
+> patterns are on **12 screens, 31 tiles and 18 endpoints**. **§8 is the audit; §9 is the plan it
+> should have been.** Read those first — §1–§7 are kept because their findings are correct; only
+> their scope is not.
 
 ## 1. What happens today, checked in the code
 
@@ -203,3 +209,117 @@ screens share one resolution so they cannot disagree about when period 3 is.
   campus and no gaps, not merely degrade politely.
 - **S0 can regress a number that is currently correct.** Both screens show 24 today; the consolidated
   read must be proved against the same fixture before either screen switches to it.
+
+## 8. Audit — 2026-08-18, same day
+
+Asked whether this plan was ideal and whether it covered the whole system. **It did not.** Every
+figure below is counted from the code, not estimated.
+
+### 8.1 ⚠️ The scope error, which is the whole finding
+
+v1 looked at two screens, found a real defect, and **proposed a fix shaped like those two screens**.
+It named each problem after the place it was noticed:
+
+| v1 called it | It actually is |
+|---|---|
+| "Campus is a filter **on Classes**" | Campus is a filter on **12 screens**, each with its own selector |
+| "**Subjects** have no home" | **18 API capabilities** have no screen at all |
+| "The gap count is computed twice" | Correct — but one instance of a pattern, not the pattern |
+| *(not mentioned at all)* | **31 metric tiles across the product, 0 clickable** |
+
+A plan that names a defect after the screen it was spotted on will fix that screen. That is exactly
+what v1 would have done.
+
+### 8.2 The biggest UX defect in the product, and v1 missed it entirely
+
+**31 metric tiles. Zero are links.**
+
+Every headline number the product shows is a dead end. *"24 Without a teacher"* — not clickable.
+*"13 Subjects taught"* — nothing to open. *"17 of 720 seats"*, *"6 Joined this year"*, *"1 Setup
+unfinished"* — all dead. The product computes the right number, shows it prominently, then makes the
+reader go and find the underlying rows by hand.
+
+This is **higher leverage and lower risk than anything in v1's phase list**: it changes no data, no
+permissions and no layout, and it turns every existing summary into a working entry point. v1 spent a
+whole phase (S4) making *one* set of chips deep-link better and never noticed the other thirty.
+
+### 8.3 ⚠️ 18 API capabilities ship with no user interface
+
+Counted by walking all **248** controller routes and checking whether each route's own path segment
+appears anywhere in `apps/web`:
+
+| Area | Missing surface | Why it matters |
+|---|---|---|
+| **Auth** | `POST /auth/change-password`, `POST /auth/forgot-password` | **Nobody can change their own password or recover a lost one.** The owner resets staff passwords by hand. |
+| **SMS** | `GET/PUT /sms/templates`, `GET /sms/credits`, `GET /sms/logs` | The product **texts parents** — fee reminders, absences — with no screen for the templates, the credit balance, or what was actually sent. |
+| **Fees** | `waive`, `payments/:id/reversals`, `advances`, `integrity-check` | Waiving a fee and reversing a payment are **audited financial actions**, built and reachable only by API. |
+| **HR** | `salary-structures` (POST/GET), `mark-paid` | Payroll has no editing surface. |
+| **Students** | `guardians/:parentId/verify-phone` | Phone verification gates absence SMS. |
+| **Documents** | `GET /documents` | No documents screen exists in `app/(app)/` at all. |
+
+⚠️ **No gate notices this.** A route can ship, pass its tests, carry a permission-matrix row, and
+never be reachable by a human — and nothing fails.
+
+### 8.4 Campus is a filter, twelve times over
+
+`admissions · admissions-team · calendar · campuses · classes · classes/[id] · performance · setup ·
+staff · staff-attendance · students · timings` each implement their own campus selector. There is no
+shared campus context, so:
+
+- a **campus admin sees a chooser for a choice they cannot make, twelve times**;
+- "switch campus" is not an action the product has — only "re-pick the campus on this screen";
+- there are twelve chances for one selector to scope differently from the API.
+
+v1 proposed fixing this on one screen.
+
+### 8.5 Derived facts computed in more than one place
+
+Confirmed twice; v1 found only the first:
+
+- **Teacher gaps** — `/classes` joins sections × subjects × assignments **in the browser**; `/staff`
+  reads a **server-computed** `coverageGaps`.
+- **Seats filled** — `/classes` aggregates `section.enrolled` client-side while
+  `GET /reports/class-strength` answers the same underlying question server-side.
+
+### 8.6 Defects in the plan as a document
+
+- **No success criteria.** Six phases, and no way to tell afterwards whether the IA improved. Every
+  other plan in this repo states its gates.
+- **The phase order contradicts its own risk section.** S1 (nav regroup) runs second while §7 calls
+  it *"the riskiest phase for the least visible gain."* If that sentence is true — and it is — S1
+  belongs last.
+- **All four decisions in §5 are about Classes.** None asks the question that governs the system:
+  *what is the rule for when a capability gets a screen, and when a number gets a link?*
+- **It assumed the sidebar was the problem.** With 22 items across 7 groups, navigation is not the
+  bottleneck; the **dead ends behind it** are. Regrouping a menu whose destinations are dead ends
+  produces a tidier menu, not a usable product.
+
+### 8.7 What is genuinely not broken
+
+Stated because an audit that only finds faults is not measuring:
+
+- **Nav ↔ route mapping is clean in both directions** — every `NAV` href has a page directory and
+  every page directory has a `NAV` entry. No orphaned routes, no dangling links.
+- **Campus grouping already exists in the data layer** on Classes (`groups`): the hierarchy is known,
+  it is merely rendered flat.
+
+## 9. The plan it should have been
+
+Reordered by leverage ÷ risk, and rescoped from "Classes and Subjects" to "the product".
+
+| | | Why here |
+|---|---|---|
+| **IA0** | **Every metric tile becomes a link** — 31 tiles, each to the filtered list behind it | Highest leverage, near-zero risk: no data, permission or layout change. Turns every existing summary into an entry point. |
+| **IA1** | **One source per derived fact** — delete the client gap reduce and the client seats aggregate | Correctness, not cosmetics |
+| **IA2** | **A shared campus context** — one selector in the shell, not twelve on twelve screens; invisible to a single-campus school and to a campus admin | Kills 12 duplications and makes "switch campus" a real action |
+| **IA3** | **The missing screens, in risk order:** password change/reset, then SMS admin, then fee waivers/reversals, then payroll | A user who cannot change their own password is a security problem, not a UX one |
+| **IA4** | Classes / Subjects redesign (v1's S2 + S3) | Now one instance of a solved pattern rather than the whole plan |
+| **IA5** | Nav regroup (v1's S1) | **Last.** Riskiest, least gain, and pointless until the destinations are worth reaching |
+
+**Add a gate, or §8.3 recurs.** A check that every non-webhook, non-internal route has a caller in
+`apps/web` — the same shape as the tenant-enrolment assertion added to `check-rls-coverage.mjs`,
+which exists precisely because that gate *"could only police tables that had already opted in."* A
+route with no UI should be a deliberate, listed exception, not an accident nobody can see.
+
+**The decision v1 should have asked:** *when does a capability earn a screen, and when does a number
+earn a link?* Without a stated rule, the next 18 routes ship exactly the same way.

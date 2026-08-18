@@ -556,4 +556,26 @@ Blueprint's AWS reference (RDS/ECS/S3/KMS…) is replaced by **Contabo + Coolify
 - The general form: when a rule spans several rows, look for the write granularity that makes it a
   property of the input rather than a check on the output.
 
+## A rule enforced per call site is a rule that decays (added 2026-08-17)
+
+- A malformed `:id` answered **500** on 61 routes: the value reached Prisma unvalidated and died as
+  `Inconsistent column data: Error creating UUID`. The first fix put `ParseUUIDPipe` on **81 call
+  sites**. It worked, it shipped, and it was the wrong shape — **the next route anyone writes will
+  not have it**, and nothing will say so.
+- Replaced by one `UuidParamPipe` bound as `APP_PIPE`, matching `id` and any `<entity>Id`. The rule
+  is now a property of the pipeline rather than a habit each author has to remember. Same family as
+  the RLS `tenant_isolation` policy and the Prisma tenant extension: **enforce once, centrally, or
+  discover the gap later from a user.**
+- ⚠️ **Version-agnostic, not `ParseUUIDPipe`'s v4.** `test/matrix` drives most rows against the nil
+  UUID as a deliberately-absent id, and the nil UUID is not v4 — a v4-strict pipe collapses *not
+  found* (404) into *malformed* (400), destroying the distinction it exists to draw. Format belongs
+  to the edge; existence belongs to the service.
+- ⚠️ **Bound in `AppModule`, never `main.ts`.** Every integration spec builds from `AppModule` and
+  re-declares only the `ValidationPipe`; a pipe in the bootstrap file is present in production and
+  absent from all 38 suites.
+- **Where the better design came from:** an older branch that was about to be deleted as stale
+  debris. Its diff was unmergeable — 10k lines behind — but its *reasoning* was worth more than the
+  code on `main`. **Read a branch before deleting it; the diff can be worthless while the design is
+  not.**
+
 **Source:** [[consistency-register]] · [[school-management-master-blueprint]] §2–§34

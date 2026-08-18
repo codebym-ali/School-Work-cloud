@@ -1,5 +1,5 @@
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
-import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
+import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, APP_PIPE } from '@nestjs/core';
 import { ClsMiddleware, ClsModule } from 'nestjs-cls';
 import { LoggerModule } from 'nestjs-pino';
 import { randomUUID } from 'node:crypto';
@@ -16,6 +16,7 @@ import {
   RedisModule,
   RolesGuard,
   TenantScopeGuard,
+  UuidParamPipe,
   type Env,
 } from '@common';
 import { StorageModule } from '@common';
@@ -110,6 +111,10 @@ import { UploadsModule } from './modules/uploads/uploads.module';
     { provide: APP_GUARD, useClass: RateLimitGuard },
     { provide: APP_GUARD, useClass: TenantScopeGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
+    // ⚠️ Bound HERE and not in `main.ts`: every integration spec builds its app from AppModule
+    // and re-declares only the ValidationPipe, so a pipe registered in the bootstrap file would
+    // be absent from all 38 suites — present in production, untested everywhere.
+    { provide: APP_PIPE, useClass: UuidParamPipe },
     { provide: APP_INTERCEPTOR, useClass: TenantTransactionInterceptor },
     { provide: APP_FILTER, useClass: AllExceptionsFilter },
   ],

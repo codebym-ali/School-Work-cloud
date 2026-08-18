@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Param, Patch, Post, Query } from '@nestjs/common';
 import { Roles } from '@common';
 import { AttendanceService } from './attendance.service';
 import {
@@ -72,7 +72,7 @@ export class AttendanceController {
 
   @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
   @Patch(':id')
-  patch(@Param('id', ParseUUIDPipe) id: string, @Body() dto: PatchAttendanceDto) {
+  patch(@Param('id') id: string, @Body() dto: PatchAttendanceDto) {
     return this.attendance.patch(id, dto);
   }
 }
@@ -133,7 +133,7 @@ export class StaffAttendanceController {
 
   @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN', 'HR_MANAGER')
   @Get('staff/:staffId')
-  history(@Param('staffId', ParseUUIDPipe) staffId: string, @Query() q: StaffHistoryQuery) {
+  history(@Param('staffId') staffId: string, @Query() q: StaffHistoryQuery) {
     return this.attendance.staffHistory(staffId, q.from, q.to);
   }
 }

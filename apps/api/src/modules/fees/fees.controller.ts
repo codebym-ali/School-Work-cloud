@@ -1,4 +1,17 @@
-import { Body, Controller, Delete, Get, Headers, HttpCode, HttpStatus, Param, ParseUUIDPipe, Patch, Post, Put, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Headers,
+  HttpCode,
+  HttpStatus,
+  Param,
+  Patch,
+  Post,
+  Put,
+  Query,
+} from '@nestjs/common';
 import { Roles } from '@common';
 import { ClaimSource } from '@prisma/client';
 import { ClaimsService } from './claims.service';
@@ -37,10 +50,10 @@ export class FeeHeadsController {
   @Roles('OWNER_ADMIN', 'ACCOUNTANT') @Get() list() { return this.setup.listHeads(); }
   // Renaming and removing were missing entirely, so the list only ever grew — a school could
   // not clear a typo, let alone anything a test run left behind.
-  @Roles('OWNER_ADMIN') @Patch(':id') update(@Param('id', ParseUUIDPipe) id: string, @Body() dto: CreateFeeHeadDto) {
+  @Roles('OWNER_ADMIN') @Patch(':id') update(@Param('id') id: string, @Body() dto: CreateFeeHeadDto) {
     return this.setup.updateHead(id, dto);
   }
-  @Roles('OWNER_ADMIN') @Delete(':id') @HttpCode(HttpStatus.NO_CONTENT) remove(@Param('id', ParseUUIDPipe) id: string) {
+  @Roles('OWNER_ADMIN') @Delete(':id') @HttpCode(HttpStatus.NO_CONTENT) remove(@Param('id') id: string) {
     return this.setup.deleteHead(id);
   }
 }
@@ -59,11 +72,11 @@ export class FeeStructuresController {
 
   // Amount is editable only until something has been billed from it; after that the honest
   // change is a revision from a later month. Switching a fee off is always allowed.
-  @Roles('OWNER_ADMIN') @Patch(':id') update(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateFeeStructureDto) {
+  @Roles('OWNER_ADMIN') @Patch(':id') update(@Param('id') id: string, @Body() dto: UpdateFeeStructureDto) {
     return this.setup.updateStructure(id, dto);
   }
 
-  @Roles('OWNER_ADMIN') @Delete(':id') @HttpCode(HttpStatus.NO_CONTENT) remove(@Param('id', ParseUUIDPipe) id: string) {
+  @Roles('OWNER_ADMIN') @Delete(':id') @HttpCode(HttpStatus.NO_CONTENT) remove(@Param('id') id: string) {
     return this.setup.deleteStructure(id);
   }
 }
@@ -84,7 +97,7 @@ export class DiscountsController {
   // including that child's classmates. Narrowest set that matches the writes; no UI calls it yet.
   @Roles('OWNER_ADMIN', 'ACCOUNTANT')
   @Get() list(@Query('studentId') studentId?: string) { return this.setup.listDiscounts(studentId); }
-  @Roles('OWNER_ADMIN') @Post(':id/revoke') revoke(@Param('id', ParseUUIDPipe) id: string) { return this.setup.revokeDiscount(id); }
+  @Roles('OWNER_ADMIN') @Post(':id/revoke') revoke(@Param('id') id: string) { return this.setup.revokeDiscount(id); }
 }
 
 /**
@@ -119,7 +132,7 @@ export class FeeClaimsController {
 
   @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT')
   @Get(':id/proof')
-  proof(@Param('id', ParseUUIDPipe) id: string) {
+  proof(@Param('id') id: string) {
     return this.claims.proofUrl(id);
   }
 
@@ -127,13 +140,13 @@ export class FeeClaimsController {
   // campus admin's — the same audience that may take a payment in the first place.
   @Roles('OWNER_ADMIN', 'ACCOUNTANT')
   @Post(':id/verify')
-  verify(@Param('id', ParseUUIDPipe) id: string) {
+  verify(@Param('id') id: string) {
     return this.claims.verify(id);
   }
 
   @Roles('OWNER_ADMIN', 'ACCOUNTANT')
   @Post(':id/reject')
-  reject(@Param('id', ParseUUIDPipe) id: string, @Body() dto: RejectClaimDto) {
+  reject(@Param('id') id: string, @Body() dto: RejectClaimDto) {
     return this.claims.reject(id, dto);
   }
 }
@@ -184,25 +197,25 @@ export class FeesController {
    */
   @Roles('OWNER_ADMIN', 'ACCOUNTANT')
   @Post('invoices/:id/guardian-link')
-  guardianLink(@Param('id', ParseUUIDPipe) id: string, @Headers('host') host?: string) {
+  guardianLink(@Param('id') id: string, @Headers('host') host?: string) {
     return this.feeLink.issueFor(id, host);
   }
 
   @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT')
   @Get('invoices/:id')
-  getInvoice(@Param('id', ParseUUIDPipe) id: string) {
+  getInvoice(@Param('id') id: string) {
     return this.invoicing.get(id);
   }
 
   @Roles('OWNER_ADMIN')
   @Post('invoices/:id/waive')
-  waive(@Param('id', ParseUUIDPipe) id: string, @Body() dto: ReasonDto) {
+  waive(@Param('id') id: string, @Body() dto: ReasonDto) {
     return this.invoicing.waive(id, dto);
   }
 
   @Roles('OWNER_ADMIN', 'ACCOUNTANT')
   @Post('invoices/:id/payments')
-  pay(@Param('id', ParseUUIDPipe) id: string, @Body() dto: PayInvoiceDto, @Headers('idempotency-key') key: string) {
+  pay(@Param('id') id: string, @Body() dto: PayInvoiceDto, @Headers('idempotency-key') key: string) {
     return this.payments.pay(id, dto, key);
   }
 
@@ -211,14 +224,14 @@ export class FeesController {
    *  opaque string being replayed for someone else's document. */
   @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT')
   @Get('payments/:id/proof')
-  proof(@Param('id', ParseUUIDPipe) id: string) {
+  proof(@Param('id') id: string) {
     return this.payments.proofUrl(id);
   }
 
   /** The receipt itself, as a PDF — what the family asks for at the counter. */
   @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT')
   @Get('payments/:id/receipt')
-  receipt(@Param('id', ParseUUIDPipe) id: string) {
+  receipt(@Param('id') id: string) {
     return this.payments.receiptPdf(id);
   }
 
@@ -230,7 +243,7 @@ export class FeesController {
 
   @Roles('OWNER_ADMIN')
   @Post('payments/:id/reversals')
-  reverse(@Param('id', ParseUUIDPipe) id: string, @Body() dto: ReasonDto) {
+  reverse(@Param('id') id: string, @Body() dto: ReasonDto) {
     return this.payments.reverse(id, dto);
   }
 

@@ -10,37 +10,86 @@ import { destroyTenant } from './support/tenant';
 import { loginRequest } from './support/login';
 
 /**
- * A malformed id is the caller's mistake, and must read like one.
+ * A malformed `:id` must never be a 5xx (blueprint §25.1).
  *
- * ⚠️ **Every `:id` route in the product answered 500 to a bad id.** `ParseUUIDPipe` was on exactly
- * **4 of 85** parameters, so everywhere else the raw string reached Prisma and came back as
- * `Inconsistent column data: Error creating UUID` — a 500, an error-rate alert, and a stack trace,
- * for what is a 400.
+ * Found while writing the Cover C4 tests: `POST /exams/undefined/open-marks-entry` and
+ * `POST /exams/undefined/results/bulk` returned **500**. The id reached Prisma unvalidated
+ * and died there — `Inconsistent column data: Error creating UUID, invalid character` —
+ * which `AllExceptionsFilter` could only render as an unhandled internal error. That cost
+ * real time: the failure looked like the feature was broken when only the fixture was, and
+ * in production it would be a Sentry page for someone else's typo.
  *
- * It is not a cosmetic status code. This has already cost real debugging time in this repo by making
- * a **bad test fixture read as a broken feature**: a 500 says "the server is broken, investigate the
- * server", and the server was fine. That is the specific failure this file exists to prevent
- * recurring.
+ * The routes are **enumerated from the live router**, not hand-listed, for the same reason
+ * `destroyTenant` derives its table order from the FK graph: a hand-list is a promise to
+ * remember, and the next `:id` route added is exactly the one nobody remembers. Every route
+ * carrying an id-shaped path param is swept.
  *
- * The routes below are picked to span the pipeline — a plain admin read, a nested resource, a
- * delete, and an ownership-scoped portal route — because the pipe has to be on the *parameter*, and
- * one controller getting it says nothing about the other seventeen.
+ * The sweep is inherently side-effect-free: every id it sends is invalid, and `UuidParamPipe`
+ * runs before the handler, so not one of these requests can reach a service — including the
+ * DELETEs.
  */
-describe('Malformed ids (e2e)', () => {
+describe('Malformed path ids never 5xx (e2e, §25.1)', () => {
   let app: INestApplication;
   let platform: PlatformPrismaService;
   let schoolId: string;
   let cookies: string[];
-  let csrf: string;
 
-  const sub = `mid-${randomUUID().slice(0, 8)}`;
+  const sub = `bad-${randomUUID().slice(0, 8)}`;
   const host = `${sub}.localhost`;
-  const owner = { email: 'owner@mid.pk', password: 'Owner!Secret12' };
+  const owner = { email: 'owner@bad.pk', password: 'Owner!Secret12' };
 
   const server = () => app.getHttpServer();
-  const get = (p: string) => request(server()).get(p).set('Host', host).set('Cookie', cookies);
-  const del = (p: string) =>
-    request(server()).delete(p).set('Host', host).set('Cookie', cookies).set('X-CSRF-Token', csrf);
+  const csrfOf = (c: string[]) => (c.find((x) => x.startsWith('csrf=')) ?? '').split(';')[0].slice(5);
+
+  /** `id` and any `<entity>Id` — the convention `UuidParamPipe` enforces. */
+  const ID_PARAM = /^(id|[a-z][A-Za-z0-9]*Id)$/;
+  type Method = 'get' | 'post' | 'patch' | 'put' | 'delete';
+  const METHODS: Method[] = ['get', 'post', 'patch', 'put', 'delete'];
+
+  interface Route {
+    method: Method;
+    /** The declared template, e.g. `/api/v1/students/:id/guardians/:guardianId`. */
+    template: string;
+    /** The same path with every id param replaced by the literal that started this. */
+    path: string;
+  }
+  let routes: Route[] = [];
+
+  /**
+   * Walk Express's router for the registered routes. Deliberately defensive: if the shape
+   * ever changes this must fail loudly, because a sweep over zero routes passes silently
+   * and proves nothing.
+   */
+  const collectRoutes = (): Route[] => {
+    const expressApp = app.getHttpAdapter().getInstance() as {
+      _router?: { stack: { route?: { path: unknown; methods: Record<string, boolean> } }[] };
+    };
+    const stack = expressApp._router?.stack;
+    if (!Array.isArray(stack)) throw new Error('Could not read the Express router stack — the sweep would be vacuous.');
+
+    const out: Route[] = [];
+    for (const layer of stack) {
+      const template = layer.route?.path;
+      if (typeof template !== 'string') continue;
+
+      const params = [...template.matchAll(/:([A-Za-z0-9_]+)/g)].map((m) => m[1]);
+      if (!params.some((p) => ID_PARAM.test(p))) continue;
+
+      // Non-id params (`:token`) keep a harmless placeholder — this asserts one thing at a time.
+      const path = template.replace(/:([A-Za-z0-9_]+)/g, (_, p: string) =>
+        ID_PARAM.test(p) ? 'undefined' : 'placeholder',
+      );
+      for (const method of METHODS) if (layer.route?.methods[method]) out.push({ method, template, path });
+    }
+    return out;
+  };
+
+  const call = ({ method, path }: Route) => {
+    let r = request(server())[method](path).set('Host', host).set('Cookie', cookies);
+    if (method !== 'get') r = r.set('X-CSRF-Token', csrfOf(cookies)).set('Idempotency-Key', randomUUID());
+    if (method !== 'get' && method !== 'delete') r = r.send({});
+    return r;
+  };
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
@@ -51,14 +100,24 @@ describe('Malformed ids (e2e)', () => {
     await app.init();
 
     platform = app.get(PlatformPrismaService);
-    const prov = await app.get(ProvisioningService, { strict: false }).provisionSchool({
-      name: 'Malformed Id School', subdomain: sub, ownerEmail: owner.email, ownerPassword: owner.password,
+    const provisioning = app.get(ProvisioningService, { strict: false });
+    const prov = await provisioning.provisionSchool({
+      name: 'Bad Id School',
+      subdomain: sub,
+      ownerEmail: owner.email,
+      ownerPassword: owner.password,
     });
     schoolId = prov.schoolId;
 
+    // ⚠️ Via the shared helper, not `POST /auth/login` directly: the owner and staff doors were
+    // split (Owner Login Plan O2/O3) after this sweep was first written, and the staff door now
+    // REFUSES an owner. Hardcoding the old path would 401 here and leave `cookies` undefined,
+    // which turns every route below into a 401 and the sweep into a vacuous pass.
     const res = await loginRequest(server(), host, owner.email, owner.password);
     cookies = res.headers['set-cookie'] as unknown as string[];
-    csrf = (cookies.find((c) => c.startsWith('csrf=')) ?? '').split(';')[0].slice(5);
+    if (!cookies) throw new Error('Owner login produced no session — the sweep would be vacuous.');
+
+    routes = collectRoutes();
   });
 
   afterAll(async () => {
@@ -67,51 +126,73 @@ describe('Malformed ids (e2e)', () => {
   });
 
   /**
-   * One per module family, so a regression in any single controller is visible.
-   *
-   * ⚠️ Each path is a route that ACTUALLY EXISTS — checked, not assumed. A first draft listed
-   * `GET /classes/:id`, `GET /exams/:id` and `GET /documents/:id`, none of which are real: they
-   * returned 404 because nothing matched, which would have made three of these cases permanently
-   * green regardless of whether the pipe was there at all.
+   * The two routes from the original report, pinned by name. The sweep below would catch a
+   * regression here too, but these are the ones that actually burned an afternoon, and a
+   * named failure says so immediately.
    */
-  const READS: Array<[string, string]> = [
-    ['a student', '/api/v1/students/not-a-uuid'],
-    ['a class-test', '/api/v1/class-tests/not-a-uuid'],
-    ['a section timetable', '/api/v1/timetable/section/not-a-uuid'],
-    ['a bell schedule', '/api/v1/bell-schedules/not-a-uuid'],
-    ['an invoice', '/api/v1/fees/invoices/not-a-uuid'],
-    ['a staff member', '/api/v1/staff/not-a-uuid'],
-    ['exam results', '/api/v1/exams/not-a-uuid/results'],
-    ['a document url', '/api/v1/documents/not-a-uuid/url'],
-  ];
+  describe('the routes that exposed this', () => {
+    it.each([
+      ['POST /exams/:id/open-marks-entry', '/api/v1/exams/undefined/open-marks-entry'],
+      ['POST /exams/:id/results/bulk', '/api/v1/exams/undefined/results/bulk'],
+    ])('%s is a 400, not a Prisma 500', async (_label, path) => {
+      const res = await call({ method: 'post', template: path, path });
 
-  it.each(READS)('reads %s with a malformed id → 400, never 500', async (_label, path) => {
-    const res = await get(path);
-    expect(res.status).toBe(400);
-    // The assertion that matters is the ABSENCE of 500. A 404 would be defensible in isolation, but
-    // it would mean the id reached a lookup — and the point is that a syntactically impossible id
-    // never gets that far.
-    expect(res.status).not.toBe(500);
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('VALIDATION_FAILED');
+      expect(res.body.error.details).toEqual([{ field: 'id', issue: 'must be a UUID' }]);
+      // The specific 500 this replaced. Asserted on the body because that is what leaked.
+      expect(JSON.stringify(res.body)).not.toMatch(/Prisma|Inconsistent column data/i);
+    });
   });
 
-  it('deletes with a malformed id → 400, so a typo cannot look like a server fault', async () => {
-    const res = await del('/api/v1/subjects/not-a-uuid');
-    expect(res.status).toBe(400);
+  describe('every id-carrying route in the app', () => {
+    it('finds a realistic number of them — a sweep over nothing proves nothing', () => {
+      // ~90 today. The floor only guards against enumeration silently breaking.
+      expect(routes.length).toBeGreaterThan(50);
+    });
+
+    it('answers a malformed id without a single 5xx', async () => {
+      const failures: string[] = [];
+      for (const route of routes) {
+        const res = await call(route);
+        if (res.status >= 500) failures.push(`${route.method.toUpperCase()} ${route.template} -> ${res.status}`);
+      }
+      expect(failures).toEqual([]);
+    });
+
+    it('answers 400 wherever the caller is allowed to reach the route at all', async () => {
+      const wrong: string[] = [];
+      for (const route of routes) {
+        const res = await call(route);
+        // 401/403 mean a guard answered first — correct, and by design: guards run before
+        // pipes, so an unauthorised caller learns nothing about which ids are well-formed.
+        if (res.status === 401 || res.status === 403) continue;
+        if (res.status !== 400 || res.body?.error?.code !== 'VALIDATION_FAILED') {
+          wrong.push(`${route.method.toUpperCase()} ${route.template} -> ${res.status} ${res.body?.error?.code ?? ''}`);
+        }
+      }
+      expect(wrong).toEqual([]);
+    });
   });
 
-  it('still resolves a WELL-FORMED id that matches nothing → 404, not 400', async () => {
-    // ⚠️ The half that stops this being a blunt instrument. If the pipe were somehow rejecting
-    // valid uuids too, every test above would still pass — they only assert 400. This is the case
-    // that fails if the fix goes too far.
-    const res = await get(`/api/v1/students/${randomUUID()}`);
+  /**
+   * The other half of the contract. A well-formed id that happens not to exist is a 404 —
+   * the pipe must not swallow that distinction, which is why it matches any UUID version
+   * rather than v4 only (`test/matrix` drives most of its rows against the nil UUID).
+   */
+  it('still lets a well-formed but non-existent id through to a 404', async () => {
+    const res = await request(server())
+      .get(`/api/v1/students/${randomUUID()}`)
+      .set('Host', host)
+      .set('Cookie', cookies);
+
     expect(res.status).toBe(404);
-  });
 
-  it('leaves non-uuid path parameters alone', async () => {
-    // `fee-link` takes an opaque TOKEN, not a uuid, and is public by design. Applying the pipe to
-    // every `@Param` in the codebase would have made the guardian fee link permanently 400 — the
-    // reason this sweep is parameter-name-driven rather than blanket.
-    const res = await request(server()).get('/api/v1/fee-link/some-opaque-token').set('Host', host);
-    expect(res.status).not.toBe(400);
+    const nil = await request(server())
+      .get('/api/v1/students/00000000-0000-0000-0000-000000000000')
+      .set('Host', host)
+      .set('Cookie', cookies);
+
+    expect(nil.status).toBe(404);
   });
 });

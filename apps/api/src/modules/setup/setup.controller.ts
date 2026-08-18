@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, ParseUUIDPipe, Patch, Post, Put, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Patch, Post, Put, Query } from '@nestjs/common';
 import { Roles } from '@common';
 import { SetupService } from './setup.service';
 import {
@@ -62,7 +62,7 @@ export class AcademicYearController {
 
   @Roles('OWNER_ADMIN')
   @Post(':id/set-current')
-  setCurrent(@Param('id', ParseUUIDPipe) id: string) {
+  setCurrent(@Param('id') id: string) {
     return this.setup.setCurrentAcademicYear(id);
   }
 }
@@ -103,7 +103,7 @@ export class HolidayController {
   @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
-  remove(@Param('id', ParseUUIDPipe) id: string) {
+  remove(@Param('id') id: string) {
     return this.setup.deleteHoliday(id);
   }
 }
@@ -125,14 +125,14 @@ export class CampusController {
 
   @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
   @Patch(':id')
-  update(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateCampusDto) {
+  update(@Param('id') id: string, @Body() dto: UpdateCampusDto) {
     return this.setup.updateCampus(id, dto);
   }
 
   @Roles('OWNER_ADMIN')
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
-  remove(@Param('id', ParseUUIDPipe) id: string) {
+  remove(@Param('id') id: string) {
     return this.setup.deleteCampus(id);
   }
 }
@@ -154,14 +154,14 @@ export class ClassController {
 
   @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
   @Patch(':id')
-  update(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateClassDto) {
+  update(@Param('id') id: string, @Body() dto: UpdateClassDto) {
     return this.setup.updateClass(id, dto);
   }
 
   @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
-  remove(@Param('id', ParseUUIDPipe) id: string) {
+  remove(@Param('id') id: string) {
     return this.setup.deleteClass(id);
   }
 }
@@ -184,20 +184,20 @@ export class SectionController {
   /** Replace which subjects this section studies (empty ⇒ everything the class offers). */
   @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
   @Put(':id/subjects')
-  setSubjects(@Param('id', ParseUUIDPipe) id: string, @Body() dto: SetSectionSubjectsDto) {
+  setSubjects(@Param('id') id: string, @Body() dto: SetSectionSubjectsDto) {
     return this.setup.setSectionSubjects(id, dto.subjectIds);
   }
 
   @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
   @Patch(':id')
-  update(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateSectionDto) {
+  update(@Param('id') id: string, @Body() dto: UpdateSectionDto) {
     return this.setup.updateSection(id, dto);
   }
 
   @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
-  remove(@Param('id', ParseUUIDPipe) id: string) {
+  remove(@Param('id') id: string) {
     return this.setup.deleteSection(id);
   }
 }
@@ -224,14 +224,14 @@ export class SubjectController {
 
   @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
   @Patch(':id')
-  update(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateSubjectDto) {
+  update(@Param('id') id: string, @Body() dto: UpdateSubjectDto) {
     return this.setup.updateSubject(id, dto);
   }
 
   @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
-  remove(@Param('id', ParseUUIDPipe) id: string) {
+  remove(@Param('id') id: string) {
     return this.setup.deleteSubject(id);
   }
 }

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Param, ParseUUIDPipe, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { Public } from '@common';
 import { PlatformService } from './platform.service';
 import { PlatformAuthGuard } from './platform-auth.guard';
@@ -28,13 +28,13 @@ export class PlatformController {
 
   @Post('tenants/:id/suspend')
   @HttpCode(HttpStatus.OK)
-  suspend(@Param('id', ParseUUIDPipe) id: string) {
+  suspend(@Param('id') id: string) {
     return this.platform.suspend(id);
   }
 
   @Post('tenants/:id/reactivate')
   @HttpCode(HttpStatus.OK)
-  reactivate(@Param('id', ParseUUIDPipe) id: string) {
+  reactivate(@Param('id') id: string) {
     return this.platform.reactivate(id);
   }
 }

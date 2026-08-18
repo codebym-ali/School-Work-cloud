@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { Roles } from '@common';
 import { ClassTestsService } from './class-tests.service';
 import {
@@ -32,23 +32,23 @@ export class ClassTestsController {
   }
 
   @Get(':id')
-  getOne(@Param('id', ParseUUIDPipe) id: string) {
+  getOne(@Param('id') id: string) {
     return this.tests.getOne(id);
   }
 
   @Patch(':id')
-  update(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateClassTestDto) {
+  update(@Param('id') id: string, @Body() dto: UpdateClassTestDto) {
     return this.tests.update(id, dto);
   }
 
   @Delete(':id')
-  remove(@Param('id', ParseUUIDPipe) id: string) {
+  remove(@Param('id') id: string) {
     return this.tests.remove(id);
   }
 
   /** Enter or correct marks — partial-failure, so one bad row never rejects a whole register. */
   @Post(':id/scores')
-  setScores(@Param('id', ParseUUIDPipe) id: string, @Body() dto: SetClassTestScoresDto) {
+  setScores(@Param('id') id: string, @Body() dto: SetClassTestScoresDto) {
     return this.tests.setScores(id, dto);
   }
 }

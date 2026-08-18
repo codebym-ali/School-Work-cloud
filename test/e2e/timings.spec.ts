@@ -20,6 +20,30 @@ import { gotoApp, apiSetupGet, apiSetupPost, apiSetupPut, apiSetupDelete, e2eCam
 test.describe('school timings', () => {
   const NAME = 'E2E Timings';
 
+  /**
+   * ⚠️ Everything this spec creates, so `afterEach` can take it back out.
+   *
+   * The first version of this file cleaned up only its bell schedules and left a
+   * `TmCls<timestamp>` class behind on every run — **while its own doc comment cited the 185
+   * leftover classes as the reason to know better.** These specs run against the operator's real
+   * demo tenant, so debris lands in a screen a human actually looks at; it was spotted at the top
+   * of the Classes page. Creating is not the hard part of a fixture — giving it back is.
+   */
+  const created: { classes: string[]; sections: string[] } = { classes: [], sections: [] };
+
+  const mkClass = async (page: import('@playwright/test').Page, campusId: string) => {
+    const k = await apiSetupPost<{ id: string }>(page, '/classes', {
+      campusId, name: `TmCls${Date.now()}`, order: 1,
+    });
+    created.classes.push(k.id);
+    return k;
+  };
+  const mkSection = async (page: import('@playwright/test').Page, classId: string) => {
+    const sec = await apiSetupPost<{ id: string }>(page, '/sections', { classId, name: 'A' });
+    created.sections.push(sec.id);
+    return sec;
+  };
+
   /** The composed day the whole spec is written around: assembly, two periods, break, two periods. */
   const MONDAY = [
     { label: 'Assembly', minutes: 15, teaching: false },
@@ -31,13 +55,20 @@ test.describe('school timings', () => {
   ];
 
   test.afterEach(async ({ page }) => {
-    // Best-effort: cleanup must never be the loudest thing in a failure.
+    // Best-effort: cleanup must never be the loudest thing in a failure. Order matters — a
+    // schedule references its classes, and a class will not delete while it has sections.
     try {
       const res = await apiSetupGet<{ schedules: Array<{ id: string; name: string }> }>(page, '/bell-schedules');
       for (const s of res.schedules.filter((x) => x.name === NAME)) {
         await apiSetupDelete(page, `/bell-schedules/${s.id}`);
       }
     } catch { /* ignore */ }
+    for (const id of created.sections.splice(0)) {
+      try { await apiSetupDelete(page, `/sections/${id}`); } catch { /* ignore */ }
+    }
+    for (const id of created.classes.splice(0)) {
+      try { await apiSetupDelete(page, `/classes/${id}`); } catch { /* ignore */ }
+    }
   });
 
   test('the day is composed from durations, and the screen agrees with the server', async ({ page }) => {
@@ -46,9 +77,7 @@ test.describe('school timings', () => {
     // Seeded through the API so the test is about composing a day, not about creating a schedule.
     // It is NOT the campus default — the E2E campus may already have one, and taking that seat
     // would make this spec's success depend on whether it had run before.
-    const klass = await apiSetupPost<{ id: string }>(page, '/classes', {
-      campusId, name: `TmCls${Date.now()}`, order: 1,
-    });
+    const klass = await mkClass(page, campusId);
     const schedule = await apiSetupPost<{ id: string }>(page, '/bell-schedules', {
       campusId, name: NAME, classIds: [klass.id],
     });
@@ -88,10 +117,8 @@ test.describe('school timings', () => {
   test('a short Friday renders short — the grid shows absent periods, not empty ones', async ({ page }) => {
     await gotoApp(page);
     const campusId = await e2eCampusId(page);
-    const klass = await apiSetupPost<{ id: string }>(page, '/classes', {
-      campusId, name: `TmCls${Date.now()}`, order: 1,
-    });
-    const section = await apiSetupPost<{ id: string }>(page, '/sections', { classId: klass.id, name: 'A' });
+    const klass = await mkClass(page, campusId);
+    const section = await mkSection(page, klass.id);
     const schedule = await apiSetupPost<{ id: string }>(page, '/bell-schedules', {
       campusId, name: NAME, classIds: [klass.id],
     });

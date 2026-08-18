@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { api, type PortalAttendanceSummary } from '@/lib/api';
+import { Metric, MetricFilter } from '@/components/metric';
 import { attendanceBadge, humanizeStatus } from '@/lib/format';
 
 /**
@@ -12,6 +13,7 @@ import { attendanceBadge, humanizeStatus } from '@/lib/format';
  * SMS paths, so one student never has two different figures depending on the screen.
  */
 export default function MyAttendance() {
+  const [focus, setFocus] = useState('');
   const [data, setData] = useState<PortalAttendanceSummary | null>(null);
   const [err, setErr] = useState(false);
 
@@ -21,28 +23,32 @@ export default function MyAttendance() {
   if (!data) return <p className="muted">Loading…</p>;
 
   const c = data.counts;
-  const cards: Array<{ label: string; value: number; tone?: string }> = [
-    { label: 'Present', value: c.PRESENT ?? 0 },
-    { label: 'Absent', value: c.ABSENT ?? 0, tone: (c.ABSENT ?? 0) > 0 ? 'metric-alert' : undefined },
-    { label: 'Late', value: c.LATE ?? 0 },
-    { label: 'Half day', value: c.HALF_DAY ?? 0 },
-    { label: 'On leave', value: c.ON_LEAVE ?? 0 },
+  /**
+   * ⚠️ The status key is carried on the card, so the count and the filter are the same key rather
+   * than a label matched to a status by eye. One row per status, so a student sees exactly the
+   * behaviour a teacher gets on `/my-attendance`.
+   */
+  const cards: Array<{ label: string; value: number; status: string }> = [
+    { label: 'Present', value: c.PRESENT ?? 0, status: 'PRESENT' },
+    { label: 'Absent', value: c.ABSENT ?? 0, status: 'ABSENT' },
+    { label: 'Late', value: c.LATE ?? 0, status: 'LATE' },
+    { label: 'Half day', value: c.HALF_DAY ?? 0, status: 'HALF_DAY' },
+    { label: 'On leave', value: c.ON_LEAVE ?? 0, status: 'ON_LEAVE' },
   ];
+  const visible = data.records.filter((r) => !focus || r.status === focus);
 
   return (
     <div className="stack">
       <h1>My Attendance</h1>
 
       <div className="grid">
-        <div className="metric">
-          <div className="value">{data.percent == null ? '—' : `${data.percent}%`}</div>
-          <div className="label">Attendance (last {data.days} days)</div>
-        </div>
+        <Metric label={`Attendance (last ${data.days} days)`}
+          value={data.percent == null ? '—' : `${data.percent}%`} />
         {cards.map((k) => (
-          <div key={k.label} className={`metric ${k.tone ?? ''}`}>
-            <div className="value">{k.value}</div>
-            <div className="label">{k.label}</div>
-          </div>
+          <MetricFilter key={k.status} label={k.label} value={k.value}
+            alert={k.status === 'ABSENT' && k.value > 0}
+            active={focus === k.status}
+            onClick={() => setFocus(focus === k.status ? '' : k.status)} />
         ))}
       </div>
 
@@ -54,14 +60,16 @@ export default function MyAttendance() {
         <table>
           <thead><tr><th>Date</th><th>Session</th><th>Status</th></tr></thead>
           <tbody>
-            {data.records.map((r, i) => (
+            {visible.map((r, i) => (
               <tr key={i}>
                 <td>{new Date(r.date).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })}</td>
                 <td>{r.session}</td>
                 <td><span className={`badge ${attendanceBadge(r.status)}`}>{humanizeStatus(r.status)}</span></td>
               </tr>
             ))}
-            {data.records.length === 0 && <tr><td colSpan={3} className="muted">No attendance recorded in this period.</td></tr>}
+            {visible.length === 0 && <tr><td colSpan={3} className="muted">
+              {focus ? 'No days with that status in this period.' : 'No attendance recorded in this period.'}
+            </td></tr>}
           </tbody>
         </table>
       </div>

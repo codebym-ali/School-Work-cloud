@@ -7,6 +7,7 @@ import type { Inquiry } from '@/lib/api';
 import { hasModule, useMe } from '@/lib/me-context';
 import { classLabeller } from '@/lib/labels';
 import { canReach } from '@/lib/roles';
+import { Metric, MetricFilter } from '@/components/metric';
 import { DirectAdmission } from './direct-admission';
 
 const STATUSES = ['INQUIRY', 'ENTRY_TEST_SCHEDULED', 'ENTRY_TEST_PASSED', 'ENTRY_TEST_FAILED', 'ADMITTED', 'REJECTED', 'WITHDRAWN'];
@@ -130,11 +131,21 @@ export default function AdmissionsPage() {
 
       {summary && (
         <div className="grid">
-          <div className="metric"><div className="value">{summary.totals.open}</div><div className="label">Open inquiries</div></div>
-          <div className="metric"><div className="value">{summary.testsToday}</div><div className="label">Tests today</div></div>
-          <div className="metric"><div className="value">{summary.totals.readyToAdmit}</div><div className="label">Ready to admit</div></div>
-          <div className="metric"><div className="value">{summary.admittedThisMonth}</div><div className="label">Admitted this month</div></div>
-          <div className="metric"><div className="value">{summary.conversionRate}%</div><div className="label">Conversion rate</div></div>
+          {/* ⚠️ Only the tiles that are EXACTLY one status become filters. `totals.open` is
+              `byStatus[INQUIRY]` and `readyToAdmit` is `byStatus[ENTRY_TEST_PASSED]` — one status
+              each, so the tile and the pipeline chip below it select the same rows by construction.
+              The rest are date-ranged or ratios, and the server computes their boundaries from its
+              OWN clock, so a client filter would quietly disagree. */}
+          <MetricFilter label="Open inquiries" value={summary.totals.open}
+            active={status === 'INQUIRY'} title="Show inquiries not yet moved on"
+            onClick={() => setStatus(status === 'INQUIRY' ? '' : 'INQUIRY')} />
+          <Metric label="Tests today" value={summary.testsToday} />
+          <MetricFilter label="Ready to admit" value={summary.totals.readyToAdmit}
+            alert={summary.totals.readyToAdmit > 0}
+            active={status === 'ENTRY_TEST_PASSED'} title="Show everyone who passed the entry test"
+            onClick={() => setStatus(status === 'ENTRY_TEST_PASSED' ? '' : 'ENTRY_TEST_PASSED')} />
+          <Metric label="Admitted this month" value={summary.admittedThisMonth} />
+          <Metric label="Conversion rate" value={`${summary.conversionRate}%`} />
         </div>
       )}
 

@@ -8,11 +8,15 @@ import {
   type HrSummary, type TeacherAssignment, type UserModule,
 } from '@/lib/api';
 import { useMe } from '@/lib/me-context';
+import { Metric, MetricFilter } from '@/components/metric';
 
 type Msg = { ok: boolean; text: string } | null;
 const today = () => new Date().toISOString().slice(0, 10);
 
 const STAFF_TYPES = ['TEACHER', 'ADMIN', 'ACCOUNTANT', 'CLERK', 'SUPPORT'] as const;
+
+/** Which worklist the directory is narrowed to. '' = the whole directory. */
+type StaffFocus = '' | 'setup';
 
 /**
  * What makes owning the staff record a job rather than data entry.
@@ -21,19 +25,37 @@ const STAFF_TYPES = ['TEACHER', 'ADMIN', 'ACCOUNTANT', 'CLERK', 'SUPPORT'] as co
  * wrong afterwards: people who cannot sign in, teachers assigned to nothing, and subjects with
  * nobody teaching them. Each block below is a worklist with a finish line, not a vanity metric.
  */
-function HrOverview({ summary }: { summary: HrSummary | null }) {
+function HrOverview({ summary, focus, setFocus, anyFilter, clearFilters }: {
+  summary: HrSummary | null;
+  focus: StaffFocus; setFocus: (f: StaffFocus) => void;
+  anyFilter: boolean; clearFilters: () => void;
+}) {
   if (!summary) return null;
   const { headcount, joinersThisMonth, joinersThisYear, needsSetup, coverageGaps } = summary;
 
   return (
     <div className="stack">
       <div className="grid">
-        <div className="metric"><div className="value">{headcount}</div><div className="label">Staff on record</div></div>
-        <div className="metric"><div className="value">{joinersThisMonth}</div><div className="label">Joined this month</div></div>
-        <div className="metric"><div className="value">{joinersThisYear}</div><div className="label">Joined this year</div></div>
-        <div className={`metric ${needsSetup.length ? 'metric-alert' : ''}`}>
-          <div className="value">{needsSetup.length}</div><div className="label">Setup unfinished</div>
-        </div>
+        {/* Clears every filter — the number means "everyone", so clicking it should show everyone. */}
+        <MetricFilter label="Staff on record" value={headcount} active={!anyFilter && focus === ''}
+          title="Show everyone" onClick={clearFilters} />
+
+        {/* ⚠️ Context, NOT filters, and deliberately so. These counts are computed on the server
+            from `joinedAt >= monthStart`, where `monthStart` is built from the SERVER's local
+            clock — `new Date(now.getFullYear(), now.getMonth(), 1)` — and the server never asks
+            the school's timezone. A client-side filter would use the BROWSER's month boundary, so
+            the tile and the list would disagree for any school not sharing the server's zone.
+            That is exactly the "Present tile counted late arrivals, PRESENT filter did not" defect
+            these components were extracted to prevent, so these stay unclickable until the summary
+            returns the ids behind the count. Filed — the timezone half is a G4 violation. */}
+        <Metric label="Joined this month" value={joinersThisMonth} />
+        <Metric label="Joined this year" value={joinersThisYear} />
+
+        {/* Safe to filter: the summary returns the staffIds, so the tile and the list are the same
+            set by construction rather than by two agreeing definitions. */}
+        <MetricFilter label="Setup unfinished" value={needsSetup.length} alert={needsSetup.length > 0}
+          active={focus === 'setup'} title="Show only these people"
+          onClick={() => setFocus(focus === 'setup' ? '' : 'setup')} />
       </div>
 
       {needsSetup.length > 0 && (
@@ -129,6 +151,7 @@ export default function StaffPage() {
   const [fType, setFType] = useState('');
   const [fSubject, setFSubject] = useState('');
   const [fSearch, setFSearch] = useState('');
+  const [fFocus, setFFocus] = useState<StaffFocus>('');
   const [addingStaff, setAddingStaff] = useState(false);
   // Credentials to hand over, shown once after a staff member is created with a login.
   const [newLogin, setNewLogin] = useState<{ name: string; email: string; password: string } | null>(null);
@@ -159,10 +182,20 @@ export default function StaffPage() {
   const myCampuses = isOwner ? campuses : campuses.filter((c) => c.id === me?.campusId);
   const assignmentsOf = (staffId: string) => assignments.filter((a) => a.staffId === staffId);
 
-  // Apply the filters (campus / type / subject / free text), then group what remains by campus.
+  // Apply the filters (campus / type / subject / free text / worklist), then group by campus.
+  //
+  // ⚠️ The worklist filter matches on the IDS THE SERVER SENT, not on a re-derivation of "who needs
+  // setup". The server decides that from `user.status === 'INVITED'` and an empty assignment list;
+  // re-deciding it here would be a second implementation of one rule, free to disagree with the
+  // number on the tile above it.
+  const setupIds = useMemo(
+    () => new Set((summary?.needsSetup ?? []).map((p) => p.staffId)),
+    [summary],
+  );
   const filtered = useMemo(() => {
     const q = fSearch.trim().toLowerCase();
     return staff.filter((t) => {
+      if (fFocus === 'setup' && !setupIds.has(t.id)) return false;
       if (fCampus && t.user.campusId !== fCampus) return false;
       if (fType && t.staffType !== fType) return false;
       if (fSubject && !assignmentsOf(t.id).some((a) => a.subjectId === fSubject)) return false;
@@ -170,14 +203,14 @@ export default function StaffPage() {
       return true;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [staff, assignments, fCampus, fType, fSubject, fSearch]);
+  }, [staff, assignments, fCampus, fType, fSubject, fSearch, fFocus, setupIds]);
 
   const groups = myCampuses
     .map((c) => ({ id: c.id, name: c.name, items: filtered.filter((t) => t.user.campusId === c.id) }))
-    .filter((g) => g.items.length > 0 || (!fCampus && !fType && !fSubject && !fSearch));
+    .filter((g) => g.items.length > 0 || (!fCampus && !fType && !fSubject && !fSearch && !fFocus));
 
-  const clearFilters = () => { setFCampus(''); setFType(''); setFSubject(''); setFSearch(''); };
-  const anyFilter = fCampus || fType || fSubject || fSearch;
+  const clearFilters = () => { setFCampus(''); setFType(''); setFSubject(''); setFSearch(''); setFFocus(''); };
+  const anyFilter = Boolean(fCampus || fType || fSubject || fSearch || fFocus);
 
   return (
     <div className="stack">
@@ -194,7 +227,13 @@ export default function StaffPage() {
       </p>
       {msg && <div className={`toast ${msg.ok ? 'ok' : 'err'}`}>{msg.text}</div>}
 
-      <HrOverview summary={summary} />
+      <HrOverview
+        summary={summary}
+        focus={fFocus}
+        setFocus={setFFocus}
+        anyFilter={anyFilter}
+        clearFilters={clearFilters}
+      />
 
 
       {/* Shown once, right after creation — the password is never retrievable again. */}

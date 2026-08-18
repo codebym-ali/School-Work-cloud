@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import {
   api, apiGet, apiPost, ApiError,
@@ -8,6 +8,7 @@ import {
   type SubjectCatalogueEntry, type TeacherAssignment,
 } from '@/lib/api';
 import { useMe } from '@/lib/me-context';
+import { Metric, MetricFilter } from '@/components/metric';
 import { subjectCatalogueFrom } from '@/lib/subject-match';
 import { AddClassForm } from './add-class-form';
 import { ClassCard } from './class-card';
@@ -36,6 +37,7 @@ export default function ClassesPage() {
   const [assignments, setAssignments] = useState<TeacherAssignment[]>([]);
   const [hasCurrentYear, setHasCurrentYear] = useState(true);
   const [search, setSearch] = useState('');
+  const [onlyGaps, setOnlyGaps] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [loaded, setLoaded] = useState(false);
 
@@ -70,8 +72,38 @@ export default function ClassesPage() {
   // A campus-bound admin only works within their own campus (the API force-scopes anyway).
   const myCampuses = isOwner ? campuses : campuses.filter((c) => c.id === me?.campusId);
 
+  /**
+   * Every (section, subject) pair with no teacher this year, **counted per class**.
+   *
+   * ⚠️ Per class rather than one total, so the tile and the filter beneath it are the same
+   * derivation: `gaps` is the sum of this map and the filter is "this map has a non-zero entry".
+   * A separate expression for each is how a count comes to disagree with the list it opens.
+   *
+   * ⚠️ This whole computation is scheduled for deletion (IA1): `/staff` already receives the same
+   * fact server-computed, so the product answers one question two ways. Keeping it in ONE function
+   * is what makes that a single-line swap rather than a hunt.
+   */
+  const gapsByClass = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const sec of sections) {
+      const studied = sec.subjectIds?.length
+        ? subjects.filter((x) => sec.subjectIds!.includes(x.id))
+        : subjects.filter((x) => x.classId === sec.classId);
+      const n = studied.filter((x) => !assignments.some((a) => a.sectionId === sec.id && a.subjectId === x.id)).length;
+      if (n) m.set(sec.classId, (m.get(sec.classId) ?? 0) + n);
+    }
+    return m;
+  }, [sections, subjects, assignments]);
+  const gaps = [...gapsByClass.values()].reduce((n, x) => n + x, 0);
+
   const query = search.trim().toLowerCase();
   const matches = (k: Klass) => {
+    // ⚠️ `gapsByClass` is declared ABOVE this function on purpose. It was originally below, and the
+    // page rendered fine until the filter was switched on: `onlyGaps && …` short-circuits while the
+    // filter is off, so the temporal-dead-zone access never happened. One click turned the whole
+    // screen white with `Cannot access 'gapsByClass' before initialization` — and tsc and eslint
+    // both passed, because neither tracks TDZ through a closure. Found by clicking it.
+    if (onlyGaps && !gapsByClass.has(k.id)) return false;
     if (!query) return true;
     const own = subjects.filter((s) => s.classId === k.id).map((s) => s.name).join(' ');
     const secs = sections.filter((s) => s.classId === k.id).map((s) => s.name).join(' ');
@@ -92,13 +124,6 @@ export default function ClassesPage() {
   const filled = counted.reduce((n, s) => n + (s.enrolled ?? 0), 0);
   const effectiveCatalogue = catalogue.length ? catalogue : subjectCatalogueFrom(subjects);
 
-  /** Every (section, subject) pair with no teacher this year — derived, so it cannot go stale. */
-  const gaps = sections.reduce((n, sec) => {
-    const studied = sec.subjectIds?.length
-      ? subjects.filter((x) => sec.subjectIds!.includes(x.id))
-      : subjects.filter((x) => x.classId === sec.classId);
-    return n + studied.filter((x) => !assignments.some((a) => a.sectionId === sec.id && a.subjectId === x.id)).length;
-  }, 0);
 
   /** Renumber a campus's classes so `order` stays 1..n after a move. */
   const resequence = (items: Klass[], from: number, to: number) => {
@@ -139,22 +164,21 @@ export default function ClassesPage() {
 
       {loaded && classes.length > 0 && (
         <div className="grid">
-          <div className="metric"><div className="value">{classes.length}</div><div className="label">Classes</div></div>
-          <div className="metric"><div className="value">{sections.length}</div><div className="label">Sections</div></div>
-          <div className="metric" title="Students enrolled, against the total seats across every section">
-            <div className="value">{counted.length ? `${filled} of ${seats}` : `— of ${seats}`}</div>
-            <div className="label">Seats filled</div>
-          </div>
-          {/* "Distinct" is a programmer's word for de-duplicated, and the number contradicted the
-              tags on screen with nothing to explain the difference. */}
-          <div className="metric" title="Different subject names across all classes — a subject taught in three classes counts once">
-            <div className="value">{effectiveCatalogue.length}</div>
-            <div className="label">Subjects taught</div>
-          </div>
-          <div className={`metric${gaps > 0 ? ' metric-alert' : ''}`} title="Section-and-subject pairs with nobody assigned to teach them this year">
-            <div className="value">{gaps}</div>
-            <div className="label">Without a teacher</div>
-          </div>
+          {/* ⚠️ Context, not entry points. "17 classes" opens the list you are already looking at,
+              and seats is a ratio with no rows behind it. A tile that lifts under the cursor and
+              then does nothing teaches people to stop trying the ones that work. */}
+          <Metric label="Classes" value={classes.length} />
+          <Metric label="Sections" value={sections.length} />
+          <Metric label="Seats filled" value={counted.length ? `${filled} of ${seats}` : `— of ${seats}`} />
+          {/* Becomes a link to /subjects in IA4; there is no such screen yet, and a tile pointing
+              at a 404 is worse than one pointing nowhere. */}
+          <Metric label="Subjects taught" value={effectiveCatalogue.length} />
+          <MetricFilter
+            label="Without a teacher" value={gaps} alert={gaps > 0}
+            active={onlyGaps}
+            title="Show only the classes with an unassigned subject"
+            onClick={() => setOnlyGaps(!onlyGaps)}
+          />
         </div>
       )}
 
@@ -206,7 +230,21 @@ export default function ClassesPage() {
           </p>
         </div>
       ) : totalMatched === 0 ? (
-        <div className="card"><p className="muted" style={{ margin: 0, fontSize: 13 }}>No class matches “{search}”.</p></div>
+        <div className="card stack" style={{ gap: 8 }}>
+          {/* ⚠️ Two filters can empty this list now, and the message has to name the one that did.
+              "No class matches" with an empty search term reads as a fault; when the gap filter is
+              what emptied the page, the honest answer is the good news that there are no gaps. */}
+          <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+            {onlyGaps && !query
+              ? 'Every class has a teacher for every subject — nothing to fix here.'
+              : onlyGaps
+                ? `No class with an unassigned subject matches “${search}”.`
+                : `No class matches “${search}”.`}
+          </p>
+          {onlyGaps && (
+            <div><button className="ghost small" onClick={() => setOnlyGaps(false)}>Show all classes</button></div>
+          )}
+        </div>
       ) : (
         groups.map((g) => (
           <div key={g.id} className="stack" style={{ gap: 10 }}>

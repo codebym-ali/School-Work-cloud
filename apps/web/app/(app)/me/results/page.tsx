@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { api, type PortalPerformance, type PortalResult } from '@/lib/api';
+import { Metric } from '@/components/metric';
 import { monthKeyLabel } from '@/lib/format';
 
 /**
@@ -44,18 +45,9 @@ export default function MyResults() {
       ) : (
         <>
           <div className="grid">
-            <div className="metric">
-              <div className="value">{perf.overall.percent == null ? '—' : `${perf.overall.percent}%`}</div>
-              <div className="label">Overall average</div>
-            </div>
-            <div className="metric">
-              <div className="value">{perf.overall.testsTaken}</div>
-              <div className="label">Tests taken</div>
-            </div>
-            <div className="metric">
-              <div className="value">{perf.overall.testsMissed}</div>
-              <div className="label">Tests missed</div>
-            </div>
+            <Metric label="Overall average" value={perf.overall.percent == null ? '—' : `${perf.overall.percent}%`} />
+            <Metric label="Tests taken" value={perf.overall.testsTaken} />
+            <Metric label="Tests missed" value={perf.overall.testsMissed} />
           </div>
 
           {/* One tab per subject the student actually has marks in. */}

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { api, ApiError, type LeaveBalance, type StaffLeave } from '@/lib/api';
+import { Metric } from '@/components/metric';
 
 /**
  * My Leaves — for STAFF and TEACHER (§10).
@@ -106,19 +107,20 @@ export default function MyLeaves() {
           <div className="section-title">Your balance</div>
           <div className="grid">
             {balance.balances.map((b) => (
-              <div key={b.leaveType} className="metric">
-                {/* An unset quota is "no limit", not "nothing left" — showing 0 for it would tell
-                    someone they had run out of a leave type the school never capped. */}
-                <div className="value">{b.entitlementDays == null ? '—' : b.remainingDays}</div>
-                <div className="label">
+              // Context by nature: a remaining-days balance has no list of rows behind it. Routed
+              // through <Metric> so that is a stated decision rather than an oversight.
+              // ⚠️ An unset quota is "no limit", not "nothing left" — showing 0 for it would tell
+              // someone they had run out of a leave type the school never capped.
+              <Metric key={b.leaveType}
+                value={b.entitlementDays == null ? '—' : b.remainingDays}
+                label={<>
                   <strong>{title(b.leaveType)}</strong>
                   <br />
                   {b.entitlementDays == null
                     ? b.leaveType === 'UNPAID' ? 'Always unpaid' : 'No limit set'
                     : `${b.remainingDays} of ${b.entitlementDays} days left`}
                   {b.pendingDays > 0 && <><br /><span style={{ color: '#b45309' }}>{b.pendingDays} day{b.pendingDays === 1 ? '' : 's'} awaiting a decision</span></>}
-                </div>
-              </div>
+                </>} />
             ))}
           </div>
         </div>

@@ -7,6 +7,7 @@ import {
   type Campus, type ClassPerformance, type ClassStudents, type PerformanceRange, type StudentPerformance,
 } from '@/lib/api';
 import { useMe } from '@/lib/me-context';
+import { Metric } from '@/components/metric';
 
 /**
  * Class-test performance: campus → class → student.
@@ -199,16 +200,13 @@ function StudentReport({ data }: { data: StudentPerformance }) {
   return (
     <div className="stack">
       <div className="grid">
-        <div className="metric">
-          <div className="value">{data.overall.percent == null ? '—' : `${data.overall.percent}%`}</div>
-          <div className="label">Average</div>
-        </div>
-        <div className="metric"><div className="value">{data.overall.testsTaken}</div><div className="label">Tests taken</div></div>
-        <div className="metric"><div className="value">{data.overall.testsMissed}</div><div className="label">Tests missed</div></div>
-        <div className="metric">
-          <div className="value">{data.overall.marksObtained}/{data.overall.marksTotal}</div>
-          <div className="label">Marks</div>
-        </div>
+        {/* Context, all four: this screen lists SUBJECTS, so there is no list of "12 tests" to
+            open. Routed through <Metric> anyway, so the absence of a link is a stated decision
+            rather than something nobody got round to. */}
+        <Metric label="Average" value={data.overall.percent == null ? '—' : `${data.overall.percent}%`} />
+        <Metric label="Tests taken" value={data.overall.testsTaken} />
+        <Metric label="Tests missed" value={data.overall.testsMissed} alert={data.overall.testsMissed > 0} />
+        <Metric label="Marks" value={`${data.overall.marksObtained}/${data.overall.marksTotal}`} />
       </div>
       <p className="muted" style={{ margin: 0, fontSize: 13 }}>
         {data.className ? `${data.className} ${data.sectionName ?? ''} · ` : ''}GR {data.grNumber}

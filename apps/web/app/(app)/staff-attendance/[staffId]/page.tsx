@@ -4,10 +4,19 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { api, type StaffHistory } from '@/lib/api';
+import { Metric, MetricFilter } from '@/components/metric';
 import { attendanceBadge, humanizeStatus } from '@/lib/format';
 import { RANGE_OPTIONS, rangeQuery, type RangeKey } from '@/lib/date-ranges';
 
 const time = (t: string | null) => (t ? new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—');
+/** One mapping for the count and the filter — see `/my-attendance`, which learned this first. */
+type DayFocus = '' | 'present' | 'absent' | 'leave';
+const FOCUS_STATUSES: Record<Exclude<DayFocus, ''>, readonly string[]> = {
+  present: ['PRESENT', 'LATE'],
+  absent: ['ABSENT'],
+  leave: ['ON_LEAVE'],
+};
+
 const MARKED_BY: Record<string, string> = { SELF: 'Self', ADMIN: 'Office', SYSTEM: 'Auto' };
 
 /**
@@ -18,6 +27,7 @@ const MARKED_BY: Record<string, string> = { SELF: 'Self', ADMIN: 'Office', SYSTE
  * forty dates answers the second question and hides the first.
  */
 export default function StaffAttendanceHistory() {
+  const [focus, setFocus] = useState<DayFocus>('');
   const params = useParams();
   const staffId = String(params?.staffId ?? '');
   const [range, setRange] = useState<RangeKey>('3m');
@@ -40,6 +50,8 @@ export default function StaffAttendanceHistory() {
   }
   const monthLabel = (ym: string) =>
     new Date(`${ym}-01T00:00:00Z`).toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
+
+  const visibleRows = (data?.rows ?? []).filter((r) => !focus || FOCUS_STATUSES[focus].includes(r.status));
 
   return (
     <div className="stack">
@@ -70,15 +82,17 @@ export default function StaffAttendanceHistory() {
       ) : (
         <>
           <div className="grid">
-            <div className="metric">
-              <div className="value">{data.percent == null ? '—' : `${data.percent}%`}</div>
-              <div className="label">Attendance</div>
-            </div>
-            <div className="metric"><div className="value">{data.present + data.late}</div><div className="label">Days present</div></div>
-            <div className={`metric${data.absent > 0 ? ' metric-alert' : ''}`}>
-              <div className="value">{data.absent}</div><div className="label">Days absent</div>
-            </div>
-            <div className="metric"><div className="value">{data.onLeave}</div><div className="label">On leave</div></div>
+            {/* Same behaviour a staff member gets on their own `/my-attendance` — an admin looking
+                at somebody else's record should not have a different product. `present` covers
+                PRESENT and LATE, matching the tile, from one mapping. */}
+            <Metric label="Attendance" value={data.percent == null ? '—' : `${data.percent}%`} />
+            <MetricFilter label="Days present" value={data.present + data.late}
+              active={focus === 'present'} title="Late arrivals count as a full day"
+              onClick={() => setFocus(focus === 'present' ? '' : 'present')} />
+            <MetricFilter label="Days absent" value={data.absent} alert={data.absent > 0}
+              active={focus === 'absent'} onClick={() => setFocus(focus === 'absent' ? '' : 'absent')} />
+            <MetricFilter label="On leave" value={data.onLeave}
+              active={focus === 'leave'} onClick={() => setFocus(focus === 'leave' ? '' : 'leave')} />
           </div>
 
           {byMonth.size > 0 && (
@@ -100,7 +114,7 @@ export default function StaffAttendanceHistory() {
             <table>
               <thead><tr><th>Date</th><th>Status</th><th>Check-in</th><th>Marked by</th><th>Note</th></tr></thead>
               <tbody>
-                {data.rows.map((r) => (
+                {visibleRows.map((r) => (
                   <tr key={r.id}>
                     <td>{new Date(r.date).toLocaleDateString()}</td>
                     <td><span className={`badge ${attendanceBadge(r.status)}`}>{humanizeStatus(r.status)}</span></td>
@@ -109,8 +123,10 @@ export default function StaffAttendanceHistory() {
                     <td className="muted">{r.note ?? '—'}</td>
                   </tr>
                 ))}
-                {data.rows.length === 0 && (
-                  <tr><td colSpan={5} className="muted">Nothing recorded in this period.</td></tr>
+                {visibleRows.length === 0 && (
+                  <tr><td colSpan={5} className="muted">
+                    {focus ? 'No days of that kind in this period.' : 'Nothing recorded in this period.'}
+                  </td></tr>
                 )}
               </tbody>
             </table>

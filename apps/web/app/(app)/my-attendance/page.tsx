@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, ApiError, type CheckInState, type StaffAttendanceRow, type StaffAttendanceSummary } from '@/lib/api';
 import { attendanceBadge, humanizeStatus } from '@/lib/format';
+import { Metric, MetricFilter } from '@/components/metric';
 import { RANGE_OPTIONS, rangeQuery, type RangeKey } from '@/lib/date-ranges';
 
 const time = (t: string | null) =>
@@ -10,11 +11,26 @@ const time = (t: string | null) =>
 
 /** Who recorded a day. A staff member must be able to see that the office (or the system)
  *  wrote something against them, or they cannot dispute it. */
+/**
+ * Which kind of day the table is narrowed to.
+ *
+ * ⚠️ `present` covers PRESENT **and** LATE, because the tile above it counts both — a late arrival
+ * is still a full day for the percentage. The mapping lives here once so the number and the list
+ * are the same set rather than two definitions that happen to match today.
+ */
+type DayFocus = '' | 'present' | 'absent' | 'leave';
+const FOCUS_STATUSES: Record<Exclude<DayFocus, ''>, readonly string[]> = {
+  present: ['PRESENT', 'LATE'],
+  absent: ['ABSENT'],
+  leave: ['ON_LEAVE'],
+};
+
 const MARKED_BY: Record<string, string> = { SELF: 'You', ADMIN: 'Office', SYSTEM: 'Auto' };
 
 export default function MyAttendance() {
   const [range, setRange] = useState<RangeKey>('3m');
   const [rows, setRows] = useState<StaffAttendanceRow[] | null>(null);
+  const [focus, setFocus] = useState<DayFocus>('');
   const [summary, setSummary] = useState<StaffAttendanceSummary | null>(null);
   const [checkState, setCheckState] = useState<CheckInState | null>(null);
   const [err, setErr] = useState(false);
@@ -54,6 +70,10 @@ export default function MyAttendance() {
 
   if (err) return <p className="error">Couldn&apos;t load your attendance.</p>;
 
+  const visibleRows = (rows ?? []).filter(
+    (r) => !focus || FOCUS_STATUSES[focus].includes(r.status),
+  );
+
   return (
     <div className="stack">
       <div className="row">
@@ -74,26 +94,26 @@ export default function MyAttendance() {
 
       {summary && (
         <div className="grid">
-          <div className="metric" title="Present and late count in full, half days count half; approved leave is excluded entirely">
-            <div className="value">{summary.percent == null ? '—' : `${summary.percent}%`}</div>
-            <div className="label">Attendance</div>
-          </div>
+          <Metric label="Attendance" value={summary.percent == null ? '—' : `${summary.percent}%`} />
           {/* Late still counts as a full day for the percentage, so it belongs in this total —
               but the label must say so. A "Days present" figure that silently absorbs late
-              arrivals is the same lie the register's tiles used to tell. */}
-          <div className="metric" title="Late arrivals count as a full day">
-            <div className="value">{summary.present + summary.late}</div>
-            <div className="label">Days present{summary.late > 0 ? ` (${summary.late} late)` : ''}</div>
-          </div>
+              arrivals is the same lie the register's tiles used to tell. The FILTER absorbs them
+              identically, from the same set, so the count and the list cannot part company. */}
+          <MetricFilter
+            label={`Days present${summary.late > 0 ? ` (${summary.late} late)` : ''}`}
+            value={summary.present + summary.late}
+            active={focus === 'present'} title="Late arrivals count as a full day"
+            onClick={() => setFocus(focus === 'present' ? '' : 'present')} />
           {/* A count, not just a percentage: "3 absent" is actionable, "94%" is not. */}
-          <div className={`metric${summary.absent > 0 ? ' metric-alert' : ''}`}>
-            <div className="value">{summary.absent}</div><div className="label">Days absent</div>
-          </div>
-          <div className="metric"><div className="value">{summary.onLeave}</div><div className="label">On leave</div></div>
-          {/* Never folded into "absent" — a day nobody marked is not a day you missed. */}
-          <div className="metric" title="Working days in this period with no attendance recorded at all">
-            <div className="value">{summary.unmarked}</div><div className="label">Not marked</div>
-          </div>
+          <MetricFilter label="Days absent" value={summary.absent} alert={summary.absent > 0}
+            active={focus === 'absent'} onClick={() => setFocus(focus === 'absent' ? '' : 'absent')} />
+          <MetricFilter label="On leave" value={summary.onLeave}
+            active={focus === 'leave'} onClick={() => setFocus(focus === 'leave' ? '' : 'leave')} />
+          {/* ⚠️ Never folded into "absent" — a day nobody marked is not a day you missed — and
+              deliberately NOT a filter: an unmarked day has no record, so there is no row to show.
+              Clicking it would put "3" above an empty table, which is the precise disagreement
+              between a count and its list that these components exist to prevent. */}
+          <Metric label="Not marked" value={summary.unmarked} alert={false} />
         </div>
       )}
 
@@ -112,7 +132,7 @@ export default function MyAttendance() {
           <table className="stacked">
             <thead><tr><th>Date</th><th>Status</th><th>Check-in</th><th>Marked by</th></tr></thead>
             <tbody>
-              {rows.map((r, i) => (
+              {visibleRows.map((r, i) => (
                 <tr key={i}>
                   <td data-label="Date">{new Date(r.date).toLocaleDateString()}</td>
                   <td data-label="Status"><span className={`badge ${attendanceBadge(r.status)}`}>{humanizeStatus(r.status)}</span></td>
@@ -120,8 +140,10 @@ export default function MyAttendance() {
                   <td data-label="Marked by" className="muted">{MARKED_BY[r.source] ?? r.source}</td>
                 </tr>
               ))}
-              {rows.length === 0 && (
-                <tr><td colSpan={4} className="muted">No attendance recorded in this period.</td></tr>
+              {visibleRows.length === 0 && (
+                <tr><td colSpan={4} className="muted">
+                  {focus ? 'No days of that kind in this period.' : 'No attendance recorded in this period.'}
+                </td></tr>
               )}
             </tbody>
           </table>

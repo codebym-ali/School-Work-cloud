@@ -2,6 +2,7 @@
 
 import { type ReactNode, useEffect, useState } from 'react';
 import { api, type PortalOverview } from '@/lib/api';
+import { MetricLink } from '@/components/metric';
 import { STUDENT_STATUS, statusStyle } from '@/lib/student-status';
 
 export default function MyDashboard() {
@@ -33,9 +34,14 @@ export default function MyDashboard() {
       )}
 
       <div className="grid">
-        <div className="metric"><div className="value">{data.attendancePercent == null ? '—' : `${data.attendancePercent}%`}</div><div className="label">Attendance</div></div>
-        <div className="metric"><div className="value">Rs {data.outstandingFees.toLocaleString()}</div><div className="label">Outstanding fees</div></div>
-        <div className="metric"><div className="value">{data.reportCards}</div><div className="label">Report cards</div></div>
+        {/* The clearest case in the product for Law 1: every one of these already HAS a screen
+            behind it, and a student reading "Rs 4,500 outstanding" wants the invoice, not the
+            number. Each tile is the front door of the page it summarises. */}
+        <MetricLink label="Attendance" href="/me/attendance"
+          value={data.attendancePercent == null ? '—' : `${data.attendancePercent}%`} />
+        <MetricLink label="Outstanding fees" href="/me/fees" alert={data.outstandingFees > 0}
+          value={`Rs ${data.outstandingFees.toLocaleString()}`} />
+        <MetricLink label="Report cards" href="/me/results" value={data.reportCards} />
       </div>
 
       <div className="card stack">

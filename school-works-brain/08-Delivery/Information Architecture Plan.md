@@ -284,6 +284,17 @@ shared campus context, so:
 
 v1 proposed fixing this on one screen.
 
+> [!warning] **⚠️ Correction (found building IA2): "12 selectors / a chooser used 12 times" is
+> largely false.** Verified per screen: only **4** have a campus **list filter**
+> (performance, staff-attendance, students, staff). **performance and staff-attendance already hide
+> it** for exactly the case this section describes (`isOwner && campuses.length > 1`), so a campus
+> admin never sees them. students and staff show a redundant two-option select ("All" + the admin's
+> one campus). The other screens counted here use campus to **create** an entity (admissions,
+> calendar, timings — you cannot make a class/closure/schedule without choosing a campus) or to
+> **group a display** (classes, setup); neither is a duplicated selector, and both must keep a
+> campus reference. So the real IA2 surface is ~2 redundant selects plus, for a multi-campus OWNER,
+> the lack of a campus choice that persists across the 4 filter screens. Much smaller than stated.
+
 ### 8.5 Derived facts computed in more than one place
 
 - **Teacher gaps — a real duplication.** `/classes` joins sections × subjects × assignments **in the

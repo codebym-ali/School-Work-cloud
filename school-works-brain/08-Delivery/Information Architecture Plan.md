@@ -286,12 +286,19 @@ v1 proposed fixing this on one screen.
 
 ### 8.5 Derived facts computed in more than one place
 
-Confirmed twice; v1 found only the first:
+- **Teacher gaps — a real duplication.** `/classes` joins sections × subjects × assignments **in the
+  browser** to decide what a gap is; `/staff` reads a **server-computed** `coverageGaps`. Two
+  implementations of one derivation. **Fixed in IA1**: both now read `SetupService.coverageGaps`, and
+  a spec asserts the two endpoints return the same set for the same session.
 
-- **Teacher gaps** — `/classes` joins sections × subjects × assignments **in the browser**; `/staff`
-  reads a **server-computed** `coverageGaps`.
-- **Seats filled** — `/classes` aggregates `section.enrolled` client-side while
-  `GET /reports/class-strength` answers the same underlying question server-side.
+> [!warning] **⚠️ Correction (found building IA1): "Seats filled" was NOT a second implementation.**
+> The audit listed `/classes` aggregating `section.enrolled` vs `/reports/class-strength` as a
+> duplication. It is not. `section.enrolled` is itself **server-computed** — `listSections` runs a
+> `groupBy` on `studentEnrollment` (status ACTIVE), the same table and filter `class-strength` uses —
+> and the client merely **sums** those authoritative per-section counts. Summing server-provided
+> numbers is presentation, exactly like `/staff` counting the server's gap list; it is not a second
+> derivation of the fact. So IA1 leaves it alone. **Verifying the claim beat acting on it** — the fix
+> here would have been churn that removed nothing.
 
 ### 8.6 Defects in the plan as a document
 

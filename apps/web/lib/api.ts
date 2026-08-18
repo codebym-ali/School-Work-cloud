@@ -183,6 +183,11 @@ export interface StudentPerformance {
 export interface Paged<T> { data: T[]; total: number; page: number; pageSize: number }
 export interface Campus { id: string; name: string; address?: string | null }
 export interface AcademicYear { id: string; name: string; isCurrent: boolean }
+export interface CoverageGap {
+  classId: string; className: string;
+  sectionId: string; sectionName: string;
+  subjectId: string; subjectName: string;
+}
 export interface Klass { id: string; name: string; order: number; campusId: string; createdAt?: string; minAgeYears?: number | null; maxAgeYears?: number | null }
 /** `subjectIds` empty ⇒ the section studies every subject its class offers. */
 export interface Section { id: string; name: string; classId: string; subjectIds?: string[]; capacity: number; enrolled?: number | null }
@@ -848,6 +853,8 @@ export const api = {
     update: (id: string, body: { name?: string; order?: number; minAgeYears?: number; maxAgeYears?: number }) =>
       apiPatch<Klass>(`/classes/${id}`, body),
     remove: (id: string) => apiDelete<null>(`/classes/${id}`),
+    /** Section-subjects with no teacher this year — the SAME server fact /staff reads (audit Law 4). */
+    coverage: () => apiGet<CoverageGap[]>('/classes/coverage'),
   },
   sections: {
     create: (body: { classId: string; name: string; capacity?: number; subjectIds?: string[]; copySubjectsFromSectionId?: string }) =>

@@ -1,4 +1,15 @@
-import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  Patch,
+  Post,
+  Query,
+} from '@nestjs/common';
 import { Roles } from '@common';
 import { StudentsService } from './students.service';
 import { GuardiansService } from './guardians.service';
@@ -56,7 +67,7 @@ export class StudentsController {
   }
 
   @Get(':id')
-  getOne(@Param('id', ParseUUIDPipe) id: string) {
+  getOne(@Param('id') id: string) {
     return this.students.getOne(id);
   }
 
@@ -67,20 +78,20 @@ export class StudentsController {
    */
   @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
   @Patch(':id/cnic')
-  setCnic(@Param('id', ParseUUIDPipe) id: string, @Body() dto: SetStudentCnicDto) {
+  setCnic(@Param('id') id: string, @Body() dto: SetStudentCnicDto) {
     return this.students.setCnic(id, dto.cnic);
   }
 
   /** Audited reveal of a student's national ID — see `StudentsService.revealCnic`. */
   @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
   @Get(':id/cnic')
-  revealCnic(@Param('id', ParseUUIDPipe) id: string) {
+  revealCnic(@Param('id') id: string) {
     return this.students.revealCnic(id);
   }
 
   @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
   @Patch(':id')
-  update(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateStudentDto) {
+  update(@Param('id') id: string, @Body() dto: UpdateStudentDto) {
     return this.students.update(id, dto);
   }
 
@@ -89,7 +100,7 @@ export class StudentsController {
    *  NOT settable here — that runs through the §15 withdrawal workflow. */
   @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
   @Patch(':id/status')
-  changeStatus(@Param('id', ParseUUIDPipe) id: string, @Body() dto: ChangeStudentStatusDto) {
+  changeStatus(@Param('id') id: string, @Body() dto: ChangeStudentStatusDto) {
     return this.students.changeStatus(id, dto);
   }
 
@@ -98,21 +109,21 @@ export class StudentsController {
   @Roles('OWNER_ADMIN')
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
-  async remove(@Param('id', ParseUUIDPipe) id: string) {
+  async remove(@Param('id') id: string) {
     await this.students.softDelete(id);
   }
 
   /** Send an SMS OTP to a guardian's phone (§14). Verifying turns SMS on for that number. */
   @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
   @Post('guardians/:parentId/verify-phone')
-  requestOtp(@Param('parentId', ParseUUIDPipe) parentId: string) {
+  requestOtp(@Param('parentId') parentId: string) {
     return this.phoneVerify.request(parentId);
   }
 
   /** Confirm the OTP the guardian read back → sets phoneVerifiedAt (§14). */
   @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
   @Post('guardians/:parentId/verify-phone/confirm')
-  confirmOtp(@Param('parentId', ParseUUIDPipe) parentId: string, @Body() dto: ConfirmOtpDto) {
+  confirmOtp(@Param('parentId') parentId: string, @Body() dto: ConfirmOtpDto) {
     return this.phoneVerify.confirm(parentId, dto.code);
   }
 
@@ -125,25 +136,25 @@ export class StudentsController {
   @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN', 'ADMISSION_CONTROLLER')
   @Post(':id/guardians')
   @HttpCode(HttpStatus.NO_CONTENT)
-  async addGuardian(@Param('id', ParseUUIDPipe) id: string, @Body() dto: AddGuardianDto) {
+  async addGuardian(@Param('id') id: string, @Body() dto: AddGuardianDto) {
     await this.students.addGuardian(id, dto, dto.isPrimary ?? false);
   }
 
   @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
-  @Patch(':id/guardians/:gid')
+  @Patch(':id/guardians/:guardianId')
   @HttpCode(HttpStatus.NO_CONTENT)
   async updateGuardian(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Param('gid', ParseUUIDPipe) gid: string,
+    @Param('id') id: string,
+    @Param('guardianId') guardianId: string,
     @Body() dto: UpdateGuardianDto,
   ) {
-    if (dto.isPrimary) await this.students.setPrimaryGuardian(id, gid);
+    if (dto.isPrimary) await this.students.setPrimaryGuardian(id, guardianId);
   }
 
   @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
-  @Delete(':id/guardians/:gid')
+  @Delete(':id/guardians/:guardianId')
   @HttpCode(HttpStatus.NO_CONTENT)
-  async removeGuardian(@Param('id', ParseUUIDPipe) id: string, @Param('gid', ParseUUIDPipe) gid: string) {
-    await this.students.removeGuardian(id, gid);
+  async removeGuardian(@Param('id') id: string, @Param('guardianId') guardianId: string) {
+    await this.students.removeGuardian(id, guardianId);
   }
 }

@@ -1,4 +1,4 @@
-import { Controller, Get, Param, ParseUUIDPipe } from '@nestjs/common';
+import { Controller, Get, Param } from '@nestjs/common';
 import { Roles } from '@common';
 import { TeachingService } from './teaching.service';
 
@@ -18,7 +18,7 @@ export class TeachingController {
   }
 
   @Get('sections/:sectionId/roster')
-  roster(@Param('sectionId', ParseUUIDPipe) sectionId: string) {
+  roster(@Param('sectionId') sectionId: string) {
     return this.teaching.roster(sectionId);
   }
 }

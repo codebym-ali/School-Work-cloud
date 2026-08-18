@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Put } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Put } from '@nestjs/common';
 import { Roles } from '@common';
 import { UsersService } from './users.service';
 import { SetAdmissionOfficerDto } from './dto/users.dto';
@@ -29,14 +29,14 @@ export class AdmissionOfficersController {
   /** Assign the seat, or hand it over to someone else on the same campus. */
   @Roles('OWNER_ADMIN')
   @Put(':campusId')
-  set(@Param('campusId', ParseUUIDPipe) campusId: string, @Body() dto: SetAdmissionOfficerDto) {
+  set(@Param('campusId') campusId: string, @Body() dto: SetAdmissionOfficerDto) {
     return this.users.setAdmissionOfficer(campusId, dto.userId);
   }
 
   /** Vacate the seat. The person keeps their login and every other role. */
   @Roles('OWNER_ADMIN')
   @Delete(':campusId')
-  remove(@Param('campusId', ParseUUIDPipe) campusId: string) {
+  remove(@Param('campusId') campusId: string) {
     return this.users.removeAdmissionOfficer(campusId);
   }
 }

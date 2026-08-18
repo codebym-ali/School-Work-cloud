@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, ParseIntPipe, ParseUUIDPipe, Patch, Post, Put, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Put, Query } from '@nestjs/common';
 import { Roles } from '@common';
 import { BellScheduleService } from './bell-schedule.service';
 import {
@@ -14,9 +14,9 @@ import {
  * Writes are OWNER_ADMIN and CAMPUS_ADMIN; the campus half is narrowed **in the service**, not here,
  * because §22.8 guards run before the tenant transaction and would read zero rows under RLS.
  *
- * `ParseUUIDPipe` on every id: without it a malformed id reaches Prisma and answers **500**
- * (`Inconsistent column data: Error creating UUID`) instead of a 400, which has already cost real
- * debugging time in this repo by making a bad fixture read as a broken feature.
+ * Ids need no per-route pipe: `UuidParamPipe` is bound globally as `APP_PIPE`, so `id` and any
+ * `<entity>Id` is format-checked at the edge for every route in the repo — including ones added
+ * later, which is the half a per-route pipe cannot cover.
  */
 @Controller('bell-schedules')
 @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
@@ -29,7 +29,7 @@ export class BellScheduleController {
   }
 
   @Get(':id')
-  getOne(@Param('id', ParseUUIDPipe) id: string) {
+  getOne(@Param('id') id: string) {
     return this.bell.getOne(id);
   }
 
@@ -39,12 +39,12 @@ export class BellScheduleController {
   }
 
   @Patch(':id')
-  update(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateBellScheduleDto) {
+  update(@Param('id') id: string, @Body() dto: UpdateBellScheduleDto) {
     return this.bell.update(id, dto);
   }
 
   @Delete(':id')
-  remove(@Param('id', ParseUUIDPipe) id: string) {
+  remove(@Param('id') id: string) {
     return this.bell.remove(id);
   }
 
@@ -54,7 +54,7 @@ export class BellScheduleController {
    */
   @Put(':id/days/:dayOfWeek')
   setDay(
-    @Param('id', ParseUUIDPipe) id: string,
+    @Param('id') id: string,
     @Param('dayOfWeek', ParseIntPipe) dayOfWeek: number,
     @Body() dto: SetBellDayDto,
   ) {

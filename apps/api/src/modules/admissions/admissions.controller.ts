@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { Roles } from '@common';
 import { AdmissionsService } from './admissions.service';
 import {
@@ -32,27 +32,27 @@ export class InquiriesController {
   }
 
   @Get(':id')
-  getOne(@Param('id', ParseUUIDPipe) id: string) {
+  getOne(@Param('id') id: string) {
     return this.admissions.getOne(id);
   }
 
   @Post(':id/entry-test')
-  schedule(@Param('id', ParseUUIDPipe) id: string, @Body() dto: ScheduleEntryTestDto) {
+  schedule(@Param('id') id: string, @Body() dto: ScheduleEntryTestDto) {
     return this.admissions.scheduleEntryTest(id, dto);
   }
 
   @Patch(':id/entry-test')
-  record(@Param('id', ParseUUIDPipe) id: string, @Body() dto: RecordEntryTestDto) {
+  record(@Param('id') id: string, @Body() dto: RecordEntryTestDto) {
     return this.admissions.recordEntryTest(id, dto);
   }
 
   @Post(':id/reject')
-  reject(@Param('id', ParseUUIDPipe) id: string, @Body() dto: ReasonDto) {
+  reject(@Param('id') id: string, @Body() dto: ReasonDto) {
     return this.admissions.reject(id, dto);
   }
 
   @Post(':id/withdraw')
-  withdraw(@Param('id', ParseUUIDPipe) id: string, @Body() dto: ReasonDto) {
+  withdraw(@Param('id') id: string, @Body() dto: ReasonDto) {
     return this.admissions.withdraw(id, dto);
   }
 }

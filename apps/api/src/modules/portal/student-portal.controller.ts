@@ -1,4 +1,4 @@
-import { Controller, Get, Param, ParseUUIDPipe } from '@nestjs/common';
+import { Controller, Get, Param } from '@nestjs/common';
 import { Roles } from '@common';
 import { StudentPortalService } from './student-portal.service';
 import { PaymentsService } from '../fees/payments.service';
@@ -57,7 +57,7 @@ export class StudentPortalController {
    * be a guard) and 404s otherwise. No id from the client can widen that.
    */
   @Get('fees/payments/:id/receipt')
-  receipt(@Param('id', ParseUUIDPipe) id: string) {
+  receipt(@Param('id') id: string) {
     return this.payments.receiptPdf(id);
   }
 }

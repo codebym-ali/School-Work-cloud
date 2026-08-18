@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Post, Put, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, ParseUUIDPipe, Post, Put, Query } from '@nestjs/common';
 import { Roles } from '@common';
 import { ExamSetupService } from './exam-setup.service';
 import { ExamsService } from './exams.service';
@@ -23,14 +23,14 @@ export class TermsController {
   @Get() list(@Query('academicYearId') yearId?: string) { return this.setup.listTerms(yearId); }
 
   // Remove a term created by mistake. Blocked (409) once exams/report cards reference it.
-  @Roles('OWNER_ADMIN') @Delete(':id') remove(@Param('id') id: string) { return this.setup.deleteTerm(id); }
+  @Roles('OWNER_ADMIN') @Delete(':id') remove(@Param('id', ParseUUIDPipe) id: string) { return this.setup.deleteTerm(id); }
 
   @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
   @Post(':id/report-cards/generate')
-  generate(@Param('id') id: string) { return this.reportCards.generate(id); }
+  generate(@Param('id', ParseUUIDPipe) id: string) { return this.reportCards.generate(id); }
 
   @Get(':id/report-cards')
-  termReportCards(@Param('id') id: string) { return this.reportCards.listByTerm(id); }
+  termReportCards(@Param('id', ParseUUIDPipe) id: string) { return this.reportCards.listByTerm(id); }
 }
 
 @Controller('exams')
@@ -42,24 +42,24 @@ export class ExamsController {
 
   @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
   @Post(':id/open-marks-entry')
-  open(@Param('id') id: string) { return this.exams.openMarksEntry(id); }
+  open(@Param('id', ParseUUIDPipe) id: string) { return this.exams.openMarksEntry(id); }
 
   @Roles('TEACHER', 'CAMPUS_ADMIN', 'OWNER_ADMIN')
   @Post(':id/results/bulk')
   @HttpCode(HttpStatus.OK)
-  enterMarks(@Param('id') id: string, @Body() dto: BulkMarksDto) { return this.exams.enterMarks(id, dto); }
+  enterMarks(@Param('id', ParseUUIDPipe) id: string, @Body() dto: BulkMarksDto) { return this.exams.enterMarks(id, dto); }
 
   @Get(':id/results')
-  results(@Param('id') id: string) { return this.exams.getResults(id); }
+  results(@Param('id', ParseUUIDPipe) id: string) { return this.exams.getResults(id); }
 
   @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
   @Post(':id/publish')
-  publish(@Param('id') id: string) { return this.exams.publish(id); }
+  publish(@Param('id', ParseUUIDPipe) id: string) { return this.exams.publish(id); }
 }
 
 @Controller('students')
 export class StudentReportCardsController {
   constructor(private readonly reportCards: ReportCardsService) {}
   @Get(':id/report-cards')
-  byStudent(@Param('id') id: string) { return this.reportCards.listByStudent(id); }
+  byStudent(@Param('id', ParseUUIDPipe) id: string) { return this.reportCards.listByStudent(id); }
 }

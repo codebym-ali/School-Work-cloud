@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, ParseUUIDPipe, Patch, Post } from '@nestjs/common';
 import { Roles } from '@common';
 import { UsersService } from './users.service';
 import { AccessService } from '../access/access.service';
@@ -37,7 +37,7 @@ export class UsersController {
 
   @Roles('OWNER_ADMIN')
   @Patch(':id')
-  update(@Param('id') id: string, @Body() dto: UpdateUserDto) {
+  update(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateUserDto) {
     return this.users.update(id, dto);
   }
 
@@ -45,12 +45,12 @@ export class UsersController {
   @Roles('OWNER_ADMIN')
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
-  remove(@Param('id') id: string) {
+  remove(@Param('id', ParseUUIDPipe) id: string) {
     return this.users.remove(id);
   }
 
   @Post(':id/reset-password')
-  resetPassword(@Param('id') id: string, @Body() dto: ResetUserPasswordDto) {
+  resetPassword(@Param('id', ParseUUIDPipe) id: string, @Body() dto: ResetUserPasswordDto) {
     return this.users.resetPassword(id, dto.password);
   }
 
@@ -58,20 +58,20 @@ export class UsersController {
   // ADMISSION_CONTROLLER) on an existing employee. Reuses the account — no duplicate login.
   @Roles('OWNER_ADMIN')
   @Patch(':id/access')
-  setAccess(@Param('id') id: string, @Body() dto: SetAccessDto) {
+  setAccess(@Param('id', ParseUUIDPipe) id: string, @Body() dto: SetAccessDto) {
     return this.users.setAccess(id, dto.role, dto.grant);
   }
 
   // Owner controls individual module (functionality) access for a user's granted roles.
   @Roles('OWNER_ADMIN')
   @Get(':id/modules')
-  listModules(@Param('id') id: string) {
+  listModules(@Param('id', ParseUUIDPipe) id: string) {
     return this.access.listForUser(id);
   }
 
   @Roles('OWNER_ADMIN')
   @Patch(':id/modules')
-  setModule(@Param('id') id: string, @Body() dto: SetModuleAccessDto) {
+  setModule(@Param('id', ParseUUIDPipe) id: string, @Body() dto: SetModuleAccessDto) {
     return this.access.setModule(id, dto.moduleKey, dto.allowed);
   }
 }

@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
 import { Roles } from '@common';
 import { CoverService } from './cover.service';
 import { CoverQuery, CoverSuggestionQuery, CreateCoverDto, CreateCoverRangeDto } from './dto/cover.dto';
@@ -77,7 +77,7 @@ export class CoverController {
 
   @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
   @Delete(':id')
-  remove(@Param('id') id: string) {
+  remove(@Param('id', ParseUUIDPipe) id: string) {
     return this.cover.remove(id);
   }
 }

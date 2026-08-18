@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
 import { Roles } from '@common';
 import { LeavesService } from './leaves.service';
 import {
@@ -27,18 +27,18 @@ export class StudentLeavesController {
 
   @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
   @Post(':id/approve')
-  approve(@Param('id') id: string) {
+  approve(@Param('id', ParseUUIDPipe) id: string) {
     return this.leaves.approveStudentLeave(id);
   }
 
   @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
   @Post(':id/reject')
-  reject(@Param('id') id: string, @Body() dto: RejectLeaveDto) {
+  reject(@Param('id', ParseUUIDPipe) id: string, @Body() dto: RejectLeaveDto) {
     return this.leaves.rejectStudentLeave(id, dto);
   }
 
   @Post(':id/cancel')
-  cancel(@Param('id') id: string) {
+  cancel(@Param('id', ParseUUIDPipe) id: string) {
     return this.leaves.cancelStudentLeave(id);
   }
 }
@@ -73,18 +73,18 @@ export class StaffLeavesController {
 
   @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
   @Post(':id/approve')
-  approve(@Param('id') id: string) {
+  approve(@Param('id', ParseUUIDPipe) id: string) {
     return this.leaves.approveStaffLeave(id);
   }
 
   @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
   @Post(':id/reject')
-  reject(@Param('id') id: string, @Body() dto: RejectLeaveDto) {
+  reject(@Param('id', ParseUUIDPipe) id: string, @Body() dto: RejectLeaveDto) {
     return this.leaves.rejectStaffLeave(id, dto);
   }
 
   @Post(':id/cancel')
-  cancel(@Param('id') id: string) {
+  cancel(@Param('id', ParseUUIDPipe) id: string) {
     return this.leaves.cancelStaffLeave(id);
   }
 }

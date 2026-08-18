@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Query } from '@nestjs/common';
+import { Controller, Get, Param, ParseUUIDPipe, Query } from '@nestjs/common';
 import { Roles } from '@common';
 import { PerformanceService } from './performance.service';
 import { ClassPerformanceQuery, StudentPerformanceQuery } from './dto/performance.dto';
@@ -25,13 +25,13 @@ export class PerformanceController {
 
   /** Level 2 — the students inside one class. */
   @Get('classes/:classId')
-  byStudent(@Param('classId') classId: string, @Query() q: StudentPerformanceQuery) {
+  byStudent(@Param('classId', ParseUUIDPipe) classId: string, @Query() q: StudentPerformanceQuery) {
     return this.performance.byStudent(classId, q.range ?? '1m');
   }
 
   /** Level 3 — one student, by subject and by month. */
   @Get('students/:studentId')
-  forStudent(@Param('studentId') studentId: string, @Query() q: StudentPerformanceQuery) {
+  forStudent(@Param('studentId', ParseUUIDPipe) studentId: string, @Query() q: StudentPerformanceQuery) {
     return this.performance.forStudent(studentId, q.range ?? '1m');
   }
 }

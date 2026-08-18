@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
 import { Roles } from '@common';
 import { TimetableService } from './timetable.service';
 import { CopyDayDto, SetSlotDto, TimetableQuery } from './dto/timetable.dto';
@@ -36,7 +36,7 @@ export class TimetableController {
    *  periods — and the service still enforces campus scope for a campus admin. */
   @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN', 'TEACHER')
   @Get('section/:sectionId')
-  forSection(@Param('sectionId') sectionId: string, @Query() q: TimetableQuery) {
+  forSection(@Param('sectionId', ParseUUIDPipe) sectionId: string, @Query() q: TimetableQuery) {
     return this.timetable.forSection(sectionId, q);
   }
 
@@ -59,7 +59,7 @@ export class TimetableController {
 
   @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
   @Delete('slots/:id')
-  clearSlot(@Param('id') id: string) {
+  clearSlot(@Param('id', ParseUUIDPipe) id: string) {
     return this.timetable.clearSlot(id);
   }
 }

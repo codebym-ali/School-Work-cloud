@@ -1,15 +1,4 @@
-import {
-  Body,
-  Controller,
-  Get,
-  Headers,
-  HttpCode,
-  HttpStatus,
-  Param,
-  Post,
-  Put,
-  Query,
-} from '@nestjs/common';
+import { Body, Controller, Get, Headers, HttpCode, HttpStatus, Param, ParseUUIDPipe, Post, Put, Query } from '@nestjs/common';
 import { Public, Roles } from '@common';
 import { CommsService } from './comms.service';
 import { ManualSendDto, SmsLogQuery, SmsWebhookDto, UpsertTemplateDto } from './dto/comms.dto';
@@ -49,7 +38,7 @@ export class SmsController {
   @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
   @Post('logs/:id/retry')
   @HttpCode(HttpStatus.ACCEPTED)
-  async retry(@Param('id') id: string) {
+  async retry(@Param('id', ParseUUIDPipe) id: string) {
     await this.comms.retry(id);
   }
 }

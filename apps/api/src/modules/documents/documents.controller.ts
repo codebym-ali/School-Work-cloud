@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
 import { IsBoolean, IsIn, IsOptional, IsString, IsUUID, MaxLength, MinLength } from 'class-validator';
 import { Roles } from '@common';
 import { DocumentsService } from './documents.service';
@@ -32,7 +32,7 @@ export class DocumentsController {
   }
 
   @Get(':id/url')
-  url(@Param('id') id: string) {
+  url(@Param('id', ParseUUIDPipe) id: string) {
     return this.documents.getUrl(id);
   }
 }
@@ -43,7 +43,7 @@ export class WithdrawalController {
 
   @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
   @Post(':id/withdraw')
-  withdraw(@Param('id') id: string, @Body() dto: WithdrawDto) {
+  withdraw(@Param('id', ParseUUIDPipe) id: string, @Body() dto: WithdrawDto) {
     return this.documents.withdraw(id, dto);
   }
 }

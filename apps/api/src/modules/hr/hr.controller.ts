@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
 import { Roles } from '@common';
 import { StaffService } from './staff.service';
 import { PayrollService } from './payroll.service';
@@ -24,14 +24,14 @@ export class StaffController {
   @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN', 'HR_MANAGER')
   @Get('summary')
   summary() { return this.staff.hrSummary(); }
-  @Get(':id') getOne(@Param('id') id: string) { return this.staff.getStaff(id); }
+  @Get(':id') getOne(@Param('id', ParseUUIDPipe) id: string) { return this.staff.getStaff(id); }
 
   @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
   @Post(':id/salary-structures')
-  createSalary(@Param('id') id: string, @Body() dto: CreateSalaryStructureDto) { return this.staff.createSalaryStructure(id, dto); }
+  createSalary(@Param('id', ParseUUIDPipe) id: string, @Body() dto: CreateSalaryStructureDto) { return this.staff.createSalaryStructure(id, dto); }
 
   @Get(':id/salary-structures')
-  listSalary(@Param('id') id: string) { return this.staff.listSalaryStructures(id); }
+  listSalary(@Param('id', ParseUUIDPipe) id: string) { return this.staff.listSalaryStructures(id); }
 }
 
 @Controller('teacher-assignments')
@@ -49,7 +49,7 @@ export class TeacherAssignmentsController {
     @Query('staffId') staffId?: string,
     @Query('academicYearId') academicYearId?: string,
   ) { return this.staff.listAssignments(sectionId, staffId, academicYearId); }
-  @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN', 'HR_MANAGER') @Delete(':id') remove(@Param('id') id: string) { return this.staff.deleteAssignment(id); }
+  @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN', 'HR_MANAGER') @Delete(':id') remove(@Param('id', ParseUUIDPipe) id: string) { return this.staff.deleteAssignment(id); }
 }
 
 @Controller('payroll-runs')
@@ -57,8 +57,8 @@ export class PayrollController {
   constructor(private readonly payroll: PayrollService) {}
 
   @Roles('OWNER_ADMIN') @Post() run(@Body() dto: RunPayrollDto) { return this.payroll.run(dto); }
-  @Roles('OWNER_ADMIN') @Get(':id') getRun(@Param('id') id: string) { return this.payroll.getRun(id); }
-  @Roles('OWNER_ADMIN') @Post(':id/approve') approve(@Param('id') id: string) { return this.payroll.approve(id); }
+  @Roles('OWNER_ADMIN') @Get(':id') getRun(@Param('id', ParseUUIDPipe) id: string) { return this.payroll.getRun(id); }
+  @Roles('OWNER_ADMIN') @Post(':id/approve') approve(@Param('id', ParseUUIDPipe) id: string) { return this.payroll.approve(id); }
 }
 
 @Controller('payslips')
@@ -68,9 +68,9 @@ export class PayslipsController {
   @Get('mine') mine() { return this.payroll.myPayslips(); }
 
   // Owner-or-admin check is in the service (§22.8), so no @Roles here.
-  @Get(':id/pdf') pdf(@Param('id') id: string) { return this.payroll.payslipPdf(id); }
+  @Get(':id/pdf') pdf(@Param('id', ParseUUIDPipe) id: string) { return this.payroll.payslipPdf(id); }
 
   @Roles('OWNER_ADMIN')
   @Patch(':id/mark-paid')
-  markPaid(@Param('id') id: string, @Body() dto: MarkPaidDto) { return this.payroll.markPaid(id, dto); }
+  markPaid(@Param('id', ParseUUIDPipe) id: string, @Body() dto: MarkPaidDto) { return this.payroll.markPaid(id, dto); }
 }

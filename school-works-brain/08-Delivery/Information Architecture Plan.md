@@ -15,6 +15,11 @@ updated: 2026-08-18
 > should have been.** Read those first — §1–§7 are kept because their findings are correct; only
 > their scope is not.
 
+> [!info] **The target shape this plan builds toward is [[System Structure]]** — the containment
+> tree, the five laws (one per audit finding), the navigation with all 18 missing capabilities
+> placed, and the countable success criteria this plan lacked. **This document is the analysis;
+> that one is the design.**
+
 ## 1. What happens today, checked in the code
 
 Raised by the operator from two screenshots: the Classes page and the Staff page **both report 24
@@ -242,6 +247,13 @@ reader go and find the underlying rows by hand.
 This is **higher leverage and lower risk than anything in v1's phase list**: it changes no data, no
 permissions and no layout, and it turns every existing summary into a working entry point. v1 spent a
 whole phase (S4) making *one* set of chips deep-link better and never noticed the other thirty.
+
+⚠️ **Correction to the first statement of this finding, and it strengthens it.** "Zero clickable" is
+accurate for the 31 `.metric` tiles, but the product **already has the pattern**: `.metric-link` is
+defined in `globals.css` with hover, focus-visible and a documented `.metric.metric-link` variant,
+and is already in use on `/dashboard` and `/staff-attendance`. So this is not a design problem at
+all — it is an **existing, styled, accessible component that 31 tiles on ten screens do not use.**
+The fix is cheaper than first claimed, and the absence is harder to defend.
 
 ### 8.3 ⚠️ 18 API capabilities ship with no user interface
 

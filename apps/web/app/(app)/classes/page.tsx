@@ -10,6 +10,7 @@ import {
 } from '@/lib/api';
 import { useMe } from '@/lib/me-context';
 import { Metric, MetricFilter } from '@/components/metric';
+import { useCampusLens } from '@/lib/campus-lens';
 import { subjectCatalogueFrom } from '@/lib/subject-match';
 import { AddClassForm } from './add-class-form';
 import { ClassCard } from './class-card';
@@ -73,7 +74,10 @@ export default function ClassesPage() {
   }
 
   // A campus-bound admin only works within their own campus (the API force-scopes anyway).
+  const lens = useCampusLens();
   const myCampuses = isOwner ? campuses : campuses.filter((c) => c.id === me?.campusId);
+  // Grouping follows the lens: one branch when a director is lensed in, all when viewing All.
+  const shownCampuses = lens.campusId ? myCampuses.filter((c) => c.id === lens.campusId) : myCampuses;
 
   /**
    * Every (section, subject) pair with no teacher this year, **counted per class**.
@@ -116,7 +120,7 @@ export default function ClassesPage() {
     return `${k.name} ${own} ${secs}`.toLowerCase().includes(query);
   };
 
-  const groups = myCampuses
+  const groups = shownCampuses
     .map((c) => ({
       id: c.id,
       campus: c.name,
@@ -191,6 +195,7 @@ export default function ClassesPage() {
       {canEdit && loaded && myCampuses.length > 0 && (
         <AddClassForm
           campuses={myCampuses}
+          defaultCampusId={lens.campusId ?? undefined}
           classes={classes}
           subjects={subjects}
           onCreate={async (body, copySubjectsFrom) => {

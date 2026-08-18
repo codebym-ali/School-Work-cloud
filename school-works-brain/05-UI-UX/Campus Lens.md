@@ -1,7 +1,7 @@
 ---
 title: Campus Lens (the multi-campus director's view)
 type: plan
-status: PLANNED — 2026-08-18, domain-grounded, scope decision open. Nothing built.
+status: BUILT — 2026-08-18 (option B). Oversight + grouping + create-prefill. See §10.
 updated: 2026-08-18
 ---
 
@@ -119,3 +119,42 @@ branch-switching from per-screen re-picking into one shell choice that follows t
 lens is machinery for a case few users hit, and the two redundant selects are the only real defect.
 
 **C** only once someone asks for branch comparison; it is a Reports feature wearing a campus hat.
+
+
+## 10. As built — option B, 2026-08-18
+
+`CampusLensContext` in the app shell, seeded from `me`, rendered **only** for an owner with >1
+campus. Persisted in `localStorage` and restored on load. The active campus is passed to screens as
+the ordinary `clientCampusId` — the server's `effectiveCampusFilter` remains the authority, so the
+lens is convenience, never a boundary.
+
+**Screens wired:**
+- **Oversight lists** — `staff`, `staff-attendance`, `performance`, `students` read the lens and
+  **dropped their own campus `<select>`**. `students` also resets its class/section drill when the
+  lens branch changes (a class from another branch does not apply).
+- **Grouping** — `classes` shows one campus when lensed in, all (with headers) on "All".
+- **Create pre-fill** — `classes` (add class), `timings` (new schedule), `admissions` (new inquiry)
+  default their campus field to the lens; the field stays editable.
+
+**Deliberately NOT lensed:**
+- `setup` — it is where you **manage** campuses; hiding other campuses there would hide what you came
+  to edit. The lens is for oversight, not for editing the structure itself.
+- `calendar` — a closure is declared per-campus explicitly; low value, left to the form's own picker.
+
+**Verified live (demo owner, 2 campuses):** the control appears with All + both campuses; switching to
+Falcon then E2E narrowed the staff list each time (bodyLen 3038 → 2887 → 2107) and wrote the choice to
+`localStorage`; the lens **followed to `/classes`** and collapsed its grouping to the one branch;
+**a reload restored the branch**; "All campuses" cleared the store and showed both campus headers.
+
+**Gates:** web tsc + lint + production build; **Playwright 42 passed / 2 skipped / 0 failed** (the
+shell change touches every page, so the full suite was the bar).
+
+⚠️ **The scope shrank from the audit's framing, and honestly.** The audit's "12 duplicated selectors,
+a campus admin sees a chooser they can't use 12 times" was ~2 redundant selects — see §8.4 of
+[[Information Architecture Plan]]. What shipped is the *real* value the audit gestured at: a
+multi-campus director sets the branch once and every oversight screen follows, which is the daily
+motion of a Boys/Girls-campus school.
+
+**Still open (named, not lost):** a central-office head accountant/HR role that spans branches
+without being the owner (§2); and a per-branch **comparison** dashboard (§6, option C) — the
+director's "DHA vs Model Town" question, which belongs with Reports.

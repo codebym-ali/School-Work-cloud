@@ -27,7 +27,8 @@ export type Role =
 export type NavGroup =
   | 'Overview'
   | 'Enrollment'
-  | 'Academics'
+  | 'School structure'
+  | 'Teaching'
   | 'Finance'
   | 'People'
   | 'Administration'
@@ -36,7 +37,8 @@ export type NavGroup =
 export const NAV_GROUPS: NavGroup[] = [
   'Overview',
   'Enrollment',
-  'Academics',
+  'School structure',
+  'Teaching',
   'Finance',
   'People',
   'Administration',
@@ -74,27 +76,27 @@ export const NAV: NavItem[] = [
   // own attendance: a nav that is stricter than the API silently removes a capability.
   { href: '/students', label: 'Students', icon: 'students', group: 'Enrollment', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ADMISSION_CONTROLLER'] },
 
-  { href: '/classes', label: 'Classes', icon: 'classes', group: 'Academics', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
+  { href: '/classes', label: 'Classes', icon: 'classes', group: 'School structure', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
   // The cross-class view of subjects (who teaches what, where it is short, periods/week). Sits
   // beside Classes; both move into a 'School structure' group in IA5.
-  { href: '/subjects', label: 'Subjects', icon: 'classes', group: 'Academics', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
-  { href: '/attendance', label: 'Attendance', icon: 'attendance', group: 'Academics', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'TEACHER'] },
-  { href: '/leaves', label: 'Leave requests', icon: 'leaves', group: 'Academics', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
-  { href: '/my-classes', label: 'My Classes', icon: 'classes', group: 'Academics', roles: ['TEACHER'] },
+  { href: '/subjects', label: 'Subjects', icon: 'classes', group: 'School structure', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
+  { href: '/attendance', label: 'Attendance', icon: 'attendance', group: 'Teaching', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'TEACHER'] },
+  { href: '/leaves', label: 'Leave requests', icon: 'leaves', group: 'Teaching', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
+  { href: '/my-classes', label: 'My Classes', icon: 'classes', group: 'Teaching', roles: ['TEACHER'] },
   // The editor is admin-only (§23: CRUD for owner, own-campus for a campus admin). A teacher gets
   // `/my-timetable` below rather than this screen — they read their week, they do not build it.
-  { href: '/timetable', label: 'Timetable', icon: 'timetable', group: 'Academics', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
+  { href: '/timetable', label: 'Timetable', icon: 'timetable', group: 'School structure', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
   // Directly under Timetable, because it is the thing you must set FIRST: the grid renders the day
   // this screen declares. Same roles as the editor — a campus admin composes their own campus's day
   // and the service refuses anyone else's.
-  { href: '/timings', label: 'School Timings', icon: 'timings', group: 'Academics', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
+  { href: '/timings', label: 'School Timings', icon: 'timings', group: 'School structure', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
   // Arranging cover is a permission grant — it lets one teacher write to another class's
   // register — so it sits with the people who approve leave, not with teachers.
-  { href: '/cover', label: 'Cover', icon: 'cover', group: 'Academics', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
-  { href: '/exams', label: 'Exams & Results', icon: 'exams', group: 'Academics', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'TEACHER'] },
-  { href: '/reports', label: 'Reports', icon: 'reports', group: 'Academics', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT'] },
+  { href: '/cover', label: 'Cover', icon: 'cover', group: 'Teaching', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
+  { href: '/exams', label: 'Exams & Results', icon: 'exams', group: 'Teaching', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'TEACHER'] },
+  { href: '/reports', label: 'Reports', icon: 'reports', group: 'Overview', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT'] },
   // Academic performance, not money — the accountant is deliberately excluded.
-  { href: '/performance', label: 'Performance', icon: 'performance', group: 'Academics', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
+  { href: '/performance', label: 'Performance', icon: 'performance', group: 'Overview', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
 
   { href: '/fees', label: 'Fees', icon: 'fees', group: 'Finance', roles: ['OWNER_ADMIN', 'ACCOUNTANT'] },
   // A campus admin may READ the queue (it is their campus's money) but only the cashier and the
@@ -110,7 +112,7 @@ export const NAV: NavItem[] = [
   // Campus admins can READ the rules they work under (weekly off, backfill window); only the
   // owner may change them, which the page states rather than hiding.
   { href: '/settings', label: 'School settings', icon: 'settings', group: 'Administration', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
-  { href: '/campuses', label: 'Campus Hub', icon: 'campuses', group: 'Administration', roles: ['OWNER_ADMIN'] },
+  { href: '/campuses', label: 'Campus Hub', icon: 'campuses', group: 'School structure', roles: ['OWNER_ADMIN'] },
   // Closures are dated RECORDS, not a setting, so they get their own screen rather than another
   // section on School settings — the weekly off is one recurring rule; this is a register with
   // its own create and delete. TEACHER can read it: a teacher who cannot see the closures is a

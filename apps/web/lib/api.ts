@@ -181,6 +181,14 @@ export interface StudentPerformance {
 }
 
 export interface Paged<T> { data: T[]; total: number; page: number; pageSize: number }
+
+// ── SMS / notifications (§14) ────────────────────────────────────────────────
+export interface SmsTemplate { triggerKey: string; body: string }
+export interface SmsLog {
+  id: string; recipient: string; templateKey: string; message: string;
+  segments: number; status: 'QUEUED' | 'SENT' | 'DELIVERED' | 'FAILED';
+  failReason: string | null; createdAt: string; sentAt: string | null; deliveredAt: string | null;
+}
 export interface Campus { id: string; name: string; address?: string | null }
 export interface AcademicYear { id: string; name: string; isCurrent: boolean }
 export interface CoverageGap {
@@ -891,6 +899,20 @@ export const api = {
    * ⚠️ `setDay` sends **durations, not times**. The server walks the day from `startsAt`, so a gap
    * or an overlap between rows is not rejected — there is no field in which to express one.
    */
+  sms: {
+    templates: () => apiGet<SmsTemplate[]>('/sms/templates'),
+    saveTemplate: (triggerKey: string, body: string) => apiPut<SmsTemplate>('/sms/templates', { triggerKey, body }),
+    credits: () => apiGet<{ balance: number }>('/sms/credits'),
+    logs: (q: { status?: string; templateKey?: string; page?: number } = {}) => {
+      const qs = new URLSearchParams();
+      if (q.status) qs.set('status', q.status);
+      if (q.templateKey) qs.set('templateKey', q.templateKey);
+      if (q.page) qs.set('page', String(q.page));
+      const s = qs.toString();
+      return apiGet<Paged<SmsLog>>(`/sms/logs${s ? `?${s}` : ''}`);
+    },
+    retry: (id: string) => apiPost<void>(`/sms/logs/${id}/retry`, {}),
+  },
   bellSchedules: {
     list: () => apiGet<{ academicYearId: string; schedules: BellSchedule[] }>('/bell-schedules'),
     get: (id: string) => apiGet<BellSchedule>(`/bell-schedules/${id}`),

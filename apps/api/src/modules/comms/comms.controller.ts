@@ -14,7 +14,14 @@ import { Public, Roles } from '@common';
 import { CommsService } from './comms.service';
 import { ManualSendDto, SmsLogQuery, SmsWebhookDto, UpsertTemplateDto } from './dto/comms.dto';
 
+// ⚠️ Admin-only by default: SMS logs carry parents' phone numbers and message bodies, and the
+// credit balance is finance data — none of it is a teacher's to read. The GET handlers previously
+// carried NO @Roles, so any authenticated user could read all of it; this was latent because there
+// was no screen, and it surfaced when the route-coverage gate asked why these routes had no UI.
+// PUT templates narrows further to the owner (below); the delivery webhook is a SEPARATE @Public
+// controller.
 @Controller('sms')
+@Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
 export class SmsController {
   constructor(private readonly comms: CommsService) {}
 

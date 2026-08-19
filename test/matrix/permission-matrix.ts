@@ -70,6 +70,15 @@ export const PERMISSION_MATRIX: MatrixRow[] = [
   { label: 'rename class', method: 'patch', path: '/api/v1/classes/00000000-0000-0000-0000-000000000000', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'], scopeGated: true },
   { label: 'delete class', method: 'delete', path: '/api/v1/classes/00000000-0000-0000-0000-000000000000', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'], scopeGated: true },
   { label: 'class coverage gaps', method: 'get', path: '/api/v1/classes/coverage', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'], scopeGated: true },
+  // ── SMS & notifications (§14) ─────────────────────────────────────────────
+  // Reading templates/credits/logs is admin (owner + campus admin); EDITING a template is owner-only,
+  // because it changes what every parent receives. The webhook (POST /sms/:provider) is @Public and
+  // deliberately not a row (it authenticates by HMAC, not a session).
+  { label: 'read sms templates', method: 'get', path: '/api/v1/sms/templates', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
+  { label: 'edit an sms template', method: 'put', path: '/api/v1/sms/templates', body: {}, allow: ['OWNER_ADMIN'] },
+  { label: 'read sms credits', method: 'get', path: '/api/v1/sms/credits', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
+  { label: 'read sms logs', method: 'get', path: '/api/v1/sms/logs', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
+  { label: 'retry a failed sms', method: 'post', path: '/api/v1/sms/logs/00000000-0000-0000-0000-000000000000/retry', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
   { label: 'rename section', method: 'patch', path: '/api/v1/sections/00000000-0000-0000-0000-000000000000', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'], scopeGated: true },
   { label: 'delete section', method: 'delete', path: '/api/v1/sections/00000000-0000-0000-0000-000000000000', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'], scopeGated: true },
   { label: 'set section subjects', method: 'put', path: '/api/v1/sections/00000000-0000-0000-0000-000000000000/subjects', body: { subjectIds: [] }, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'], scopeGated: true },

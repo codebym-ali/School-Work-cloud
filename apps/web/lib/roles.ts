@@ -113,6 +113,10 @@ export const NAV: NavItem[] = [
   // its own create and delete. TEACHER can read it: a teacher who cannot see the closures is a
   // teacher who turns up at a locked school. The screen hides the write controls from them.
   { href: '/calendar', label: 'School calendar', icon: 'calendar', group: 'Administration', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'TEACHER'] },
+  // The product texts parents (fees, absence, results); this is the only window into the
+  // templates, the credit balance, and what was actually sent. Editing templates is owner-only
+  // (enforced in the API); a campus admin reads.
+  { href: '/sms', label: 'SMS & notifications', icon: 'message', group: 'Administration', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
 
   // Teacher phone shell (Teacher Mobile Home Plan M0/M1). `hidden` keeps them out of the sidebar
   // - they are tab-bar destinations - while still being IN `NAV`, which is what makes

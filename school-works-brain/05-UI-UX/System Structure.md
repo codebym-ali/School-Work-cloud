@@ -136,7 +136,7 @@ reader at the top of a 13-subject page is most of a fix, and none of the relief.
 
 ---
 
-## 4. Navigation — seven groups, none over five
+## 4. Navigation — seven groups, none over five  ✅ *(built, IA5)*
 
 Ordered by the spines, with every missing capability placed. **Bold = does not exist today.**
 

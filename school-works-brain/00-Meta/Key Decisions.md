@@ -595,3 +595,23 @@ Blueprint's AWS reference (RDS/ECS/S3/KMS…) is replaced by **Contabo + Coolify
   restart dev.
 - Same family as the timebox rule: an environment failure that mimics a code regression wastes turns
   if chased as code. Confirm the build/lint are green first — if they are, suspect the environment.
+
+## The route-coverage gate, and the SMS routes it found world-readable (added 2026-08-18)
+
+- **A route with no UI is invisible to every reviewer.** The IA audit tried to hand-count them and
+  was wrong three ways: a per-file `@Controller` prefix bug (fees.controller has six prefixes), and a
+  substring heuristic that both over- and under-counted. **`route-coverage.e2e-spec.ts` removes the
+  guessing** — it reads the live Express router (the real, fully-prefixed table) and checks each
+  route against a scan of `apps/web`, failing on anything neither called nor listed. Same family as
+  the `check-rls-coverage.mjs` enrolment assertion: a gate that only inspects what opted in cannot
+  see what never did.
+- ⚠️ **The matcher must allow a literal segment to also match a `${...}` template hole**, because the
+  client builds some paths dynamically — `apiGet(`/reports/${key}`)` reaches every `/reports/<name>`
+  route. Without it, seven real report routes read as uncovered (false positive). But the FIRST
+  segment must stay a literal anchor, or a stray `/${id}` anywhere makes every short route match
+  (false negative). Both directions were found by running the gate, not by reasoning.
+- ⚠️ **Building the SMS screen surfaced a real over-exposure:** `GET /sms/templates|credits|logs` had
+  **no `@Roles`** — any authenticated user (teacher, accountant) could read the SMS logs, which carry
+  parents' phone numbers and message bodies, plus the credit balance. Latent precisely because there
+  was no screen, so nobody looked. Now `@Controller('sms')` is admin-only. **A route with no UI is
+  also a route whose authz nobody has eyeballed** — the gate is a security check as much as a UX one.

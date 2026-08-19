@@ -103,14 +103,18 @@ Closes *campus is a filter on 12 screens*.
 - ⚠️ The shell control **narrows**; it can never widen. The API remains the authority and continues
   to force-scope a campus-bound user regardless of what the client sends.
 
-### Law 3 — A capability has a screen, or a name
+### Law 3 — A capability has a screen, or a name  ✅ *(gate built, IA3)*
 
 > **Every non-webhook route is reachable by a human, or is a listed exception.**
 
-Closes *18 capabilities with no UI*. Enforced by a CI check in the shape of the tenant-enrolment
-assertion already added to `check-rls-coverage.mjs` — which exists precisely because that gate
-*"could only police tables that had already opted in."* The same blindness applies here: nothing
-currently fails when a route is unreachable.
+Closes *capabilities with no UI*. **Built in IA3** as `route-coverage.e2e-spec.ts`: it reads the
+**live Express router** and fails on any route neither called from `apps/web` nor listed. (⚠️ The
+audit's "18" was wrong three ways — a per-file prefix bug and a substring heuristic — so the gate
+reads the real route table instead of parsing files. The true figure was **19 genuine gaps**, with
+the seven `/reports/*` routes NOT among them: they are reached via a dynamic `apiGet(\`/reports/${key}\`)`,
+which the gate's matcher now accounts for.) The known backlog is enumerated in the gate itself and
+shrinks as screens ship. First screen built: **SMS admin** (`/sms`), which also fixed a latent
+over-exposure — the SMS read routes had no `@Roles` and were readable by any staff.
 
 ### Law 4 — A derived fact has one implementation, server-side  ✅ *(gaps: done, IA1)*
 

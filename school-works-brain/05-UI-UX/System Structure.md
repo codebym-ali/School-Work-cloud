@@ -202,7 +202,7 @@ Classes                                          [ + Add class ]
 The school-wide gap *report* disappears from this screen. The gap *count per class* stays, because
 that is the level at which somebody acts on it.
 
-### 6.2 Subjects (L1, new)
+### 6.2 Subjects (L1)  ✅ *(built, IA4)*
 
 Backed by `GET /subjects/catalogue`, **which has existed all along with no caller**.
 

@@ -281,7 +281,15 @@ export interface Inquiry {
   entryTest?: EntryTest | null; admission?: { id: string; studentId: string } | null;
 }
 export interface Subject { id: string; name: string; classId: string; periodsPerWeek: number | null }
-export interface SubjectCatalogueEntry { name: string; classCount: number }
+export interface SubjectCatalogueClass { subjectId: string; classId: string; className: string; periodsPerWeek: number | null }
+export interface SubjectCatalogueEntry {
+  name: string;
+  classCount: number;
+  /** Present from the server (the /subjects screen); absent in the client-derived fallback. */
+  classes?: SubjectCatalogueClass[];
+  /** Sections teaching a subject of this name with no teacher — reuses the one gap fact (Law 4). */
+  sectionGaps?: number;
+}
 export interface Term { id: string; name: string; academicYearId: string; startDate: string; endDate: string }
 export interface GradeBand { label: string; minPercent: string; maxPercent: string; gradePoint: string }
 export interface Exam { id: string; termId: string; classId: string; name: string; examType: string; weightagePercent: string; examDate: string; status: string }

@@ -9,7 +9,7 @@ import {
   type SubjectCatalogueEntry, type TeacherAssignment,
 } from '@/lib/api';
 import { useMe } from '@/lib/me-context';
-import { Metric, MetricFilter } from '@/components/metric';
+import { Metric, MetricFilter, MetricLink } from '@/components/metric';
 import { useCampusLens } from '@/lib/campus-lens';
 import { subjectCatalogueFrom } from '@/lib/subject-match';
 import { AddClassForm } from './add-class-form';
@@ -180,9 +180,7 @@ export default function ClassesPage() {
           <Metric label="Classes" value={classes.length} />
           <Metric label="Sections" value={sections.length} />
           <Metric label="Seats filled" value={counted.length ? `${filled} of ${seats}` : `— of ${seats}`} />
-          {/* Becomes a link to /subjects in IA4; there is no such screen yet, and a tile pointing
-              at a 404 is worse than one pointing nowhere. */}
-          <Metric label="Subjects taught" value={effectiveCatalogue.length} />
+          <MetricLink label="Subjects taught" value={effectiveCatalogue.length} href="/subjects" />
           <MetricFilter
             label="Without a teacher" value={gaps} alert={gaps > 0}
             active={onlyGaps}

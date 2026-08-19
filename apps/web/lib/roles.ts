@@ -75,6 +75,9 @@ export const NAV: NavItem[] = [
   { href: '/students', label: 'Students', icon: 'students', group: 'Enrollment', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ADMISSION_CONTROLLER'] },
 
   { href: '/classes', label: 'Classes', icon: 'classes', group: 'Academics', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
+  // The cross-class view of subjects (who teaches what, where it is short, periods/week). Sits
+  // beside Classes; both move into a 'School structure' group in IA5.
+  { href: '/subjects', label: 'Subjects', icon: 'classes', group: 'Academics', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
   { href: '/attendance', label: 'Attendance', icon: 'attendance', group: 'Academics', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'TEACHER'] },
   { href: '/leaves', label: 'Leave requests', icon: 'leaves', group: 'Academics', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
   { href: '/my-classes', label: 'My Classes', icon: 'classes', group: 'Academics', roles: ['TEACHER'] },

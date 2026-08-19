@@ -645,15 +645,46 @@ export class SetupService {
     });
   }
 
+  /**
+   * Every subject the school teaches, grouped by NAME across classes — the cross-class view no
+   * screen could show before, because a subject only ever lived inside one class's page.
+   *
+   * A `Subject` row is per class (Grade 9 · Chemistry and Grade 10 · Chemistry are two rows with one
+   * name), so the coordinator's question "who teaches Chemistry, and where is it short" needs them
+   * folded by name. `periodsPerWeek` is per class and may differ, so it travels per class rather than
+   * being flattened.
+   *
+   * ⚠️ The teacher-gap count reuses `coverageGaps()` — the ONE implementation (IA1, Law 4) — so the
+   * "3 sections without a teacher" here can never disagree with the same fact on /classes or /staff.
+   */
   async subjectCatalogue() {
     const restricted = restrictedCampusId(this.ctx.user);
-    const rows = await this.db.subject.groupBy({
-      by: ['name'],
+    const subjects = await this.db.subject.findMany({
       where: restricted ? { class: { campusId: restricted } } : {},
-      _count: { _all: true },
+      select: { id: true, name: true, periodsPerWeek: true, classId: true, class: { select: { name: true } } },
       orderBy: { name: 'asc' },
     });
-    return rows.map((r) => ({ name: r.name, classCount: r._count._all }));
+
+    const gaps = await this.coverageGaps();
+    const gapsByName = new Map<string, number>();
+    for (const g of gaps) gapsByName.set(g.subjectName, (gapsByName.get(g.subjectName) ?? 0) + 1);
+
+    const byName = new Map<string, {
+      name: string;
+      classCount: number;
+      sectionGaps: number;
+      classes: { subjectId: string; classId: string; className: string; periodsPerWeek: number | null }[];
+    }>();
+    for (const s of subjects) {
+      let e = byName.get(s.name);
+      if (!e) {
+        e = { name: s.name, classCount: 0, sectionGaps: gapsByName.get(s.name) ?? 0, classes: [] };
+        byName.set(s.name, e);
+      }
+      e.classCount++;
+      e.classes.push({ subjectId: s.id, classId: s.classId, className: s.class.name, periodsPerWeek: s.periodsPerWeek });
+    }
+    return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));
   }
 
   listSubjects(classId?: string) {

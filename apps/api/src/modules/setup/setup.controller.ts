@@ -225,6 +225,10 @@ export class SubjectController {
     return this.setup.createSubject(dto);
   }
 
+  // Admin-only: the catalogue now carries teacher-gap counts (oversight), and its screen is
+  // admin. Previously no @Roles — open to any authenticated user, the same latent gap the SMS
+  // routes had. `list` below is left as-is; other admin screens read it and it carries no gap data.
+  @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
   @Get('catalogue')
   catalogue() {
     return this.setup.subjectCatalogue();

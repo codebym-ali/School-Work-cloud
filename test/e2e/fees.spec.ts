@@ -53,27 +53,48 @@ test.describe('fees', () => {
     const genCard = page.locator('.card', { hasText: 'Generate invoices' });
     await genCard.locator('label:text-is("Class") + select').selectOption({ label: className });
 
-    // ⚠️ **A month can only be billed once, ever.** `createBatch` returns early when a batch for
-    // (class, month, year) exists and generates nothing — and there is no DELETE for an invoice or
-    // a batch, deliberately: a financial record is not test debris to be swept away. So a reused
-    // class cannot re-bill the month a previous run already billed. Walk forward to the first month
-    // this class has never billed, instead of asserting against a slot that is already spent.
-    // (Before the fixture was reused this never came up: every run invoiced a brand-new class.)
+    // ⚠️ **A month can only be billed once per (class, month, year), and financial records are NEVER
+    // deleted** — the teardown deliberately preserves payment-bearing students ("a real record
+    // rather than debris", see global-teardown), so this reused class's batches accumulate for ever.
+    //
+    // The old fix walked forward from `now` up to 24 months. That re-walked the whole billed backlog
+    // on every run AND ran off the end once ~two years of months were spent — which is exactly how
+    // this spec started failing with "no unbilled month found in the next two years" on the shared
+    // demo tenant. The tenant issue is fixture accumulation, and the only clean answer that does not
+    // delete financial records is to **jump past the frontier**: read the latest month ANY class has
+    // billed and take the next slot. One read, one generate, and it can never exhaust.
+    //
+    // ⚠️ The frontier is the highest BILLED month, but the invoices endpoint sorts by `createdAt`,
+    // not by month — and a prior run's far-future invoice has an OLD createdAt, so it is NOT on the
+    // first page. Reading one page would under-estimate the frontier and the march below could run
+    // off the end again. So page THROUGH every invoice and take the true max: bounded by the invoice
+    // count, a handful of reads, and correct regardless of ordering.
+    const monthKey = (year: number, month: number) => year * 12 + (month - 1);
+    let frontier = monthKey(now.getUTCFullYear(), now.getUTCMonth() + 1);
+    for (let pageNo = 1; ; pageNo += 1) {
+      const res = await apiSetupGet<{ data: { month: number | null; year: number }[]; total: number; pageSize: number }>(
+        page, `/fees/invoices?pageSize=100&page=${pageNo}`);
+      for (const inv of res.data) frontier = Math.max(frontier, monthKey(inv.year, inv.month ?? 1));
+      if (res.data.length < 100 || pageNo * 100 >= res.total) break;
+    }
+
     let billed = false;
-    for (let i = 0; i < 24 && !billed; i += 1) {
-      const at = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + i, 1));
-      await genCard.locator('label:text-is("Month") + input').fill(String(at.getUTCMonth() + 1));
-      await genCard.locator('label:text-is("Year") + input').fill(String(at.getUTCFullYear()));
-      // ⚠️ Read the RESPONSE, not the toast. Reading `.toast.ok` matched the toast still on screen
-      // from the previous iteration, so a month that had just been billed still looked unbilled and
-      // the loop kept going — it billed three months in one run before this was caught.
+    for (let i = 1; i <= 24 && !billed; i += 1) {
+      const key = frontier + i;
+      const y = Math.floor(key / 12);
+      const mo = (key % 12) + 1;
+      await genCard.locator('label:text-is("Month") + input').fill(String(mo));
+      await genCard.locator('label:text-is("Year") + input').fill(String(y));
+      // ⚠️ Read the RESPONSE, not the toast — a toast from the previous iteration lingers, so a
+      // just-billed month can still look unbilled and the loop over-bills. (It billed three months
+      // in one run before this was caught.)
       const posted = page.waitForResponse(
         (r) => r.url().includes('/fees/invoice-batches') && r.request().method() === 'POST');
       await genCard.getByRole('button', { name: 'Generate' }).click();
       const body = (await (await posted).json()) as { generated?: number };
       billed = body.generated === 1;
     }
-    expect(billed, 'no unbilled month found in the next two years').toBe(true);
+    expect(billed, 'no unbilled month past the billing frontier — the reused fee class may be saturated').toBe(true);
 
     // Invoice row for our student: total Rs 5,000, status PENDING.
     const row = page.locator('tbody tr', { hasText: studentName });

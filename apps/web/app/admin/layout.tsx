@@ -1,9 +1,11 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { ApiError } from '@/lib/api';
 import { platformApi, type PlatformUser } from '@/lib/platform-api';
+import { PlatformMeContext } from './me-context';
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -25,18 +27,23 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   if (!ready) return <main className="container"><p className="muted">Loading…</p></main>;
   if (!me) return null;
 
+  const onSecurity = pathname === '/admin/security';
+
   return (
-    <div className="content" style={{ maxWidth: 1100, margin: '0 auto' }}>
-      <div className="topbar">
-        <strong>🛠️ Vendor Console</strong>
-        <span className="inline-form" style={{ alignItems: 'center' }}>
-          <span className="who">{me.email}</span>
-          <button className="ghost small" onClick={async () => { await platformApi.logout().catch(() => {}); router.replace('/admin/login'); }}>
-            Sign out
-          </button>
-        </span>
+    <PlatformMeContext.Provider value={me}>
+      <div className="content" style={{ maxWidth: 1100, margin: '0 auto' }}>
+        <div className="topbar">
+          <strong><Link href="/admin" style={{ color: 'inherit', textDecoration: 'none' }}>🛠️ Vendor Console</Link></strong>
+          <span className="inline-form" style={{ alignItems: 'center' }}>
+            <span className="who">{me.email}</span>
+            {!onSecurity && <Link className="ghost small" href="/admin/security">Security</Link>}
+            <button className="ghost small" onClick={async () => { await platformApi.logout().catch(() => {}); router.replace('/admin/login'); }}>
+              Sign out
+            </button>
+          </span>
+        </div>
+        {children}
       </div>
-      {children}
-    </div>
+    </PlatformMeContext.Provider>
   );
 }

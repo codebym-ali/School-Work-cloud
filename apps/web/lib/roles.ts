@@ -8,7 +8,6 @@
 import type { IconName } from '@/components/icon';
 
 export type Role =
-  | 'PLATFORM_ADMIN'
   | 'OWNER_ADMIN'
   | 'CAMPUS_ADMIN'
   | 'ADMISSION_CONTROLLER'
@@ -171,7 +170,6 @@ export const MFA_REQUIRED_ROLES = ['OWNER_ADMIN', 'ACCOUNTANT'] as const;
  * is branded "HR Manager", not one of each). Keyed on the first role the user holds.
  */
 const ROLE_INFO: { role: Role; label: string; landing: string }[] = [
-  { role: 'PLATFORM_ADMIN', label: 'Platform Admin', landing: '/dashboard' },
   { role: 'OWNER_ADMIN', label: 'School Admin', landing: '/dashboard' },
   { role: 'CAMPUS_ADMIN', label: 'Campus Admin', landing: '/dashboard' },
   { role: 'ACCOUNTANT', label: 'Accountant', landing: '/dashboard' },
@@ -301,10 +299,9 @@ const TEACHER_TABS: { href: string; label: string; icon: IconName }[] = [
  * Roles that keep the administrator's shell even when the person also teaches.
  *
  * An owner or campus admin who happens to take a class still runs the school, and a four-item rail
- * cannot carry that job. PLATFORM_ADMIN is included for the same reason — it is an administrator,
- * of the platform rather than of one school — although the combination should not occur.
+ * cannot carry that job.
  */
-const ADMIN_SHELL_ROLES: readonly Role[] = ['PLATFORM_ADMIN', 'OWNER_ADMIN', 'CAMPUS_ADMIN'];
+const ADMIN_SHELL_ROLES: readonly Role[] = ['OWNER_ADMIN', 'CAMPUS_ADMIN'];
 
 /**
  * True when this person should get the teacher app — at **every** width (Teacher App Shell Plan,

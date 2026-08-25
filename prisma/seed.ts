@@ -47,6 +47,7 @@ async function main(): Promise<void> {
         data: {
           email: PLATFORM_EMAIL,
           name: 'Platform Admin',
+          role: 'SUPER_ADMIN',
           status: 'ACTIVE',
           passwordHash: await argon2.hash(PLATFORM_PASSWORD, { type: argon2.argon2id }),
         },

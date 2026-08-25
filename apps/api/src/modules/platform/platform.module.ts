@@ -3,6 +3,7 @@ import { AuthModule } from '../auth/auth.module';
 import { ProvisioningService } from './provisioning.service';
 import { PlatformAuthService } from './platform-auth.service';
 import { PlatformService } from './platform.service';
+import { PlatformAuditService } from './platform-audit.service';
 import { PlatformAuthGuard } from './platform-auth.guard';
 import { PlatformAuthController } from './platform-auth.controller';
 import { PlatformController } from './platform.controller';
@@ -16,7 +17,7 @@ import { PlatformController } from './platform.controller';
 @Module({
   imports: [AuthModule],
   controllers: [PlatformAuthController, PlatformController],
-  providers: [ProvisioningService, PlatformAuthService, PlatformService, PlatformAuthGuard],
+  providers: [ProvisioningService, PlatformAuthService, PlatformService, PlatformAuditService, PlatformAuthGuard],
   exports: [ProvisioningService],
 })
 export class PlatformModule {}

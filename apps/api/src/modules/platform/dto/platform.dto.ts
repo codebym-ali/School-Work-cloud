@@ -1,4 +1,4 @@
-import { IsEmail, IsOptional, IsString, Matches, MaxLength, MinLength } from 'class-validator';
+import { IsEmail, IsOptional, IsString, Length, Matches, MaxLength, MinLength } from 'class-validator';
 import { PaginationQuery } from '@common';
 
 export class ListTenantsQuery extends PaginationQuery {
@@ -28,7 +28,38 @@ export class ProvisionTenantDto {
 
   @IsEmail()
   ownerEmail!: string;
+  // SA2 (SA-P3): NO password field. The console never accepts a typed password — provisioning
+  // returns a one-time onboarding link and the owner sets their own password. A sent `ownerPassword`
+  // is rejected (forbidNonWhitelisted → 400), so the "no password in the console" rule is
+  // server-enforced (SA-P6), not merely a UI omission.
+}
 
-  @IsString() @MinLength(8) @MaxLength(200)
-  ownerPassword!: string;
+/** Suspending a tenant is destructive (SA-P2) — a non-blank reason is mandatory and audited. */
+export class SuspendTenantDto {
+  @IsString() @MinLength(1) @MaxLength(500)
+  reason!: string;
+}
+
+/** Step 2 of the platform two-step login: the pending token + a TOTP or recovery code (SA0). */
+export class PlatformMfaDto {
+  @IsString()
+  mfaToken!: string;
+
+  /**
+   * A 6-digit TOTP **or** a recovery code — the shape must admit both, or a locked-out operator's
+   * recovery code is rejected by validation before the service can try it. Dashes/spaces/case are
+   * tolerated (copied off paper); the service normalises before comparing.
+   */
+  @IsString()
+  @Length(6, 24)
+  @Matches(/^[a-z0-9\s-]+$/i, { message: 'code must be a 6-digit code or a recovery code' })
+  code!: string;
+}
+
+/** Confirms platform MFA enrolment with a fresh 6-digit TOTP (SA0). */
+export class PlatformMfaEnrollConfirmDto {
+  @IsString()
+  @Length(6, 6)
+  @Matches(/^\d{6}$/, { message: 'code must be 6 digits' })
+  code!: string;
 }

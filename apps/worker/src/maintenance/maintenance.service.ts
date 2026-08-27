@@ -12,7 +12,8 @@ export type MaintenanceJob =
   | 'idempotency-purge'
   | 'sms-log-purge'
   | 'sms-monthly-credit'
-  | 'staff-attendance-close';
+  | 'staff-attendance-close'
+  | 'platform-stats-snapshot';
 
 export interface MaintenanceResult {
   /** Tenants processed (per-tenant fee jobs). */
@@ -23,6 +24,8 @@ export interface MaintenanceResult {
   credited?: number;
   /** Staff-attendance rows written by the day-close job. */
   marked?: number;
+  /** Fleet snapshot rows written (0 or 1) by the platform-stats job. */
+  snapshots?: number;
 }
 
 const WEEKDAYS = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'] as const;
@@ -63,7 +66,50 @@ export class MaintenanceService {
         return { credited: await this.grantMonthlySmsCredits() };
       case 'staff-attendance-close':
         return { marked: await this.closeStaffAttendance() };
+      case 'platform-stats-snapshot':
+        return { snapshots: await this.snapshotPlatformStats() };
     }
+  }
+
+  /**
+   * Write one fleet-wide snapshot for the vendor dashboard (SA1, SA-P7). Cross-tenant, so it runs
+   * on the platform_admin (BYPASSRLS) connection — a handful of indexed COUNTs across every school.
+   * The dashboard reads the most recent row, which is why these totals are computed here nightly
+   * rather than on each page load (finding E: a live fleet-wide COUNT does not scale).
+   *
+   * Metrics are DEFINED, not vibes (SA-P7):
+   *  - schools:  rows in `schools`, split active (`is_active = true`) / suspended. There is NO
+   *              "trial" state in the schema, so none is invented — a bucket that reads 0 by
+   *              construction is worse than an absent one.
+   *  - students: `student_enrollments` with status ACTIVE — a seat this year, not a raw `students`
+   *              row and not an admission (those diverge; the E2E-campus cleanup proved it).
+   *  - staff:    `staff_profiles` still employed (`left_at` null) on a non-deleted user.
+   *  - new:      schools created in the trailing 30 days (a growth signal).
+   */
+  private async snapshotPlatformStats(): Promise<number> {
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const [schoolsTotal, schoolsActive, studentsActive, staffEmployed, newSchools30d] = await Promise.all([
+      this.platform.school.count(),
+      this.platform.school.count({ where: { isActive: true } }),
+      this.platform.studentEnrollment.count({ where: { status: 'ACTIVE' } }),
+      this.platform.staffProfile.count({ where: { leftAt: null, user: { deletedAt: null } } }),
+      this.platform.school.count({ where: { createdAt: { gte: thirtyDaysAgo } } }),
+    ]);
+    await this.platform.platformStatsSnapshot.create({
+      data: {
+        schoolsTotal,
+        schoolsActive,
+        schoolsSuspended: schoolsTotal - schoolsActive,
+        studentsActive,
+        staffEmployed,
+        newSchools30d,
+      },
+    });
+    this.logger.log(
+      `platform-stats-snapshot: ${schoolsTotal} schools (${schoolsActive} active), ` +
+        `${studentsActive} active students, ${staffEmployed} staff`,
+    );
+    return 1;
   }
 
   /**

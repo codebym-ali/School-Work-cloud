@@ -37,14 +37,28 @@ if (!connectionString) {
  *  - `schools`              the tenant itself; tenant resolution reads it before any context exists
  *  - `platform_users`       the vendor console (§24), cross-tenant by design, no RLS
  *  - `platform_refresh_tokens`  their sessions, same reason
+ *  - `platform_audit_logs`  the vendor audit trail (SA0) — records platform, not tenant, actions
+ *  - `platform_mfa_recovery_codes`  operator MFA recovery codes (SA0), keyed by platform_user_id
+ *  - `platform_stats`       fleet snapshot for the vendor dashboard (SA1) — cross-tenant aggregate, no tenant data
  *  - `_prisma_migrations`   Prisma's own bookkeeping
  */
 const NON_TENANT_TABLES = [
   'schools',
   'platform_users',
   'platform_refresh_tokens',
+  'platform_audit_logs',
+  'platform_mfa_recovery_codes',
+  'platform_stats',
   '_prisma_migrations',
 ];
+
+/**
+ * The subset of NON_TENANT_TABLES that is genuinely vendor-side. `schools` is deliberately NOT
+ * here: it also has no `school_id`, but the tenant runtime MUST read it to resolve a tenant from
+ * the request Host. Derived from the allowlist rather than retyped, so adding a `platform_*`
+ * table above automatically brings it under the isolation check below.
+ */
+const VENDOR_TABLES = NON_TENANT_TABLES.filter((t) => t.startsWith('platform_'));
 
 const client = new pg.Client({ connectionString });
 
@@ -108,6 +122,39 @@ try {
     process.exitCode = 1;
   } else {
     console.log('✔ Tenant enrolment: every table in public carries school_id, or is allowlisted.');
+  }
+
+  /**
+   * ⚠️ **The vendor tables have NO RLS, so grants are their only access control — and the
+   * grant was open.** `06_grants.sql` does `GRANT ... ON ALL TABLES IN SCHEMA public TO app_user`,
+   * and `db:setup` runs it AFTER `prisma migrate deploy`, so it silently handed back everything
+   * the SA0 migration had just revoked. Measured on a live database: the tenant runtime role
+   * could SELECT operator emails, argon2 password hashes, encrypted MFA secrets, recovery-code
+   * hashes and the entire vendor audit trail.
+   *
+   * The two checks above would never have caught it — they ask "is RLS applied?", and these
+   * tables are exempt from RLS by design. Exempt from RLS means grants are load-bearing, which
+   * is exactly why it needs its own check rather than a comment.
+   */
+  const { rows: leaked } = await client.query(
+    `SELECT table_name, string_agg(DISTINCT privilege_type, ', ' ORDER BY privilege_type) AS privs
+       FROM information_schema.role_table_grants
+      WHERE table_schema = 'public' AND grantee = 'app_user' AND table_name = ANY($1)
+      GROUP BY table_name ORDER BY table_name`,
+    [VENDOR_TABLES],
+  );
+  if (leaked.length > 0) {
+    console.error('\n✖ Vendor-table isolation FAILED. app_user (the TENANT runtime role) can reach operator data:');
+    for (const r of leaked) console.error(`   - ${r.table_name}: ${r.privs}`);
+    console.error(
+      '\nThese tables carry no school_id, so RLS does not protect them — the GRANT is the only' +
+        '\ncontrol. Something re-granted them after `06_grants.sql` revoked them; a blanket' +
+        '\n`GRANT ... ON ALL TABLES` anywhere later in the chain will do it.' +
+        '\nFix: extend the REVOKE at the end of prisma/sql/06_grants.sql, then `pnpm db:sql`.',
+    );
+    process.exitCode = 1;
+  } else {
+    console.log('✔ Vendor isolation: app_user holds no privileges on any platform_* table.');
   }
 } catch (err) {
   console.error(`✖ Check failed: ${err.message}`);

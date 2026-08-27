@@ -28,7 +28,12 @@ async function request<T>(path: string, opts: { method?: string; body?: unknown 
   });
 
   // Access token expired (15m): silently rotate via the refresh cookie once, then retry.
-  if (res.status === 401 && retry && path !== '/platform/auth/refresh' && path !== '/platform/auth/login') {
+  // `login` and `mfa` run BEFORE a session exists — a 401 there is a bad credential/code, not an
+  // expired token, so they must never be retried through the (absent) refresh cookie.
+  if (
+    res.status === 401 && retry &&
+    path !== '/platform/auth/refresh' && path !== '/platform/auth/login' && path !== '/platform/auth/mfa'
+  ) {
     const refreshed = await fetch(`${BASE}/platform/auth/refresh`, { method: 'POST', credentials: 'include' });
     if (refreshed.ok) return request<T>(path, opts, false);
   }
@@ -42,18 +47,50 @@ async function request<T>(path: string, opts: { method?: string; body?: unknown 
 }
 
 // ── Types ──────────────────────────────────────────────────────────────────
-export interface PlatformUser { id: string; email: string }
+/** The operator roles (blueprint §24). Only SUPER_ADMIN may perform writes (provision / suspend /
+ *  reactivate); the rest are read-only. The API enforces this with 403; the UI hides the controls. */
+export type PlatformRole = 'SUPER_ADMIN' | 'SUPPORT' | 'BILLING' | 'ANALYST';
+export interface PlatformUser { id: string; email: string; role: PlatformRole; mfaEnabled: boolean }
+/** Sign-in either establishes a session, or (when the account has MFA on) hands back a short-lived
+ *  `mfaToken` that must be exchanged for a session via `platformApi.mfaComplete`. Mirrors the tenant
+ *  `LoginResult` in `lib/api.ts`. */
+export type PlatformLoginResult =
+  | { user: PlatformUser }
+  | { mfaRequired: true; mfaToken: string };
+export const isPlatformMfaRequired = (r: PlatformLoginResult): r is { mfaRequired: true; mfaToken: string } =>
+  'mfaRequired' in r && r.mfaRequired === true;
 export interface Tenant {
   id: string; name: string; subdomain: string; customDomain: string | null;
   planTier: string; isActive: boolean; suspendedAt: string | null; createdAt: string;
   userCount: number; studentCount: number;
 }
-export interface NewTenant { name: string; subdomain: string; ownerEmail: string; ownerPassword: string }
+export interface NewTenant { name: string; subdomain: string; ownerEmail: string }
 export interface TenantPage { data: Tenant[]; total: number; page: number; pageSize: number }
+/** Fleet-overview totals for the dashboard (SA1), read from the latest nightly snapshot.
+ *  `capturedAt` is null until the first snapshot has been written. */
+export interface PlatformOverview {
+  capturedAt: string | null;
+  schoolsTotal: number;
+  schoolsActive: number;
+  schoolsSuspended: number;
+  studentsActive: number;
+  staffEmployed: number;
+  newSchools30d: number;
+}
 
 export const platformApi = {
   login: (email: string, password: string) =>
-    request<{ user: PlatformUser }>('/platform/auth/login', { method: 'POST', body: { email, password } }),
+    request<PlatformLoginResult>('/platform/auth/login', { method: 'POST', body: { email, password } }),
+  /** Step 2 of login for an MFA-enabled operator — exchanges the pending token for a session. A
+   *  recovery code may be entered in place of the TOTP `code` (same field, same endpoint). */
+  mfaComplete: (mfaToken: string, code: string) =>
+    request<{ user: PlatformUser }>('/platform/auth/mfa', { method: 'POST', body: { mfaToken, code } }),
+  /** Starts enrolment: returns the otpauth:// URI (render as a key/QR) and its shared secret. */
+  mfaEnrollBegin: () =>
+    request<{ otpauthUrl: string; secret: string }>('/platform/auth/mfa/enroll/begin', { method: 'POST' }),
+  /** Confirms the first code, switches MFA on, and returns the recovery codes ONCE. */
+  mfaEnrollConfirm: (code: string) =>
+    request<{ recoveryCodes: string[] }>('/platform/auth/mfa/enroll/confirm', { method: 'POST', body: { code } }),
   logout: () => request<null>('/platform/auth/logout', { method: 'POST' }),
   me: () => request<PlatformUser>('/platform/auth/me'),
   tenants: (params: { search?: string; page?: number; pageSize?: number } = {}) => {
@@ -64,7 +101,11 @@ export const platformApi = {
     const q = qs.toString();
     return request<TenantPage>(`/platform/tenants${q ? `?${q}` : ''}`);
   },
-  provision: (t: NewTenant) => request<{ id: string; subdomain: string }>('/platform/tenants', { method: 'POST', body: t }),
-  suspend: (id: string) => request<{ id: string; isActive: boolean }>(`/platform/tenants/${id}/suspend`, { method: 'POST' }),
+  /** Fleet totals for the dashboard — a snapshot read, open to every operator role. */
+  overview: () => request<PlatformOverview>('/platform/overview'),
+  /** Provision a school. SA2 (SA-P3): no password is sent — the response carries a one-time
+   *  `onboardingToken` the console turns into a set-password link for the new owner. */
+  provision: (t: NewTenant) => request<{ id: string; subdomain: string; onboardingToken?: string }>('/platform/tenants', { method: 'POST', body: t }),
+  suspend: (id: string, reason: string) => request<{ id: string; isActive: boolean }>(`/platform/tenants/${id}/suspend`, { method: 'POST', body: { reason } }),
   reactivate: (id: string) => request<{ id: string; isActive: boolean }>(`/platform/tenants/${id}/reactivate`, { method: 'POST' }),
 };

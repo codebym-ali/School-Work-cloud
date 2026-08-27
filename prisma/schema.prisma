@@ -295,20 +295,87 @@ model School {
   @@map("schools")
 }
 
+/// Vendor-console privilege split (SA0). SA0 enforces only two levels — SUPER_ADMIN
+/// (full operator: every write) vs. read-only (SUPPORT/BILLING/ANALYST, reads only);
+/// the finer per-role capabilities land in SA4.
+enum PlatformRole {
+  SUPER_ADMIN
+  SUPPORT
+  BILLING
+  ANALYST
+}
+
 /// Vendor-side operator (blueprint §5, §24) — NOT a tenant user. Lives outside RLS
 /// (no school_id); the platform/vendor console authenticates against this table and
 /// acts across tenants via the platform_admin (BYPASSRLS) connection.
 model PlatformUser {
-  id           String     @id @default(uuid()) @db.Uuid
-  email        String     @unique
-  passwordHash String     @map("password_hash")
-  name         String     @default("")
-  status       UserStatus @default(ACTIVE)
-  lastLoginAt  DateTime?  @map("last_login_at")
-  createdAt    DateTime   @default(now()) @map("created_at")
-  updatedAt    DateTime   @updatedAt @map("updated_at")
+  id           String       @id @default(uuid()) @db.Uuid
+  email        String       @unique
+  passwordHash String       @map("password_hash")
+  name         String       @default("")
+  role         PlatformRole @default(SUPER_ADMIN)
+  status       UserStatus   @default(ACTIVE)
+  mfaSecretEnc String?      @map("mfa_secret_enc") // encrypted TOTP secret (SA0)
+  mfaEnabled   Boolean      @default(false) @map("mfa_enabled")
+  lastLoginAt  DateTime?    @map("last_login_at")
+  createdAt    DateTime     @default(now()) @map("created_at")
+  updatedAt    DateTime     @updatedAt @map("updated_at")
 
   @@map("platform_users")
+}
+
+/// Vendor-console audit trail (SA0, SA-P2). Every platform WRITE appends a row: who
+/// (operator), what action, which tenant, when — plus a reason on destructive actions.
+/// NOT a tenant table — no school_id, no RLS; written on the platform_admin (BYPASSRLS)
+/// connection and revoked from app_user (SA-P4).
+model PlatformAuditLog {
+  id             String   @id @default(uuid()) @db.Uuid
+  platformUserId String   @map("platform_user_id") @db.Uuid
+  action         String
+  targetTenantId String?  @map("target_tenant_id") @db.Uuid
+  metadata       Json?
+  reason         String?
+  ip             String?
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@index([platformUserId])
+  @@index([targetTenantId])
+  @@map("platform_audit_logs")
+}
+
+/// Single-use MFA recovery codes for vendor-console operators (SA0). Mirrors
+/// MfaRecoveryCode but keyed by platform_user_id (no school_id, no RLS). argon2 hashes;
+/// the plaintext is shown ONCE at enrolment and is unrecoverable — used_at makes each
+/// one single-use. Revoked from app_user (SA-P4).
+model PlatformMfaRecoveryCode {
+  id             String    @id @default(uuid()) @db.Uuid
+  platformUserId String    @map("platform_user_id") @db.Uuid
+  codeHash       String    @unique @map("code_hash")
+  usedAt         DateTime? @map("used_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  @@index([platformUserId])
+  @@map("platform_mfa_recovery_codes")
+}
+
+/// Nightly fleet-wide snapshot for the vendor dashboard (SA1, SA-P7). NOT a tenant table — it
+/// aggregates ACROSS all schools, so it has no school_id and lives outside RLS (on the NON_TENANT
+/// allowlist in check-rls-coverage.mjs, and revoked from app_user in 06_grants.sql like every
+/// platform_* table). The dashboard reads the most recent row (O(1)); the worker's
+/// `platform-stats-snapshot` job writes one nightly. Computing these totals live would be a
+/// COUNT(*) across every school × every student on each page load — the cost finding E avoids.
+model PlatformStatsSnapshot {
+  id               String   @id @default(uuid()) @db.Uuid
+  capturedAt       DateTime @default(now()) @map("captured_at")
+  schoolsTotal     Int      @map("schools_total")
+  schoolsActive    Int      @map("schools_active")
+  schoolsSuspended Int      @map("schools_suspended")
+  studentsActive   Int      @map("students_active")
+  staffEmployed    Int      @map("staff_employed")
+  newSchools30d    Int      @map("new_schools_30d")
+
+  @@index([capturedAt])
+  @@map("platform_stats")
 }
 
 /// Single-use rotating refresh tokens for the vendor console (blueprint §22.4, §24).

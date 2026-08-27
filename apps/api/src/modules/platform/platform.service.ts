@@ -4,7 +4,14 @@ import { AppError, ENV, ErrorCodes, paginate, toSkipTake, type Env, type Paginat
 import { PlatformPrismaService } from '@database';
 import { TenantResolutionMiddleware } from '../../tenant/tenant-resolution.middleware';
 import { ProvisioningService } from './provisioning.service';
+import { PlatformAuditService } from './platform-audit.service';
 import type { ListTenantsQuery, ProvisionTenantDto } from './dto/platform.dto';
+
+/** Who is performing a platform write, and from where — threaded to the audit row (SA-P2). */
+export interface PlatformActionContext {
+  platformUserId: string;
+  ip?: string;
+}
 
 export interface TenantSummary {
   id: string;
@@ -17,6 +24,18 @@ export interface TenantSummary {
   createdAt: Date;
   userCount: number;
   studentCount: number;
+}
+
+/** The fleet-overview totals the vendor dashboard reads (SA1). Sourced from the latest nightly
+ *  `platform_stats` snapshot; `capturedAt` is null until the first snapshot has been written. */
+export interface PlatformOverview {
+  capturedAt: string | null;
+  schoolsTotal: number;
+  schoolsActive: number;
+  schoolsSuspended: number;
+  studentsActive: number;
+  staffEmployed: number;
+  newSchools30d: number;
 }
 
 /**
@@ -32,6 +51,7 @@ export class PlatformService {
   constructor(
     private readonly platform: PlatformPrismaService,
     private readonly provisioning: ProvisioningService,
+    private readonly audit: PlatformAuditService,
     @Inject(ENV) env: Env,
   ) {
     this.apexHost = env.APP_APEX_DOMAIN.split(':')[0].toLowerCase();
@@ -40,16 +60,25 @@ export class PlatformService {
   /**
    * Provision a new tenant from the console (blueprint §24). Delegates to the shared
    * ProvisioningService (School + first Campus + OWNER_ADMIN, on the BYPASSRLS client);
-   * a duplicate subdomain surfaces as 409 CONFLICT from there.
+   * a duplicate subdomain surfaces as 409 CONFLICT from there. Appends a `TENANT_PROVISION`
+   * audit row on success (SA-P2).
    */
-  async provisionTenant(dto: ProvisionTenantDto): Promise<{ id: string; subdomain: string }> {
-    const { schoolId } = await this.provisioning.provisionSchool({
+  async provisionTenant(dto: ProvisionTenantDto, ctx: PlatformActionContext): Promise<{ id: string; subdomain: string; onboardingToken?: string }> {
+    // SA2 (SA-P3): no password is ever passed from the console — provisioning creates an INVITED
+    // owner and returns a one-time onboarding token the operator hands over as a set-password link.
+    const { schoolId, onboardingToken } = await this.provisioning.provisionSchool({
       name: dto.name,
       subdomain: dto.subdomain,
       ownerEmail: dto.ownerEmail,
-      ownerPassword: dto.ownerPassword,
     });
-    return { id: schoolId, subdomain: dto.subdomain.toLowerCase() };
+    await this.audit.record({
+      platformUserId: ctx.platformUserId,
+      action: 'TENANT_PROVISION',
+      targetTenantId: schoolId,
+      metadata: { name: dto.name, subdomain: dto.subdomain.toLowerCase(), ownerEmail: dto.ownerEmail.toLowerCase() },
+      ip: ctx.ip,
+    });
+    return { id: schoolId, subdomain: dto.subdomain.toLowerCase(), onboardingToken };
   }
 
   async listTenants(q: ListTenantsQuery): Promise<Paginated<TenantSummary>> {
@@ -96,12 +125,59 @@ export class PlatformService {
     return paginate(data, total, q);
   }
 
-  suspend(id: string): Promise<{ id: string; isActive: boolean }> {
-    return this.setActive(id, false);
+  /**
+   * The fleet-overview totals for the dashboard (SA1), read from the most recent nightly snapshot
+   * (SA-P7 — one server-side definition, O(read one row); never a live fleet-wide COUNT). Returns
+   * zeros with `capturedAt: null` before the first snapshot exists, so the UI can say "not run yet"
+   * rather than present fabricated numbers.
+   */
+  async getOverview(): Promise<PlatformOverview> {
+    const snap = await this.platform.platformStatsSnapshot.findFirst({ orderBy: { capturedAt: 'desc' } });
+    if (!snap) {
+      return {
+        capturedAt: null,
+        schoolsTotal: 0,
+        schoolsActive: 0,
+        schoolsSuspended: 0,
+        studentsActive: 0,
+        staffEmployed: 0,
+        newSchools30d: 0,
+      };
+    }
+    return {
+      capturedAt: snap.capturedAt.toISOString(),
+      schoolsTotal: snap.schoolsTotal,
+      schoolsActive: snap.schoolsActive,
+      schoolsSuspended: snap.schoolsSuspended,
+      studentsActive: snap.studentsActive,
+      staffEmployed: snap.staffEmployed,
+      newSchools30d: snap.newSchools30d,
+    };
   }
 
-  reactivate(id: string): Promise<{ id: string; isActive: boolean }> {
-    return this.setActive(id, true);
+  /** Suspend a tenant with a mandatory reason (SA-P2); audited as `TENANT_SUSPEND`. */
+  async suspend(id: string, reason: string, ctx: PlatformActionContext): Promise<{ id: string; isActive: boolean }> {
+    const result = await this.setActive(id, false);
+    await this.audit.record({
+      platformUserId: ctx.platformUserId,
+      action: 'TENANT_SUSPEND',
+      targetTenantId: id,
+      reason,
+      ip: ctx.ip,
+    });
+    return result;
+  }
+
+  /** Reactivate a suspended tenant; audited as `TENANT_REACTIVATE`. */
+  async reactivate(id: string, ctx: PlatformActionContext): Promise<{ id: string; isActive: boolean }> {
+    const result = await this.setActive(id, true);
+    await this.audit.record({
+      platformUserId: ctx.platformUserId,
+      action: 'TENANT_REACTIVATE',
+      targetTenantId: id,
+      ip: ctx.ip,
+    });
+    return result;
   }
 
   private async setActive(id: string, isActive: boolean): Promise<{ id: string; isActive: boolean }> {

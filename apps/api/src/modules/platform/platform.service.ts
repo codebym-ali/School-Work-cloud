@@ -73,6 +73,7 @@ export class PlatformService {
     private readonly platform: PlatformPrismaService,
     private readonly provisioning: ProvisioningService,
     private readonly audit: PlatformAuditService,
+    private readonly tokens: TokenService,
     @Inject(ENV) env: Env,
   ) {
     this.apexHost = env.APP_APEX_DOMAIN.split(':')[0].toLowerCase();
@@ -278,6 +279,29 @@ export class PlatformService {
       ip: ctx.ip,
     });
     return { id: operator.id, email, onboardingToken: raw };
+  }
+
+  /**
+   * Start a break-glass "login-as" session into ONE school (SA5, SUPER_ADMIN or SUPPORT). Issues a
+   * short-lived, read-only tenant token scoped to the target school — it rides the normal RLS-bound
+   * request path and is confined to that one tenant by TenantScopeGuard + RLS, **never BYPASSRLS**
+   * (SA-P8). Audited `BREAK_GLASS_START` with the mandatory reason. The console turns the token into
+   * an enter link on the school's own host; the session auto-expires (30 min).
+   */
+  async startBreakGlass(id: string, reason: string, ctx: PlatformActionContext): Promise<{ schoolId: string; subdomain: string; token: string; expiresAt: string }> {
+    const school = await this.platform.school.findUnique({ where: { id }, select: { subdomain: true } });
+    if (!school) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'Tenant not found');
+    const { token, expiresInSec } = this.tokens.signBreakGlass(ctx.platformUserId, id);
+    const expiresAt = new Date(Date.now() + expiresInSec * 1000).toISOString();
+    await this.audit.record({
+      platformUserId: ctx.platformUserId,
+      action: 'BREAK_GLASS_START',
+      targetTenantId: id,
+      reason,
+      metadata: { expiresAt },
+      ip: ctx.ip,
+    });
+    return { schoolId: id, subdomain: school.subdomain, token, expiresAt };
   }
 
   /** Suspend a tenant with a mandatory reason (SA-P2); audited as `TENANT_SUSPEND`. */

@@ -8,6 +8,10 @@ export interface RequestUser {
   schoolId: string;
   roles: Role[];
   campusId: string | null;
+  /** SA5 break-glass: a vendor operator impersonating this school, read-only (SA-P8). */
+  breakGlass?: boolean;
+  /** SA5: the platform operator behind a break-glass session, for attribution. */
+  vendorOperatorId?: string;
 }
 
 /** CLS keys — one place so producers and consumers never drift. */

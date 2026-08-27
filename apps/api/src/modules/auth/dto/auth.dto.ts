@@ -79,3 +79,9 @@ export class ResetPasswordDto {
   @IsString()
   code?: string; // MFA code if the account has MFA enabled
 }
+
+/** SA5: set the break-glass session cookie from an enter token. */
+export class BreakGlassEnterDto {
+  @IsString()
+  token!: string;
+}

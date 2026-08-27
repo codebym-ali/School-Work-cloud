@@ -146,4 +146,8 @@ export const platformApi = {
   /** Public: an INVITED operator sets their own password via the onboarding token (SA4b). */
   setPassword: (token: string, newPassword: string) =>
     request<null>('/platform/auth/set-password', { method: 'POST', body: { token, newPassword } }),
+  /** Start a break-glass "login-as" session into a school (SA5, SUPER_ADMIN/SUPPORT) — returns a
+   *  short-lived, read-only token scoped to that one school. */
+  breakGlass: (id: string, reason: string) =>
+    request<{ schoolId: string; subdomain: string; token: string; expiresAt: string }>(`/platform/tenants/${id}/break-glass`, { method: 'POST', body: { reason } }),
 };

@@ -3,7 +3,7 @@ import type { Request } from 'express';
 import { Public } from '@common';
 import { PlatformService } from './platform.service';
 import { PlatformAuthGuard, PlatformRoles, CurrentPlatformUser, type PlatformActor } from './platform-auth.guard';
-import { ChangePlanDto, CreateOperatorDto, ListTenantsQuery, ProvisionTenantDto, SuspendTenantDto, UpdateOperatorDto } from './dto/platform.dto';
+import { BreakGlassDto, ChangePlanDto, CreateOperatorDto, ListTenantsQuery, ProvisionTenantDto, SuspendTenantDto, UpdateOperatorDto } from './dto/platform.dto';
 
 /**
  * Vendor console (blueprint §24) — cross-tenant tenant management. `@Public` skips the
@@ -67,6 +67,15 @@ export class PlatformController {
   @HttpCode(HttpStatus.OK)
   changePlan(@Param('id') id: string, @Body() dto: ChangePlanDto, @CurrentPlatformUser() actor: PlatformActor, @Req() req: Request) {
     return this.platform.changePlan(id, dto.planTier, { platformUserId: actor.id, ip: req.ip });
+  }
+
+  // Start a break-glass "login-as" session into one school (SA5) — SUPER_ADMIN or SUPPORT; audited,
+  // reason required. Returns a short-lived read-only token the console turns into an enter link.
+  @PlatformRoles('SUPER_ADMIN', 'SUPPORT')
+  @Post('tenants/:id/break-glass')
+  @HttpCode(HttpStatus.OK)
+  breakGlass(@Param('id') id: string, @Body() dto: BreakGlassDto, @CurrentPlatformUser() actor: PlatformActor, @Req() req: Request) {
+    return this.platform.startBreakGlass(id, dto.reason, { platformUserId: actor.id, ip: req.ip });
   }
 
   // ── Operator management (SA4) — managing the vendor team is a SUPER_ADMIN function. ──

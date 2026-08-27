@@ -224,8 +224,17 @@ unambiguously.
 - **Done when:** a Support operator cannot change a plan or bill; a Billing operator cannot open a
   school; disabling an operator revokes access immediately (guard already re-checks status).
 
-### SA5 — Break-glass support ("login-as")
+### SA5 — Break-glass support ("login-as") — ✅ v1 SHIPPED 2026-08-27
 **Goal:** let the vendor enter a specific school to help — accountably and safely.
+
+> ✅ **v1 shipped 2026-08-27** (read-only). `POST /platform/tenants/:id/break-glass` (SUPER_ADMIN/SUPPORT,
+> reason, audited `BREAK_GLASS_START`) issues a 30-min tenant token scoped to one school; it rides the
+> **normal tenant path** so **SA-P8 holds by construction** — confined by TenantScopeGuard (other host →
+> 403 `TENANT_MISMATCH`) + RLS, **never BYPASSRLS**. `POST /auth/break-glass-enter` sets the read-only
+> cookie on the school's host; `BreakGlassReadonlyGuard` refuses every write. Verified: 8 platform specs
+> / 60 tests (incl. confinement + read-only), isolation 7/7, and **live on :4000**. **Deferred to v2:**
+> WRITE-capable break-glass (needs the **D5** nullable-actor `audit_logs` change) + owner SMS notification
+> (D4). Details in [[Progress Tracker]].
 - **Security (SA-P8, load-bearing):** impersonation issues a **real RLS-scoped tenant session**
   (`app_user` + the target school's GUC), **never** the BYPASSRLS connection. An **isolation-suite test**
   proves an impersonated session cannot read a second tenant (§8).

@@ -41,6 +41,12 @@ export class SuspendTenantDto {
   reason!: string;
 }
 
+/** Start a break-glass session into a school (SA5) — a non-blank reason is mandatory and audited. */
+export class BreakGlassDto {
+  @IsString() @MinLength(1) @MaxLength(500)
+  reason!: string;
+}
+
 /** Change a tenant's plan tier (SA3). Must be one of the catalog tiers (BASIC / PLUS / PRO). */
 export class ChangePlanDto {
   @IsEnum(PlanTier)

@@ -49,6 +49,9 @@ export class JwtAuthGuard implements CanActivate {
       schoolId: claims.sid,
       roles: claims.roles,
       campusId: claims.cid,
+      // SA5: a break-glass token carries the acting vendor operator; the pipeline then enforces
+      // read-only (BreakGlassReadonlyGuard) and confinement to `sid` (TenantScopeGuard + RLS).
+      ...(claims.bg ? { breakGlass: true, vendorOperatorId: claims.vop } : {}),
     };
     req.user = principal;
     // Mirror onto CLS so services/AuditService can read the actor without plumbing it.

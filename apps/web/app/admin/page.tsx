@@ -13,6 +13,9 @@ export default function TenantsPage() {
   // read-only, so the write controls are HIDDEN rather than offered and then 403'd — the console's
   // "don't offer a choice they can't make" rule. Reads (the list) stay visible to all roles.
   const canWrite = me.role === 'SUPER_ADMIN';
+  // Break-glass "login-as" (SA5) is available to SUPER_ADMIN and SUPPORT — a superset of writers, so
+  // the actions column can show even for a read-only SUPPORT operator.
+  const canBreakGlass = me.role === 'SUPER_ADMIN' || me.role === 'SUPPORT';
 
   const [tenants, setTenants] = useState<Tenant[]>([]);
   const [total, setTotal] = useState(0);
@@ -44,11 +47,27 @@ export default function TenantsPage() {
     catch (e) { setMsg({ ok: false, text: e instanceof ApiError ? e.message : 'Failed' }); return false; }
   }
 
+  /** Start a read-only break-glass session (SA5): ask for a reason (audited), get a scoped token,
+   *  then open the school's OWN host to enter. The token rides the URL fragment so it never lands in
+   *  a server log or the Referer header. */
+  async function enterBreakGlass(t: Tenant) {
+    const reason = window.prompt(`Reason for entering ${t.name} (recorded against you, the vendor):`);
+    if (!reason || !reason.trim()) return;
+    try {
+      const res = await platformApi.breakGlass(t.id, reason.trim());
+      const apex = window.location.host.replace(/^admin\./, '');
+      window.open(`${window.location.protocol}//${res.subdomain}.${apex}/break-glass#token=${encodeURIComponent(res.token)}`, '_blank', 'noopener,noreferrer');
+      setMsg({ ok: true, text: `Read-only session into ${t.subdomain} opened — expires ${new Date(res.expiresAt).toLocaleTimeString()}.` });
+    } catch (e) {
+      setMsg({ ok: false, text: e instanceof ApiError ? e.message : 'Break-glass failed' });
+    }
+  }
+
   const applySearch = () => { setPage(1); setQuery(search.trim()); };
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const from = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
   const to = Math.min(page * PAGE_SIZE, total);
-  const colCount = canWrite ? 7 : 6;
+  const colCount = (canWrite || canBreakGlass) ? 7 : 6;
 
   return (
     <div className="stack">
@@ -87,7 +106,7 @@ export default function TenantsPage() {
       </div>
 
       <table>
-        <thead><tr><th>Name</th><th>Subdomain</th><th>Plan</th><th>Status</th><th>Users</th><th>Students</th>{canWrite && <th></th>}</tr></thead>
+        <thead><tr><th>Name</th><th>Subdomain</th><th>Plan</th><th>Status</th><th>Users</th><th>Students</th>{(canWrite || canBreakGlass) && <th></th>}</tr></thead>
         <tbody>
           {tenants.map((t) => {
             const cap = plans?.[t.planTier]?.maxStudents;
@@ -110,11 +129,14 @@ export default function TenantsPage() {
                 {cap != null && t.activeStudents > cap && <span className="badge bad" style={{ marginLeft: 6 }}>over limit</span>}
                 {cap != null && t.activeStudents === cap && <span className="badge warn" style={{ marginLeft: 6 }}>at limit</span>}
               </td>
-              {canWrite && (
+              {(canWrite || canBreakGlass) && (
                 <td>
-                  {t.isActive
-                    ? <button className="ghost small" onClick={() => { setSuspendTarget(t); setMsg(null); }}>Suspend</button>
-                    : <button className="ghost small" onClick={() => run(() => platformApi.reactivate(t.id), `Reactivated ${t.subdomain}`)}>Reactivate</button>}
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    {canWrite && (t.isActive
+                      ? <button className="ghost small" onClick={() => { setSuspendTarget(t); setMsg(null); }}>Suspend</button>
+                      : <button className="ghost small" onClick={() => run(() => platformApi.reactivate(t.id), `Reactivated ${t.subdomain}`)}>Reactivate</button>)}
+                    {canBreakGlass && t.isActive && <button className="ghost small" title="Read-only support session" onClick={() => enterBreakGlass(t)}>Enter</button>}
+                  </div>
                 </td>
               )}
             </tr>

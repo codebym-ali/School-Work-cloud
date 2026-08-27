@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { ApiError } from '@/lib/api';
-import { platformApi, type Tenant, type PlatformOverview } from '@/lib/platform-api';
+import { platformApi, type Tenant, type PlatformOverview, type PlanCatalog } from '@/lib/platform-api';
 import { usePlatformMe } from './me-context';
 
 const PAGE_SIZE = 25;
@@ -25,6 +25,8 @@ export default function TenantsPage() {
   // The tenant awaiting a suspension reason. Suspending now requires a reason (SA0), so the bare
   // button opens this inline form instead of firing the request directly.
   const [suspendTarget, setSuspendTarget] = useState<Tenant | null>(null);
+  // The plan catalog (SA3) — loaded once (static); drives the per-row plan selector and usage-vs-cap.
+  const [plans, setPlans] = useState<PlanCatalog | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -35,6 +37,7 @@ export default function TenantsPage() {
     } finally { setLoading(false); }
   }, [query, page]);
   useEffect(() => { load().catch(() => {}); }, [load]);
+  useEffect(() => { platformApi.plans().then(setPlans).catch(() => {}); }, []);
 
   async function run(fn: () => Promise<unknown>, ok: string) {
     try { await fn(); await load(); setMsg({ ok: true, text: ok }); return true; }
@@ -86,14 +89,27 @@ export default function TenantsPage() {
       <table>
         <thead><tr><th>Name</th><th>Subdomain</th><th>Plan</th><th>Status</th><th>Users</th><th>Students</th>{canWrite && <th></th>}</tr></thead>
         <tbody>
-          {tenants.map((t) => (
+          {tenants.map((t) => {
+            const cap = plans?.[t.planTier]?.maxStudents;
+            return (
             <tr key={t.id}>
               <td>{t.name}</td>
               <td>{t.subdomain}</td>
-              <td>{t.planTier}</td>
+              <td>
+                {canWrite && plans
+                  ? <select value={t.planTier} aria-label={`Plan for ${t.subdomain}`}
+                      onChange={(e) => run(() => platformApi.changePlan(t.id, e.target.value), `${t.subdomain}: plan set to ${e.target.value}`)}>
+                      {Object.keys(plans).map((tier) => <option key={tier} value={tier}>{tier}</option>)}
+                    </select>
+                  : t.planTier}
+              </td>
               <td>{t.isActive ? <span className="badge ok">active</span> : <span className="badge bad">suspended</span>}</td>
               <td>{t.userCount}</td>
-              <td>{t.studentCount}</td>
+              <td>
+                {t.activeStudents}{cap != null ? <span className="muted"> / {cap}</span> : null}
+                {cap != null && t.activeStudents > cap && <span className="badge bad" style={{ marginLeft: 6 }}>over limit</span>}
+                {cap != null && t.activeStudents === cap && <span className="badge warn" style={{ marginLeft: 6 }}>at limit</span>}
+              </td>
               {canWrite && (
                 <td>
                   {t.isActive
@@ -102,10 +118,18 @@ export default function TenantsPage() {
                 </td>
               )}
             </tr>
-          ))}
+            );
+          })}
           {tenants.length === 0 && <tr><td colSpan={colCount} className="muted">{loading ? 'Loading…' : query ? 'No tenants match.' : 'No tenants yet.'}</td></tr>}
         </tbody>
       </table>
+
+      {plans && (
+        <p className="muted" style={{ fontSize: 12, margin: 0 }}>
+          Students shows current / cap (active enrollments); over-cap schools are flagged. The cap is a
+          signal to upgrade, not a gate at the school (SA3).
+        </p>
+      )}
 
       <div className="row">
         <span className="muted" style={{ fontSize: 13 }}>{total === 0 ? 'No results' : `Showing ${from}–${to} of ${total}`}</span>
@@ -115,6 +139,8 @@ export default function TenantsPage() {
           <button className="ghost small" disabled={page >= pageCount || loading} onClick={() => setPage((p) => Math.min(pageCount, p + 1))}>Next →</button>
         </div>
       </div>
+
+      {plans && <PlansReference plans={plans} />}
     </div>
   );
 }
@@ -170,6 +196,33 @@ function FleetOverview() {
           <div className="value">{o.newSchools30d.toLocaleString()}</div>
           <div className="label">New schools · last 30 days</div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+/** A reference of what each plan tier grants (SA3). Renders the server catalog so an operator
+ *  assigning a plan can see the limits at a glance. Usage is surfaced against these caps in the table
+ *  above; over-cap schools are flagged — but the cap is a signal to upgrade, not a gate at the
+ *  school's admission desk (the deliberate soft-cap call for this market). */
+function PlansReference({ plans }: { plans: PlanCatalog }) {
+  const storage = (mb: number) => (mb >= 1000 ? `${(mb / 1000).toLocaleString()} GB` : `${mb} MB`);
+  return (
+    <div className="card stack">
+      <h2 style={{ margin: 0, fontSize: 16 }}>Plans</h2>
+      <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))' }}>
+        {Object.entries(plans).map(([tier, l]) => (
+          <div key={tier} style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 12 }}>
+            <div style={{ fontWeight: 500, marginBottom: 6 }}>{tier}</div>
+            <ul className="muted" style={{ margin: 0, paddingLeft: 16, fontSize: 13, lineHeight: 1.7 }}>
+              <li>up to {l.maxStudents.toLocaleString()} students</li>
+              <li>{l.maxStaff.toLocaleString()} staff</li>
+              <li>{l.maxCampuses} campus{l.maxCampuses > 1 ? 'es' : ''}</li>
+              <li>{storage(l.storageMb)} storage</li>
+              <li>{l.monthlySmsCredits.toLocaleString()} SMS / month</li>
+            </ul>
+          </div>
+        ))}
       </div>
     </div>
   );

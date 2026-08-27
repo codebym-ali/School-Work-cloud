@@ -179,9 +179,21 @@ unambiguously.
   console**; suspend/expire are reversible; new platform routes are registered in the route-coverage
   gate (§8).
 
-### SA3 — Plans, limits & tenant entitlement
+### SA3 — Plans, limits & tenant entitlement — ⚙️ SA3a (catalog + assignment) SHIPPED 2026-08-27
 **Goal:** turn `PlanTier` from a stored label into enforced control — **without** misusing
 `module_access`.
+
+> ⚙️ **SA3a shipped 2026-08-27** (the platform-side, non-enforcing half): a server-side `PLAN_LIMITS`
+> catalog (kept in code, keyed by tier, monthlySmsCredits referencing the existing SMS-credit map —
+> the precedent this phase copies, `module_access` untouched); `GET /platform/plans` (open read) +
+> `PATCH /platform/tenants/:id/plan` (SUPER_ADMIN, audited `TENANT_PLAN_CHANGE` from→to); console plan
+> selector + per-school usage-vs-cap. Verified: tsc (backend + web), lint, 5 platform specs / 40 tests.
+> **SA3b (surfacing) shipped 2026-08-27**, with the over-limit decision made: **soft-cap, not
+> hard-block** — never stop a school enrolling a child at the counter; the cap is a visible overage
+> signal (the vendor's upsell lever), aligning with the "surface vs police" principle. `listTenants`
+> returns `activeStudents` (Law 4), the console flags at/over-cap schools, and a Plans reference
+> renders the catalog. **Still deferred (opt-in, if ever wanted):** an actual tenant-path hard block,
+> and staff / campus / storage overage surfacing. Details in [[Progress Tracker]].
 - **DB/API:** a plan catalog with **limits** (max students, max staff, SMS credits, storage) and a
   **tenant-entitlement** representation (school + plan → enabled modules), modelled **like the existing
   SMS-credit mechanism** (`smsCreditLedger` + `PLAN_MONTHLY_SMS_CREDITS[planTier]`), *not* by writing to

@@ -62,7 +62,7 @@ export const isPlatformMfaRequired = (r: PlatformLoginResult): r is { mfaRequire
 export interface Tenant {
   id: string; name: string; subdomain: string; customDomain: string | null;
   planTier: string; isActive: boolean; suspendedAt: string | null; createdAt: string;
-  userCount: number; studentCount: number;
+  userCount: number; activeStudents: number;
 }
 export interface NewTenant { name: string; subdomain: string; ownerEmail: string }
 export interface TenantPage { data: Tenant[]; total: number; page: number; pageSize: number }
@@ -77,6 +77,15 @@ export interface PlatformOverview {
   staffEmployed: number;
   newSchools30d: number;
 }
+/** Per-plan entitlement limits (SA3), from the server-side catalog. */
+export interface PlanLimits {
+  maxStudents: number;
+  maxStaff: number;
+  maxCampuses: number;
+  storageMb: number;
+  monthlySmsCredits: number;
+}
+export type PlanCatalog = Record<string, PlanLimits>;
 
 export const platformApi = {
   login: (email: string, password: string) =>
@@ -108,4 +117,9 @@ export const platformApi = {
   provision: (t: NewTenant) => request<{ id: string; subdomain: string; onboardingToken?: string }>('/platform/tenants', { method: 'POST', body: t }),
   suspend: (id: string, reason: string) => request<{ id: string; isActive: boolean }>(`/platform/tenants/${id}/suspend`, { method: 'POST', body: { reason } }),
   reactivate: (id: string) => request<{ id: string; isActive: boolean }>(`/platform/tenants/${id}/reactivate`, { method: 'POST' }),
+  /** The plan catalog (SA3) — per-tier limits, an open read. */
+  plans: () => request<PlanCatalog>('/platform/plans'),
+  /** Change a tenant's plan (SA3, SUPER_ADMIN) — audited. */
+  changePlan: (id: string, planTier: string) =>
+    request<{ id: string; planTier: string }>(`/platform/tenants/${id}/plan`, { method: 'PATCH', body: { planTier } }),
 };

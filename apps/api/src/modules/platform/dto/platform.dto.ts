@@ -1,4 +1,5 @@
-import { IsEmail, IsOptional, IsString, Length, Matches, MaxLength, MinLength } from 'class-validator';
+import { IsEmail, IsEnum, IsOptional, IsString, Length, Matches, MaxLength, MinLength } from 'class-validator';
+import { PlanTier } from '@prisma/client';
 import { PaginationQuery } from '@common';
 
 export class ListTenantsQuery extends PaginationQuery {
@@ -38,6 +39,12 @@ export class ProvisionTenantDto {
 export class SuspendTenantDto {
   @IsString() @MinLength(1) @MaxLength(500)
   reason!: string;
+}
+
+/** Change a tenant's plan tier (SA3). Must be one of the catalog tiers (BASIC / PLUS / PRO). */
+export class ChangePlanDto {
+  @IsEnum(PlanTier)
+  planTier!: PlanTier;
 }
 
 /** Step 2 of the platform two-step login: the pending token + a TOTP or recovery code (SA0). */

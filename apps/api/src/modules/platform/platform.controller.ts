@@ -1,9 +1,9 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import type { Request } from 'express';
 import { Public } from '@common';
 import { PlatformService } from './platform.service';
 import { PlatformAuthGuard, PlatformRoles, CurrentPlatformUser, type PlatformActor } from './platform-auth.guard';
-import { ListTenantsQuery, ProvisionTenantDto, SuspendTenantDto } from './dto/platform.dto';
+import { ChangePlanDto, ListTenantsQuery, ProvisionTenantDto, SuspendTenantDto } from './dto/platform.dto';
 
 /**
  * Vendor console (blueprint §24) — cross-tenant tenant management. `@Public` skips the
@@ -26,6 +26,12 @@ export class PlatformController {
   @Get('overview')
   overview() {
     return this.platform.getOverview();
+  }
+
+  // The plan catalog (SA3) — a read, open to any authenticated operator.
+  @Get('plans')
+  plans() {
+    return this.platform.getPlans();
   }
 
   // Writes require the full operator role (SA0, SA-P6) and leave an audit row (SA-P2).
@@ -53,5 +59,13 @@ export class PlatformController {
   @HttpCode(HttpStatus.OK)
   reactivate(@Param('id') id: string, @CurrentPlatformUser() actor: PlatformActor, @Req() req: Request) {
     return this.platform.reactivate(id, { platformUserId: actor.id, ip: req.ip });
+  }
+
+  // Change a tenant's plan (SA3, SUPER_ADMIN) — audited as TENANT_PLAN_CHANGE.
+  @PlatformRoles('SUPER_ADMIN')
+  @Patch('tenants/:id/plan')
+  @HttpCode(HttpStatus.OK)
+  changePlan(@Param('id') id: string, @Body() dto: ChangePlanDto, @CurrentPlatformUser() actor: PlatformActor, @Req() req: Request) {
+    return this.platform.changePlan(id, dto.planTier, { platformUserId: actor.id, ip: req.ip });
   }
 }

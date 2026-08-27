@@ -126,8 +126,10 @@ describe('Platform vendor console (e2e, §24)', () => {
       .set('Cookie', cookieHeader(sessionCookies));
     expect(res.status).toBe(200);
     expect(typeof res.body.total).toBe('number');
-    const ours = (res.body.data as Array<{ id: string; subdomain: string }>).find((t) => t.id === schoolId);
+    const ours = (res.body.data as Array<{ id: string; subdomain: string; activeStudents: number }>).find((t) => t.id === schoolId);
     expect(ours?.subdomain).toBe(sub);
+    // SA3: the list carries usage for the plan-cap surfacing — ACTIVE enrollments (Law 4), a number.
+    expect(typeof ours?.activeStudents).toBe('number');
   });
 
   it('filters tenants by search (name / subdomain)', async () => {

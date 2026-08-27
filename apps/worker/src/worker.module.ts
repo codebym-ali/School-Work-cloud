@@ -5,6 +5,8 @@ import { CommonModule, ConfigModule, ENV, pinoConfig, RedisModule, type Env } fr
 import { DatabaseModule } from '@database';
 import { CommsModule } from '../../api/src/modules/comms/comms.module';
 import { FeeJobsService } from '../../api/src/modules/fees/fee-jobs.service';
+import { PlatformBillingService } from '../../api/src/modules/platform/platform-billing.service';
+import { PlatformAuditService } from '../../api/src/modules/platform/platform-audit.service';
 import { SmsProcessor } from './processors/sms.processor';
 import { MaintenanceService } from './maintenance/maintenance.service';
 import { MaintenanceProcessor } from './processors/maintenance.processor';
@@ -23,6 +25,6 @@ import { MaintenanceProcessor } from './processors/maintenance.processor';
     DatabaseModule,
     CommsModule,
   ],
-  providers: [SmsProcessor, MaintenanceService, MaintenanceProcessor, FeeJobsService],
+  providers: [SmsProcessor, MaintenanceService, MaintenanceProcessor, FeeJobsService, PlatformBillingService, PlatformAuditService],
 })
 export class WorkerModule {}

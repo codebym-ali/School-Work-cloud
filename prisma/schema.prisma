@@ -237,6 +237,16 @@ model School {
   planTier           PlanTier  @default(BASIC) @map("plan_tier")
   isActive           Boolean   @default(true) @map("is_active")
   suspendedAt        DateTime? @map("suspended_at")
+  // SA6c: WHY the school is suspended — 'NON_PAYMENT' (dunning) vs 'MANUAL' (an operator / legal hold).
+  // Null when active. Auto-reactivate-on-payment only un-suspends a NON_PAYMENT lock, never a manual one.
+  suspendedReason    String?   @map("suspended_reason")
+  // SA7 offboarding: `purgeAfter` is the instant the irreversible hard-delete becomes allowed
+  // (a retention window, SA-P5); until then, cancelling termination reactivates. Both null normally.
+  purgeAfter         DateTime? @map("purge_after")
+  terminationReason  String?   @map("termination_reason")
+  // SA6 vendor billing (D3): the monthly rate the VENDOR charges this school PER ACTIVE STUDENT.
+  // Set by a SUPER_ADMIN/BILLING operator in the console; null = not priced yet (cannot be invoiced).
+  pricePerStudent    Decimal?  @map("price_per_student") @db.Decimal(12, 2)
   grNumberMode       String    @default("AUTO") @map("gr_number_mode") // AUTO | MANUAL
   grPrefix           String    @default("") @map("gr_prefix")
   nextGrNumber       Int       @default(1) @map("next_gr_number")
@@ -291,24 +301,167 @@ model School {
   mfaRecoveryCodes    MfaRecoveryCode[]
   classTests          ClassTest[]
   classTestScores     ClassTestScore[]
+  platformInvoices    PlatformInvoice[] // SA6 vendor billing — the vendor's invoices for THIS school (non-tenant)
 
   @@map("schools")
+}
+
+/// Vendor-console privilege split (SA0). SA0 enforces only two levels — SUPER_ADMIN
+/// (full operator: every write) vs. read-only (SUPPORT/BILLING/ANALYST, reads only);
+/// the finer per-role capabilities land in SA4.
+enum PlatformRole {
+  SUPER_ADMIN
+  SUPPORT
+  BILLING
+  ANALYST
 }
 
 /// Vendor-side operator (blueprint §5, §24) — NOT a tenant user. Lives outside RLS
 /// (no school_id); the platform/vendor console authenticates against this table and
 /// acts across tenants via the platform_admin (BYPASSRLS) connection.
 model PlatformUser {
-  id           String     @id @default(uuid()) @db.Uuid
-  email        String     @unique
-  passwordHash String     @map("password_hash")
-  name         String     @default("")
-  status       UserStatus @default(ACTIVE)
-  lastLoginAt  DateTime?  @map("last_login_at")
-  createdAt    DateTime   @default(now()) @map("created_at")
-  updatedAt    DateTime   @updatedAt @map("updated_at")
+  id           String       @id @default(uuid()) @db.Uuid
+  email        String       @unique
+  passwordHash String?      @map("password_hash") // nullable: an INVITED operator sets it via the SA4b onboarding link
+  name         String       @default("")
+  role         PlatformRole @default(SUPER_ADMIN)
+  status       UserStatus   @default(ACTIVE)
+  mfaSecretEnc String?      @map("mfa_secret_enc") // encrypted TOTP secret (SA0)
+  mfaEnabled   Boolean      @default(false) @map("mfa_enabled")
+  lastLoginAt  DateTime?    @map("last_login_at")
+  createdAt    DateTime     @default(now()) @map("created_at")
+  updatedAt    DateTime     @updatedAt @map("updated_at")
 
   @@map("platform_users")
+}
+
+/// Vendor-console audit trail (SA0, SA-P2). Every platform WRITE appends a row: who
+/// (operator), what action, which tenant, when — plus a reason on destructive actions.
+/// NOT a tenant table — no school_id, no RLS; written on the platform_admin (BYPASSRLS)
+/// connection and revoked from app_user (SA-P4).
+model PlatformAuditLog {
+  id             String   @id @default(uuid()) @db.Uuid
+  // Nullable since SA6b: automated jobs (auto-invoice, dunning auto-suspend) have NO operator — a
+  // null actor reads as "the system did this", distinct from any operator. Operator writes still set it.
+  platformUserId String?  @map("platform_user_id") @db.Uuid
+  action         String
+  targetTenantId String?  @map("target_tenant_id") @db.Uuid
+  metadata       Json?
+  reason         String?
+  ip             String?
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@index([platformUserId])
+  @@index([targetTenantId])
+  @@map("platform_audit_logs")
+}
+
+/// Single-use MFA recovery codes for vendor-console operators (SA0). Mirrors
+/// MfaRecoveryCode but keyed by platform_user_id (no school_id, no RLS). argon2 hashes;
+/// the plaintext is shown ONCE at enrolment and is unrecoverable — used_at makes each
+/// one single-use. Revoked from app_user (SA-P4).
+model PlatformMfaRecoveryCode {
+  id             String    @id @default(uuid()) @db.Uuid
+  platformUserId String    @map("platform_user_id") @db.Uuid
+  codeHash       String    @unique @map("code_hash")
+  usedAt         DateTime? @map("used_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  @@index([platformUserId])
+  @@map("platform_mfa_recovery_codes")
+}
+
+/// Nightly fleet-wide snapshot for the vendor dashboard (SA1, SA-P7). NOT a tenant table — it
+/// aggregates ACROSS all schools, so it has no school_id and lives outside RLS (on the NON_TENANT
+/// allowlist in check-rls-coverage.mjs, and revoked from app_user in 06_grants.sql like every
+/// platform_* table). The dashboard reads the most recent row (O(1)); the worker's
+/// `platform-stats-snapshot` job writes one nightly. Computing these totals live would be a
+/// COUNT(*) across every school × every student on each page load — the cost finding E avoids.
+model PlatformStatsSnapshot {
+  id               String   @id @default(uuid()) @db.Uuid
+  capturedAt       DateTime @default(now()) @map("captured_at")
+  schoolsTotal     Int      @map("schools_total")
+  schoolsActive    Int      @map("schools_active")
+  schoolsSuspended Int      @map("schools_suspended")
+  studentsActive   Int      @map("students_active")
+  staffEmployed    Int      @map("staff_employed")
+  newSchools30d    Int      @map("new_schools_30d")
+
+  @@index([capturedAt])
+  @@map("platform_stats")
+}
+
+/// One-time onboarding / password-reset token for a vendor operator (SA4b). The platform mirror of
+/// `password_reset_tokens`, keyed by platform_user_id — non-tenant (no school_id, no RLS), so grants
+/// are its only access control (revoked from app_user in 06_grants.sql, like every platform_* table).
+/// Minted when an operator is invited with no password; the operator sets their own via
+/// POST /platform/auth/set-password (which flips INVITED → ACTIVE).
+model PlatformPasswordResetToken {
+  id             String    @id @default(uuid()) @db.Uuid
+  platformUserId String    @map("platform_user_id") @db.Uuid
+  tokenHash      String    @unique @map("token_hash")
+  expiresAt      DateTime  @map("expires_at")
+  usedAt         DateTime? @map("used_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  @@index([platformUserId])
+  @@map("platform_password_reset_tokens")
+}
+
+/// Vendor billing status for a per-student invoice (SA6). ISSUED once generated; PAID when an offline
+/// payment (bank transfer / cash / cheque) is recorded; VOID if cancelled. OVERDUE is DERIVED (the due
+/// date passed while still ISSUED), never stored — one definition, computed on read (Law 4).
+enum PlatformInvoiceStatus {
+  ISSUED
+  PAID
+  VOID
+}
+
+/// A vendor→school invoice (SA6, decision D3: in-house per-student billing). The VENDOR bills each
+/// school monthly for `student_count × price_per_student`, both FROZEN at issue time so a later
+/// enrolment change or re-price never rewrites history. NOT a tenant table — it is the vendor's own
+/// revenue record, so it references the school by `tenant_id` (NOT `school_id`, which the RLS-coverage
+/// gate would demand a policy for) and lives on the NON_TENANT allowlist, revoked from app_user like
+/// every platform_* table. `tenant_id` is ON DELETE SET NULL with a `tenant_subdomain` snapshot, so the
+/// billing history SURVIVES an SA7 tenant purge — you still need to know what you invoiced and collected.
+model PlatformInvoice {
+  id               String                @id @default(uuid()) @db.Uuid
+  tenantId         String?               @map("tenant_id") @db.Uuid
+  tenantSubdomain  String                @map("tenant_subdomain") // snapshot at issue — outlives a purge
+  periodYear       Int                   @map("period_year")
+  periodMonth      Int                   @map("period_month") // 1–12
+  studentCount     Int                   @map("student_count") // frozen ACTIVE-enrollment count at issue
+  pricePerStudent  Decimal               @map("price_per_student") @db.Decimal(12, 2) // frozen rate
+  amount           Decimal               @db.Decimal(12, 2) // = student_count × price_per_student, frozen
+  currency         String                @default("PKR")
+  status           PlatformInvoiceStatus @default(ISSUED)
+  issuedAt         DateTime              @default(now()) @map("issued_at")
+  dueAt            DateTime              @map("due_at")
+  paidAt           DateTime?             @map("paid_at")
+  paymentMethod    String?               @map("payment_method") // BANK_TRANSFER | CASH | CHEQUE | OTHER
+  paymentReference String?               @map("payment_reference")
+  note             String?
+  createdAt        DateTime              @default(now()) @map("created_at")
+
+  tenant School? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+
+  @@unique([tenantId, periodYear, periodMonth]) // one invoice per school per month (nulls distinct → purged tenants unconstrained)
+  @@index([tenantId])
+  @@index([status])
+  @@map("platform_invoices")
+}
+
+/// Vendor-wide billing settings (SA6c) — a SINGLE row. Non-tenant (no school_id, no RLS), revoked from
+/// app_user like every platform_* table. Currently one switch: `autoReactivateOnPayment` — when a school
+/// suspended for NON-PAYMENT clears its overdue balance, bring it back online automatically. Default OFF:
+/// an operator must opt in, and it never un-suspends a school an operator suspended by hand (SA6c).
+model PlatformSettings {
+  id                      String   @id @default(uuid()) @db.Uuid
+  autoReactivateOnPayment Boolean  @default(false) @map("auto_reactivate_on_payment")
+  updatedById             String?  @map("updated_by_id") @db.Uuid
+  updatedAt               DateTime @updatedAt @map("updated_at")
+
+  @@map("platform_settings")
 }
 
 /// Single-use rotating refresh tokens for the vendor console (blueprint §22.4, §24).

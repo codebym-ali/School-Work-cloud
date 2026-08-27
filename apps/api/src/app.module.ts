@@ -24,6 +24,7 @@ import { DatabaseModule, TenantTransactionInterceptor } from '@database';
 import { MetricsController } from './metrics/metrics.controller';
 import { AuthModule } from './modules/auth/auth.module';
 import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard';
+import { BreakGlassReadonlyGuard } from './modules/auth/guards/break-glass.guard';
 import { CsrfGuard } from './modules/auth/guards/csrf.guard';
 import { HealthController } from './health/health.controller';
 import { TenantResolutionMiddleware } from './tenant/tenant-resolution.middleware';
@@ -108,6 +109,8 @@ import { UploadsModule } from './modules/uploads/uploads.module';
     // routes key per user; @Public routes key per IP) — blueprint §29.
     { provide: APP_GUARD, useClass: CsrfGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
+    // SA5: block writes for a break-glass session (read-only, SA-P8) — after JwtAuthGuard so req.user is set.
+    { provide: APP_GUARD, useClass: BreakGlassReadonlyGuard },
     { provide: APP_GUARD, useClass: RateLimitGuard },
     { provide: APP_GUARD, useClass: TenantScopeGuard },
     { provide: APP_GUARD, useClass: RolesGuard },

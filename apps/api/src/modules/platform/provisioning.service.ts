@@ -1,7 +1,9 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
 import * as argon2 from 'argon2';
+import { randomBytes } from 'node:crypto';
 import { AppError, ErrorCodes, parseSchoolSettings } from '@common';
 import { PlatformPrismaService } from '@database';
+import { TokenService } from '../auth/token.service';
 import { DEFAULT_TEMPLATES, SMS_TRIGGER_KEYS } from '../comms/sms/sms-templates.defaults';
 import { PLAN_MONTHLY_SMS_CREDITS } from '../comms/sms/sms-plan-credits';
 
@@ -18,7 +20,15 @@ export interface ProvisionResult {
   schoolId: string;
   campusId: string;
   ownerUserId: string;
+  /** A one-time onboarding token (SA2, SA-P3) — present only when the owner was created INVITED
+   *  (no password). The owner sets their own password via /auth/reset-password; never shown again. */
+  onboardingToken?: string;
 }
+
+/** How long a provisioning onboarding link stays valid. Deliberately LONGER than the 30-min
+ *  password-reset TTL: onboarding is not urgent self-service — the operator delivers the link and the
+ *  new owner may act hours or a day later. Single-use and hashed, so a wide window is acceptable. */
+const ONBOARDING_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
  * Tenant provisioning (blueprint §24 vendor console `POST /platform/schools`).
@@ -61,6 +71,25 @@ export class ProvisioningService {
       },
     });
 
+    // SA2 (SA-P3): when no password was supplied (the vendor console never sends one), the owner is
+    // INVITED and gets a one-time onboarding token instead — the SAME `password_reset_tokens` the
+    // forgot-password flow uses, minted here on the BYPASSRLS connection for the just-created tenant.
+    // The owner sets their own password via /auth/reset-password (which also flips INVITED → ACTIVE).
+    // The raw token is returned to the caller ONCE; only its SHA-256 hash is stored.
+    let onboardingToken: string | undefined;
+    if (!input.ownerPassword) {
+      const raw = randomBytes(32).toString('base64url');
+      await this.platform.passwordResetToken.create({
+        data: {
+          schoolId: school.id,
+          userId: owner.id,
+          tokenHash: TokenService.hashRefresh(raw),
+          expiresAt: new Date(Date.now() + ONBOARDING_TTL_MS),
+        },
+      });
+      onboardingToken = raw;
+    }
+
     // Seed default SMS templates and the plan's monthly credit grant (§14).
     await this.platform.smsTemplate.createMany({
       data: SMS_TRIGGER_KEYS.map((k) => ({ schoolId: school.id, triggerKey: k, body: DEFAULT_TEMPLATES[k] })),
@@ -69,6 +98,6 @@ export class ProvisioningService {
       data: { schoolId: school.id, delta: PLAN_MONTHLY_SMS_CREDITS.BASIC, refType: 'PLAN_MONTHLY' },
     });
 
-    return { schoolId: school.id, campusId: campus.id, ownerUserId: owner.id };
+    return { schoolId: school.id, campusId: campus.id, ownerUserId: owner.id, onboardingToken };
   }
 }

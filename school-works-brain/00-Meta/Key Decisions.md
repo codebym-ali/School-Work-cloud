@@ -1,7 +1,7 @@
 ---
 title: Key Decisions
 type: meta
-updated: 2026-08-17
+updated: 2026-08-20
 ---
 
 # Key Decisions
@@ -71,7 +71,8 @@ Copy verbatim from [[consistency-register]] §6. The load-bearing ones:
 - **Upload AV scan (§22.6)**: `ClamAvService` streams the object to **clamd via the INSTREAM protocol** over raw TCP (no npm client — ~1 socket). `confirmUpload` scans after magic-byte validation, before promoting out of `quarantine/`; infected → delete + **422 `FILE_INFECTED`**, scanner down → **fail-closed 503 `VIRUS_SCAN_UNAVAILABLE`** (never wave a file through when the scanner is unavailable). **Opt-in via `CLAMAV_ENABLED`** (off in dev/test/CI). clamd is heavy + slow to warm (pulls ~175MB DB on first start) and has no arm64 image — keep it opt-in. Verified with the EICAR test string.
 - **Error monitoring (§31)**: `@sentry/node` via a thin `libs/common/observability/sentry.ts` wrapper (`initSentry`/`captureError`/`flushSentry`). **Opt-in — a strict no-op unless `SENTRY_DSN` is set**, so dev/test/CI are unaffected. `initSentry(serverName)` runs first thing in both `main.ts` bootstraps; `AllExceptionsFilter` captures unhandled 500s and the worker captures **exhausted** jobs, both tagged `schoolId/userId/requestId` (never PII). Add capture calls at other failure boundaries as they appear.
 - **Rate limiting (§29)**: `RateLimitGuard` is a **global guard registered right after `JwtAuthGuard`** — so `req.user` exists for authenticated routes (key per-user) and is absent for `@Public` routes (key per-IP). Limiter is a **Redis sliding window** (atomic Lua over a sorted set, not INCR/EXPIRE). Named policies live in `rate-limit.policies.ts`; annotate routes with `@RateLimit(name)` (login/refresh already are) or `@SkipRateLimit()` (health). Breach → **429 + `Retry-After`** through the §25.1 filter. Gated by env `RATE_LIMIT_ENABLED` (default **on**; forced **off in `test/load-env.ts`** so the shared-Redis integration suites don't trip the 5/IP/15min login limit across many logins).
-- **Platform (vendor) auth is a parallel path, not tenant auth (§24).** Platform admins live in a dedicated **`platform_users`** table (no `school_id`, **no RLS** — reached only via the platform_admin BYPASSRLS connection), because tenant `User.schoolId` is NOT-NULL under forced RLS and access tokens *require* a `sid` claim. Platform routes are **host-exempt** (`platform/*` excluded from `TenantResolutionMiddleware`, like health/webhooks) so they work on the reserved `admin` host with no tenant. They are marked `@Public` to skip the tenant guard chain (Csrf/Jwt/TenantScope) and add **`PlatformAuthGuard`** via `@UseGuards`. Distinct cookie names (`platform_access_token`/`platform_refresh_token`/`platform_csrf`) so a platform + tenant session can coexist in one browser under the shared `COOKIE_DOMAIN`; the JWT carries `typ:'platform'` (no `sid`) so it can never be accepted by the tenant `JwtAuthGuard`. Suspend/reactivate flip `School.isActive` and call `TenantResolutionMiddleware.invalidate(host)` so it takes effect on the next request (not after the 60s cache TTL). **Hardened (now at parity with tenant auth):** `platform_users` + `platform_refresh_tokens` DML **revoked from `app_user`** so the tenant runtime role can't read operator/refresh hashes even via a bug/injection; `PlatformAuthGuard` **re-checks `status` on every request** (disabling an operator revokes access immediately); and the access token is now **short (15m)** with a **single-use rotating refresh token** in `platform_refresh_tokens` (§22.4 — reuse of a revoked token revokes the whole `familyId` = theft signal; logout revokes the family; the `/admin` client silently refreshes on 401). Covered by `platform.e2e-spec` (rotation + reuse-revokes-family + logout-revokes).
+- **Platform (vendor) auth is a parallel path, not tenant auth (§24).** Platform admins live in a dedicated **`platform_users`** table (no `school_id`, **no RLS** — reached only via the platform_admin BYPASSRLS connection), because tenant `User.schoolId` is NOT-NULL under forced RLS and access tokens *require* a `sid` claim. Platform routes are **host-exempt** (`platform/*` excluded from `TenantResolutionMiddleware`, like health/webhooks) so they work on the reserved `admin` host with no tenant. They are marked `@Public` to skip the tenant guard chain (Csrf/Jwt/TenantScope) and add **`PlatformAuthGuard`** via `@UseGuards`. Distinct cookie names (`platform_access_token`/`platform_refresh_token`/`platform_csrf`) so a platform + tenant session can coexist in one browser under the shared `COOKIE_DOMAIN`; the JWT carries `typ:'platform'` (no `sid`) so it can never be accepted by the tenant `JwtAuthGuard`. Suspend/reactivate flip `School.isActive` and call `TenantResolutionMiddleware.invalidate(host)` so it takes effect on the next request (not after the 60s cache TTL). **Hardened (now at parity with tenant auth):** `platform_users` + `platform_refresh_tokens` DML **revoked from `app_user`** so the tenant runtime role can't read operator/refresh hashes even via a bug/injection — ⚠️ **this claim was FALSE in practice from the day it was written until 2026-08-24**: the revoke lived in a migration and `06_grants.sql` re-granted it minutes later on every `db:setup`; measured, `app_user` could read both tables. Fixed by moving the revoke to the end of the grants companion and guarding it with a third check in `check-rls-coverage.mjs` — see *A REVOKE in a migration is undone by the grants companion*; `PlatformAuthGuard` **re-checks `status` on every request** (disabling an operator revokes access immediately); and the access token is now **short (15m)** with a **single-use rotating refresh token** in `platform_refresh_tokens` (§22.4 — reuse of a revoked token revokes the whole `familyId` = theft signal; logout revokes the family; the `/admin` client silently refreshes on 401). Covered by `platform.e2e-spec` (rotation + reuse-revokes-family + logout-revokes).
+- **SuperAdmin = the SaaS *product owner* (vendor), not a school entity (decided 2026-08-20).** The SuperAdmin is the operator in `platform_users` who runs the *whole product* — it onboards schools, sets plans/modules, and watches the fleet. Its **native surface is the fleet, and it controls *containers* (schools, plans, entitlements, operators), never *contents* (student/fee/attendance rows).** Touching one school's data is the exception, done only through **audited, time-boxed break-glass "login-as" on the RLS-scoped tenant path (never BYPASSRLS)** — not a permission dial. ⚠️ **The wrong framing to avoid:** "how deep into a school's data can the SuperAdmin see?" is a *tenant* lens; it treats a vendor role as if it were a school role. `Role.PLATFORM_ADMIN` in the tenant enum is a **vestigial** look-alike with no platform power — the real SuperAdmin is `platform_users`. Full design + phased build (with the isolation invariant SA-P8) in [[SuperAdmin Control Plane Plan]].
 - **Campus scoping — deny-by-default (§22.8, playbook P1.7).** Roles gate *which* endpoints; they do **not** gate *which campus's rows* a user touches. Non-OWNER_ADMIN principals are confined to their own campus. The rule lives in a shared helper `@common` `authz/campus-scope.ts`:
   - `restrictedCampusId(user)` → `null` for OWNER_ADMIN (school-wide); otherwise the user's `campusId`. **Fail-closed:** a non-owner with a null `campusId` (misconfig) or no principal → the **nil-UUID `NO_CAMPUS`** sentinel (a syntactically-valid UUID that matches no real campus) — never fall through to school-wide. (Nil-UUID, not a non-UUID string, because a non-UUID compared against a `uuid` column *errors* in Postgres instead of matching nothing.)
   - **Reads/lists:** `effectiveCampusFilter(user, clientCampusId)` returns the forced restriction (ignoring the client's `campusId`) or, for owners, the client value. **Never trust a client `campusId`.**
@@ -577,6 +578,34 @@ Blueprint's AWS reference (RDS/ECS/S3/KMS…) is replaced by **Contabo + Coolify
   debris. Its diff was unmergeable — 10k lines behind — but its *reasoning* was worth more than the
   code on `main`. **Read a branch before deleting it; the diff can be worthless while the design is
   not.**
+
+## A REVOKE in a migration is undone by the grants companion (added 2026-08-24)
+- ⚠️ **The tenant runtime role could read every vendor table — operator emails, argon2 password
+  hashes, encrypted MFA secrets, recovery-code hashes and the whole platform audit trail.**
+  Measured on the live dev database, not inferred: `psql -U app_user` returned rows from
+  `platform_users`, `platform_audit_logs` and `platform_mfa_recovery_codes`.
+- **Cause: order of operations inside one command.** `db:setup` is
+  `prisma migrate deploy && pnpm db:sql`. The SA0 migration ends with
+  `REVOKE ALL ... FROM app_user`, and `06_grants.sql` — which runs *next* — opens with
+  `GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO app_user`. The revoke
+  was handed straight back, seconds later, by the same command that performed it.
+- ⚠️ **A one-shot REVOKE cannot defend against a repeated blanket GRANT.** A migration runs once;
+  the companions re-run on every setup. **Whatever runs last wins**, so the revoke belongs at the
+  END of `06_grants.sql`, not in the migration that first needed it.
+- ⚠️ **RLS is no help here and that is the point.** These four tables carry no `school_id`, so
+  they are on the NON_TENANT allowlist and no policy applies — **grants are their only access
+  control.** Both existing checks pass on them by design, which is exactly why the hole was
+  invisible: the guard that would have caught it did not exist.
+- **Now guarded**: `check-rls-coverage.mjs` gained a third check asserting `app_user` holds no
+  privilege on any `platform_*` table, with `VENDOR_TABLES` derived from the allowlist so the two
+  cannot drift. Probed by re-granting `SELECT` on one table — the check exits **1** and names the
+  table and privilege; `pnpm db:sql` restores it and it exits 0.
+- ⚠️ `schools` is deliberately excluded from the revoke: it also has no `school_id`, but tenant
+  resolution must read it from the request Host.
+- **Not caused by SA0** — the same hole already existed for `platform_users` and
+  `platform_refresh_tokens`, which the brain had recorded as "revoked from app_user". They were
+  revoked; the grant put them back. **A control that is written, runs, and is then silently undone
+  is the sixth inert security control found in this codebase.**
 
 **Source:** [[consistency-register]] · [[school-management-master-blueprint]] §2–§34
 

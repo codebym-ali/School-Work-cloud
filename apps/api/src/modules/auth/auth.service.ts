@@ -18,7 +18,7 @@ import {
 import { AuditService, TenantPrismaService } from '@database';
 import { doorAllows, type LoginDoor } from './login-door';
 import { PasswordService } from './password.service';
-import { TokenService } from './token.service';
+import { TokenService, type DecodedAccess } from './token.service';
 import { AccessService } from '../access/access.service';
 import {
   clearAuthCookies,
@@ -432,6 +432,24 @@ export class AuthService {
     });
   }
 
+  /**
+   * Set the break-glass access cookie (SA5) from a valid break-glass token, on the tenant host the
+   * operator is entering. NO csrf/refresh cookie is issued — the session is read-only (writes are
+   * blocked by both the missing csrf and the BreakGlassReadonlyGuard) and simply expires with the
+   * token. The token's `sid` confines the session to one school (TenantScopeGuard + RLS, SA-P8).
+   */
+  async breakGlassEnter(token: string, res: Response): Promise<void> {
+    let claims: DecodedAccess;
+    try {
+      claims = this.tokens.verifyAccess(token);
+    } catch {
+      throw new AppError(ErrorCodes.UNAUTHENTICATED, HttpStatus.UNAUTHORIZED, 'Invalid or expired link');
+    }
+    if (!claims.bg) throw new AppError(ErrorCodes.UNAUTHENTICATED, HttpStatus.UNAUTHORIZED, 'Not a break-glass link');
+    const maxAgeMs = Math.max(0, claims.exp * 1000 - Date.now());
+    setAccessCookie(res, this.env, token, maxAgeMs);
+  }
+
   // ── MFA enrolment (§22.5) ───────────────────────────────────────────────────
   async mfaSetup(principal: RequestUser): Promise<{ otpauthUrl: string }> {
     const user = await this.db.user.findFirst({ where: { id: principal.userId } });
@@ -547,6 +565,20 @@ export class AuthService {
   }
 
   async me(principal: RequestUser): Promise<{ id: string; email: string; roles: Role[]; campusId: string | null; modules: string[]; mfaEnabled: boolean; admissionsMode: SchoolSettings['admissionsMode'] }> {
+    // SA5: a break-glass session has no tenant user row — synthesise a read-only "me" so the shell
+    // loads (roles come from the token; every write is blocked by the BreakGlassReadonlyGuard).
+    if (principal.breakGlass) {
+      const bgSchool = await this.db.school.findFirst({ where: { id: principal.schoolId } });
+      return {
+        id: principal.userId,
+        email: 'Vendor support · read-only',
+        roles: principal.roles,
+        campusId: null,
+        modules: [],
+        mfaEnabled: false,
+        admissionsMode: parseSchoolSettings(bgSchool?.settings).admissionsMode,
+      };
+    }
     const user = await this.db.user.findFirst({ where: { id: principal.userId } });
     if (!user) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'User not found');
     const modules = await this.access.enabledModulesForSelf();

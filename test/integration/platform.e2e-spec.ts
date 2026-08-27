@@ -48,6 +48,9 @@ describe('Platform vendor console (e2e, §24)', () => {
       data: {
         email: platformEmail,
         name: 'Test Platform Admin',
+        // SA0 (§24): the console splits reads from writes — only SUPER_ADMIN may provision/suspend/
+        // reactivate. This admin drives the write endpoints below, so it must hold the full role.
+        role: 'SUPER_ADMIN',
         status: 'ACTIVE',
         passwordHash: await argon2.hash(platformPassword, { type: argon2.argon2id }),
       },
@@ -70,6 +73,10 @@ describe('Platform vendor console (e2e, §24)', () => {
   });
 
   afterAll(async () => {
+    // SA0 (§24): the write endpoints below now append platform_audit_logs rows keyed to this admin
+    // (and to the target tenant). Clear them first so neither the tenant delete nor the operator
+    // delete trips an FK.
+    await platform.platformAuditLog.deleteMany({ where: { platformUserId } });
     for (const sid of [schoolId, provSchoolId].filter(Boolean) as string[]) await destroyTenant(platform, sid);
     await platform.platformRefreshToken.deleteMany({ where: { platformUserId } });
     await platform.platformUser.deleteMany({ where: { id: platformUserId } });
@@ -119,8 +126,10 @@ describe('Platform vendor console (e2e, §24)', () => {
       .set('Cookie', cookieHeader(sessionCookies));
     expect(res.status).toBe(200);
     expect(typeof res.body.total).toBe('number');
-    const ours = (res.body.data as Array<{ id: string; subdomain: string }>).find((t) => t.id === schoolId);
+    const ours = (res.body.data as Array<{ id: string; subdomain: string; activeStudents: number }>).find((t) => t.id === schoolId);
     expect(ours?.subdomain).toBe(sub);
+    // SA3: the list carries usage for the plan-cap surfacing — ACTIVE enrollments (Law 4), a number.
+    expect(typeof ours?.activeStudents).toBe('number');
   });
 
   it('filters tenants by search (name / subdomain)', async () => {
@@ -138,15 +147,18 @@ describe('Platform vendor console (e2e, §24)', () => {
   const provOwnerLogin = () =>
     loginRequest(server(), `${provSub}.localhost`, provOwnerEmail, provOwnerPassword);
 
-  it('provisions a new tenant → it appears in the list and its owner can log in', async () => {
+  it('provisions a new tenant → onboarding link sets the owner password → owner can log in (SA2)', async () => {
     const res = await request(server())
       .post('/api/v1/platform/tenants')
       .set('Host', 'admin.localhost')
       .set('Cookie', cookieHeader(sessionCookies))
       .set('X-CSRF-Token', csrfOf(sessionCookies))
-      .send({ name: 'Provisioned School', subdomain: provSub, ownerEmail: provOwnerEmail, ownerPassword: provOwnerPassword });
+      // SA2 (SA-P3): NO password is sent from the console.
+      .send({ name: 'Provisioned School', subdomain: provSub, ownerEmail: provOwnerEmail });
     expect(res.status).toBe(201);
     expect(res.body.subdomain).toBe(provSub);
+    // Provisioning returns a one-time onboarding token instead of accepting a password.
+    expect(typeof res.body.onboardingToken).toBe('string');
     provSchoolId = res.body.id;
 
     const list = await request(server())
@@ -155,8 +167,32 @@ describe('Platform vendor console (e2e, §24)', () => {
       .set('Cookie', cookieHeader(sessionCookies));
     expect((list.body.data as Array<{ id: string }>).some((t) => t.id === provSchoolId)).toBe(true);
 
-    // The provisioned OWNER_ADMIN can authenticate against their new tenant host.
+    // The owner starts INVITED with no password — a login attempt fails until they set one.
+    expect((await provOwnerLogin()).status).toBe(401);
+
+    // The owner follows the onboarding link and sets their own password via /auth/reset-password on
+    // their tenant host (the token is tenant-scoped, minted by the platform provision path). This
+    // also flips the owner INVITED → ACTIVE.
+    const setPw = await request(server())
+      .post('/api/v1/auth/reset-password')
+      .set('Host', `${provSub}.localhost`)
+      .send({ token: res.body.onboardingToken, newPassword: provOwnerPassword });
+    expect(setPw.status).toBe(204);
+
+    // Now the provisioned OWNER_ADMIN can authenticate against their new tenant host.
     expect((await provOwnerLogin()).status).toBe(200);
+  });
+
+  it('the console refuses a typed password (SA-P3 — 400, server-enforced)', async () => {
+    const res = await request(server())
+      .post('/api/v1/platform/tenants')
+      .set('Host', 'admin.localhost')
+      .set('Cookie', cookieHeader(sessionCookies))
+      .set('X-CSRF-Token', csrfOf(sessionCookies))
+      .send({ name: 'No Passwords Here', subdomain: `sa2-nopw-${randomUUID().slice(0, 8)}`, ownerEmail: 'x@example.com', ownerPassword: 'TypedInConsole!1' });
+    // forbidNonWhitelisted rejects the extra field before provisioning runs — no school is created.
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('VALIDATION_FAILED');
   });
 
   it('rejects provisioning a duplicate subdomain (409 CONFLICT)', async () => {
@@ -165,7 +201,7 @@ describe('Platform vendor console (e2e, §24)', () => {
       .set('Host', 'admin.localhost')
       .set('Cookie', cookieHeader(sessionCookies))
       .set('X-CSRF-Token', csrfOf(sessionCookies))
-      .send({ name: 'Dupe', subdomain: provSub, ownerEmail: `dupe-${provSub}@example.com`, ownerPassword: provOwnerPassword });
+      .send({ name: 'Dupe', subdomain: provSub, ownerEmail: `dupe-${provSub}@example.com` });
     expect(res.status).toBe(409);
     expect(res.body.error.code).toBe('CONFLICT');
   });
@@ -176,7 +212,7 @@ describe('Platform vendor console (e2e, §24)', () => {
       .set('Host', 'admin.localhost')
       .set('Cookie', cookieHeader(sessionCookies))
       .set('X-CSRF-Token', csrfOf(sessionCookies))
-      .send({ name: 'Bad', subdomain: 'Bad_Sub Domain', ownerEmail: 'x@example.com', ownerPassword: provOwnerPassword });
+      .send({ name: 'Bad', subdomain: 'Bad_Sub Domain', ownerEmail: 'x@example.com' });
     expect(res.status).toBe(400);
     expect(res.body.error.code).toBe('VALIDATION_FAILED');
   });
@@ -198,7 +234,9 @@ describe('Platform vendor console (e2e, §24)', () => {
       .post(`/api/v1/platform/tenants/${schoolId}/suspend`)
       .set('Host', 'admin.localhost')
       .set('Cookie', cookieHeader(sessionCookies))
-      .set('X-CSRF-Token', csrfOf(sessionCookies));
+      .set('X-CSRF-Token', csrfOf(sessionCookies))
+      // SA0 (§24): a suspension must state why — a blank reason is a 400, and the reason is audited.
+      .send({ reason: 'Suspended by the console e2e' });
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({ id: schoolId, isActive: false });
 
@@ -224,6 +262,7 @@ describe('Platform vendor console (e2e, §24)', () => {
       data: {
         email: `disable-${randomUUID().slice(0, 8)}@platform.pk`,
         name: 'Temp',
+        role: 'SUPER_ADMIN',
         status: 'ACTIVE',
         passwordHash: await argon2.hash('Temp!Secret12', { type: argon2.argon2id }),
       },

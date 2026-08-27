@@ -10,6 +10,10 @@ export interface AccessClaims {
   sid: string; // schoolId
   roles: Role[];
   cid: string | null; // campusId
+  /** SA5 break-glass: marks a vendor "login-as" session (read-only, scoped to `sid`). */
+  bg?: boolean;
+  /** SA5: the platform operator behind a break-glass session, for attribution. */
+  vop?: string;
 }
 
 export interface DecodedAccess extends AccessClaims {
@@ -43,6 +47,22 @@ export class TokenService {
       expiresIn: this.accessTtl as jwt.SignOptions['expiresIn'],
       keyid: this.activeKid,
     });
+  }
+
+  /**
+   * A break-glass access token (SA5): a NORMAL tenant access token scoped to ONE school (`sid`),
+   * so it rides the same RLS-bound request path and is confined to that tenant by TenantScopeGuard
+   * (host mismatch → 403) + RLS — NEVER the BYPASSRLS connection (SA-P8). Marked `bg` so the pipeline
+   * attaches the acting vendor operator and enforces read-only. Short-lived (30 min).
+   */
+  signBreakGlass(vendorOperatorId: string, schoolId: string): { token: string; expiresInSec: number } {
+    const expiresInSec = 30 * 60;
+    const token = jwt.sign(
+      { sub: vendorOperatorId, sid: schoolId, roles: ['OWNER_ADMIN'], cid: null, bg: true, vop: vendorOperatorId },
+      this.keys[this.activeKid],
+      { algorithm: 'HS256', expiresIn: expiresInSec, keyid: this.activeKid },
+    );
+    return { token, expiresInSec };
   }
 
   /** Verify an access token, selecting the signing key by its `kid` header. */
@@ -97,6 +117,31 @@ export class TokenService {
     if (!secret) throw new Error('Unknown or missing key id');
     const payload = jwt.verify(token, secret, { algorithms: ['HS256'] }) as { sub: string; typ?: string };
     if (payload.typ !== 'platform') throw new Error('Not a platform token');
+    return { sub: payload.sub };
+  }
+
+  /**
+   * Short-lived token proving the platform password step passed, pending MFA (SA0). The
+   * platform equivalent of `signMfaPending`: `typ:'platform-mfa'` keeps it structurally
+   * distinct from the tenant MFA-pending token AND the full platform access token, so one
+   * can never be redeemed where another is expected. Carries no `sid` — platform is
+   * cross-tenant.
+   */
+  signPlatformMfaPending(platformUserId: string): string {
+    return jwt.sign({ sub: platformUserId, typ: 'platform-mfa' }, this.keys[this.activeKid], {
+      algorithm: 'HS256',
+      expiresIn: '5m',
+      keyid: this.activeKid,
+    });
+  }
+
+  verifyPlatformMfaPending(token: string): { sub: string } {
+    const decoded = jwt.decode(token, { complete: true });
+    const kid = decoded?.header?.kid;
+    const secret = kid ? this.keys[kid] : undefined;
+    if (!secret) throw new Error('Unknown or missing key id');
+    const payload = jwt.verify(token, secret, { algorithms: ['HS256'] }) as { sub: string; typ?: string };
+    if (payload.typ !== 'platform-mfa') throw new Error('Not a platform-MFA-pending token');
     return { sub: payload.sub };
   }
 

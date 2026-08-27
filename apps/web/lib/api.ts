@@ -646,6 +646,11 @@ export const api = {
     apiPost<LoginResult>('/auth/owner-login', { email, password }),
   logout: () => apiPost<null>('/auth/logout'),
   me: () => apiGet<Me>('/auth/me'),
+  /** Public set-password (SA2): consumes a one-time onboarding / reset token and sets a new
+   *  password. No session — the token is the whole authorisation; runs on the tenant's own host. */
+  setPassword: (token: string, newPassword: string) => apiPost<null>('/auth/reset-password', { token, newPassword }),
+  /** SA5: set the read-only break-glass session cookie from an enter link (public). */
+  breakGlassEnter: (token: string) => apiPost<null>('/auth/break-glass-enter', { token }),
   mfa: {
     /** Step 2 of login for an MFA-enabled account — exchanges the pending token for a session. */
     challenge: (mfaToken: string, code: string) =>

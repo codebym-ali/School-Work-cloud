@@ -14,6 +14,7 @@ import { CurrentUser, Public, RateLimit, type RequestUser } from '@common';
 import { AuthService } from './auth.service';
 import { REFRESH_COOKIE } from './auth.cookies';
 import {
+  BreakGlassEnterDto,
   ChangePasswordDto,
   DisableMfaDto,
   ForgotPasswordDto,
@@ -90,6 +91,14 @@ export class AuthController {
   @HttpCode(HttpStatus.NO_CONTENT)
   async resetPassword(@Body() dto: ResetPasswordDto) {
     await this.auth.resetPassword(dto);
+  }
+
+  /** Set the break-glass session cookie from a valid enter link (SA5) — public; the token is the auth. */
+  @Public()
+  @Post('break-glass-enter')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async breakGlassEnter(@Body() dto: BreakGlassEnterDto, @Res({ passthrough: true }) res: Response) {
+    await this.auth.breakGlassEnter(dto.token, res);
   }
 
   @Post('change-password')

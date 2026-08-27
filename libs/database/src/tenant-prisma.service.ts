@@ -49,7 +49,12 @@ export class TenantPrismaService {
   /** The tenant-bound client for the current request (the active tx if inside withTenant). */
   get client(): TenantTx {
     const tx = this.cls.get<TenantTx | undefined>(CLS_KEYS.tx);
-    return (tx ?? this.xprisma) as unknown as TenantTx;
+    // Split the return rather than `tx ?? this.xprisma`: forming that union makes TS structurally
+    // compare the extended-client type against TransactionClient, which tips over the
+    // type-instantiation depth limit as the generated client grows (adding the SA1 model did just
+    // that). Casting each branch through `unknown` keeps the runtime identical without the deep compare.
+    if (tx) return tx;
+    return this.xprisma as unknown as TenantTx;
   }
 
   async withTenant<T>(fn: (tx: TenantTx) => Promise<T>): Promise<T> {

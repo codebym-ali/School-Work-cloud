@@ -341,13 +341,15 @@ export class PlatformService {
     return result;
   }
 
-  private async setActive(id: string, isActive: boolean): Promise<{ id: string; isActive: boolean }> {
+  private async setActive(id: string, isActive: boolean, reason: 'MANUAL' | 'NON_PAYMENT' = 'MANUAL'): Promise<{ id: string; isActive: boolean }> {
     const school = await this.platform.school.findUnique({ where: { id } });
     if (!school) throw new AppError(ErrorCodes.TENANT_NOT_FOUND, HttpStatus.NOT_FOUND, 'Tenant not found');
 
     await this.platform.school.update({
       where: { id },
-      data: { isActive, suspendedAt: isActive ? null : new Date() },
+      // SA6c: stamp WHY it's suspended (a manual operator suspend here), so auto-reactivate-on-payment
+      // never un-suspends a school an operator locked by hand. Reactivating clears the reason.
+      data: { isActive, suspendedAt: isActive ? null : new Date(), suspendedReason: isActive ? null : reason },
     });
 
     // Take effect immediately: drop the tenant-resolution cache for this school's hosts.
@@ -391,7 +393,7 @@ export class PlatformService {
     const school = await this.platform.school.findUnique({ where: { id }, select: { subdomain: true, customDomain: true, purgeAfter: true } });
     if (!school) throw new AppError(ErrorCodes.TENANT_NOT_FOUND, HttpStatus.NOT_FOUND, 'Tenant not found');
     if (!school.purgeAfter) throw new AppError(ErrorCodes.VALIDATION_FAILED, HttpStatus.UNPROCESSABLE_ENTITY, 'This tenant is not scheduled for termination');
-    await this.platform.school.update({ where: { id }, data: { purgeAfter: null, terminationReason: null, isActive: true, suspendedAt: null } });
+    await this.platform.school.update({ where: { id }, data: { purgeAfter: null, terminationReason: null, isActive: true, suspendedAt: null, suspendedReason: null } });
     this.invalidateHostCache(school.subdomain, school.customDomain);
     await this.audit.record({ platformUserId: ctx.platformUserId, action: 'TENANT_TERMINATE_CANCEL', targetTenantId: id, ip: ctx.ip });
     return { id, isActive: true };

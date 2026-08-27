@@ -96,6 +96,7 @@ describe('Platform vendor billing (e2e, §24 SA6)', () => {
     }
     // Invoices for A survive its purge (tenantId → null); clean them by the subdomain snapshot.
     await platform.platformInvoice.deleteMany({ where: { tenantSubdomain: { in: [subA, subB] } } });
+    await platform.platformSettings.deleteMany({}); // global singleton — reset so it can't leak into other specs
     for (const sid of [schoolA, schoolB]) await destroyTenant(platform, sid); // A may already be purged → no-op
     await platform.platformUser.deleteMany({ where: { id: { in: ids } } });
     await app.close();
@@ -181,6 +182,18 @@ describe('Platform vendor billing (e2e, §24 SA6)', () => {
     expect((await get(analystCookies, 'billing/invoices')).status).toBe(403);
     expect((await get(analystCookies, 'billing/overview')).status).toBe(403);
     expect((await post(analystCookies, 'billing/invoices', { tenantId: schoolA, year: 2026, month: 3 })).status).toBe(403);
+  });
+
+  it('billing settings (SA6c): SUPER_ADMIN reads + toggles auto-reactivate; ANALYST is forbidden (403)', async () => {
+    expect((await get(analystCookies, 'billing/settings')).status).toBe(403);
+    const read = await get(superCookies, 'billing/settings');
+    expect(read.status).toBe(200);
+    expect(typeof read.body.autoReactivateOnPayment).toBe('boolean');
+    const on = await put(superCookies, 'billing/settings', { autoReactivateOnPayment: true });
+    expect(on.status).toBe(200);
+    expect(on.body.autoReactivateOnPayment).toBe(true);
+    expect((await put(analystCookies, 'billing/settings', { autoReactivateOnPayment: false })).status).toBe(403);
+    await put(superCookies, 'billing/settings', { autoReactivateOnPayment: false }); // reset the global singleton
   });
 
   it('billing history SURVIVES an SA7 tenant purge (tenant_id → null, snapshot kept)', async () => {

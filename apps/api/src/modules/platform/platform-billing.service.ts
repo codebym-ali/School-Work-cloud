@@ -57,6 +57,12 @@ export interface BillingOverview {
   overdueCount: number;
 }
 
+/** Vendor-wide billing settings (SA6c). */
+export interface BillingSettings {
+  /** When on, a NON-PAYMENT-suspended school is auto-reactivated once it clears its overdue balance. */
+  autoReactivateOnPayment: boolean;
+}
+
 /**
  * Vendor billing (SA6, decision D3 — in-house, per-student). The VENDOR charges each school a monthly
  * rate per ACTIVE student (the SAME student definition as the fleet dashboard, Law 4). Runs on the
@@ -209,7 +215,40 @@ export class PlatformBillingService {
       metadata: { invoiceId, method: input.method, reference: input.reference ?? null, amount: inv.amount.toFixed(2) },
       ip: ctx.ip,
     });
+    // SA6c: if enabled, bring a NON-PAYMENT-suspended school back online once this payment clears its
+    // overdue balance. Runs after the payment is committed; never fails the payment if it can't reactivate.
+    await this.maybeAutoReactivate(inv.tenantId, ctx);
     return this.toSummary(updated);
+  }
+
+  /**
+   * SA6c auto-reactivate: after a payment, un-suspend the school IF (and only if) the vendor opted in
+   * (`autoReactivateOnPayment`), the school is currently suspended **for non-payment** (never a manual /
+   * legal hold), it isn't scheduled for termination, and it has **no overdue invoice left** past the
+   * dunning grace window. Attributed to the operator who recorded the payment. Takes effect within the
+   * API host-cache TTL (same as the dunning suspend), so no cross-process cache invalidation is needed.
+   */
+  private async maybeAutoReactivate(tenantId: string | null, ctx: ActionActor): Promise<void> {
+    if (!tenantId) return;
+    const settings = await this.getOrCreateSettings();
+    if (!settings.autoReactivateOnPayment) return;
+
+    const school = await this.platform.school.findUnique({ where: { id: tenantId }, select: { isActive: true, suspendedReason: true, purgeAfter: true } });
+    if (!school || school.isActive || school.suspendedReason !== 'NON_PAYMENT' || school.purgeAfter) return;
+
+    // Still carrying an invoice past the grace window? Then it isn't clear yet — leave it suspended.
+    const cutoff = new Date(Date.now() - DUNNING_GRACE_DAYS * 24 * 60 * 60 * 1000);
+    const stillOverdue = await this.platform.platformInvoice.count({ where: { tenantId, status: 'ISSUED', dueAt: { lt: cutoff } } });
+    if (stillOverdue > 0) return;
+
+    await this.platform.school.update({ where: { id: tenantId }, data: { isActive: true, suspendedAt: null, suspendedReason: null } });
+    await this.audit.record({
+      platformUserId: ctx.platformUserId,
+      action: 'TENANT_AUTO_REACTIVATE',
+      targetTenantId: tenantId,
+      metadata: { source: 'auto-on-payment' },
+      ip: ctx.ip,
+    });
   }
 
   /** Void an ISSUED invoice (SA6). A PAID invoice cannot be voided (record a refund out of band). Audited. */
@@ -281,6 +320,38 @@ export class PlatformBillingService {
     };
   }
 
+  // ── SA6c vendor billing settings (the auto-reactivate switch) ──────────────────────────────────
+
+  /** The single vendor-settings row, created with defaults on first read (find-then-write, not upsert). */
+  private async getOrCreateSettings(): Promise<BillingSettings> {
+    const row = await this.platform.platformSettings.findFirst({ select: { autoReactivateOnPayment: true } });
+    if (row) return row;
+    const created = await this.platform.platformSettings.create({ data: {}, select: { autoReactivateOnPayment: true } });
+    return created;
+  }
+
+  /** Read the vendor billing settings (SA6c). */
+  getBillingSettings(): Promise<BillingSettings> {
+    return this.getOrCreateSettings();
+  }
+
+  /** Toggle auto-reactivate-on-payment (SA6c, SUPER_ADMIN/BILLING). Audited `BILLING_SETTINGS_UPDATE`. */
+  async setAutoReactivate(enabled: boolean, ctx: PlatformActionContext): Promise<BillingSettings> {
+    const existing = await this.platform.platformSettings.findFirst({ select: { id: true } });
+    if (existing) {
+      await this.platform.platformSettings.update({ where: { id: existing.id }, data: { autoReactivateOnPayment: enabled, updatedById: ctx.platformUserId } });
+    } else {
+      await this.platform.platformSettings.create({ data: { autoReactivateOnPayment: enabled, updatedById: ctx.platformUserId } });
+    }
+    await this.audit.record({
+      platformUserId: ctx.platformUserId,
+      action: 'BILLING_SETTINGS_UPDATE',
+      metadata: { autoReactivateOnPayment: enabled },
+      ip: ctx.ip,
+    });
+    return { autoReactivateOnPayment: enabled };
+  }
+
   // ── SA6b automation (system jobs — no operator; the audit actor is null) ───────────────────────
 
   /**
@@ -333,7 +404,9 @@ export class PlatformBillingService {
       const sid = inv.tenantId;
       if (!sid || seen.has(sid)) continue;
       seen.add(sid);
-      await this.platform.school.update({ where: { id: sid }, data: { isActive: false, suspendedAt: now } });
+      // Stamp the reason NON_PAYMENT (SA6c) so auto-reactivate-on-payment may later un-suspend it — a
+      // manual/legal-hold suspend carries 'MANUAL' and is never touched by auto-reactivate.
+      await this.platform.school.update({ where: { id: sid }, data: { isActive: false, suspendedAt: now, suspendedReason: 'NON_PAYMENT' } });
       await this.audit.record({
         platformUserId: null,
         action: 'TENANT_AUTO_SUSPEND',

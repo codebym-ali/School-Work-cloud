@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { ApiError } from '@/lib/api';
-import { platformApi, type Tenant, type Invoice, type BillingOverview } from '@/lib/platform-api';
+import { platformApi, type Tenant, type Invoice, type BillingOverview, type BillingSettings } from '@/lib/platform-api';
 import { usePlatformMe } from '../me-context';
 
 const MONTHS = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -23,6 +23,7 @@ export default function BillingPage() {
   const canBill = me.role === 'SUPER_ADMIN' || me.role === 'BILLING';
 
   const [overview, setOverview] = useState<BillingOverview | null>(null);
+  const [settings, setSettings] = useState<BillingSettings | null>(null);
   const [tenants, setTenants] = useState<Tenant[]>([]);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [statusFilter, setStatusFilter] = useState('');
@@ -33,12 +34,14 @@ export default function BillingPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [ov, tp, inv] = await Promise.all([
+      const [ov, st, tp, inv] = await Promise.all([
         platformApi.billingOverview(),
+        platformApi.billingSettings(),
         platformApi.tenants({ pageSize: 100 }),
         platformApi.invoices({ status: statusFilter || undefined, pageSize: 100 }),
       ]);
       setOverview(ov);
+      setSettings(st);
       setTenants(tp.data);
       setInvoices(inv.data);
     } finally { setLoading(false); }
@@ -68,6 +71,23 @@ export default function BillingPage() {
       {msg && <div className={`toast ${msg.ok ? 'ok' : 'err'}`}>{msg.text}</div>}
 
       {overview && <OverviewCards o={overview} />}
+
+      {settings && (
+        <div className="card" style={{ display: 'flex', alignItems: 'center', gap: 16, justifyContent: 'space-between', flexWrap: 'wrap' }}>
+          <div style={{ maxWidth: 640 }}>
+            <strong style={{ fontSize: 15 }}>Auto-reactivate on payment</strong>
+            <p className="muted" style={{ margin: '4px 0 0', fontSize: 13 }}>
+              When a school suspended <em>for non-payment</em> clears its overdue balance, bring it back online
+              automatically. Off by default — a school you suspended by hand is never auto-reactivated.
+            </p>
+          </div>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap', fontSize: 14 }}>
+            <input type="checkbox" checked={settings.autoReactivateOnPayment}
+              onChange={(e) => run(() => platformApi.setAutoReactivate(e.target.checked), `Auto-reactivate turned ${e.target.checked ? 'on' : 'off'}`)} />
+            {settings.autoReactivateOnPayment ? 'On' : 'Off'}
+          </label>
+        </div>
+      )}
 
       <PricingTable tenants={tenants} loading={loading} run={run} />
 

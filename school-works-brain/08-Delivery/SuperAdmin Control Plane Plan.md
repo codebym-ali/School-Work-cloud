@@ -250,7 +250,7 @@ unambiguously.
 - **Done when:** a support agent can reproduce a school's issue, every action is attributable to the
   vendor in the school's own audit, the session is RLS-scoped (test-proven), and it ends on its own.
 
-### SA6 — Billing & subscriptions *(a separate epic — size it as one)* — ✅ SHIPPED (v1 + SA6b automation) 2026-08-27
+### SA6 — Billing & subscriptions *(a separate epic — size it as one)* — ✅ SHIPPED (v1 + SA6b automation + SA6c auto-reactivate) 2026-08-27
 **Goal:** connect plans to money. ⚠️ This is effectively its own product; consider deferring or a
 gateway partner (decision D3).
 - **DB/API:** per-tenant invoices, payment records, trial→paid transitions, dunning + auto-suspend on
@@ -305,8 +305,21 @@ it when it is). No payment gateway in v1 — payments are recorded **offline** (
 - **Verified 2026-08-27:** build · lint · `db:check-rls` · new `platform-billing-automation.e2e-spec.ts`
   **4 tests** (auto-invoice priced+students only / idempotent / dunning suspends-overdue-not-paid-nor-within-grace
   / no-re-suspend, all with null-actor `source:'auto'` audit) · all 11 platform specs (81) · isolation 7/7.
-- ⚠️ **Still deferred:** partial payments / refunds; auto-REACTIVATE on payment; a payment gateway
-  (Stripe / local PK rails); wiring MRR into SA1's nightly snapshot.
+**SA6c — opt-in auto-reactivate on payment (2026-08-27):** closes the dunning loop — when a school
+suspended **for non-payment** clears its overdue balance, it comes back online automatically. **Off by
+default; the operator opts in** via a console toggle (persisted in a new single-row `platform_settings`).
+The safety hinge is a new `schools.suspended_reason` (`NON_PAYMENT` vs `MANUAL`): dunning stamps
+`NON_PAYMENT`, an operator suspend stamps `MANUAL`, and auto-reactivate **only ever lifts a NON_PAYMENT
+lock** — never a manual/legal hold. It also refuses to reactivate a school that's terminating (purgeAfter
+set) or still carrying any invoice past the grace window. `recordPayment` runs it after the payment
+commits; attributed to the operator who took the payment (`TENANT_AUTO_REACTIVATE`, `source:'auto-on-payment'`);
+takes effect within the host-cache TTL. Routes `GET/PUT /platform/billing/settings` (SUPER_ADMIN+BILLING);
+console toggle on `/admin/billing`. **Verified:** build · lint · web tsc · `db:check-rls` (vendor isolation
+covers `platform_settings`) · `platform-billing-automation.e2e` +4 (OFF→stays / ON→reactivates /
+MANUAL→never / another-overdue→stays) + `platform-billing.e2e` +1 (settings route roles) · all 11 platform
+specs (86) · isolation 7/7.
+- ⚠️ **Still deferred:** partial payments / refunds; a payment gateway (Stripe / local PK rails); wiring
+  MRR into SA1's nightly snapshot.
 
 ### SA7 — Tenant export + hard-delete / crypto-shred *(NEW — the real home of A)* — ✅ SHIPPED 2026-08-27
 **Goal:** offboard a school completely and provably. This is the hardest operation in the system; it

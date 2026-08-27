@@ -81,6 +81,8 @@ export interface BillingOverview {
   collectedThisMonth: string; collectedAllTime: string;
   pricedSchools: number; unpricedActiveSchools: number; issuedCount: number; overdueCount: number;
 }
+/** Vendor-wide billing settings (SA6c). */
+export interface BillingSettings { autoReactivateOnPayment: boolean }
 /** A tenant data export (SA7) — sensitive columns redacted. */
 export interface TenantExport { schoolId: string; subdomain: string; generatedAt: string; rowCounts: Record<string, number>; tables: Record<string, unknown[]> }
 export interface NewTenant { name: string; subdomain: string; ownerEmail: string }
@@ -203,4 +205,8 @@ export const platformApi = {
   /** Void an issued invoice (reason recorded). */
   voidInvoice: (id: string, reason: string) =>
     request<Invoice>(`/platform/billing/invoices/${id}/void`, { method: 'POST', body: { reason } }),
+  /** Vendor-wide billing settings (SA6c). */
+  billingSettings: () => request<BillingSettings>('/platform/billing/settings'),
+  setAutoReactivate: (autoReactivateOnPayment: boolean) =>
+    request<BillingSettings>('/platform/billing/settings', { method: 'PUT', body: { autoReactivateOnPayment } }),
 };

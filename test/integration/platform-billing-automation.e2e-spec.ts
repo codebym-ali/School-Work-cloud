@@ -25,7 +25,12 @@ describe('Platform vendor billing automation (e2e, §24 SA6b)', () => {
   const subD = sub('d'); // overdue ISSUED invoice → dunning suspends
   const subE = sub('e'); // overdue but PAID invoice → dunning leaves alone
   const subF = sub('f'); // ISSUED but within grace → dunning leaves alone
-  let A = '', B = '', C = '', D = '', E = '', F = '';
+  const subG = sub('g'); // non-payment suspended, setting OFF → paying does NOT reactivate
+  const subH = sub('h'); // non-payment suspended, setting ON  → paying reactivates
+  const subI = sub('i'); // MANUALLY suspended, setting ON     → paying does NOT reactivate
+  const subJ = sub('j'); // non-payment suspended, 2 overdue   → paying one keeps it suspended
+  let A = '', B = '', C = '', D = '', E = '', F = '', G = '', H = '', I = '', J = '';
+  let superId = ''; // an operator id for recordPayment / settings ctx (no login needed)
 
   // Auto-invoice bills the CURRENT month; use a far-future month so it can't collide with real data.
   const RUN = new Date(Date.UTC(2029, 5, 15)); // June 2029
@@ -52,8 +57,9 @@ describe('Platform vendor billing automation (e2e, §24 SA6b)', () => {
     platform = app.get(PlatformPrismaService);
     billing = app.get(PlatformBillingService);
     const provisioning = app.get(ProvisioningService, { strict: false });
+    superId = (await platform.platformUser.create({ data: { email: `auto-super-${randomUUID().slice(0, 8)}@platform.pk`, name: 'Auto Super', role: 'SUPER_ADMIN', status: 'ACTIVE' } })).id;
     const mk = async (s: string) => (await provisioning.provisionSchool({ name: s, subdomain: s, ownerEmail: `owner-${s}@example.com`, ownerPassword: 'Owner!Secret12' })).schoolId;
-    [A, B, C, D, E, F] = await Promise.all([mk(subA), mk(subB), mk(subC), mk(subD), mk(subE), mk(subF)]);
+    [A, B, C, D, E, F, G, H, I, J] = await Promise.all([mk(subA), mk(subB), mk(subC), mk(subD), mk(subE), mk(subF), mk(subG), mk(subH), mk(subI), mk(subJ)]);
 
     // A: priced with 2 active students. C: priced with 0 students. B/D/E/F: left unpriced (dunning
     // reads invoices, not price, and leaving them unpriced keeps them out of the auto-invoice run).
@@ -63,12 +69,22 @@ describe('Platform vendor billing automation (e2e, §24 SA6b)', () => {
   });
 
   afterAll(async () => {
-    const ids = [A, B, C, D, E, F].filter(Boolean);
-    await platform.platformAuditLog.deleteMany({ where: { targetTenantId: { in: ids } } });
-    await platform.platformInvoice.deleteMany({ where: { tenantSubdomain: { in: [subA, subB, subC, subD, subE, subF] } } });
+    const ids = [A, B, C, D, E, F, G, H, I, J].filter(Boolean);
+    await platform.platformAuditLog.deleteMany({ where: { OR: [{ targetTenantId: { in: ids } }, { platformUserId: superId }] } });
+    await platform.platformInvoice.deleteMany({ where: { tenantSubdomain: { in: [subA, subB, subC, subD, subE, subF, subG, subH, subI, subJ] } } });
+    await platform.platformSettings.deleteMany({}); // global singleton — reset so it can't leak into other specs
     for (const id of ids) await destroyTenant(platform, id);
+    await platform.platformUser.deleteMany({ where: { id: superId } });
     await app.close();
   });
+
+  // ── SA6c auto-reactivate helpers ────────────────────────────────────────────────────────────────
+  const overdueInvoice = (tenantId: string, subdomain: string, month: number) =>
+    platform.platformInvoice.create({ data: { tenantId, tenantSubdomain: subdomain, periodYear: 2029, periodMonth: month, studentCount: 1, pricePerStudent: 300, amount: 300, status: 'ISSUED', issuedAt: daysAgo(44), dueAt: daysAgo(30) } });
+  const suspendFor = (id: string, reason: 'NON_PAYMENT' | 'MANUAL') =>
+    platform.school.update({ where: { id }, data: { isActive: false, suspendedAt: daysAgo(20), suspendedReason: reason } });
+  const ctx = () => ({ platformUserId: superId });
+  const isActive = async (id: string) => (await platform.school.findUnique({ where: { id }, select: { isActive: true } }))!.isActive;
 
   it('auto-invoice generates the month\'s invoice for priced schools with students only', async () => {
     const created = await billing.runMonthlyBilling(RUN);
@@ -124,5 +140,44 @@ describe('Platform vendor billing automation (e2e, §24 SA6b)', () => {
     const suspended = await billing.runDunning();
     expect(suspended).toBe(0); // D is already suspended → excluded by the active-tenant filter
     expect(await platform.platformAuditLog.count({ where: { action: 'TENANT_AUTO_SUSPEND', targetTenantId: D } })).toBe(1);
+  });
+
+  // ── SA6c: opt-in auto-reactivate on payment ─────────────────────────────────────────────────────
+
+  it('auto-reactivate OFF (default): paying off a non-payment-suspended school does NOT un-suspend it', async () => {
+    await billing.setAutoReactivate(false, ctx());
+    const inv = await overdueInvoice(G, subG, 1);
+    await suspendFor(G, 'NON_PAYMENT');
+    await billing.recordPayment(inv.id, { method: 'BANK_TRANSFER' }, ctx());
+    expect(await isActive(G)).toBe(false);
+  });
+
+  it('auto-reactivate ON: paying off the overdue balance brings a NON-PAYMENT school back online', async () => {
+    await billing.setAutoReactivate(true, ctx());
+    const inv = await overdueInvoice(H, subH, 1);
+    await suspendFor(H, 'NON_PAYMENT');
+    await billing.recordPayment(inv.id, { method: 'BANK_TRANSFER' }, ctx());
+    const school = await platform.school.findUnique({ where: { id: H }, select: { isActive: true, suspendedReason: true } });
+    expect(school).toMatchObject({ isActive: true, suspendedReason: null });
+    const audit = await platform.platformAuditLog.findFirst({ where: { action: 'TENANT_AUTO_REACTIVATE', targetTenantId: H } });
+    expect(audit).toBeTruthy();
+    expect((audit!.metadata as { source: string }).source).toBe('auto-on-payment');
+  });
+
+  it('auto-reactivate ON: a MANUALLY suspended school is never auto-reactivated by a payment', async () => {
+    await billing.setAutoReactivate(true, ctx());
+    const inv = await overdueInvoice(I, subI, 1);
+    await suspendFor(I, 'MANUAL'); // an operator/legal hold — payment must not lift it
+    await billing.recordPayment(inv.id, { method: 'BANK_TRANSFER' }, ctx());
+    expect(await isActive(I)).toBe(false);
+  });
+
+  it('auto-reactivate ON: a school with another overdue invoice stays suspended until it clears', async () => {
+    await billing.setAutoReactivate(true, ctx());
+    const inv1 = await overdueInvoice(J, subJ, 1);
+    await overdueInvoice(J, subJ, 2); // a second, still-unpaid overdue invoice
+    await suspendFor(J, 'NON_PAYMENT');
+    await billing.recordPayment(inv1.id, { method: 'BANK_TRANSFER' }, ctx());
+    expect(await isActive(J)).toBe(false); // still overdue on the second invoice
   });
 });

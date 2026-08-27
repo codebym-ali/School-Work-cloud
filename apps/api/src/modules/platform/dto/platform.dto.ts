@@ -1,4 +1,4 @@
-import { IsDateString, IsEmail, IsEnum, IsIn, IsInt, IsNumber, IsOptional, IsString, IsUUID, Length, Matches, Max, MaxLength, Min, MinLength } from 'class-validator';
+import { IsBoolean, IsDateString, IsEmail, IsEnum, IsIn, IsInt, IsNumber, IsOptional, IsString, IsUUID, Length, Matches, Max, MaxLength, Min, MinLength } from 'class-validator';
 import { PlanTier, PlatformRole } from '@prisma/client';
 import { PaginationQuery } from '@common';
 
@@ -98,6 +98,12 @@ export class RecordPaymentDto {
 export class VoidInvoiceDto {
   @IsString() @MinLength(1) @MaxLength(500)
   reason!: string;
+}
+
+/** Toggle a vendor-wide billing setting (SA6c). */
+export class BillingSettingsDto {
+  @IsBoolean()
+  autoReactivateOnPayment!: boolean;
 }
 
 /** Filter the vendor invoice list (SA6). */

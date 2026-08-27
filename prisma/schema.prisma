@@ -237,6 +237,9 @@ model School {
   planTier           PlanTier  @default(BASIC) @map("plan_tier")
   isActive           Boolean   @default(true) @map("is_active")
   suspendedAt        DateTime? @map("suspended_at")
+  // SA6c: WHY the school is suspended — 'NON_PAYMENT' (dunning) vs 'MANUAL' (an operator / legal hold).
+  // Null when active. Auto-reactivate-on-payment only un-suspends a NON_PAYMENT lock, never a manual one.
+  suspendedReason    String?   @map("suspended_reason")
   // SA7 offboarding: `purgeAfter` is the instant the irreversible hard-delete becomes allowed
   // (a retention window, SA-P5); until then, cancelling termination reactivates. Both null normally.
   purgeAfter         DateTime? @map("purge_after")
@@ -446,6 +449,19 @@ model PlatformInvoice {
   @@index([tenantId])
   @@index([status])
   @@map("platform_invoices")
+}
+
+/// Vendor-wide billing settings (SA6c) — a SINGLE row. Non-tenant (no school_id, no RLS), revoked from
+/// app_user like every platform_* table. Currently one switch: `autoReactivateOnPayment` — when a school
+/// suspended for NON-PAYMENT clears its overdue balance, bring it back online automatically. Default OFF:
+/// an operator must opt in, and it never un-suspends a school an operator suspended by hand (SA6c).
+model PlatformSettings {
+  id                      String   @id @default(uuid()) @db.Uuid
+  autoReactivateOnPayment Boolean  @default(false) @map("auto_reactivate_on_payment")
+  updatedById             String?  @map("updated_by_id") @db.Uuid
+  updatedAt               DateTime @updatedAt @map("updated_at")
+
+  @@map("platform_settings")
 }
 
 /// Single-use rotating refresh tokens for the vendor console (blueprint §22.4, §24).

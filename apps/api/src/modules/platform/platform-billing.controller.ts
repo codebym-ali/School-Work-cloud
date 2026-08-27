@@ -3,7 +3,7 @@ import type { Request } from 'express';
 import { Public } from '@common';
 import { PlatformBillingService } from './platform-billing.service';
 import { PlatformAuthGuard, PlatformRoles, CurrentPlatformUser, type PlatformActor } from './platform-auth.guard';
-import { GenerateInvoiceDto, ListInvoicesQuery, RecordPaymentDto, SetPriceDto, VoidInvoiceDto } from './dto/platform.dto';
+import { BillingSettingsDto, GenerateInvoiceDto, ListInvoicesQuery, RecordPaymentDto, SetPriceDto, VoidInvoiceDto } from './dto/platform.dto';
 
 /**
  * Vendor billing (SA6, decision D3 — in-house, per-student). Every route is confined to the
@@ -28,6 +28,20 @@ export class PlatformBillingController {
   @Get('invoices')
   invoices(@Query() q: ListInvoicesQuery) {
     return this.billing.listInvoices(q);
+  }
+
+  // Vendor-wide billing settings (SA6c) — the auto-reactivate-on-payment switch.
+  @PlatformRoles('SUPER_ADMIN', 'BILLING')
+  @Get('settings')
+  settings() {
+    return this.billing.getBillingSettings();
+  }
+
+  @PlatformRoles('SUPER_ADMIN', 'BILLING')
+  @Put('settings')
+  @HttpCode(HttpStatus.OK)
+  updateSettings(@Body() dto: BillingSettingsDto, @CurrentPlatformUser() actor: PlatformActor, @Req() req: Request) {
+    return this.billing.setAutoReactivate(dto.autoReactivateOnPayment, { platformUserId: actor.id, ip: req.ip });
   }
 
   // Set the school's monthly per-student price (audited TENANT_PRICE_SET).

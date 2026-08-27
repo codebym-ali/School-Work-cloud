@@ -49,6 +49,7 @@ const NON_TENANT_TABLES = [
   'platform_audit_logs',
   'platform_mfa_recovery_codes',
   'platform_stats',
+  'platform_password_reset_tokens',
   '_prisma_migrations',
 ];
 

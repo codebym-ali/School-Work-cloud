@@ -1,12 +1,14 @@
 import { HttpStatus, Inject, Injectable } from '@nestjs/common';
+import { randomBytes } from 'node:crypto';
 import { Prisma, type PlanTier, type PlatformRole } from '@prisma/client';
 import { AppError, ENV, ErrorCodes, paginate, toSkipTake, type Env, type Paginated } from '@common';
 import { PlatformPrismaService } from '@database';
 import { TenantResolutionMiddleware } from '../../tenant/tenant-resolution.middleware';
 import { ProvisioningService } from './provisioning.service';
 import { PlatformAuditService } from './platform-audit.service';
+import { TokenService } from '../auth/token.service';
 import { PLAN_LIMITS, type PlanLimits } from './plan-limits';
-import type { ListTenantsQuery, ProvisionTenantDto } from './dto/platform.dto';
+import type { CreateOperatorDto, ListTenantsQuery, ProvisionTenantDto } from './dto/platform.dto';
 
 /** Who is performing a platform write, and from where — threaded to the audit row (SA-P2). */
 export interface PlatformActionContext {
@@ -52,6 +54,10 @@ export interface OperatorSummary {
   lastLoginAt: Date | null;
   createdAt: Date;
 }
+
+/** How long an operator onboarding link stays valid (SA4b) — 7 days, like the tenant SA2 onboarding
+ *  link (delivered-then-acted, single-use + hashed). */
+const OPERATOR_ONBOARDING_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
  * Vendor console operations (blueprint §24), executed on the platform_admin (BYPASSRLS)
@@ -246,6 +252,32 @@ export class PlatformService {
       ip: ctx.ip,
     });
     return updated;
+  }
+
+  /**
+   * Invite a new operator (SA4b, SUPER_ADMIN): create them INVITED with NO password + a one-time
+   * onboarding token (SA-P3 — no password is typed into the console), audited `OPERATOR_CREATE`. The
+   * email is lowercased to match the login lookup (`email.toLowerCase()`), or an operator could be
+   * created that can never sign in.
+   */
+  async createOperator(dto: CreateOperatorDto, ctx: PlatformActionContext): Promise<{ id: string; email: string; onboardingToken: string }> {
+    const email = dto.email.toLowerCase();
+    const existing = await this.platform.platformUser.findUnique({ where: { email } });
+    if (existing) throw new AppError(ErrorCodes.CONFLICT, HttpStatus.CONFLICT, 'An operator with that email already exists');
+    const operator = await this.platform.platformUser.create({
+      data: { email, name: dto.name ?? '', role: dto.role, status: 'INVITED', passwordHash: null },
+    });
+    const raw = randomBytes(32).toString('base64url');
+    await this.platform.platformPasswordResetToken.create({
+      data: { platformUserId: operator.id, tokenHash: TokenService.hashRefresh(raw), expiresAt: new Date(Date.now() + OPERATOR_ONBOARDING_TTL_MS) },
+    });
+    await this.audit.record({
+      platformUserId: ctx.platformUserId,
+      action: 'OPERATOR_CREATE',
+      metadata: { operatorId: operator.id, email, role: dto.role },
+      ip: ctx.ip,
+    });
+    return { id: operator.id, email, onboardingToken: raw };
   }
 
   /** Suspend a tenant with a mandatory reason (SA-P2); audited as `TENANT_SUSPEND`. */

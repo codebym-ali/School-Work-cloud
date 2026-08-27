@@ -4,7 +4,7 @@ import { Public, RateLimit } from '@common';
 import { PlatformAuthService } from './platform-auth.service';
 import { PlatformAuthGuard, CurrentPlatformUser, type PlatformActor } from './platform-auth.guard';
 import { PLATFORM_REFRESH_COOKIE } from './platform.cookies';
-import { PlatformLoginDto, PlatformMfaDto, PlatformMfaEnrollConfirmDto } from './dto/platform.dto';
+import { PlatformLoginDto, PlatformMfaDto, PlatformMfaEnrollConfirmDto, PlatformSetPasswordDto } from './dto/platform.dto';
 
 const refreshCookie = (req: Request): string | undefined =>
   (req.cookies as Record<string, string> | undefined)?.[PLATFORM_REFRESH_COOKIE];
@@ -48,6 +48,13 @@ export class PlatformAuthController {
   @HttpCode(HttpStatus.OK)
   mfaEnrollConfirm(@CurrentPlatformUser() actor: PlatformActor, @Body() dto: PlatformMfaEnrollConfirmDto) {
     return this.auth.mfaEnrollConfirm(actor.id, dto);
+  }
+
+  /** Public: an INVITED operator sets their own password via the one-time onboarding token (SA4b). */
+  @Post('set-password')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async setPassword(@Body() dto: PlatformSetPasswordDto) {
+    await this.auth.setPassword(dto);
   }
 
   @RateLimit('refresh')

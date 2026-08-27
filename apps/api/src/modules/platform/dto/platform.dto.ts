@@ -57,6 +57,28 @@ export class UpdateOperatorDto {
   status?: 'ACTIVE' | 'DISABLED';
 }
 
+/** Invite a new vendor operator (SA4b). NO password — a one-time onboarding link is returned and the
+ *  operator sets their own (SA-P3, server-enforced like provisioning). */
+export class CreateOperatorDto {
+  @IsEmail()
+  email!: string;
+
+  @IsOptional() @IsString() @MaxLength(120)
+  name?: string;
+
+  @IsEnum(PlatformRole)
+  role!: PlatformRole;
+}
+
+/** An INVITED operator sets their own password via the SA4b onboarding token (public, no session). */
+export class PlatformSetPasswordDto {
+  @IsString()
+  token!: string;
+
+  @IsString() @MinLength(10) @MaxLength(200)
+  newPassword!: string;
+}
+
 /** Step 2 of the platform two-step login: the pending token + a TOTP or recovery code (SA0). */
 export class PlatformMfaDto {
   @IsString()

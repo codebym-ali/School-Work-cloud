@@ -3,7 +3,7 @@ import type { Request } from 'express';
 import { Public } from '@common';
 import { PlatformService } from './platform.service';
 import { PlatformAuthGuard, PlatformRoles, CurrentPlatformUser, type PlatformActor } from './platform-auth.guard';
-import { ChangePlanDto, ListTenantsQuery, ProvisionTenantDto, SuspendTenantDto, UpdateOperatorDto } from './dto/platform.dto';
+import { ChangePlanDto, CreateOperatorDto, ListTenantsQuery, ProvisionTenantDto, SuspendTenantDto, UpdateOperatorDto } from './dto/platform.dto';
 
 /**
  * Vendor console (blueprint §24) — cross-tenant tenant management. `@Public` skips the
@@ -74,6 +74,14 @@ export class PlatformController {
   @Get('operators')
   operators() {
     return this.platform.listOperators();
+  }
+
+  // Invite a new operator (SA4b) — returns a one-time onboarding token; no password is accepted.
+  @PlatformRoles('SUPER_ADMIN')
+  @Post('operators')
+  @HttpCode(HttpStatus.CREATED)
+  createOperator(@Body() dto: CreateOperatorDto, @CurrentPlatformUser() actor: PlatformActor, @Req() req: Request) {
+    return this.platform.createOperator(dto, { platformUserId: actor.id, ip: req.ip });
   }
 
   @PlatformRoles('SUPER_ADMIN')

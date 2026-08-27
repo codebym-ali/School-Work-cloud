@@ -97,6 +97,8 @@ export interface PlatformOperator {
   lastLoginAt: string | null;
   createdAt: string;
 }
+/** Invite a new operator (SA4b). */
+export interface NewOperator { email: string; name?: string; role: string }
 
 export const platformApi = {
   login: (email: string, password: string) =>
@@ -138,4 +140,10 @@ export const platformApi = {
   /** Change an operator's role and/or status (SA4, SUPER_ADMIN) — audited. */
   updateOperator: (id: string, changes: { role?: string; status?: 'ACTIVE' | 'DISABLED' }) =>
     request<PlatformOperator>(`/platform/operators/${id}`, { method: 'PATCH', body: changes }),
+  /** Invite a new operator (SA4b, SUPER_ADMIN) — returns a one-time onboarding token. */
+  createOperator: (op: NewOperator) =>
+    request<{ id: string; email: string; onboardingToken: string }>('/platform/operators', { method: 'POST', body: op }),
+  /** Public: an INVITED operator sets their own password via the onboarding token (SA4b). */
+  setPassword: (token: string, newPassword: string) =>
+    request<null>('/platform/auth/set-password', { method: 'POST', body: { token, newPassword } }),
 };

@@ -13,7 +13,7 @@ import {
   setPlatformCsrfCookie,
   setPlatformRefreshCookie,
 } from './platform.cookies';
-import type { PlatformLoginDto, PlatformMfaDto, PlatformMfaEnrollConfirmDto } from './dto/platform.dto';
+import type { PlatformLoginDto, PlatformMfaDto, PlatformMfaEnrollConfirmDto, PlatformSetPasswordDto } from './dto/platform.dto';
 
 export interface PlatformPrincipal {
   id: string;
@@ -53,7 +53,9 @@ export class PlatformAuthService {
       new AppError(ErrorCodes.INVALID_CREDENTIALS, HttpStatus.UNAUTHORIZED, 'Invalid email or password');
 
     const user = await this.platform.platformUser.findUnique({ where: { email: dto.email.toLowerCase() } });
-    if (!user || user.status === 'DISABLED') {
+    // An INVITED operator has no password yet (SA4b) — treat it like a non-existent account: spend
+    // the hashing time and fail identically, so the response never reveals the invited-but-unset state.
+    if (!user || user.status === 'DISABLED' || !user.passwordHash) {
       // Spend the hashing time regardless, to flatten the timing signal.
       await this.passwords.verify(
         '$argon2id$v=19$m=65536,t=3,p=1$AAAAAAAAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
@@ -73,6 +75,23 @@ export class PlatformAuthService {
     await this.platform.platformUser.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
     await this.issueSession(res, user.id, randomUUID()); // new rotation family
     return { user: this.principal(user) };
+  }
+
+  /**
+   * An INVITED operator (or a reset) sets their own password via the one-time onboarding token
+   * (SA4b, SA-P3). Mirrors AuthService.resetPassword: consume the token, set the hash, flip the
+   * operator ACTIVE, and revoke any existing refresh families. No session is issued — the operator
+   * signs in normally afterwards.
+   */
+  async setPassword(dto: PlatformSetPasswordDto): Promise<void> {
+    const record = await this.platform.platformPasswordResetToken.findFirst({ where: { tokenHash: TokenService.hashRefresh(dto.token) } });
+    if (!record || record.usedAt || record.expiresAt < new Date()) {
+      throw new AppError(ErrorCodes.VALIDATION_FAILED, HttpStatus.UNPROCESSABLE_ENTITY, 'Invalid or expired link');
+    }
+    const passwordHash = await this.passwords.hash(dto.newPassword);
+    await this.platform.platformUser.update({ where: { id: record.platformUserId }, data: { passwordHash, status: 'ACTIVE' } });
+    await this.platform.platformPasswordResetToken.update({ where: { id: record.id }, data: { usedAt: new Date() } });
+    await this.platform.platformRefreshToken.updateMany({ where: { platformUserId: record.platformUserId, revokedAt: null }, data: { revokedAt: new Date() } });
   }
 
   /**

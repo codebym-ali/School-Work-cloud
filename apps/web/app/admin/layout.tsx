@@ -11,19 +11,21 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const router = useRouter();
   const pathname = usePathname();
   const isLogin = pathname === '/admin/login';
+  // The pre-login public pages render on their own, without a session check: the login door and the
+  // operator set-password page (SA4b — an INVITED operator has no session yet).
+  const isPublic = isLogin || pathname === '/admin/set-password';
   const [me, setMe] = useState<PlatformUser | null>(null);
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    // The login page renders on its own, without a session check.
-    if (isLogin) { setReady(true); return; }
+    if (isPublic) { setReady(true); return; }
     platformApi.me()
       .then(setMe)
       .catch((e) => { if (e instanceof ApiError && e.status === 401) router.replace('/admin/login'); })
       .finally(() => setReady(true));
-  }, [router, isLogin]);
+  }, [router, isPublic]);
 
-  if (isLogin) return <>{children}</>;
+  if (isPublic) return <>{children}</>;
   if (!ready) return <main className="container"><p className="muted">Loading…</p></main>;
   if (!me) return null;
 

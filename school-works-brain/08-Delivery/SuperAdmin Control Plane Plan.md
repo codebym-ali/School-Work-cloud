@@ -206,16 +206,18 @@ unambiguously.
 - **Done when:** changing a school's plan changes what its users can do; an over-limit action is refused
   server-side and atomically; entitlement lives in its own model, `module_access` untouched.
 
-### SA4 — Operator management *(the rest, beyond SA0's MFA + read/full split)* — ⚙️ SA4a (manage) SHIPPED 2026-08-27
+### SA4 — Operator management *(the rest, beyond SA0's MFA + read/full split)* — ✅ SHIPPED 2026-08-27
 **Goal:** run the vendor's own team at least-privilege.
 
 > ⚙️ **SA4a shipped 2026-08-27** (manage existing operators): `GET /platform/operators` (SUPER_ADMIN,
 > no secrets) + `PATCH /platform/operators/:id` (role and/or status, audited `OPERATOR_UPDATE`), with
 > a **self-guard** (can't change your own role/status) that also protects the last SUPER_ADMIN, and a
 > `/admin/operators` console page. Disabling is instant (guard re-checks status live). Verified: tsc
-> (backend + web), lint, 6 platform specs / 47 tests. **SA4b (next):** create a NEW operator via a
-> secure one-time invite (a platform onboarding-token path mirroring SA2 — no password typed), plus an
-> optional IP allowlist. Details in [[Progress Tracker]].
+> (backend + web), lint, 6 platform specs / 47 tests. **SA4b shipped 2026-08-27:** invite a NEW operator
+> with no password (SA-P3) — `POST /platform/operators` → INVITED + a one-time link (new non-tenant
+> `platform_password_reset_tokens`); `POST /platform/auth/set-password` activates them; `passwordHash`
+> is now nullable and the login guards it. **SA4 complete** (manage + invite); only an optional IP
+> allowlist remains, deferred. Details in [[Progress Tracker]].
 - **DB/API:** the full platform-role set — **SuperAdmin** (all), **Support** (read fleet + SA5 login-as),
   **Billing** (subscriptions only), **Analyst** (read-only); operator create / disable / list; optional
   IP allowlist.

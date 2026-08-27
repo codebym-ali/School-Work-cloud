@@ -40,6 +40,9 @@ if (!connectionString) {
  *  - `platform_audit_logs`  the vendor audit trail (SA0) — records platform, not tenant, actions
  *  - `platform_mfa_recovery_codes`  operator MFA recovery codes (SA0), keyed by platform_user_id
  *  - `platform_stats`       fleet snapshot for the vendor dashboard (SA1) — cross-tenant aggregate, no tenant data
+ *  - `platform_password_reset_tokens`  operator onboarding/reset tokens (SA4b), keyed by platform_user_id
+ *  - `platform_invoices`    vendor→school billing (SA6) — the vendor's revenue record; references a school by
+ *                           `tenant_id` (NOT `school_id`), ON DELETE SET NULL so it outlives an SA7 purge
  *  - `_prisma_migrations`   Prisma's own bookkeeping
  */
 const NON_TENANT_TABLES = [
@@ -50,6 +53,7 @@ const NON_TENANT_TABLES = [
   'platform_mfa_recovery_codes',
   'platform_stats',
   'platform_password_reset_tokens',
+  'platform_invoices',
   '_prisma_migrations',
 ];
 

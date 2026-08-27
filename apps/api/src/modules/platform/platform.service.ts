@@ -26,6 +26,8 @@ export interface TenantSummary {
   suspendedAt: Date | null;
   /** SA7: set when scheduled for termination — the instant the hard-delete becomes allowed. */
   purgeAfter: Date | null;
+  /** SA6: the vendor's monthly per-student price for this school, as a decimal string (null = unpriced). */
+  pricePerStudent: string | null;
   createdAt: Date;
   userCount: number;
   /** Current usage for the plan-cap surfacing (SA3): ACTIVE enrollments — the SAME definition as the
@@ -133,6 +135,7 @@ export class PlatformService {
           isActive: true,
           suspendedAt: true,
           purgeAfter: true,
+          pricePerStudent: true,
           createdAt: true,
           // ACTIVE enrollments (not raw `students`) so the console's usage matches the dashboard's
           // "Students" definition and the plan cap it is compared against (SA3, Law 4).
@@ -150,6 +153,7 @@ export class PlatformService {
       isActive: s.isActive,
       suspendedAt: s.suspendedAt,
       purgeAfter: s.purgeAfter,
+      pricePerStudent: s.pricePerStudent != null ? s.pricePerStudent.toFixed(2) : null,
       createdAt: s.createdAt,
       userCount: s._count.users,
       activeStudents: s._count.enrollments,

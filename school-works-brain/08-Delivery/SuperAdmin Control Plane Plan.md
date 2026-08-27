@@ -5,8 +5,11 @@ the record of everything — how many schools, how many students, who controls t
 the owner of this SaaS product who creates schools, their admin credentials, and controls the whole
 product."*
 
-**Status:** 🟢 **SA0–SA5 + SA7 SHIPPED (2026-08-27).** Only **SA6 (billing)** remains — a separate
-epic, deferrable (decision D3). Every control-plane capability except money is built and test-proven.
+**Status:** 🟢 **SA0–SA7 ALL SHIPPED (2026-08-27).** The full vendor control plane is built and
+test-proven: foundation/MFA/roles (SA0), fleet overview (SA1), safe provisioning (SA2), plans + usage
+(SA3), operator management + invite (SA4), break-glass (SA5), **billing v1** (SA6 — in-house per-student,
+decision D3), and tenant export + hard-delete (SA7). Remaining work is v1→later polish, not new phases
+(SA6's dunning/auto-suspend, an auto-invoice worker job, a payment gateway — all listed under SA6 below).
 **Audited 2026-08-20** as senior engineer/architect; six findings folded in (§9, with the full
 before/after). The boundary correction (SuperAdmin = product owner, not a school entity) is recorded
 in [[Key Decisions]] → *Security invariants*.
@@ -247,7 +250,7 @@ unambiguously.
 - **Done when:** a support agent can reproduce a school's issue, every action is attributable to the
   vendor in the school's own audit, the session is RLS-scoped (test-proven), and it ends on its own.
 
-### SA6 — Billing & subscriptions *(a separate epic — size it as one)*
+### SA6 — Billing & subscriptions *(a separate epic — size it as one)* — ✅ SHIPPED (v1) 2026-08-27
 **Goal:** connect plans to money. ⚠️ This is effectively its own product; consider deferring or a
 gateway partner (decision D3).
 - **DB/API:** per-tenant invoices, payment records, trial→paid transitions, dunning + auto-suspend on
@@ -255,6 +258,38 @@ gateway partner (decision D3).
   **allowlist them** (§8).
 - **Done when:** a non-paying school follows grace → suspend automatically; the dashboard shows real
   revenue, not a placeholder.
+
+**D3 resolved (operator, 2026-08-27): in-house invoicing, per-STUDENT pricing, offline payments.**
+The vendor charges each school a **monthly rate per active student**, a number the **SUPER_ADMIN/BILLING
+operator sets per school** in the console (the rate itself is not decided yet — the console lets them set
+it when it is). No payment gateway in v1 — payments are recorded **offline** (bank transfer / cash / cheque).
+
+**As built (v1, 2026-08-27):**
+- **Model:** `schools.price_per_student Decimal(12,2)?` (settable rate; null = unpriced) + a new
+  **`platform_invoices`** table. It is the VENDOR's revenue record, NOT tenant data, so it references the
+  school by **`tenant_id` (never `school_id`** — which the RLS-coverage gate would demand a policy for),
+  is on the NON_TENANT allowlist, and is revoked from `app_user`. `tenant_id` is **ON DELETE SET NULL +
+  a `tenant_subdomain` snapshot**, so **billing history SURVIVES an SA7 purge** (test-proven).
+- **Money frozen at issue:** `amount = student_count × price_per_student`, both frozen onto the invoice, so
+  re-pricing or enrolment changes never rewrite a past invoice. `student_count` = ACTIVE enrollments (the
+  SAME definition as the fleet dashboard — Law 4). `Prisma.Decimal` end-to-end, never a float.
+- **Service/routes** (`PlatformBillingService` + `PlatformBillingController` at `/platform/billing/*`, all
+  **`@PlatformRoles('SUPER_ADMIN','BILLING')`** — even the reads, since revenue is sensitive): `PUT
+  tenants/:id/price` (audit `TENANT_PRICE_SET`), `POST invoices` (generate — refuses if unpriced → 422,
+  one-per-(school,month) → 409, `INVOICE_GENERATED`), `GET invoices` (filterable), `POST invoices/:id/pay`
+  (offline, ISSUED→PAID, `INVOICE_PAID`), `POST invoices/:id/void` (ISSUED→VOID reason, `INVOICE_VOID`),
+  `GET overview` (MRR = live Σ price×active over priced fleet, outstanding/overdue/collected). OVERDUE is
+  DERIVED (past due while ISSUED), never stored.
+- **Console:** a new **`/admin/billing`** page (nav link gated to SUPER_ADMIN + BILLING) — revenue cards,
+  a per-school pricing table, and an invoice ledger with generate / record-payment / void.
+- **Verified 2026-08-27:** api+worker build · lint · web tsc · `db:check-rls` (vendor isolation now covers
+  `platform_invoices`) · new `platform-billing.e2e-spec.ts` **10 tests** (price set + audit; BILLING can
+  price, ANALYST 403; amount = students×price frozen; dup 409; unpriced 422; pay ISSUED→PAID + re-pay 422;
+  void + void-paid 422; overview MRR/outstanding; **billing history survives an SA7 purge**) · all 10
+  platform specs (77) · isolation 7/7.
+- ⚠️ **Deferred (v1 → later):** dunning + auto-suspend on non-payment (feeds SA2's state machine); a
+  monthly auto-generate worker job (v1 generates on demand); partial payments / refunds; a payment
+  gateway (Stripe / local PK rails); wiring MRR into SA1's nightly snapshot.
 
 ### SA7 — Tenant export + hard-delete / crypto-shred *(NEW — the real home of A)* — ✅ SHIPPED 2026-08-27
 **Goal:** offboard a school completely and provably. This is the hardest operation in the system; it
@@ -379,7 +414,10 @@ in the `Role` enum — the school side is fine; this plan only builds the platfo
   judgement*, not new architecture. The fleet count counts **tenants** (the honest, billable number).
   Do **not** build a group/chain super-entity now — if chain-level reporting is ever wanted, add a
   lightweight optional `chain` **label** on `schools`, never a hierarchy. *(SA2.)*
-- **D3 — Billing scope:** in-house invoicing vs. integrate a gateway (Stripe/local PK rails). *(SA6.)*
+- **D3 — Billing scope: 🔒 LOCKED (2026-08-27, operator) → in-house invoicing, per-STUDENT pricing,
+  offline payments.** The vendor charges each school a monthly rate per active student, set per school by
+  a SUPER_ADMIN/BILLING operator (the rate itself is TBD — the console lets them set it). No payment
+  gateway in v1; payments (bank transfer/cash/cheque) are recorded by hand. *(Shipped as SA6 v1 above.)*
 - **D4 — Break-glass default: 🔒 LOCKED (2026-08-25, operator) → ON, with notification + full
   guardrails, per-school opt-out.** Rationale: support in this market is hands-on and the customers are
   not technical, so opt-in-off would block support at the worst moment. Break-glass is available to the

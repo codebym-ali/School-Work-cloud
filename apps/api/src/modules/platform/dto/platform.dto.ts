@@ -1,4 +1,4 @@
-import { IsEmail, IsEnum, IsIn, IsOptional, IsString, Length, Matches, MaxLength, MinLength } from 'class-validator';
+import { IsDateString, IsEmail, IsEnum, IsIn, IsInt, IsNumber, IsOptional, IsString, IsUUID, Length, Matches, Max, MaxLength, Min, MinLength } from 'class-validator';
 import { PlanTier, PlatformRole } from '@prisma/client';
 import { PaginationQuery } from '@common';
 
@@ -57,6 +57,56 @@ export class TerminateDto {
 export class PurgeDto {
   @IsString() @MinLength(1) @MaxLength(60)
   confirmSubdomain!: string;
+}
+
+// ── SA6 vendor billing (D3: in-house, per-student) ───────────────────────────────────────────────
+/** Set the vendor's monthly PER-STUDENT price for a school (SA6). 0 is allowed (a free / pilot tenant);
+ *  capped generously so a fat-finger can't invoice a fortune. */
+export class SetPriceDto {
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @Max(1_000_000)
+  pricePerStudent!: number;
+}
+
+/** Generate a vendor invoice for one school for one billing month (SA6). */
+export class GenerateInvoiceDto {
+  @IsUUID()
+  tenantId!: string;
+
+  @IsInt() @Min(2000) @Max(2100)
+  year!: number;
+
+  @IsInt() @Min(1) @Max(12)
+  month!: number;
+}
+
+/** Record an OFFLINE payment against an issued invoice (SA6, D3 — the vendor collects by bank
+ *  transfer/cash/cheque and marks it here; no card rails in v1). */
+export class RecordPaymentDto {
+  @IsIn(['BANK_TRANSFER', 'CASH', 'CHEQUE', 'OTHER'])
+  method!: string;
+
+  @IsOptional() @IsString() @MaxLength(120)
+  reference?: string;
+
+  @IsOptional() @IsDateString()
+  paidAt?: string;
+}
+
+/** Void an issued invoice (SA6) — a non-blank reason is recorded and audited. */
+export class VoidInvoiceDto {
+  @IsString() @MinLength(1) @MaxLength(500)
+  reason!: string;
+}
+
+/** Filter the vendor invoice list (SA6). */
+export class ListInvoicesQuery extends PaginationQuery {
+  @IsOptional() @IsUUID()
+  tenantId?: string;
+
+  @IsOptional() @IsIn(['ISSUED', 'PAID', 'VOID'])
+  status?: string;
 }
 
 /** Change a tenant's plan tier (SA3). Must be one of the catalog tiers (BASIC / PLUS / PRO). */

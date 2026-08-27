@@ -38,6 +38,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           <strong><Link href="/admin" style={{ color: 'inherit', textDecoration: 'none' }}>🛠️ Vendor Console</Link></strong>
           <span className="inline-form" style={{ alignItems: 'center' }}>
             <Link className="ghost small" href="/admin">Tenants</Link>
+            {(me.role === 'SUPER_ADMIN' || me.role === 'BILLING') && <Link className="ghost small" href="/admin/billing">Billing</Link>}
             {me.role === 'SUPER_ADMIN' && <Link className="ghost small" href="/admin/operators">Operators</Link>}
             <span className="who">{me.email}</span>
             {!onSecurity && <Link className="ghost small" href="/admin/security">Security</Link>}

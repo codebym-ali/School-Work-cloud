@@ -241,6 +241,9 @@ model School {
   // (a retention window, SA-P5); until then, cancelling termination reactivates. Both null normally.
   purgeAfter         DateTime? @map("purge_after")
   terminationReason  String?   @map("termination_reason")
+  // SA6 vendor billing (D3): the monthly rate the VENDOR charges this school PER ACTIVE STUDENT.
+  // Set by a SUPER_ADMIN/BILLING operator in the console; null = not priced yet (cannot be invoiced).
+  pricePerStudent    Decimal?  @map("price_per_student") @db.Decimal(12, 2)
   grNumberMode       String    @default("AUTO") @map("gr_number_mode") // AUTO | MANUAL
   grPrefix           String    @default("") @map("gr_prefix")
   nextGrNumber       Int       @default(1) @map("next_gr_number")
@@ -295,6 +298,7 @@ model School {
   mfaRecoveryCodes    MfaRecoveryCode[]
   classTests          ClassTest[]
   classTestScores     ClassTestScore[]
+  platformInvoices    PlatformInvoice[] // SA6 vendor billing — the vendor's invoices for THIS school (non-tenant)
 
   @@map("schools")
 }
@@ -397,6 +401,49 @@ model PlatformPasswordResetToken {
 
   @@index([platformUserId])
   @@map("platform_password_reset_tokens")
+}
+
+/// Vendor billing status for a per-student invoice (SA6). ISSUED once generated; PAID when an offline
+/// payment (bank transfer / cash / cheque) is recorded; VOID if cancelled. OVERDUE is DERIVED (the due
+/// date passed while still ISSUED), never stored — one definition, computed on read (Law 4).
+enum PlatformInvoiceStatus {
+  ISSUED
+  PAID
+  VOID
+}
+
+/// A vendor→school invoice (SA6, decision D3: in-house per-student billing). The VENDOR bills each
+/// school monthly for `student_count × price_per_student`, both FROZEN at issue time so a later
+/// enrolment change or re-price never rewrites history. NOT a tenant table — it is the vendor's own
+/// revenue record, so it references the school by `tenant_id` (NOT `school_id`, which the RLS-coverage
+/// gate would demand a policy for) and lives on the NON_TENANT allowlist, revoked from app_user like
+/// every platform_* table. `tenant_id` is ON DELETE SET NULL with a `tenant_subdomain` snapshot, so the
+/// billing history SURVIVES an SA7 tenant purge — you still need to know what you invoiced and collected.
+model PlatformInvoice {
+  id               String                @id @default(uuid()) @db.Uuid
+  tenantId         String?               @map("tenant_id") @db.Uuid
+  tenantSubdomain  String                @map("tenant_subdomain") // snapshot at issue — outlives a purge
+  periodYear       Int                   @map("period_year")
+  periodMonth      Int                   @map("period_month") // 1–12
+  studentCount     Int                   @map("student_count") // frozen ACTIVE-enrollment count at issue
+  pricePerStudent  Decimal               @map("price_per_student") @db.Decimal(12, 2) // frozen rate
+  amount           Decimal               @db.Decimal(12, 2) // = student_count × price_per_student, frozen
+  currency         String                @default("PKR")
+  status           PlatformInvoiceStatus @default(ISSUED)
+  issuedAt         DateTime              @default(now()) @map("issued_at")
+  dueAt            DateTime              @map("due_at")
+  paidAt           DateTime?             @map("paid_at")
+  paymentMethod    String?               @map("payment_method") // BANK_TRANSFER | CASH | CHEQUE | OTHER
+  paymentReference String?               @map("payment_reference")
+  note             String?
+  createdAt        DateTime              @default(now()) @map("created_at")
+
+  tenant School? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+
+  @@unique([tenantId, periodYear, periodMonth]) // one invoice per school per month (nulls distinct → purged tenants unconstrained)
+  @@index([tenantId])
+  @@index([status])
+  @@map("platform_invoices")
 }
 
 /// Single-use rotating refresh tokens for the vendor console (blueprint §22.4, §24).

@@ -61,8 +61,25 @@ export const isPlatformMfaRequired = (r: PlatformLoginResult): r is { mfaRequire
   'mfaRequired' in r && r.mfaRequired === true;
 export interface Tenant {
   id: string; name: string; subdomain: string; customDomain: string | null;
-  planTier: string; isActive: boolean; suspendedAt: string | null; purgeAfter: string | null; createdAt: string;
+  planTier: string; isActive: boolean; suspendedAt: string | null; purgeAfter: string | null;
+  pricePerStudent: string | null; createdAt: string;
   userCount: number; activeStudents: number;
+}
+/** A vendor invoice (SA6) — money is a decimal string. `isOverdue` is derived server-side. */
+export interface Invoice {
+  id: string; tenantId: string | null; tenantSubdomain: string;
+  periodYear: number; periodMonth: number; studentCount: number;
+  pricePerStudent: string; amount: string; currency: string;
+  status: 'ISSUED' | 'PAID' | 'VOID'; isOverdue: boolean;
+  issuedAt: string; dueAt: string; paidAt: string | null;
+  paymentMethod: string | null; paymentReference: string | null; note: string | null;
+}
+export interface InvoicePage { data: Invoice[]; total: number; page: number; pageSize: number }
+/** The billing dashboard totals (SA6) — every figure a decimal string. */
+export interface BillingOverview {
+  currency: string; mrr: string; outstanding: string; overdue: string;
+  collectedThisMonth: string; collectedAllTime: string;
+  pricedSchools: number; unpricedActiveSchools: number; issuedCount: number; overdueCount: number;
 }
 /** A tenant data export (SA7) — sensitive columns redacted. */
 export interface TenantExport { schoolId: string; subdomain: string; generatedAt: string; rowCounts: Record<string, number>; tables: Record<string, unknown[]> }
@@ -163,4 +180,27 @@ export const platformApi = {
   /** IRREVERSIBLE hard-delete — only after the retention window, with a subdomain confirmation. */
   purge: (id: string, confirmSubdomain: string) =>
     request<{ id: string; deleted: Record<string, number> }>(`/platform/tenants/${id}/purge`, { method: 'POST', body: { confirmSubdomain } }),
+  // ── Vendor billing (SA6, SUPER_ADMIN + BILLING) ──────────────────────────────
+  billingOverview: () => request<BillingOverview>('/platform/billing/overview'),
+  invoices: (params: { tenantId?: string; status?: string; page?: number; pageSize?: number } = {}) => {
+    const qs = new URLSearchParams();
+    if (params.tenantId) qs.set('tenantId', params.tenantId);
+    if (params.status) qs.set('status', params.status);
+    if (params.page) qs.set('page', String(params.page));
+    if (params.pageSize) qs.set('pageSize', String(params.pageSize));
+    const q = qs.toString();
+    return request<InvoicePage>(`/platform/billing/invoices${q ? `?${q}` : ''}`);
+  },
+  /** Set a school's monthly per-student price. */
+  setPrice: (tenantId: string, pricePerStudent: number) =>
+    request<{ id: string; pricePerStudent: string }>(`/platform/billing/tenants/${tenantId}/price`, { method: 'PUT', body: { pricePerStudent } }),
+  /** Generate one month's invoice for a school. */
+  generateInvoice: (tenantId: string, year: number, month: number) =>
+    request<Invoice>('/platform/billing/invoices', { method: 'POST', body: { tenantId, year, month } }),
+  /** Record an OFFLINE payment against an issued invoice. */
+  payInvoice: (id: string, method: string, reference?: string, paidAt?: string) =>
+    request<Invoice>(`/platform/billing/invoices/${id}/pay`, { method: 'POST', body: { method, reference, paidAt } }),
+  /** Void an issued invoice (reason recorded). */
+  voidInvoice: (id: string, reason: string) =>
+    request<Invoice>(`/platform/billing/invoices/${id}/void`, { method: 'POST', body: { reason } }),
 };

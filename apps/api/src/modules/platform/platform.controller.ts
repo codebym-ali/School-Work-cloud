@@ -3,7 +3,7 @@ import type { Request } from 'express';
 import { Public } from '@common';
 import { PlatformService } from './platform.service';
 import { PlatformAuthGuard, PlatformRoles, CurrentPlatformUser, type PlatformActor } from './platform-auth.guard';
-import { BreakGlassDto, ChangePlanDto, CreateOperatorDto, ListTenantsQuery, ProvisionTenantDto, SuspendTenantDto, UpdateOperatorDto } from './dto/platform.dto';
+import { BreakGlassDto, ChangePlanDto, CreateOperatorDto, ListTenantsQuery, ProvisionTenantDto, PurgeDto, SuspendTenantDto, TerminateDto, UpdateOperatorDto } from './dto/platform.dto';
 
 /**
  * Vendor console (blueprint §24) — cross-tenant tenant management. `@Public` skips the
@@ -98,5 +98,36 @@ export class PlatformController {
   @HttpCode(HttpStatus.OK)
   updateOperator(@Param('id') id: string, @Body() dto: UpdateOperatorDto, @CurrentPlatformUser() actor: PlatformActor, @Req() req: Request) {
     return this.platform.updateOperator(id, dto, { platformUserId: actor.id, ip: req.ip });
+  }
+
+  // ── Tenant offboarding (SA7, SUPER_ADMIN) ────────────────────────────────────
+  // Schedule a reversible termination (retention window); audited.
+  @PlatformRoles('SUPER_ADMIN')
+  @Post('tenants/:id/terminate')
+  @HttpCode(HttpStatus.OK)
+  terminate(@Param('id') id: string, @Body() dto: TerminateDto, @CurrentPlatformUser() actor: PlatformActor, @Req() req: Request) {
+    return this.platform.scheduleTermination(id, dto.reason, { platformUserId: actor.id, ip: req.ip });
+  }
+
+  @PlatformRoles('SUPER_ADMIN')
+  @Post('tenants/:id/cancel-termination')
+  @HttpCode(HttpStatus.OK)
+  cancelTermination(@Param('id') id: string, @CurrentPlatformUser() actor: PlatformActor, @Req() req: Request) {
+    return this.platform.cancelTermination(id, { platformUserId: actor.id, ip: req.ip });
+  }
+
+  // Full data export (redacted) — the handover before offboarding.
+  @PlatformRoles('SUPER_ADMIN')
+  @Get('tenants/:id/export')
+  exportTenant(@Param('id') id: string, @CurrentPlatformUser() actor: PlatformActor, @Req() req: Request) {
+    return this.platform.exportTenantData(id, { platformUserId: actor.id, ip: req.ip });
+  }
+
+  // IRREVERSIBLE hard-delete — allowed only after the retention window, with a subdomain confirmation (SA-P5).
+  @PlatformRoles('SUPER_ADMIN')
+  @Post('tenants/:id/purge')
+  @HttpCode(HttpStatus.OK)
+  purge(@Param('id') id: string, @Body() dto: PurgeDto, @CurrentPlatformUser() actor: PlatformActor, @Req() req: Request) {
+    return this.platform.purgeTenantData(id, dto.confirmSubdomain, { platformUserId: actor.id, ip: req.ip });
   }
 }

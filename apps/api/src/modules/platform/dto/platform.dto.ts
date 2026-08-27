@@ -47,6 +47,18 @@ export class BreakGlassDto {
   reason!: string;
 }
 
+/** Schedule a tenant termination (SA7) — a non-blank reason is mandatory and audited. */
+export class TerminateDto {
+  @IsString() @MinLength(1) @MaxLength(500)
+  reason!: string;
+}
+
+/** Confirm the IRREVERSIBLE hard-delete (SA7, SA-P5) — the operator retypes the subdomain to proceed. */
+export class PurgeDto {
+  @IsString() @MinLength(1) @MaxLength(60)
+  confirmSubdomain!: string;
+}
+
 /** Change a tenant's plan tier (SA3). Must be one of the catalog tiers (BASIC / PLUS / PRO). */
 export class ChangePlanDto {
   @IsEnum(PlanTier)

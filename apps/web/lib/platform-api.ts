@@ -61,9 +61,11 @@ export const isPlatformMfaRequired = (r: PlatformLoginResult): r is { mfaRequire
   'mfaRequired' in r && r.mfaRequired === true;
 export interface Tenant {
   id: string; name: string; subdomain: string; customDomain: string | null;
-  planTier: string; isActive: boolean; suspendedAt: string | null; createdAt: string;
+  planTier: string; isActive: boolean; suspendedAt: string | null; purgeAfter: string | null; createdAt: string;
   userCount: number; activeStudents: number;
 }
+/** A tenant data export (SA7) — sensitive columns redacted. */
+export interface TenantExport { schoolId: string; subdomain: string; generatedAt: string; rowCounts: Record<string, number>; tables: Record<string, unknown[]> }
 export interface NewTenant { name: string; subdomain: string; ownerEmail: string }
 export interface TenantPage { data: Tenant[]; total: number; page: number; pageSize: number }
 /** Fleet-overview totals for the dashboard (SA1), read from the latest nightly snapshot.
@@ -150,4 +152,15 @@ export const platformApi = {
    *  short-lived, read-only token scoped to that one school. */
   breakGlass: (id: string, reason: string) =>
     request<{ schoolId: string; subdomain: string; token: string; expiresAt: string }>(`/platform/tenants/${id}/break-glass`, { method: 'POST', body: { reason } }),
+  // ── Tenant offboarding (SA7, SUPER_ADMIN) ────────────────────────────────────
+  /** Schedule a reversible termination (retention window). */
+  terminate: (id: string, reason: string) =>
+    request<{ id: string; purgeAfter: string }>(`/platform/tenants/${id}/terminate`, { method: 'POST', body: { reason } }),
+  cancelTermination: (id: string) =>
+    request<{ id: string; isActive: boolean }>(`/platform/tenants/${id}/cancel-termination`, { method: 'POST' }),
+  /** Full redacted data export — the handover before offboarding. */
+  exportTenant: (id: string) => request<TenantExport>(`/platform/tenants/${id}/export`),
+  /** IRREVERSIBLE hard-delete — only after the retention window, with a subdomain confirmation. */
+  purge: (id: string, confirmSubdomain: string) =>
+    request<{ id: string; deleted: Record<string, number> }>(`/platform/tenants/${id}/purge`, { method: 'POST', body: { confirmSubdomain } }),
 };

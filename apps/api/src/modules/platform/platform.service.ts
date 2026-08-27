@@ -2,7 +2,7 @@ import { HttpStatus, Inject, Injectable } from '@nestjs/common';
 import { randomBytes } from 'node:crypto';
 import { Prisma, type PlanTier, type PlatformRole } from '@prisma/client';
 import { AppError, ENV, ErrorCodes, paginate, toSkipTake, type Env, type Paginated } from '@common';
-import { PlatformPrismaService } from '@database';
+import { PlatformPrismaService, purgeTenant, exportTenant } from '@database';
 import { TenantResolutionMiddleware } from '../../tenant/tenant-resolution.middleware';
 import { ProvisioningService } from './provisioning.service';
 import { PlatformAuditService } from './platform-audit.service';
@@ -24,6 +24,8 @@ export interface TenantSummary {
   planTier: string;
   isActive: boolean;
   suspendedAt: Date | null;
+  /** SA7: set when scheduled for termination — the instant the hard-delete becomes allowed. */
+  purgeAfter: Date | null;
   createdAt: Date;
   userCount: number;
   /** Current usage for the plan-cap surfacing (SA3): ACTIVE enrollments — the SAME definition as the
@@ -58,6 +60,10 @@ export interface OperatorSummary {
 /** How long an operator onboarding link stays valid (SA4b) — 7 days, like the tenant SA2 onboarding
  *  link (delivered-then-acted, single-use + hashed). */
 const OPERATOR_ONBOARDING_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** SA7: how long a scheduled-for-termination tenant stays recoverable before the hard-delete becomes
+ *  allowed (SA-P5). 30 days — enough for a school to reconsider or retrieve its export. */
+const TERMINATION_RETENTION_DAYS = 30;
 
 /**
  * Vendor console operations (blueprint §24), executed on the platform_admin (BYPASSRLS)
@@ -126,6 +132,7 @@ export class PlatformService {
           planTier: true,
           isActive: true,
           suspendedAt: true,
+          purgeAfter: true,
           createdAt: true,
           // ACTIVE enrollments (not raw `students`) so the console's usage matches the dashboard's
           // "Students" definition and the plan cap it is compared against (SA3, Law 4).
@@ -142,6 +149,7 @@ export class PlatformService {
       planTier: s.planTier,
       isActive: s.isActive,
       suspendedAt: s.suspendedAt,
+      purgeAfter: s.purgeAfter,
       createdAt: s.createdAt,
       userCount: s._count.users,
       activeStudents: s._count.enrollments,
@@ -343,5 +351,83 @@ export class PlatformService {
     if (school.customDomain) TenantResolutionMiddleware.invalidate(school.customDomain.toLowerCase());
 
     return { id, isActive };
+  }
+
+  private invalidateHostCache(subdomain: string, customDomain: string | null): void {
+    TenantResolutionMiddleware.invalidate(`${subdomain}.${this.apexHost}`);
+    if (customDomain) TenantResolutionMiddleware.invalidate(customDomain.toLowerCase());
+  }
+
+  // ── Tenant offboarding (SA7) ─────────────────────────────────────────────────
+
+  /** Schedule a REVERSIBLE termination (SA7, SA-P5): suspend the school and start a retention window.
+   *  Cancelling before the purge reactivates it. Audited `TENANT_TERMINATE_SCHEDULE`. */
+  async scheduleTermination(id: string, reason: string, ctx: PlatformActionContext): Promise<{ id: string; purgeAfter: string }> {
+    const school = await this.platform.school.findUnique({ where: { id }, select: { subdomain: true, customDomain: true } });
+    if (!school) throw new AppError(ErrorCodes.TENANT_NOT_FOUND, HttpStatus.NOT_FOUND, 'Tenant not found');
+    const purgeAfter = new Date(Date.now() + TERMINATION_RETENTION_DAYS * 24 * 60 * 60 * 1000);
+    await this.platform.school.update({
+      where: { id },
+      data: { purgeAfter, terminationReason: reason, isActive: false, suspendedAt: new Date() },
+    });
+    this.invalidateHostCache(school.subdomain, school.customDomain);
+    await this.audit.record({
+      platformUserId: ctx.platformUserId,
+      action: 'TENANT_TERMINATE_SCHEDULE',
+      targetTenantId: id,
+      reason,
+      metadata: { purgeAfter: purgeAfter.toISOString() },
+      ip: ctx.ip,
+    });
+    return { id, purgeAfter: purgeAfter.toISOString() };
+  }
+
+  /** Cancel a scheduled termination (SA7) — reactivates the school. Audited `TENANT_TERMINATE_CANCEL`. */
+  async cancelTermination(id: string, ctx: PlatformActionContext): Promise<{ id: string; isActive: boolean }> {
+    const school = await this.platform.school.findUnique({ where: { id }, select: { subdomain: true, customDomain: true, purgeAfter: true } });
+    if (!school) throw new AppError(ErrorCodes.TENANT_NOT_FOUND, HttpStatus.NOT_FOUND, 'Tenant not found');
+    if (!school.purgeAfter) throw new AppError(ErrorCodes.VALIDATION_FAILED, HttpStatus.UNPROCESSABLE_ENTITY, 'This tenant is not scheduled for termination');
+    await this.platform.school.update({ where: { id }, data: { purgeAfter: null, terminationReason: null, isActive: true, suspendedAt: null } });
+    this.invalidateHostCache(school.subdomain, school.customDomain);
+    await this.audit.record({ platformUserId: ctx.platformUserId, action: 'TENANT_TERMINATE_CANCEL', targetTenantId: id, ip: ctx.ip });
+    return { id, isActive: true };
+  }
+
+  /** Export a tenant's data (SA7) — the handover before offboarding, sensitive columns redacted.
+   *  Read-only; audited `TENANT_EXPORT`. */
+  async exportTenantData(id: string, ctx: PlatformActionContext) {
+    const school = await this.platform.school.findUnique({ where: { id }, select: { subdomain: true } });
+    if (!school) throw new AppError(ErrorCodes.TENANT_NOT_FOUND, HttpStatus.NOT_FOUND, 'Tenant not found');
+    const data = await exportTenant(this.platform, id);
+    await this.audit.record({ platformUserId: ctx.platformUserId, action: 'TENANT_EXPORT', targetTenantId: id, metadata: { rowCounts: data.rowCounts }, ip: ctx.ip });
+    return { schoolId: id, subdomain: school.subdomain, ...data };
+  }
+
+  /**
+   * IRREVERSIBLE hard-delete of a tenant (SA7, SA-P5). Refused unless the school was scheduled for
+   * termination AND its retention window has elapsed, and the operator retyped the subdomain to
+   * confirm. Runs in ONE transaction (all-or-nothing) and is proven zero-orphan by `purgeTenant`.
+   * Audited `TENANT_PURGE` with the per-table deleted counts — `platform_audit_logs` carries no
+   * `school_id`, so that record survives the deletion as the permanent proof of offboarding.
+   */
+  async purgeTenantData(id: string, confirmSubdomain: string, ctx: PlatformActionContext): Promise<{ id: string; deleted: Record<string, number> }> {
+    const school = await this.platform.school.findUnique({ where: { id }, select: { subdomain: true, purgeAfter: true } });
+    if (!school) throw new AppError(ErrorCodes.TENANT_NOT_FOUND, HttpStatus.NOT_FOUND, 'Tenant not found');
+    if (!school.purgeAfter || school.purgeAfter > new Date()) {
+      throw new AppError(ErrorCodes.VALIDATION_FAILED, HttpStatus.UNPROCESSABLE_ENTITY, 'Not scheduled for termination, or the retention window has not elapsed');
+    }
+    if (confirmSubdomain !== school.subdomain) {
+      throw new AppError(ErrorCodes.VALIDATION_FAILED, HttpStatus.UNPROCESSABLE_ENTITY, 'Confirmation does not match the subdomain');
+    }
+    const { deleted } = await this.platform.$transaction((tx) => purgeTenant(tx, id), { timeout: 120_000, maxWait: 15_000 });
+    this.invalidateHostCache(school.subdomain, null);
+    await this.audit.record({
+      platformUserId: ctx.platformUserId,
+      action: 'TENANT_PURGE',
+      targetTenantId: id,
+      metadata: { subdomain: school.subdomain, deleted },
+      ip: ctx.ip,
+    });
+    return { id, deleted };
   }
 }

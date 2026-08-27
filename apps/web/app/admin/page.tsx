@@ -28,6 +28,8 @@ export default function TenantsPage() {
   // The tenant awaiting a suspension reason. Suspending now requires a reason (SA0), so the bare
   // button opens this inline form instead of firing the request directly.
   const [suspendTarget, setSuspendTarget] = useState<Tenant | null>(null);
+  // The tenant being offboarded (SA7) — opens the export / terminate / purge panel.
+  const [offboardTarget, setOffboardTarget] = useState<Tenant | null>(null);
   // The plan catalog (SA3) — loaded once (static); drives the per-row plan selector and usage-vs-cap.
   const [plans, setPlans] = useState<PlanCatalog | null>(null);
 
@@ -97,6 +99,10 @@ export default function TenantsPage() {
         />
       )}
 
+      {canWrite && offboardTarget && (
+        <OffboardPanel tenant={offboardTarget} run={run} onClose={() => setOffboardTarget(null)} />
+      )}
+
       <div className="inline-form">
         <div style={{ minWidth: 260 }}><label>Search (name / subdomain)</label>
           <input value={search} onChange={(e) => setSearch(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && applySearch()} placeholder="e.g. greenwood" />
@@ -122,7 +128,12 @@ export default function TenantsPage() {
                     </select>
                   : t.planTier}
               </td>
-              <td>{t.isActive ? <span className="badge ok">active</span> : <span className="badge bad">suspended</span>}</td>
+              <td>
+                {t.isActive ? <span className="badge ok">active</span> : <span className="badge bad">suspended</span>}
+                {t.purgeAfter && (
+                  <span className="badge warn" style={{ marginLeft: 6 }} title={`Permanent delete available after ${new Date(t.purgeAfter).toLocaleString()}`}>terminating</span>
+                )}
+              </td>
               <td>{t.userCount}</td>
               <td>
                 {t.activeStudents}{cap != null ? <span className="muted"> / {cap}</span> : null}
@@ -136,6 +147,7 @@ export default function TenantsPage() {
                       ? <button className="ghost small" onClick={() => { setSuspendTarget(t); setMsg(null); }}>Suspend</button>
                       : <button className="ghost small" onClick={() => run(() => platformApi.reactivate(t.id), `Reactivated ${t.subdomain}`)}>Reactivate</button>)}
                     {canBreakGlass && t.isActive && <button className="ghost small" title="Read-only support session" onClick={() => enterBreakGlass(t)}>Enter</button>}
+                    {canWrite && <button className="ghost small" title="Export / terminate / delete" onClick={() => { setOffboardTarget(t); setMsg(null); }}>Offboard…</button>}
                   </div>
                 </td>
               )}
@@ -279,6 +291,103 @@ function SuspendForm({ tenant, onConfirm, onCancel }: { tenant: Tenant; onConfir
       </div>
     </div>
   );
+}
+
+/**
+ * Offboard a tenant (SA7, SA-P5) — the export → terminate → purge lifecycle, gathered into one panel
+ * so the IRREVERSIBLE delete is never a bare row button. Export first (the handover), then schedule a
+ * termination that starts a 30-day retention window; the permanent delete only unlocks after that
+ * window AND requires the subdomain to be retyped. Cancelling before the window reactivates the tenant.
+ */
+function OffboardPanel({ tenant, run, onClose }: { tenant: Tenant; run: (fn: () => Promise<unknown>, ok: string) => Promise<boolean>; onClose: () => void }) {
+  const [reason, setReason] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [exportMsg, setExportMsg] = useState<string | null>(null);
+  const terminating = !!tenant.purgeAfter;
+  const windowElapsed = terminating && new Date(tenant.purgeAfter as string) <= new Date();
+
+  async function doExport() {
+    setBusy(true);
+    try {
+      const data = await platformApi.exportTenant(tenant.id);
+      // Hand the JSON to the operator as a download. This runs in the real console (not a sandboxed
+      // artifact), so a Blob URL + a synthetic click is the plain, dependency-free way to save it.
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${tenant.subdomain}-export-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+      const rows = Object.values(data.rowCounts).reduce((s, n) => s + n, 0);
+      setExportMsg(`Downloaded ${rows.toLocaleString()} rows across ${Object.keys(data.rowCounts).length} tables (sensitive columns redacted).`);
+    } catch (e) {
+      setExportMsg(e instanceof ApiError ? e.message : 'Export failed');
+    } finally { setBusy(false); }
+  }
+
+  return (
+    <div className="card stack" style={{ borderColor: 'var(--danger)' }}>
+      <h2 style={{ margin: 0, fontSize: 17 }}>Offboard {tenant.name}</h2>
+      <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+        Export the data, then schedule a termination. The permanent delete only becomes available after a
+        30-day retention window (SA-P5) and needs <code>{tenant.subdomain}</code> retyped to confirm.
+      </p>
+
+      {/* 1 — Export (the handover). Always available. */}
+      <div className="row" style={{ justifyContent: 'flex-start', gap: 8 }}>
+        <button className="ghost small" disabled={busy} onClick={doExport}>Export data (JSON)</button>
+        {exportMsg && <span className="muted" style={{ fontSize: 12 }}>{exportMsg}</span>}
+      </div>
+
+      {/* 2 — Termination status / schedule. */}
+      {!terminating ? (
+        <div className="stack" style={{ gap: 6 }}>
+          <label htmlFor="term-reason">Reason for termination</label>
+          <input id="term-reason" value={reason} onChange={(e) => setReason(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && reason.trim() && !busy) void schedule(); }} placeholder="e.g. account closed, non-renewal" />
+          <div><button disabled={busy || !reason.trim()} onClick={() => void schedule()}>Schedule termination</button></div>
+        </div>
+      ) : (
+        <div className="stack" style={{ gap: 8 }}>
+          <div className="muted" style={{ fontSize: 13 }}>
+            Suspended and scheduled for permanent deletion after{' '}
+            <strong>{new Date(tenant.purgeAfter as string).toLocaleString()}</strong>.
+          </div>
+          <div className="row" style={{ justifyContent: 'flex-start', gap: 8 }}>
+            <button className="ghost small" disabled={busy} onClick={async () => {
+              setBusy(true);
+              const ok = await run(() => platformApi.cancelTermination(tenant.id), `Termination cancelled for ${tenant.subdomain}`);
+              setBusy(false); if (ok) onClose();
+            }}>Cancel termination (reactivate)</button>
+          </div>
+
+          {/* 3 — Purge. Only after the retention window; requires the subdomain retyped. */}
+          {windowElapsed ? (
+            <div className="stack" style={{ gap: 6, borderTop: '1px solid var(--border)', paddingTop: 10 }}>
+              <label htmlFor="purge-confirm">Type <code>{tenant.subdomain}</code> to permanently delete — this cannot be undone</label>
+              <input id="purge-confirm" value={confirm} onChange={(e) => setConfirm(e.target.value)} placeholder={tenant.subdomain} autoComplete="off" />
+              <div><button style={{ background: 'var(--danger)', borderColor: 'var(--danger)' }} disabled={busy || confirm !== tenant.subdomain} onClick={async () => {
+                setBusy(true);
+                const ok = await run(() => platformApi.purge(tenant.id, confirm), `${tenant.subdomain} permanently deleted`);
+                setBusy(false); if (ok) onClose();
+              }}>Permanently delete</button></div>
+            </div>
+          ) : (
+            <div className="muted" style={{ fontSize: 12 }}>The permanent delete unlocks once the retention window above has elapsed.</div>
+          )}
+        </div>
+      )}
+
+      <div><button className="ghost" onClick={onClose}>Close</button></div>
+    </div>
+  );
+
+  async function schedule() {
+    setBusy(true);
+    const ok = await run(() => platformApi.terminate(tenant.id, reason.trim()), `${tenant.subdomain} scheduled for termination`);
+    setBusy(false); if (ok) onClose();
+  }
 }
 
 /**

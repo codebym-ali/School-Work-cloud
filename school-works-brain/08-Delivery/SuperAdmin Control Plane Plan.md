@@ -5,7 +5,8 @@ the record of everything — how many schools, how many students, who controls t
 the owner of this SaaS product who creates schools, their admin credentials, and controls the whole
 product."*
 
-**Status:** 📋 **PLANNED — not built.** Sequenced by dependency below (SA0 → SA7).
+**Status:** 🟢 **SA0–SA5 + SA7 SHIPPED (2026-08-27).** Only **SA6 (billing)** remains — a separate
+epic, deferrable (decision D3). Every control-plane capability except money is built and test-proven.
 **Audited 2026-08-20** as senior engineer/architect; six findings folded in (§9, with the full
 before/after). The boundary correction (SuperAdmin = product owner, not a school entity) is recorded
 in [[Key Decisions]] → *Security invariants*.
@@ -255,7 +256,7 @@ gateway partner (decision D3).
 - **Done when:** a non-paying school follows grace → suspend automatically; the dashboard shows real
   revenue, not a placeholder.
 
-### SA7 — Tenant export + hard-delete / crypto-shred *(NEW — the real home of A)*
+### SA7 — Tenant export + hard-delete / crypto-shred *(NEW — the real home of A)* — ✅ SHIPPED 2026-08-27
 **Goal:** offboard a school completely and provably. This is the hardest operation in the system; it
 gets its own phase, not a footnote.
 - **API/worker:** promote the manual E2E-campus delete into a **maintained, FK-ordered, transactional
@@ -266,6 +267,27 @@ gets its own phase, not a footnote.
   no orphan (the 11 pre-existing orphaned `audit_logs` found in the E2E delete are the cautionary tale).
 - **Done when:** terminating a school exports its data, then deletes it in one transaction with zero
   orphans, provably, and only after the retention window.
+
+**As built (2026-08-27):**
+- **FK order derived from the LIVE graph, not a hand list.** `libs/database/src/tenant-purge.ts`
+  computes the children-first delete order via Kahn's algorithm over `pg_constraint` at runtime
+  (cached per process), so it can never rot the way the hand-maintained list did (→ 251 dead schools).
+  `purgeTenant` **fails loudly** if the school survives (the zero-orphan guarantee); `exportTenant`
+  redacts `password|secret|_enc$|_hash$|cnic|bank_account`. **One copy of the walk** — the test
+  teardown (`support/tenant.ts destroyTenant`) delegates here, so cleanup can't drift from the real purge.
+- **SA-P5 two-step, reversible.** `schools.purge_after` + `termination_reason` (migration
+  `20260827130000_sa7_tenant_termination`). `scheduleTermination` suspends + starts a 30-day window
+  (reversible via `cancelTermination`); `purgeTenantData` refuses unless the window has elapsed AND the
+  operator retyped the subdomain, then runs `purgeTenant` in ONE `$transaction`. Every step audited
+  (`TENANT_TERMINATE_SCHEDULE|_CANCEL|EXPORT|PURGE`) — and `platform_audit_logs` carries no `school_id`,
+  so the `TENANT_PURGE` record survives the deletion as permanent proof.
+- **Routes** (all `@PlatformRoles('SUPER_ADMIN')`): `POST tenants/:id/terminate`,
+  `POST …/cancel-termination`, `GET …/export`, `POST …/purge`. **Console:** an *Offboard…* panel
+  (`admin/page.tsx`) does export→terminate→purge, with a "terminating" badge on the row and the purge
+  behind a typed-subdomain confirmation; never a bare row button.
+- **Verified:** api+worker build · lint · web typecheck · `platform-tenant-lifecycle.e2e-spec.ts`
+  (7 tests incl. the **integrity gate**: purge A → zero orphans across every `school_id` table, B intact)
+  · isolation suite (7) · all 9 platform specs (67) · RLS coverage + vendor isolation.
 
 ---
 

@@ -237,6 +237,10 @@ model School {
   planTier           PlanTier  @default(BASIC) @map("plan_tier")
   isActive           Boolean   @default(true) @map("is_active")
   suspendedAt        DateTime? @map("suspended_at")
+  // SA7 offboarding: `purgeAfter` is the instant the irreversible hard-delete becomes allowed
+  // (a retention window, SA-P5); until then, cancelling termination reactivates. Both null normally.
+  purgeAfter         DateTime? @map("purge_after")
+  terminationReason  String?   @map("termination_reason")
   grNumberMode       String    @default("AUTO") @map("gr_number_mode") // AUTO | MANUAL
   grPrefix           String    @default("") @map("gr_prefix")
   nextGrNumber       Int       @default(1) @map("next_gr_number")

@@ -7,3 +7,4 @@ export * from './tenant.extension';
 export * from './tenant-transaction.interceptor';
 export * from './audit.service';
 export * from './idempotency.service';
+export * from './tenant-purge';

@@ -1,5 +1,5 @@
-import { IsEmail, IsEnum, IsOptional, IsString, Length, Matches, MaxLength, MinLength } from 'class-validator';
-import { PlanTier } from '@prisma/client';
+import { IsEmail, IsEnum, IsIn, IsOptional, IsString, Length, Matches, MaxLength, MinLength } from 'class-validator';
+import { PlanTier, PlatformRole } from '@prisma/client';
 import { PaginationQuery } from '@common';
 
 export class ListTenantsQuery extends PaginationQuery {
@@ -45,6 +45,16 @@ export class SuspendTenantDto {
 export class ChangePlanDto {
   @IsEnum(PlanTier)
   planTier!: PlanTier;
+}
+
+/** Change a vendor operator's role and/or status (SA4). Both optional; status is limited to the two
+ *  states the console toggles (enable / disable) — INVITED / LOCKED are not set through here. */
+export class UpdateOperatorDto {
+  @IsOptional() @IsEnum(PlatformRole)
+  role?: PlatformRole;
+
+  @IsOptional() @IsIn(['ACTIVE', 'DISABLED'])
+  status?: 'ACTIVE' | 'DISABLED';
 }
 
 /** Step 2 of the platform two-step login: the pending token + a TOTP or recovery code (SA0). */

@@ -1,5 +1,5 @@
 import { HttpStatus, Inject, Injectable } from '@nestjs/common';
-import { Prisma, type PlanTier } from '@prisma/client';
+import { Prisma, type PlanTier, type PlatformRole } from '@prisma/client';
 import { AppError, ENV, ErrorCodes, paginate, toSkipTake, type Env, type Paginated } from '@common';
 import { PlatformPrismaService } from '@database';
 import { TenantResolutionMiddleware } from '../../tenant/tenant-resolution.middleware';
@@ -39,6 +39,18 @@ export interface PlatformOverview {
   studentsActive: number;
   staffEmployed: number;
   newSchools30d: number;
+}
+
+/** A vendor operator as the console lists it (SA4) — a password hash never leaves the service. */
+export interface OperatorSummary {
+  id: string;
+  email: string;
+  name: string;
+  role: PlatformRole;
+  status: string;
+  mfaEnabled: boolean;
+  lastLoginAt: Date | null;
+  createdAt: Date;
 }
 
 /**
@@ -183,6 +195,57 @@ export class PlatformService {
       ip: ctx.ip,
     });
     return { id, planTier };
+  }
+
+  // ── Operator management (SA4) ────────────────────────────────────────────────
+
+  /** List the vendor operators (SA4, SUPER_ADMIN) — the select never includes the password hash. */
+  async listOperators(): Promise<OperatorSummary[]> {
+    return this.platform.platformUser.findMany({
+      orderBy: { createdAt: 'asc' },
+      select: { id: true, email: true, name: true, role: true, status: true, mfaEnabled: true, lastLoginAt: true, createdAt: true },
+    });
+  }
+
+  /**
+   * Change an operator's role and/or status (SA4, SUPER_ADMIN); audited as `OPERATOR_UPDATE`.
+   *
+   * An operator may NOT change their OWN role or status — which also protects the last SUPER_ADMIN
+   * for free: disabling or demoting X requires a *different* super-admin to act, so if X is the only
+   * one left, nobody can do it. Disabling takes effect on the target's next request (the guard
+   * re-checks status live).
+   */
+  async updateOperator(
+    id: string,
+    changes: { role?: PlatformRole; status?: 'ACTIVE' | 'DISABLED' },
+    ctx: PlatformActionContext,
+  ): Promise<OperatorSummary> {
+    if (id === ctx.platformUserId) {
+      throw new AppError(ErrorCodes.VALIDATION_FAILED, HttpStatus.UNPROCESSABLE_ENTITY, 'You cannot change your own role or status');
+    }
+    const existing = await this.platform.platformUser.findUnique({ where: { id }, select: { role: true, status: true } });
+    if (!existing) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'Operator not found');
+
+    const data: Prisma.PlatformUserUpdateInput = {};
+    if (changes.role && changes.role !== existing.role) data.role = changes.role;
+    if (changes.status && changes.status !== existing.status) data.status = changes.status;
+
+    const updated = await this.platform.platformUser.update({
+      where: { id },
+      data,
+      select: { id: true, email: true, name: true, role: true, status: true, mfaEnabled: true, lastLoginAt: true, createdAt: true },
+    });
+    await this.audit.record({
+      platformUserId: ctx.platformUserId,
+      action: 'OPERATOR_UPDATE',
+      metadata: {
+        operatorId: id,
+        ...(data.role ? { role: { from: existing.role, to: changes.role } } : {}),
+        ...(data.status ? { status: { from: existing.status, to: changes.status } } : {}),
+      },
+      ip: ctx.ip,
+    });
+    return updated;
   }
 
   /** Suspend a tenant with a mandatory reason (SA-P2); audited as `TENANT_SUSPEND`. */

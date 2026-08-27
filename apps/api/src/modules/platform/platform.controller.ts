@@ -3,7 +3,7 @@ import type { Request } from 'express';
 import { Public } from '@common';
 import { PlatformService } from './platform.service';
 import { PlatformAuthGuard, PlatformRoles, CurrentPlatformUser, type PlatformActor } from './platform-auth.guard';
-import { ChangePlanDto, ListTenantsQuery, ProvisionTenantDto, SuspendTenantDto } from './dto/platform.dto';
+import { ChangePlanDto, ListTenantsQuery, ProvisionTenantDto, SuspendTenantDto, UpdateOperatorDto } from './dto/platform.dto';
 
 /**
  * Vendor console (blueprint §24) — cross-tenant tenant management. `@Public` skips the
@@ -67,5 +67,19 @@ export class PlatformController {
   @HttpCode(HttpStatus.OK)
   changePlan(@Param('id') id: string, @Body() dto: ChangePlanDto, @CurrentPlatformUser() actor: PlatformActor, @Req() req: Request) {
     return this.platform.changePlan(id, dto.planTier, { platformUserId: actor.id, ip: req.ip });
+  }
+
+  // ── Operator management (SA4) — managing the vendor team is a SUPER_ADMIN function. ──
+  @PlatformRoles('SUPER_ADMIN')
+  @Get('operators')
+  operators() {
+    return this.platform.listOperators();
+  }
+
+  @PlatformRoles('SUPER_ADMIN')
+  @Patch('operators/:id')
+  @HttpCode(HttpStatus.OK)
+  updateOperator(@Param('id') id: string, @Body() dto: UpdateOperatorDto, @CurrentPlatformUser() actor: PlatformActor, @Req() req: Request) {
+    return this.platform.updateOperator(id, dto, { platformUserId: actor.id, ip: req.ip });
   }
 }

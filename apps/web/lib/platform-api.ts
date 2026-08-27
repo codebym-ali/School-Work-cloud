@@ -86,6 +86,17 @@ export interface PlanLimits {
   monthlySmsCredits: number;
 }
 export type PlanCatalog = Record<string, PlanLimits>;
+/** A vendor operator as the console lists it (SA4). */
+export interface PlatformOperator {
+  id: string;
+  email: string;
+  name: string;
+  role: PlatformRole;
+  status: string;
+  mfaEnabled: boolean;
+  lastLoginAt: string | null;
+  createdAt: string;
+}
 
 export const platformApi = {
   login: (email: string, password: string) =>
@@ -122,4 +133,9 @@ export const platformApi = {
   /** Change a tenant's plan (SA3, SUPER_ADMIN) — audited. */
   changePlan: (id: string, planTier: string) =>
     request<{ id: string; planTier: string }>(`/platform/tenants/${id}/plan`, { method: 'PATCH', body: { planTier } }),
+  /** The vendor operators (SA4, SUPER_ADMIN). */
+  operators: () => request<PlatformOperator[]>('/platform/operators'),
+  /** Change an operator's role and/or status (SA4, SUPER_ADMIN) — audited. */
+  updateOperator: (id: string, changes: { role?: string; status?: 'ACTIVE' | 'DISABLED' }) =>
+    request<PlatformOperator>(`/platform/operators/${id}`, { method: 'PATCH', body: changes }),
 };

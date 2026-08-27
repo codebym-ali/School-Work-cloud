@@ -50,6 +50,11 @@ export class MaintenanceProcessor implements OnModuleInit, OnModuleDestroy {
     // 01:00. A handful of indexed COUNTs on the BYPASSRLS connection; the dashboard reads the latest
     // row, so a page load never runs a fleet-wide COUNT across every school × student (SA-P7 / finding E).
     await this.queue.add('platform-stats-snapshot', {}, { repeat: { pattern: '15 0 * * *' }, ...opts });
+    // Vendor billing (SA6b). Auto-invoice on the 1st at 01:30 (after the SMS credit grant at 00:30) —
+    // generates each priced, active school's monthly invoice, idempotent per (school, month). Dunning
+    // runs DAILY at 02:30 — auto-suspends any school with a vendor invoice unpaid past the grace window.
+    await this.queue.add('platform-billing-run', {}, { repeat: { pattern: '30 1 1 * *' }, ...opts });
+    await this.queue.add('platform-dunning', {}, { repeat: { pattern: '30 2 * * *' }, ...opts });
 
     this.worker = new Worker(
       QUEUE,

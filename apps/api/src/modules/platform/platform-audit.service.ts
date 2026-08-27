@@ -3,8 +3,9 @@ import type { Prisma } from '@prisma/client';
 import { PlatformPrismaService } from '@database';
 
 export interface PlatformAuditInput {
-  /** The operator who performed the action (from the platform session). */
-  platformUserId: string;
+  /** The operator who performed the action (from the platform session), or `null` for a SYSTEM
+   *  action with no operator (SA6b automated jobs — auto-invoice, dunning auto-suspend). */
+  platformUserId: string | null;
   /** A stable, screaming-snake verb, e.g. `TENANT_PROVISION` / `TENANT_SUSPEND`. */
   action: string;
   /** The tenant the action targeted, when there is one. */

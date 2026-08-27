@@ -5,6 +5,7 @@ import { captureError, CLS_KEYS, isPastLocalTime, parseSchoolSettings, type Scho
 import { PlatformPrismaService, TenantPrismaService } from '@database';
 import { FeeJobsService } from '../../../api/src/modules/fees/fee-jobs.service';
 import { PLAN_MONTHLY_SMS_CREDITS } from '../../../api/src/modules/comms/sms/sms-plan-credits';
+import { PlatformBillingService } from '../../../api/src/modules/platform/platform-billing.service';
 
 export type MaintenanceJob =
   | 'mark-overdue'
@@ -13,7 +14,9 @@ export type MaintenanceJob =
   | 'sms-log-purge'
   | 'sms-monthly-credit'
   | 'staff-attendance-close'
-  | 'platform-stats-snapshot';
+  | 'platform-stats-snapshot'
+  | 'platform-billing-run'
+  | 'platform-dunning';
 
 export interface MaintenanceResult {
   /** Tenants processed (per-tenant fee jobs). */
@@ -26,6 +29,10 @@ export interface MaintenanceResult {
   marked?: number;
   /** Fleet snapshot rows written (0 or 1) by the platform-stats job. */
   snapshots?: number;
+  /** Vendor invoices auto-generated this run (SA6b). */
+  invoiced?: number;
+  /** Schools auto-suspended for non-payment this run (SA6b dunning). */
+  suspended?: number;
 }
 
 const WEEKDAYS = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'] as const;
@@ -51,6 +58,7 @@ export class MaintenanceService {
     private readonly platform: PlatformPrismaService,
     private readonly tenantPrisma: TenantPrismaService,
     private readonly feeJobs: FeeJobsService,
+    private readonly billing: PlatformBillingService,
   ) {}
 
   async run(job: MaintenanceJob): Promise<MaintenanceResult> {
@@ -68,7 +76,34 @@ export class MaintenanceService {
         return { marked: await this.closeStaffAttendance() };
       case 'platform-stats-snapshot':
         return { snapshots: await this.snapshotPlatformStats() };
+      case 'platform-billing-run':
+        return { invoiced: await this.runBilling() };
+      case 'platform-dunning':
+        return { suspended: await this.runDunning() };
     }
+  }
+
+  /**
+   * Auto-invoice (SA6b) — generate the current month's vendor invoice for every priced, active school.
+   * Cross-tenant billing on the platform_admin (BYPASSRLS) connection; the logic lives ONCE in
+   * `PlatformBillingService.runMonthlyBilling` (shared with the manual console route). Idempotent per
+   * month, so BullMQ firing it once fleet-wide (or a re-run) creates nothing extra.
+   */
+  private async runBilling(): Promise<number> {
+    const created = await this.billing.runMonthlyBilling();
+    if (created > 0) this.logger.log(`platform-billing-run: auto-generated ${created} vendor invoice(s)`);
+    return created;
+  }
+
+  /**
+   * Dunning (SA6b) — auto-suspend schools whose vendor invoice is unpaid past the grace window. Delegates
+   * to `PlatformBillingService.runDunning`; it flips `is_active` off in the DB (the API host-cache picks
+   * it up within its TTL) and audits `TENANT_AUTO_SUSPEND` with a null (system) actor.
+   */
+  private async runDunning(): Promise<number> {
+    const suspended = await this.billing.runDunning();
+    if (suspended > 0) this.logger.warn(`platform-dunning: auto-suspended ${suspended} school(s) for non-payment`);
+    return suspended;
   }
 
   /**

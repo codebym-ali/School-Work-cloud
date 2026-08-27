@@ -9,6 +9,13 @@ import type { ListInvoicesQuery } from './dto/platform.dto';
 /** Days from issue to due date on a vendor invoice (SA6). */
 const INVOICE_DUE_DAYS = 14;
 
+/** SA6b dunning: days PAST the due date an invoice may stay unpaid before the school is auto-suspended.
+ *  With the 14-day due window, a school is suspended ~21 days after an invoice is issued. */
+const DUNNING_GRACE_DAYS = 7;
+
+/** A write actor for an audit row: an operator id, or `null` for a SYSTEM action (SA6b automated jobs). */
+type ActionActor = { platformUserId: string | null; ip?: string };
+
 /** How the console renders one vendor invoice. Money is serialised as a decimal string (never a float),
  *  and `isOverdue` is DERIVED (past due while still ISSUED), never stored (Law 4). */
 export interface InvoiceSummary {
@@ -119,22 +126,36 @@ export class PlatformBillingService {
     if (school.pricePerStudent == null) {
       throw new AppError(ErrorCodes.VALIDATION_FAILED, HttpStatus.UNPROCESSABLE_ENTITY, 'Set a per-student price for this school before invoicing');
     }
-
     const existing = await this.platform.platformInvoice.findFirst({ where: { tenantId, periodYear: year, periodMonth: month }, select: { id: true } });
     if (existing) {
       throw new AppError(ErrorCodes.CONFLICT, HttpStatus.CONFLICT, `An invoice already exists for ${school.subdomain} ${year}-${String(month).padStart(2, '0')}`);
     }
+    const studentCount = await this.activeStudentCount(tenantId);
+    return this.insertInvoice({ id: school.id, subdomain: school.subdomain, pricePerStudent: school.pricePerStudent }, year, month, studentCount, ctx, 'operator');
+  }
 
-    // ACTIVE enrollments — the SAME definition as the fleet dashboard (Law 4), not raw `students`.
-    const studentCount = await this.platform.studentEnrollment.count({ where: { schoolId: tenantId, status: 'ACTIVE' } });
+  /** ACTIVE enrollments for a school — the SAME definition as the fleet dashboard (Law 4). */
+  private activeStudentCount(schoolId: string): Promise<number> {
+    return this.platform.studentEnrollment.count({ where: { schoolId, status: 'ACTIVE' } });
+  }
+
+  /**
+   * Create ONE invoice for a school+period and audit it (`INVOICE_GENERATED`). The single place where
+   * `amount = students × price` is frozen — shared by the manual route and the SA6b auto-invoice job
+   * (`source` distinguishes them, and the actor is null for the automated run). The caller guarantees
+   * the school is priced and no invoice exists for the period yet.
+   */
+  private async insertInvoice(
+    school: { id: string; subdomain: string; pricePerStudent: Prisma.Decimal },
+    year: number, month: number, studentCount: number, ctx: ActionActor, source: 'operator' | 'auto',
+  ): Promise<InvoiceSummary> {
     const price = school.pricePerStudent;
     const amount = price.mul(studentCount);
     const issuedAt = new Date();
     const dueAt = new Date(issuedAt.getTime() + INVOICE_DUE_DAYS * 24 * 60 * 60 * 1000);
-
     const inv = await this.platform.platformInvoice.create({
       data: {
-        tenantId,
+        tenantId: school.id,
         tenantSubdomain: school.subdomain,
         periodYear: year,
         periodMonth: month,
@@ -148,8 +169,8 @@ export class PlatformBillingService {
     await this.audit.record({
       platformUserId: ctx.platformUserId,
       action: 'INVOICE_GENERATED',
-      targetTenantId: tenantId,
-      metadata: { invoiceId: inv.id, period: `${year}-${String(month).padStart(2, '0')}`, studentCount, amount: amount.toFixed(2) },
+      targetTenantId: school.id,
+      metadata: { invoiceId: inv.id, period: `${year}-${String(month).padStart(2, '0')}`, studentCount, amount: amount.toFixed(2), source },
       ip: ctx.ip,
     });
     return this.toSummary(inv);
@@ -258,5 +279,70 @@ export class PlatformBillingService {
       issuedCount,
       overdueCount,
     };
+  }
+
+  // ── SA6b automation (system jobs — no operator; the audit actor is null) ───────────────────────
+
+  /**
+   * Auto-invoice (SA6b) — generate the CURRENT month's invoice for every ACTIVE, priced school that has
+   * at least one active student and isn't already invoiced for the period. Idempotent (the per-(school,
+   * month) check + the unique index), so re-running fires nothing new; a suspended or unpriced school is
+   * skipped, and a 0-student school gets no zero-amount noise. Returns the number of invoices created.
+   */
+  async runMonthlyBilling(now: Date = new Date()): Promise<number> {
+    const year = now.getUTCFullYear();
+    const month = now.getUTCMonth() + 1;
+    const schools = await this.platform.school.findMany({
+      where: { isActive: true, pricePerStudent: { not: null } },
+      select: { id: true, subdomain: true, pricePerStudent: true },
+    });
+    let created = 0;
+    for (const school of schools) {
+      const exists = await this.platform.platformInvoice.findFirst({ where: { tenantId: school.id, periodYear: year, periodMonth: month }, select: { id: true } });
+      if (exists) continue;
+      const studentCount = await this.activeStudentCount(school.id);
+      if (studentCount === 0) continue; // don't manufacture a zero-amount invoice
+      await this.insertInvoice(
+        { id: school.id, subdomain: school.subdomain, pricePerStudent: school.pricePerStudent as Prisma.Decimal },
+        year, month, studentCount, { platformUserId: null }, 'auto',
+      );
+      created++;
+    }
+    return created;
+  }
+
+  /**
+   * Dunning (SA6b) — auto-suspend any ACTIVE school with an ISSUED invoice unpaid more than
+   * DUNNING_GRACE_DAYS past its due date. This is the one place billing touches the tenant: it flips
+   * `isActive` off (the API host-cache picks it up within its TTL) and audits `TENANT_AUTO_SUSPEND`
+   * (null actor). A purged tenant (tenant_id null) has no live school, so it can't be suspended, and an
+   * already-suspended school is excluded by the `tenant.isActive` filter (no re-suspend spam).
+   * Reactivation after payment stays a manual operator step (deliberate — see the plan). Returns the
+   * number of schools suspended.
+   */
+  async runDunning(now: Date = new Date()): Promise<number> {
+    const cutoff = new Date(now.getTime() - DUNNING_GRACE_DAYS * 24 * 60 * 60 * 1000);
+    const overdue = await this.platform.platformInvoice.findMany({
+      where: { status: 'ISSUED', dueAt: { lt: cutoff }, tenant: { isActive: true } },
+      select: { id: true, tenantId: true, periodYear: true, periodMonth: true, dueAt: true, amount: true },
+      orderBy: { dueAt: 'asc' },
+    });
+    const seen = new Set<string>();
+    let suspended = 0;
+    for (const inv of overdue) {
+      const sid = inv.tenantId;
+      if (!sid || seen.has(sid)) continue;
+      seen.add(sid);
+      await this.platform.school.update({ where: { id: sid }, data: { isActive: false, suspendedAt: now } });
+      await this.audit.record({
+        platformUserId: null,
+        action: 'TENANT_AUTO_SUSPEND',
+        targetTenantId: sid,
+        reason: `Auto-suspended: invoice ${inv.periodYear}-${String(inv.periodMonth).padStart(2, '0')} unpaid > ${DUNNING_GRACE_DAYS} days past due`,
+        metadata: { source: 'auto', invoiceId: inv.id, dueAt: inv.dueAt.toISOString(), amount: inv.amount.toFixed(2) },
+      });
+      suspended++;
+    }
+    return suspended;
   }
 }

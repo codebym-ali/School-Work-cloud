@@ -250,7 +250,7 @@ unambiguously.
 - **Done when:** a support agent can reproduce a school's issue, every action is attributable to the
   vendor in the school's own audit, the session is RLS-scoped (test-proven), and it ends on its own.
 
-### SA6 — Billing & subscriptions *(a separate epic — size it as one)* — ✅ SHIPPED (v1) 2026-08-27
+### SA6 — Billing & subscriptions *(a separate epic — size it as one)* — ✅ SHIPPED (v1 + SA6b automation) 2026-08-27
 **Goal:** connect plans to money. ⚠️ This is effectively its own product; consider deferring or a
 gateway partner (decision D3).
 - **DB/API:** per-tenant invoices, payment records, trial→paid transitions, dunning + auto-suspend on
@@ -287,9 +287,26 @@ it when it is). No payment gateway in v1 — payments are recorded **offline** (
   price, ANALYST 403; amount = students×price frozen; dup 409; unpriced 422; pay ISSUED→PAID + re-pay 422;
   void + void-paid 422; overview MRR/outstanding; **billing history survives an SA7 purge**) · all 10
   platform specs (77) · isolation 7/7.
-- ⚠️ **Deferred (v1 → later):** dunning + auto-suspend on non-payment (feeds SA2's state machine); a
-  monthly auto-generate worker job (v1 generates on demand); partial payments / refunds; a payment
-  gateway (Stripe / local PK rails); wiring MRR into SA1's nightly snapshot.
+**SA6b — billing automation (2026-08-27), the two jobs that make billing run itself:**
+- **Auto-invoice** (`platform-billing-run`, BullMQ repeatable, 1st of month 01:30) — generates the
+  current month's invoice for every ACTIVE, priced school with ≥1 active student; idempotent per
+  (school, month), skips unpriced / 0-student / already-invoiced. **Dunning** (`platform-dunning`,
+  DAILY 02:30) — auto-suspends any ACTIVE school with an ISSUED invoice unpaid **> 7 days past due**
+  (~21 days after issue); excludes paid, within-grace, and already-suspended (no re-suspend spam);
+  audited **`TENANT_AUTO_SUSPEND`**.
+- Both are **SYSTEM** actions with **no operator**, so `platform_audit_logs.platform_user_id` is now
+  **nullable** (migration `20260827150000_sa6b_billing_automation`) — a null actor reads as "the system
+  did this". The invoice logic lives ONCE in `PlatformBillingService` (`runMonthlyBilling` / `runDunning`
+  share the same frozen `amount = students × price` helper as the manual route); the worker's
+  `MaintenanceService` delegates, and `worker.module` provides the billing + audit services.
+- Dunning is **the one place billing touches the tenant** (flips `is_active`; the API host-cache picks it
+  up within its TTL). **Reactivation after payment stays a manual operator step** (deliberate — telling a
+  non-payment suspend from a manual one needs state we didn't add for v1).
+- **Verified 2026-08-27:** build · lint · `db:check-rls` · new `platform-billing-automation.e2e-spec.ts`
+  **4 tests** (auto-invoice priced+students only / idempotent / dunning suspends-overdue-not-paid-nor-within-grace
+  / no-re-suspend, all with null-actor `source:'auto'` audit) · all 11 platform specs (81) · isolation 7/7.
+- ⚠️ **Still deferred:** partial payments / refunds; auto-REACTIVATE on payment; a payment gateway
+  (Stripe / local PK rails); wiring MRR into SA1's nightly snapshot.
 
 ### SA7 — Tenant export + hard-delete / crypto-shred *(NEW — the real home of A)* — ✅ SHIPPED 2026-08-27
 **Goal:** offboard a school completely and provably. This is the hardest operation in the system; it

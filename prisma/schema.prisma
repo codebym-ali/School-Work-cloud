@@ -338,7 +338,9 @@ model PlatformUser {
 /// connection and revoked from app_user (SA-P4).
 model PlatformAuditLog {
   id             String   @id @default(uuid()) @db.Uuid
-  platformUserId String   @map("platform_user_id") @db.Uuid
+  // Nullable since SA6b: automated jobs (auto-invoice, dunning auto-suspend) have NO operator — a
+  // null actor reads as "the system did this", distinct from any operator. Operator writes still set it.
+  platformUserId String?  @map("platform_user_id") @db.Uuid
   action         String
   targetTenantId String?  @map("target_tenant_id") @db.Uuid
   metadata       Json?

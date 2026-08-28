@@ -115,6 +115,47 @@ export class ListInvoicesQuery extends PaginationQuery {
   status?: string;
 }
 
+// ── SA8 leads / demo requests ─────────────────────────────────────────────────────────────────────
+/** A demo/contact request from the PUBLIC marketing site (SA8). `website` is a honeypot — real users
+ *  leave it blank; a bot that fills it is silently accepted (200) but never saved. */
+export class DemoRequestDto {
+  @IsString() @MinLength(1) @MaxLength(120)
+  name!: string;
+
+  @IsEmail() @MaxLength(200)
+  email!: string;
+
+  @IsOptional() @IsString() @MaxLength(160)
+  schoolName?: string;
+
+  @IsOptional() @IsString() @MaxLength(40)
+  phone?: string;
+
+  @IsOptional() @IsInt() @Min(0) @Max(1_000_000)
+  studentCount?: number;
+
+  @IsOptional() @IsString() @MaxLength(2000)
+  message?: string;
+
+  @IsOptional() @IsString() @MaxLength(200)
+  website?: string; // honeypot — must stay empty
+}
+
+/** Filter the console leads inbox (SA8). */
+export class ListLeadsQuery extends PaginationQuery {
+  @IsOptional() @IsIn(['NEW', 'CONTACTED', 'CONVERTED', 'CLOSED'])
+  status?: string;
+}
+
+/** Advance a lead through the pipeline and/or add an internal note (SA8). */
+export class UpdateLeadDto {
+  @IsOptional() @IsIn(['NEW', 'CONTACTED', 'CONVERTED', 'CLOSED'])
+  status?: string;
+
+  @IsOptional() @IsString() @MaxLength(2000)
+  note?: string;
+}
+
 /** Change a tenant's plan tier (SA3). Must be one of the catalog tiers (BASIC / PLUS / PRO). */
 export class ChangePlanDto {
   @IsEnum(PlanTier)

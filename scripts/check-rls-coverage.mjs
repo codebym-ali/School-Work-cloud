@@ -44,6 +44,7 @@ if (!connectionString) {
  *  - `platform_invoices`    vendor→school billing (SA6) — the vendor's revenue record; references a school by
  *                           `tenant_id` (NOT `school_id`), ON DELETE SET NULL so it outlives an SA7 purge
  *  - `platform_settings`    vendor-wide billing settings (SA6c) — a single row (auto-reactivate switch)
+ *  - `platform_leads`       demo/contact requests from the marketing site (SA8) — prospect PII, vendor-side
  *  - `_prisma_migrations`   Prisma's own bookkeeping
  */
 const NON_TENANT_TABLES = [
@@ -56,6 +57,7 @@ const NON_TENANT_TABLES = [
   'platform_password_reset_tokens',
   'platform_invoices',
   'platform_settings',
+  'platform_leads',
   '_prisma_migrations',
 ];
 

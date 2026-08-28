@@ -107,6 +107,22 @@
 .pricingNote { text-align: center; color: var(--muted); font-size: 14px; margin: 28px auto 0; max-width: 60ch; }
 .pricingNote a { font-weight: 700; }
 
+/* ── Demo request form (SA8) ───────────────────────────────────────────────── */
+.demoForm { max-width: 760px; margin: 0 auto; background: var(--card); border: 1px solid var(--border); border-radius: var(--r-xl); box-shadow: var(--shadow-card); padding: 32px; }
+.demoGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.field label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; font-weight: 600; }
+.field textarea { width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--r-md); font: inherit; font-size: 15px; background: var(--card); resize: vertical; }
+.demoForm .demoGrid + .field { margin-top: 16px; }
+.hp { position: absolute; left: -9999px; width: 1px; height: 1px; opacity: 0; }
+.demoSubmit { margin-top: 20px; width: 100%; }
+.demoError { color: var(--danger-ink); font-size: 14px; margin: 12px 0 0; }
+.demoDone { max-width: 620px; margin: 0 auto; text-align: center; background: var(--card); border: 1px solid #86efac; border-radius: var(--r-xl); box-shadow: var(--shadow-card); padding: 40px 32px; }
+.demoDoneIcon { width: 56px; height: 56px; border-radius: 50%; background: var(--ok-tint); color: var(--ok-ink); display: grid; place-items: center; margin: 0 auto 16px; }
+.demoDoneIcon svg { width: 30px; height: 30px; }
+.demoDone h3 { font-family: var(--font-heading); color: var(--brand); font-size: 22px; margin: 0 0 8px; }
+.demoDone p { color: var(--muted); margin: 0; }
+@media (max-width: 560px) { .demoGrid { grid-template-columns: 1fr; } .demoForm { padding: 24px; } }
+
 /* ── Closing CTA band ────────────────────────────────────────────────────── */
 .band { background: linear-gradient(160deg, var(--brand) 0%, var(--brand-dark) 100%); color: #fff; padding: 68px 0; text-align: center; }
 .bandTitle { font-family: var(--font-heading); font-size: clamp(26px, 3.5vw, 38px); margin: 0 0 12px; }

@@ -34,7 +34,8 @@ REVOKE ALL PRIVILEGES ON TABLE
   platform_stats,
   platform_password_reset_tokens,
   platform_invoices,
-  platform_settings
+  platform_settings,
+  platform_leads
 FROM app_user;
 
 -- Future vendor tables must not be re-granted by the ALTER DEFAULT PRIVILEGES above either; the

@@ -83,6 +83,14 @@ export interface BillingOverview {
 }
 /** Vendor-wide billing settings (SA6c / SA6d). */
 export interface BillingSettings { autoReactivateOnPayment: boolean; publicPricePerStudent: string }
+/** A sales lead / demo request from the marketing site (SA8). */
+export type LeadStatus = 'NEW' | 'CONTACTED' | 'CONVERTED' | 'CLOSED';
+export interface Lead {
+  id: string; name: string; schoolName: string | null; email: string; phone: string | null;
+  studentCount: number | null; message: string | null; status: LeadStatus; source: string;
+  note: string | null; handledById: string | null; handledAt: string | null; createdAt: string;
+}
+export interface LeadPage { data: Lead[]; total: number; page: number; pageSize: number }
 /** A tenant data export (SA7) — sensitive columns redacted. */
 export interface TenantExport { schoolId: string; subdomain: string; generatedAt: string; rowCounts: Record<string, number>; tables: Record<string, unknown[]> }
 export interface NewTenant { name: string; subdomain: string; ownerEmail: string }
@@ -212,4 +220,15 @@ export const platformApi = {
   /** Set the public "list" per-student price shown on the marketing site (SA6d). */
   setPublicPrice: (pricePerStudent: number) =>
     request<BillingSettings>('/platform/billing/public-price', { method: 'PUT', body: { pricePerStudent } }),
+  // ── Leads / demo requests (SA8, SUPER_ADMIN + SUPPORT) ───────────────────────
+  leads: (params: { status?: string; page?: number; pageSize?: number } = {}) => {
+    const qs = new URLSearchParams();
+    if (params.status) qs.set('status', params.status);
+    if (params.page) qs.set('page', String(params.page));
+    if (params.pageSize) qs.set('pageSize', String(params.pageSize));
+    const q = qs.toString();
+    return request<LeadPage>(`/platform/leads${q ? `?${q}` : ''}`);
+  },
+  updateLead: (id: string, changes: { status?: LeadStatus; note?: string }) =>
+    request<Lead>(`/platform/leads/${id}`, { method: 'PATCH', body: changes }),
 };

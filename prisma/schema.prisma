@@ -467,6 +467,39 @@ model PlatformSettings {
   @@map("platform_settings")
 }
 
+/// Where a lead is in the vendor's sales pipeline (SA8). NEW on capture; the operator advances it.
+enum LeadStatus {
+  NEW
+  CONTACTED
+  CONVERTED
+  CLOSED
+}
+
+/// A demo / contact request from the public marketing site (SA8). Vendor-side, NOT tenant data — no
+/// school_id, no RLS (allowlisted in check-rls-coverage + revoked from app_user like every platform_*
+/// table, since it holds prospect PII). Captured by the PUBLIC POST /platform/public/demo-request and
+/// worked from the console leads inbox (SUPER_ADMIN / SUPPORT).
+model PlatformLead {
+  id           String     @id @default(uuid()) @db.Uuid
+  name         String
+  schoolName   String?    @map("school_name")
+  email        String
+  phone        String?
+  studentCount Int?       @map("student_count")
+  message      String?
+  status       LeadStatus @default(NEW)
+  source       String     @default("marketing-site")
+  note         String? // internal note by the operator working the lead
+  handledById  String?    @map("handled_by_id") @db.Uuid
+  handledAt    DateTime?  @map("handled_at")
+  createdAt    DateTime   @default(now()) @map("created_at")
+  updatedAt    DateTime   @updatedAt @map("updated_at")
+
+  @@index([status])
+  @@index([createdAt])
+  @@map("platform_leads")
+}
+
 /// Single-use rotating refresh tokens for the vendor console (blueprint §22.4, §24).
 /// Mirrors RefreshToken but for platform operators (no school_id). Raw token is never
 /// stored — only its SHA-256 hash; reuse of a revoked token revokes the whole family.

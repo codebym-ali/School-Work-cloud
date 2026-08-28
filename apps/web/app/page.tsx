@@ -34,7 +34,7 @@ export default function Home() {
       .catch(() => {});
   }, []);
 
-  const DEMO = 'mailto:hello@schoolworks.pk?subject=SchoolWorks%20demo%20request';
+  const DEMO = '#demo'; // all "Book a demo" CTAs scroll to the in-page request form (SA8)
 
   return (
     <div className={styles.page}>
@@ -154,6 +154,20 @@ export default function Home() {
         </div>
       </section>
 
+      {/* Demo request form (SA8) */}
+      <section className={`${styles.section} ${styles.sectionAlt}`} id="demo">
+        <div className={styles.inner}>
+          <div className={styles.sectionHead}>
+            <div className={styles.sectionKicker}>Get started</div>
+            <h2 className={styles.sectionTitle}>Book a demo</h2>
+            <p className={styles.sectionLead}>
+              Tell us about your school and we&apos;ll set up a walkthrough with your own classes, fees and campuses. No commitment.
+            </p>
+          </div>
+          <DemoForm defaultStudents={students} />
+        </div>
+      </section>
+
       {/* Footer */}
       <footer className={styles.footer}>
         <div className={`${styles.inner} ${styles.footerInner}`}>
@@ -184,6 +198,66 @@ const FEATURES = [
   { title: 'Multi-campus', desc: 'Run several campuses under one school, with a campus lens for oversight across them all.', icon: <Building /> },
   { title: 'Portals for every role', desc: 'Owners, teachers, office staff, parents and students each get their own secure sign-in.', icon: <Shield /> },
 ];
+
+/** The public demo-request form (SA8). Submits to the public, unauthenticated capture endpoint; the
+ *  hidden `website` field is a honeypot the server drops. On success it swaps to a thank-you. */
+function DemoForm({ defaultStudents }: { defaultStudents: number }) {
+  const [f, setF] = useState({ name: '', schoolName: '', email: '', phone: '', students: String(defaultStudents), message: '', website: '' });
+  const [status, setStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
+  const set = (k: keyof typeof f, v: string) => setF((s) => ({ ...s, [k]: v }));
+  const canSubmit = f.name.trim().length > 0 && /.+@.+\..+/.test(f.email) && status !== 'sending';
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!canSubmit) return;
+    setStatus('sending');
+    try {
+      const res = await fetch('/api/v1/platform/public/demo-request', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: f.name.trim(),
+          email: f.email.trim(),
+          schoolName: f.schoolName.trim() || undefined,
+          phone: f.phone.trim() || undefined,
+          studentCount: f.students ? Number(f.students) : undefined,
+          message: f.message.trim() || undefined,
+          website: f.website || undefined,
+        }),
+      });
+      setStatus(res.ok ? 'sent' : 'error');
+    } catch {
+      setStatus('error');
+    }
+  }
+
+  if (status === 'sent') {
+    return (
+      <div className={styles.demoDone}>
+        <div className={styles.demoDoneIcon}><Check /></div>
+        <h3>Thanks — we&apos;ll be in touch</h3>
+        <p>Your request is in. Our team will reach out shortly to set up your demo.</p>
+      </div>
+    );
+  }
+
+  return (
+    <form className={styles.demoForm} onSubmit={submit}>
+      <div className={styles.demoGrid}>
+        <div className={styles.field}><label htmlFor="d-name">Your name *</label><input id="d-name" value={f.name} onChange={(e) => set('name', e.target.value)} required /></div>
+        <div className={styles.field}><label htmlFor="d-school">School name</label><input id="d-school" value={f.schoolName} onChange={(e) => set('schoolName', e.target.value)} /></div>
+        <div className={styles.field}><label htmlFor="d-email">Email *</label><input id="d-email" type="email" value={f.email} onChange={(e) => set('email', e.target.value)} required /></div>
+        <div className={styles.field}><label htmlFor="d-phone">Phone</label><input id="d-phone" value={f.phone} onChange={(e) => set('phone', e.target.value)} placeholder="03xx-xxxxxxx" /></div>
+        <div className={styles.field}><label htmlFor="d-students">Approx. students</label><input id="d-students" type="number" min={0} value={f.students} onChange={(e) => set('students', e.target.value)} /></div>
+      </div>
+      <div className={styles.field}><label htmlFor="d-message">Anything else? (optional)</label><textarea id="d-message" rows={3} value={f.message} onChange={(e) => set('message', e.target.value)} /></div>
+      {/* Honeypot — off-screen; a real visitor never fills it, a bot does. */}
+      <input className={styles.hp} tabIndex={-1} autoComplete="off" aria-hidden="true" value={f.website} onChange={(e) => set('website', e.target.value)} />
+      {status === 'error' && <p className={styles.demoError}>Something went wrong. Please try again in a moment.</p>}
+      <button className={styles.demoSubmit} type="submit" disabled={!canSubmit}>{status === 'sending' ? 'Sending…' : 'Request a demo'}</button>
+    </form>
+  );
+}
 
 /* ── Icons (inline, currentColor — the app's no-emoji rule) ──────────────── */
 type IconProps = { className?: string };

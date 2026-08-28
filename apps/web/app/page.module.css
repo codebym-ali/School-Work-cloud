@@ -122,6 +122,8 @@
 .demoDone h3 { font-family: var(--font-heading); color: var(--brand); font-size: 22px; margin: 0 0 8px; }
 .demoDone p { color: var(--muted); margin: 0; }
 @media (max-width: 560px) { .demoGrid { grid-template-columns: 1fr; } .demoForm { padding: 24px; } }
+.contactLine { text-align: center; color: var(--muted); font-size: 14px; margin: 20px auto 0; }
+.contactLine a { font-weight: 600; }
 
 /* ── Closing CTA band ────────────────────────────────────────────────────── */
 .band { background: linear-gradient(160deg, var(--brand) 0%, var(--brand-dark) 100%); color: #fff; padding: 68px 0; text-align: center; }

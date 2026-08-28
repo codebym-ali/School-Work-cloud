@@ -11,6 +11,8 @@ import styles from './page.module.css';
  *  The live figure is set by a SUPER_ADMIN/BILLING operator in the vendor console (SA6d). */
 const DEFAULT_RATE = 20;
 const fmtPkr = (n: number) => n.toLocaleString('en-PK');
+/** Public contact address shown on the marketing site. */
+const CONTACT_EMAIL = 'mutaharaslam@gmail.com';
 
 /**
  * Public marketing landing page for SchoolWorks (the apex site a prospective school owner sees).
@@ -165,6 +167,9 @@ export default function Home() {
             </p>
           </div>
           <DemoForm defaultStudents={students} />
+          <p className={styles.contactLine}>
+            Prefer email? Write to us at <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a>.
+          </p>
         </div>
       </section>
 
@@ -176,10 +181,12 @@ export default function Home() {
             <Link href="/owner-login">Owner sign-in</Link>
             <Link href="/staff-login">Staff sign-in</Link>
             <Link href="/student-login">Student sign-in</Link>
-            <a href={DEMO}>Contact</a>
+            <a href={DEMO}>Book a demo</a>
+            <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a>
           </nav>
           <div className={styles.footerNote}>
             © {new Date().getFullYear()} SchoolWorks — school management for private schools in Pakistan.
+            {' '}Contact: <a href={`mailto:${CONTACT_EMAIL}`} style={{ color: 'inherit' }}>{CONTACT_EMAIL}</a>
           </div>
         </div>
       </footer>

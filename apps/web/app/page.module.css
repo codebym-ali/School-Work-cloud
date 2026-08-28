@@ -113,6 +113,18 @@
 .featureTitle { font-family: var(--font-heading); font-size: 18px; color: var(--brand); margin: 0 0 6px; }
 .featureDesc { color: var(--muted); font-size: 14.5px; line-height: 1.55; margin: 0; }
 
+/* ── How it works ──────────────────────────────────────────────────────────── */
+.steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; }
+.step { background: var(--card); border: 1px solid var(--border); border-radius: var(--r-lg); padding: 24px; box-shadow: var(--shadow-card); }
+.stepTop { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+.stepIcon { width: 44px; height: 44px; border-radius: var(--r-md); background: var(--brand-tint); color: var(--brand); display: grid; place-items: center; }
+.stepIcon svg { width: 24px; height: 24px; }
+.stepNum { font-family: var(--font-heading); font-size: 36px; line-height: 1; color: var(--border); font-weight: 700; }
+.stepTitle { font-family: var(--font-heading); font-size: 18px; color: var(--brand); margin: 0 0 6px; }
+.stepDesc { color: var(--muted); font-size: 14px; line-height: 1.55; margin: 0; }
+@media (max-width: 900px) { .steps { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 520px) { .steps { grid-template-columns: 1fr; } }
+
 /* ── Pricing (per active student — no tiers) ───────────────────────────────── */
 .priceHero {
   max-width: 720px; margin: 0 auto; background: var(--card); border: 1px solid var(--border);

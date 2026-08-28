@@ -46,6 +46,7 @@ export default function Home() {
           <a className={styles.brand} href="#top"><Cap className={styles.brandMark} /> SchoolWorks</a>
           <nav className={styles.navLinks}>
             <a className={styles.navLink} href="#features">Features</a>
+            <a className={styles.navLink} href="#how">How it works</a>
             <a className={styles.navLink} href="#pricing">Pricing</a>
             <Link className={styles.navLink} href="/login">Sign in</Link>
             <a className={styles.navCta} href={DEMO}>Book a demo</a>
@@ -103,6 +104,29 @@ export default function Home() {
                 <div className={styles.featureIcon}>{f.icon}</div>
                 <h3 className={styles.featureTitle}>{f.title}</h3>
                 <p className={styles.featureDesc}>{f.desc}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* How it works */}
+      <section className={styles.section} id="how">
+        <div className={styles.inner}>
+          <div className={styles.sectionHead}>
+            <div className={styles.sectionKicker}>How it works</div>
+            <h2 className={styles.sectionTitle}>From sign-up to your first report card</h2>
+            <p className={styles.sectionLead}>Four steps from onboarding to running the whole school, day to day.</p>
+          </div>
+          <div className={styles.steps}>
+            {STEPS.map((s) => (
+              <div key={s.n} className={styles.step}>
+                <div className={styles.stepTop}>
+                  <span className={styles.stepIcon}>{s.icon}</span>
+                  <span className={styles.stepNum}>{s.n}</span>
+                </div>
+                <h3 className={styles.stepTitle}>{s.title}</h3>
+                <p className={styles.stepDesc}>{s.desc}</p>
               </div>
             ))}
           </div>
@@ -216,6 +240,13 @@ const FEATURES = [
   { title: 'Timetable & cover', desc: 'Build period grids and bell schedules, and arrange cover for absent teachers.', icon: <Calendar /> },
   { title: 'Multi-campus', desc: 'Run several campuses under one school, with a campus lens for oversight across them all.', icon: <Building /> },
   { title: 'Portals for every role', desc: 'Owners, teachers, office staff, parents and students each get their own secure sign-in.', icon: <Shield /> },
+];
+
+const STEPS = [
+  { n: 1, title: 'Get set up', desc: 'We provision your school and campuses; you add classes, sections and staff — with a secure sign-in for every role.', icon: <Building /> },
+  { n: 2, title: 'Admit & enroll', desc: 'Enroll students and link their guardians. Parents, teachers, office staff and students each get their own portal.', icon: <UserPlus /> },
+  { n: 3, title: 'Run every day', desc: 'Take attendance (parents get an automatic SMS), generate fee invoices and receipts, and enter exam marks.', icon: <Calendar /> },
+  { n: 4, title: 'Stay on top', desc: 'Owners get live dashboards across every campus, with report cards and reports whenever you need them.', icon: <FileText /> },
 ];
 
 /** The public demo-request form (SA8). Submits to the public, unauthenticated capture endpoint; the

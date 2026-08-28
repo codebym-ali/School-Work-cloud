@@ -134,6 +134,29 @@ export default function Home() {
         </div>
       </section>
 
+      {/* Testimonials (placeholder — swap TESTIMONIALS for real quotes when available) */}
+      <section className={styles.section} id="testimonials">
+        <div className={styles.inner}>
+          <div className={styles.sectionHead}>
+            <div className={styles.sectionKicker}>Testimonials</div>
+            <h2 className={styles.sectionTitle}>What schools will say</h2>
+            <p className={styles.sectionLead}>Placeholder — real quotes from schools using SchoolWorks will appear here as they come on board.</p>
+          </div>
+          <div className={styles.quotes}>
+            {TESTIMONIALS.map((t) => (
+              <figure key={t.role} className={styles.quoteCard}>
+                <div className={styles.quoteMark} aria-hidden="true">&rdquo;</div>
+                <blockquote className={styles.quoteText}>{t.quote}</blockquote>
+                <figcaption className={styles.quoteWho}>
+                  <span className={styles.quoteAvatar} aria-hidden="true">{t.name.charAt(0)}</span>
+                  <span><span className={styles.quoteName}>{t.name}</span><br /><span className={styles.quoteRole}>{t.role}</span></span>
+                </figcaption>
+              </figure>
+            ))}
+          </div>
+        </div>
+      </section>
+
       {/* Pricing — per active student, no plan fees */}
       <section className={`${styles.section} ${styles.sectionAlt}`} id="pricing">
         <div className={styles.inner}>
@@ -266,6 +289,15 @@ const STEPS = [
   { n: 2, title: 'Admit & enroll', desc: 'Enroll students and link their guardians. Parents, teachers, office staff and students each get their own portal.', icon: <UserPlus /> },
   { n: 3, title: 'Run every day', desc: 'Take attendance (parents get an automatic SMS), generate fee invoices and receipts, and enter exam marks.', icon: <Calendar /> },
   { n: 4, title: 'Stay on top', desc: 'Owners get live dashboards across every campus, with report cards and reports whenever you need them.', icon: <FileText /> },
+];
+
+/** Placeholder testimonials — deliberately generic ("will appear here" / "Your school") so they read
+ *  as a template, never as real endorsements. Replace with real quotes (and remove the placeholder note
+ *  in the section above) once schools are on board. */
+const TESTIMONIALS = [
+  { quote: 'A short quote from a school owner about running admissions, fees and attendance in one place will appear here.', name: 'School Owner', role: 'Your school, Lahore' },
+  { quote: 'A principal’s words on saving office time and keeping parents informed by SMS will go here.', name: 'Principal', role: 'Your school, Karachi' },
+  { quote: 'An accountant’s note about faster fee collection and clean receipts will appear here.', name: 'Accountant', role: 'Your school, Islamabad' },
 ];
 
 const FAQS = [

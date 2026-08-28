@@ -5,7 +5,7 @@ the record of everything — how many schools, how many students, who controls t
 the owner of this SaaS product who creates schools, their admin credentials, and controls the whole
 product."*
 
-**Status:** 🟢 **SA0–SA7 ALL SHIPPED (2026-08-27).** The full vendor control plane is built and
+**Status:** 🟢 **SA0–SA7 ALL SHIPPED — merged to `main` (`9342968`).** See [[SuperAdmin Control Plane — Release Notes]] for the shipped summary. The full vendor control plane is built and
 test-proven: foundation/MFA/roles (SA0), fleet overview (SA1), safe provisioning (SA2), plans + usage
 (SA3), operator management + invite (SA4), break-glass (SA5), **billing v1** (SA6 — in-house per-student,
 decision D3), and tenant export + hard-delete (SA7). Remaining work is v1→later polish, not new phases

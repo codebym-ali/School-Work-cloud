@@ -1,0 +1,123 @@
+/* Public marketing landing page (apex, logged-out visitors). Scoped module so it never touches the
+ * Playwright-tested globals.css. Uses the app's design tokens (navy --brand + brass --accent, Bitter
+ * headings) so the site and the product read as one brand. */
+
+.page { color: var(--ink); }
+.inner { max-width: 1120px; margin: 0 auto; padding: 0 24px; }
+
+/* ── Nav ─────────────────────────────────────────────────────────────────── */
+.nav {
+  position: sticky; top: 0; z-index: 20;
+  background: rgb(255 255 255 / .85); backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--border);
+}
+.navInner { display: flex; align-items: center; justify-content: space-between; gap: 16px; height: 64px; }
+.brand { display: inline-flex; align-items: center; gap: 10px; font-family: var(--font-heading); font-weight: 700; font-size: 20px; color: var(--brand); text-decoration: none; }
+.brandMark { width: 30px; height: 30px; color: var(--accent); flex: none; }
+.navLinks { display: flex; align-items: center; gap: 22px; }
+.navLink { color: var(--muted); text-decoration: none; font-size: 15px; font-weight: 500; }
+.navLink:hover { color: var(--brand); }
+.navCta {
+  background: var(--brand); color: #fff; text-decoration: none;
+  padding: 9px 18px; border-radius: var(--r-pill); font-weight: 700; font-size: 14px;
+}
+.navCta:hover { background: var(--brand-dark); }
+@media (max-width: 640px) { .navLinks .navLink { display: none; } }
+
+/* ── Hero ────────────────────────────────────────────────────────────────── */
+.hero {
+  background:
+    radial-gradient(1200px 500px at 80% -10%, rgb(161 116 28 / .18), transparent 60%),
+    linear-gradient(160deg, var(--brand) 0%, var(--brand-dark) 100%);
+  color: #fff; padding: 84px 0 96px;
+}
+.eyebrow {
+  display: inline-block; text-transform: uppercase; letter-spacing: .08em; font-size: 12px; font-weight: 700;
+  color: var(--accent-light); background: rgb(255 255 255 / .08); border: 1px solid rgb(255 255 255 / .18);
+  padding: 6px 12px; border-radius: var(--r-pill); margin-bottom: 20px;
+}
+.h1 { font-family: var(--font-heading); font-size: clamp(34px, 5vw, 54px); line-height: 1.08; margin: 0 0 18px; max-width: 16ch; }
+.h1 em { color: var(--accent-light); font-style: normal; }
+.lead { font-size: clamp(16px, 2vw, 19px); line-height: 1.6; color: rgb(255 255 255 / .82); max-width: 56ch; margin: 0 0 30px; }
+.ctas { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; }
+.ctaPrimary {
+  background: var(--accent-light); color: var(--brand-dark); text-decoration: none; font-weight: 800;
+  padding: 14px 28px; border-radius: var(--r-pill); font-size: 16px; box-shadow: var(--shadow-accent);
+}
+.ctaPrimary:hover { background: #e9b13f; }
+.ctaSecondary {
+  color: #fff; text-decoration: none; font-weight: 700; padding: 14px 24px;
+  border-radius: var(--r-pill); border: 1px solid rgb(255 255 255 / .35); font-size: 16px;
+}
+.ctaSecondary:hover { background: rgb(255 255 255 / .10); }
+.trustline { margin-top: 26px; display: flex; flex-wrap: wrap; gap: 8px 20px; color: rgb(255 255 255 / .72); font-size: 14px; }
+.trustline span { display: inline-flex; align-items: center; gap: 7px; }
+.dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent-light); }
+
+/* ── Sections ────────────────────────────────────────────────────────────── */
+.section { padding: 76px 0; }
+.sectionAlt { background: var(--card); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+.sectionHead { max-width: 640px; margin: 0 auto 44px; text-align: center; }
+.sectionKicker { color: var(--accent-ink); font-weight: 700; font-size: 13px; text-transform: uppercase; letter-spacing: .06em; }
+.sectionTitle { font-family: var(--font-heading); font-size: clamp(26px, 3.5vw, 36px); margin: 8px 0 12px; color: var(--brand); }
+.sectionLead { color: var(--muted); font-size: 17px; line-height: 1.6; margin: 0; }
+
+/* ── Features ────────────────────────────────────────────────────────────── */
+.features { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; }
+.feature { background: var(--card); border: 1px solid var(--border); border-radius: var(--r-lg); padding: 24px; box-shadow: var(--shadow-card); }
+.sectionAlt .feature { background: var(--bg); box-shadow: none; }
+.featureIcon {
+  width: 44px; height: 44px; border-radius: var(--r-md); display: grid; place-items: center;
+  background: var(--accent-tint); color: var(--accent-ink); margin-bottom: 14px;
+}
+.featureIcon svg { width: 24px; height: 24px; }
+.featureTitle { font-family: var(--font-heading); font-size: 18px; color: var(--brand); margin: 0 0 6px; }
+.featureDesc { color: var(--muted); font-size: 14.5px; line-height: 1.55; margin: 0; }
+
+/* ── Pricing (per active student — no tiers) ───────────────────────────────── */
+.priceHero {
+  max-width: 720px; margin: 0 auto; background: var(--card); border: 1px solid var(--border);
+  border-radius: var(--r-xl); box-shadow: var(--shadow-card); padding: 36px; text-align: center;
+}
+.priceRate { display: flex; align-items: baseline; justify-content: center; gap: 10px; flex-wrap: wrap; }
+.priceCurrency { font-family: var(--font-heading); font-size: 24px; color: var(--muted); }
+.priceNumber { font-family: var(--font-heading); font-size: clamp(48px, 8vw, 72px); line-height: 1; color: var(--brand); }
+.pricePer { color: var(--muted); font-size: 16px; font-weight: 600; }
+.priceIncludes {
+  list-style: none; margin: 28px 0 0; padding: 0; text-align: left;
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 24px;
+}
+.priceIncludes li { display: flex; align-items: center; gap: 10px; font-size: 15px; }
+.check { color: var(--ok); flex: none; width: 18px; height: 18px; }
+@media (max-width: 520px) { .priceIncludes { grid-template-columns: 1fr; } }
+
+.estimator {
+  max-width: 720px; margin: 22px auto 0; background: var(--brand-tint);
+  border: 1px solid var(--border); border-radius: var(--r-lg); padding: 24px 28px;
+}
+.estimatorHead { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
+.estimatorHead label { font-size: 15px; font-weight: 700; color: var(--brand); margin: 0; }
+.estimatorCount { font-family: var(--font-heading); font-size: 18px; color: var(--brand); white-space: nowrap; }
+/* Reset the global input box styling and colour the native range with the brand. */
+.slider { width: 100%; height: auto; padding: 0; margin: 0; border: 0; background: transparent; accent-color: var(--brand); cursor: pointer; }
+.estimatorResult { margin-top: 18px; text-align: center; font-size: 16px; color: var(--ink); }
+.estimatorResult strong { font-family: var(--font-heading); font-size: clamp(24px, 5vw, 32px); color: var(--brand); }
+.estimatorResult span { color: var(--muted); font-weight: 600; }
+.estimatorNote { text-align: center; color: var(--muted); font-size: 13.5px; margin: 10px 0 0; }
+.pricingNote { text-align: center; color: var(--muted); font-size: 14px; margin: 28px auto 0; max-width: 60ch; }
+.pricingNote a { font-weight: 700; }
+
+/* ── Closing CTA band ────────────────────────────────────────────────────── */
+.band { background: linear-gradient(160deg, var(--brand) 0%, var(--brand-dark) 100%); color: #fff; padding: 68px 0; text-align: center; }
+.bandTitle { font-family: var(--font-heading); font-size: clamp(26px, 3.5vw, 38px); margin: 0 0 12px; }
+.bandLead { color: rgb(255 255 255 / .82); font-size: 17px; margin: 0 auto 28px; max-width: 52ch; }
+
+/* ── Footer ──────────────────────────────────────────────────────────────── */
+.footer { background: var(--brand-dark); color: rgb(255 255 255 / .72); padding: 44px 0; }
+.footerInner { display: flex; flex-wrap: wrap; gap: 24px; justify-content: space-between; align-items: flex-start; }
+.footerBrand { display: inline-flex; align-items: center; gap: 10px; color: #fff; font-family: var(--font-heading); font-weight: 700; font-size: 18px; }
+.footerBrand .brandMark { color: var(--accent-light); }
+.footerLinks { display: flex; flex-wrap: wrap; gap: 8px 22px; }
+.footerLinks a { color: rgb(255 255 255 / .8); text-decoration: none; font-size: 14px; }
+.footerLinks a:hover { color: #fff; }
+.footerNote { width: 100%; border-top: 1px solid rgb(255 255 255 / .12); margin-top: 12px; padding-top: 18px; font-size: 13px; color: rgb(255 255 255 / .55); }

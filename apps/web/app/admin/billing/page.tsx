@@ -89,6 +89,8 @@ export default function BillingPage() {
         </div>
       )}
 
+      {settings && <PublicPriceControl value={settings.publicPricePerStudent} run={run} />}
+
       <PricingTable tenants={tenants} loading={loading} run={run} />
 
       {payTarget && (
@@ -207,6 +209,43 @@ function PriceRow({ t, run }: { t: Tenant; run: (fn: () => Promise<unknown>, ok:
       <td>{est != null ? money(est.toFixed(2)) : <span className="muted">—</span>}</td>
       <td><button className="ghost small" disabled={busy || !valid || !dirty} onClick={() => void save()}>{busy ? 'Saving…' : 'Save'}</button></td>
     </tr>
+  );
+}
+
+/** Set the single public "list" per-student price shown on the marketing site (SA6d). Distinct from a
+ *  school's own billed rate (set per row in the pricing table below). */
+function PublicPriceControl({ value, run }: { value: string; run: (fn: () => Promise<unknown>, ok: string) => Promise<boolean> }) {
+  const [price, setPrice] = useState(value);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { setPrice(value); }, [value]);
+  const parsed = Number(price);
+  const valid = price !== '' && Number.isFinite(parsed) && parsed >= 0;
+  const dirty = value !== price;
+
+  async function save() {
+    if (!valid || !dirty) return;
+    setBusy(true);
+    try { await run(() => platformApi.setPublicPrice(parsed), `Public price set to PKR ${parsed}/student`); }
+    finally { setBusy(false); }
+  }
+
+  return (
+    <div className="card" style={{ display: 'flex', alignItems: 'center', gap: 16, justifyContent: 'space-between', flexWrap: 'wrap' }}>
+      <div style={{ maxWidth: 640 }}>
+        <strong style={{ fontSize: 15 }}>Public per-student price</strong>
+        <p className="muted" style={{ margin: '4px 0 0', fontSize: 13 }}>
+          The single per-student rate advertised on the public marketing site. This is the list price a
+          visitor sees — each school&apos;s actual billed rate is still set on its own row below.
+        </p>
+      </div>
+      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+        <span className="muted">PKR</span>
+        <input value={price} onChange={(e) => setPrice(e.target.value)} inputMode="decimal" aria-label="Public per-student price"
+          onKeyDown={(e) => { if (e.key === 'Enter' && valid && dirty) void save(); }} style={{ width: 90 }} />
+        <span className="muted" style={{ fontSize: 13 }}>/ student</span>
+        <button className="ghost small" disabled={busy || !valid || !dirty} onClick={() => void save()}>{busy ? 'Saving…' : 'Save'}</button>
+      </div>
+    </div>
   );
 }
 

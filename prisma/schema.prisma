@@ -458,6 +458,9 @@ model PlatformInvoice {
 model PlatformSettings {
   id                      String   @id @default(uuid()) @db.Uuid
   autoReactivateOnPayment Boolean  @default(false) @map("auto_reactivate_on_payment")
+  // SA6d: the single public "list" per-student price shown on the marketing site. Set by a
+  // SUPER_ADMIN/BILLING operator; distinct from schools.price_per_student (each school's billed rate).
+  publicPricePerStudent   Decimal  @default(20) @map("public_price_per_student") @db.Decimal(12, 2)
   updatedById             String?  @map("updated_by_id") @db.Uuid
   updatedAt               DateTime @updatedAt @map("updated_at")
 

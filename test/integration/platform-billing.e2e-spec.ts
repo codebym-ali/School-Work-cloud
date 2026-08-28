@@ -196,6 +196,23 @@ describe('Platform vendor billing (e2e, §24 SA6)', () => {
     await put(superCookies, 'billing/settings', { autoReactivateOnPayment: false }); // reset the global singleton
   });
 
+  it('public list price (SA6d): SUPER_ADMIN sets it, ANALYST 403, and the public endpoint reads it unauthenticated', async () => {
+    const set = await put(superCookies, 'billing/public-price', { pricePerStudent: 18 });
+    expect(set.status).toBe(200);
+    expect(set.body.publicPricePerStudent).toBe('18.00');
+
+    // A read-only ANALYST cannot change the advertised price.
+    expect((await put(analystCookies, 'billing/public-price', { pricePerStudent: 99 })).status).toBe(403);
+
+    // The marketing site reads it with NO session (public, unauthenticated).
+    const pub = await request(server()).get('/api/v1/platform/public/pricing').set('Host', HOST);
+    expect(pub.status).toBe(200);
+    expect(pub.body).toMatchObject({ pricePerStudent: '18.00', currency: 'PKR' });
+
+    // The authenticated settings read carries it too.
+    expect((await get(superCookies, 'billing/settings')).body.publicPricePerStudent).toBe('18.00');
+  });
+
   it('billing history SURVIVES an SA7 tenant purge (tenant_id → null, snapshot kept)', async () => {
     // Terminate + backdate the retention window, then purge schoolA (SA7).
     await post(superCookies, `tenants/${schoolA}/terminate`, { reason: 'offboard for billing test' });

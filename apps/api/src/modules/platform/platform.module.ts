@@ -9,6 +9,7 @@ import { PlatformAuthGuard } from './platform-auth.guard';
 import { PlatformAuthController } from './platform-auth.controller';
 import { PlatformController } from './platform.controller';
 import { PlatformBillingController } from './platform-billing.controller';
+import { PlatformPublicController } from './platform-public.controller';
 
 /**
  * Platform / vendor-side module (blueprint §5, §24). Provides tenant provisioning and
@@ -18,7 +19,7 @@ import { PlatformBillingController } from './platform-billing.controller';
  */
 @Module({
   imports: [AuthModule],
-  controllers: [PlatformAuthController, PlatformController, PlatformBillingController],
+  controllers: [PlatformAuthController, PlatformController, PlatformBillingController, PlatformPublicController],
   providers: [ProvisioningService, PlatformAuthService, PlatformService, PlatformBillingService, PlatformAuditService, PlatformAuthGuard],
   exports: [ProvisioningService],
 })

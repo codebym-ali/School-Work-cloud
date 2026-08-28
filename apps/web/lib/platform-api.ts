@@ -81,8 +81,8 @@ export interface BillingOverview {
   collectedThisMonth: string; collectedAllTime: string;
   pricedSchools: number; unpricedActiveSchools: number; issuedCount: number; overdueCount: number;
 }
-/** Vendor-wide billing settings (SA6c). */
-export interface BillingSettings { autoReactivateOnPayment: boolean }
+/** Vendor-wide billing settings (SA6c / SA6d). */
+export interface BillingSettings { autoReactivateOnPayment: boolean; publicPricePerStudent: string }
 /** A tenant data export (SA7) — sensitive columns redacted. */
 export interface TenantExport { schoolId: string; subdomain: string; generatedAt: string; rowCounts: Record<string, number>; tables: Record<string, unknown[]> }
 export interface NewTenant { name: string; subdomain: string; ownerEmail: string }
@@ -209,4 +209,7 @@ export const platformApi = {
   billingSettings: () => request<BillingSettings>('/platform/billing/settings'),
   setAutoReactivate: (autoReactivateOnPayment: boolean) =>
     request<BillingSettings>('/platform/billing/settings', { method: 'PUT', body: { autoReactivateOnPayment } }),
+  /** Set the public "list" per-student price shown on the marketing site (SA6d). */
+  setPublicPrice: (pricePerStudent: number) =>
+    request<BillingSettings>('/platform/billing/public-price', { method: 'PUT', body: { pricePerStudent } }),
 };

@@ -57,10 +57,12 @@ export interface BillingOverview {
   overdueCount: number;
 }
 
-/** Vendor-wide billing settings (SA6c). */
+/** Vendor-wide billing settings (SA6c / SA6d). */
 export interface BillingSettings {
   /** When on, a NON-PAYMENT-suspended school is auto-reactivated once it clears its overdue balance. */
   autoReactivateOnPayment: boolean;
+  /** SA6d: the single public "list" per-student price shown on the marketing site (decimal string). */
+  publicPricePerStudent: string;
 }
 
 /**
@@ -320,36 +322,47 @@ export class PlatformBillingService {
     };
   }
 
-  // ── SA6c vendor billing settings (the auto-reactivate switch) ──────────────────────────────────
+  // ── SA6c/SA6d vendor billing settings (auto-reactivate switch + public list price) ─────────────
 
   /** The single vendor-settings row, created with defaults on first read (find-then-write, not upsert). */
-  private async getOrCreateSettings(): Promise<BillingSettings> {
-    const row = await this.platform.platformSettings.findFirst({ select: { autoReactivateOnPayment: true } });
+  private async getOrCreateSettings() {
+    const row = await this.platform.platformSettings.findFirst();
     if (row) return row;
-    const created = await this.platform.platformSettings.create({ data: {}, select: { autoReactivateOnPayment: true } });
-    return created;
+    return this.platform.platformSettings.create({ data: {} });
   }
 
-  /** Read the vendor billing settings (SA6c). */
-  getBillingSettings(): Promise<BillingSettings> {
-    return this.getOrCreateSettings();
+  /** Read the vendor billing settings (SA6c/SA6d). */
+  async getBillingSettings(): Promise<BillingSettings> {
+    const s = await this.getOrCreateSettings();
+    return { autoReactivateOnPayment: s.autoReactivateOnPayment, publicPricePerStudent: s.publicPricePerStudent.toFixed(2) };
+  }
+
+  /** PUBLIC (unauthenticated) read of the marketing "list" per-student price (SA6d). */
+  async getPublicPricing(): Promise<{ pricePerStudent: string; currency: string }> {
+    const s = await this.getOrCreateSettings();
+    return { pricePerStudent: s.publicPricePerStudent.toFixed(2), currency: 'PKR' };
+  }
+
+  private async updateSettings(data: Prisma.PlatformSettingsUpdateInput, ctx: PlatformActionContext, metadata: Prisma.InputJsonValue): Promise<BillingSettings> {
+    const existing = await this.platform.platformSettings.findFirst({ select: { id: true } });
+    if (existing) {
+      await this.platform.platformSettings.update({ where: { id: existing.id }, data: { ...data, updatedById: ctx.platformUserId } });
+    } else {
+      await this.platform.platformSettings.create({ data: { ...(data as Prisma.PlatformSettingsCreateInput), updatedById: ctx.platformUserId } });
+    }
+    await this.audit.record({ platformUserId: ctx.platformUserId, action: 'BILLING_SETTINGS_UPDATE', metadata, ip: ctx.ip });
+    return this.getBillingSettings();
   }
 
   /** Toggle auto-reactivate-on-payment (SA6c, SUPER_ADMIN/BILLING). Audited `BILLING_SETTINGS_UPDATE`. */
-  async setAutoReactivate(enabled: boolean, ctx: PlatformActionContext): Promise<BillingSettings> {
-    const existing = await this.platform.platformSettings.findFirst({ select: { id: true } });
-    if (existing) {
-      await this.platform.platformSettings.update({ where: { id: existing.id }, data: { autoReactivateOnPayment: enabled, updatedById: ctx.platformUserId } });
-    } else {
-      await this.platform.platformSettings.create({ data: { autoReactivateOnPayment: enabled, updatedById: ctx.platformUserId } });
-    }
-    await this.audit.record({
-      platformUserId: ctx.platformUserId,
-      action: 'BILLING_SETTINGS_UPDATE',
-      metadata: { autoReactivateOnPayment: enabled },
-      ip: ctx.ip,
-    });
-    return { autoReactivateOnPayment: enabled };
+  setAutoReactivate(enabled: boolean, ctx: PlatformActionContext): Promise<BillingSettings> {
+    return this.updateSettings({ autoReactivateOnPayment: enabled }, ctx, { autoReactivateOnPayment: enabled });
+  }
+
+  /** Set the public "list" per-student price shown on the marketing site (SA6d, SUPER_ADMIN/BILLING). */
+  setPublicPricePerStudent(price: number, ctx: PlatformActionContext): Promise<BillingSettings> {
+    const value = new Prisma.Decimal(price);
+    return this.updateSettings({ publicPricePerStudent: value }, ctx, { publicPricePerStudent: value.toFixed(2) });
   }
 
   // ── SA6b automation (system jobs — no operator; the audit actor is null) ───────────────────────

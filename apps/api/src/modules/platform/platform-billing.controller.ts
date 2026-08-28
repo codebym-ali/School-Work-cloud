@@ -44,6 +44,14 @@ export class PlatformBillingController {
     return this.billing.setAutoReactivate(dto.autoReactivateOnPayment, { platformUserId: actor.id, ip: req.ip });
   }
 
+  // Set the public "list" per-student price shown on the marketing site (SA6d).
+  @PlatformRoles('SUPER_ADMIN', 'BILLING')
+  @Put('public-price')
+  @HttpCode(HttpStatus.OK)
+  setPublicPrice(@Body() dto: SetPriceDto, @CurrentPlatformUser() actor: PlatformActor, @Req() req: Request) {
+    return this.billing.setPublicPricePerStudent(dto.pricePerStudent, { platformUserId: actor.id, ip: req.ip });
+  }
+
   // Set the school's monthly per-student price (audited TENANT_PRICE_SET).
   @PlatformRoles('SUPER_ADMIN', 'BILLING')
   @Put('tenants/:id/price')

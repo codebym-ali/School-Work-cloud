@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
+import { MailModule } from '../mail/mail.module';
 import { ProvisioningService } from './provisioning.service';
 import { PlatformAuthService } from './platform-auth.service';
 import { PlatformService } from './platform.service';
@@ -20,7 +21,7 @@ import { PlatformLeadsController } from './platform-leads.controller';
  * AuthModule for TokenService + PasswordService (shared JWT/crypto).
  */
 @Module({
-  imports: [AuthModule],
+  imports: [AuthModule, MailModule],
   controllers: [PlatformAuthController, PlatformController, PlatformBillingController, PlatformPublicController, PlatformLeadsController],
   providers: [ProvisioningService, PlatformAuthService, PlatformService, PlatformBillingService, PlatformLeadsService, PlatformAuditService, PlatformAuthGuard],
   exports: [ProvisioningService],

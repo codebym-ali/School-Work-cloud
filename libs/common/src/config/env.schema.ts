@@ -79,6 +79,19 @@ export const envSchema = z.object({
    *  callbacks — a stub that ships half-configured must refuse, not trust. */
   AGGREGATOR_WEBHOOK_HMAC_SECRET: z.string().optional(),
 
+  // Outbound email (SA8 lead notifications). ALL optional: with no SMTP_HOST the mailer NO-OPS
+  // (logs a warning) so lead capture still works un-configured — set these to actually deliver.
+  // For Gmail use host smtp.gmail.com, port 587, and an App Password (never the account password).
+  SMTP_HOST: z.string().optional(),
+  SMTP_PORT: z.coerce.number().int().positive().default(587),
+  SMTP_SECURE: z.string().default('false').transform((s) => s.toLowerCase() === 'true'),
+  SMTP_USER: z.string().optional(),
+  SMTP_PASS: z.string().optional(),
+  /** From address on outbound mail; falls back to SMTP_USER when unset. */
+  SMTP_FROM: z.string().optional(),
+  /** Where new-lead / demo-request notifications are sent (SA8). Defaults to the owner's address. */
+  LEAD_NOTIFY_EMAIL: z.string().default('mutaharaslam@gmail.com'),
+
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
   // Error monitoring (§31). Unset ⇒ Sentry stays off (dev/test/CI).
   SENTRY_DSN: z.string().optional(),

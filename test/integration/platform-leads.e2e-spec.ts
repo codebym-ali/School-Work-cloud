@@ -6,6 +6,7 @@ import * as argon2 from 'argon2';
 import { randomUUID } from 'node:crypto';
 import { AppModule } from '../../apps/api/src/app.module';
 import { PlatformPrismaService } from '@database';
+import { MailerService } from '../../apps/api/src/modules/mail/mail.service';
 
 /**
  * Leads / demo requests — SA8. The public marketing site captures a demo request through an
@@ -69,6 +70,20 @@ describe('Platform leads / demo requests (e2e, §24 SA8)', () => {
     expect(res.body).toMatchObject({ ok: true });
     const lead = await platform.platformLead.findFirst({ where: { email: leadEmail('ayesha') } });
     expect(lead).toMatchObject({ name: 'Ayesha Khan', schoolName: 'Iqra Model School', studentCount: 420, status: 'NEW', source: 'marketing-site' });
+  });
+
+  it('emails the owner on a new demo request (fire-and-forget, to LEAD_NOTIFY_EMAIL)', async () => {
+    const spy = jest.spyOn(app.get(MailerService), 'send').mockResolvedValue();
+    try {
+      await publicPost({ name: 'Zara Malik', email: leadEmail('zara'), schoolName: 'Beacon House', studentCount: 300 });
+      expect(spy).toHaveBeenCalledTimes(1);
+      const msg = spy.mock.calls[0][0];
+      expect(msg).toMatchObject({ to: 'mutaharaslam@gmail.com', replyTo: leadEmail('zara') });
+      expect(msg.subject).toContain('Zara Malik');
+      expect(msg.text).toContain('Beacon House');
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it('drops a honeypot submission silently (201, nothing saved)', async () => {

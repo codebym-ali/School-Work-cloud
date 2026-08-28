@@ -48,6 +48,7 @@ export default function Home() {
             <a className={styles.navLink} href="#features">Features</a>
             <a className={styles.navLink} href="#how">How it works</a>
             <a className={styles.navLink} href="#pricing">Pricing</a>
+            <a className={styles.navLink} href="#faq">FAQ</a>
             <Link className={styles.navLink} href="/login">Sign in</Link>
             <a className={styles.navCta} href={DEMO}>Book a demo</a>
           </nav>
@@ -192,6 +193,24 @@ export default function Home() {
         </div>
       </section>
 
+      {/* FAQ */}
+      <section className={styles.section} id="faq">
+        <div className={styles.inner}>
+          <div className={styles.sectionHead}>
+            <div className={styles.sectionKicker}>FAQ</div>
+            <h2 className={styles.sectionTitle}>Questions, answered</h2>
+          </div>
+          <div className={styles.faq}>
+            {FAQS.map((f) => (
+              <details key={f.q} className={styles.faqItem}>
+                <summary className={styles.faqQ}>{f.q}<span className={styles.faqMark} aria-hidden="true" /></summary>
+                <p className={styles.faqA}>{f.a}</p>
+              </details>
+            ))}
+          </div>
+        </div>
+      </section>
+
       {/* Demo request form (SA8) */}
       <section className={`${styles.section} ${styles.sectionAlt}`} id="demo">
         <div className={styles.inner}>
@@ -247,6 +266,15 @@ const STEPS = [
   { n: 2, title: 'Admit & enroll', desc: 'Enroll students and link their guardians. Parents, teachers, office staff and students each get their own portal.', icon: <UserPlus /> },
   { n: 3, title: 'Run every day', desc: 'Take attendance (parents get an automatic SMS), generate fee invoices and receipts, and enter exam marks.', icon: <Calendar /> },
   { n: 4, title: 'Stay on top', desc: 'Owners get live dashboards across every campus, with report cards and reports whenever you need them.', icon: <FileText /> },
+];
+
+const FAQS = [
+  { q: 'How much does SchoolWorks cost?', a: 'You pay a small amount per active student per month — no plan fees and no per-seat licences for staff. Your cost scales with your enrolment, so you only ever pay for the students you actually have. The current rate is shown in the Pricing section above.' },
+  { q: 'Does it work for multiple campuses?', a: 'Yes. Run several campuses under one school, each with its own classes, staff and students, and switch between them with a campus lens for oversight — all on one bill.' },
+  { q: 'How do parents get updates?', a: 'By SMS. SchoolWorks texts parents automatically — for example when a child is marked absent or a fee falls due — which is how schools here actually reach families. Your monthly SMS allowance scales with your plan.' },
+  { q: 'Is our data private and secure?', a: 'Every school’s data is fully isolated from every other school, enforced at the database level. Each role signs in separately, sensitive fields such as CNICs are encrypted, and only your school can ever see your records.' },
+  { q: 'Can we bring our existing students across?', a: 'Yes. Students can be bulk-imported from a spreadsheet (CSV) during onboarding, with their guardians linked — so you are not re-typing your whole register.' },
+  { q: 'How do we get started?', a: 'Book a demo and we’ll walk you through it with your own classes and fees, then help you provision your school, add your staff and import your students.' },
 ];
 
 /** The public demo-request form (SA8). Submits to the public, unauthenticated capture endpoint; the

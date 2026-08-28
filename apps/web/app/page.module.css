@@ -158,6 +158,15 @@
 .pricingNote { text-align: center; color: var(--muted); font-size: 14px; margin: 28px auto 0; max-width: 60ch; }
 .pricingNote a { font-weight: 700; }
 
+/* ── FAQ (native <details> accordion) ──────────────────────────────────────── */
+.faq { max-width: 760px; margin: 0 auto; }
+.faqItem { border: 1px solid var(--border); border-radius: var(--r-md); background: var(--card); margin-bottom: 12px; }
+.faqQ { list-style: none; cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 18px 20px; font-family: var(--font-heading); font-size: 16px; color: var(--brand); font-weight: 600; }
+.faqQ::-webkit-details-marker { display: none; }
+.faqMark { width: 9px; height: 9px; border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted); transform: rotate(45deg); transition: transform .2s ease; flex: none; margin-top: -4px; }
+.faqItem[open] .faqMark { transform: rotate(-135deg); }
+.faqA { margin: 0; padding: 0 20px 18px; color: var(--muted); font-size: 14.5px; line-height: 1.6; }
+
 /* ── Demo request form (SA8) ───────────────────────────────────────────────── */
 .demoForm { max-width: 760px; margin: 0 auto; background: var(--card); border: 1px solid var(--border); border-radius: var(--r-xl); box-shadow: var(--shadow-card); padding: 32px; }
 .demoGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }

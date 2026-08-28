@@ -61,7 +61,7 @@ export const isPlatformMfaRequired = (r: PlatformLoginResult): r is { mfaRequire
   'mfaRequired' in r && r.mfaRequired === true;
 export interface Tenant {
   id: string; name: string; subdomain: string; customDomain: string | null;
-  planTier: string; isActive: boolean; suspendedAt: string | null; purgeAfter: string | null;
+  isActive: boolean; suspendedAt: string | null; purgeAfter: string | null;
   pricePerStudent: string | null; createdAt: string;
   userCount: number; activeStudents: number;
 }
@@ -106,15 +106,6 @@ export interface PlatformOverview {
   staffEmployed: number;
   newSchools30d: number;
 }
-/** Per-plan entitlement limits (SA3), from the server-side catalog. */
-export interface PlanLimits {
-  maxStudents: number;
-  maxStaff: number;
-  maxCampuses: number;
-  storageMb: number;
-  monthlySmsCredits: number;
-}
-export type PlanCatalog = Record<string, PlanLimits>;
 /** A vendor operator as the console lists it (SA4). */
 export interface PlatformOperator {
   id: string;
@@ -159,11 +150,6 @@ export const platformApi = {
   provision: (t: NewTenant) => request<{ id: string; subdomain: string; onboardingToken?: string }>('/platform/tenants', { method: 'POST', body: t }),
   suspend: (id: string, reason: string) => request<{ id: string; isActive: boolean }>(`/platform/tenants/${id}/suspend`, { method: 'POST', body: { reason } }),
   reactivate: (id: string) => request<{ id: string; isActive: boolean }>(`/platform/tenants/${id}/reactivate`, { method: 'POST' }),
-  /** The plan catalog (SA3) — per-tier limits, an open read. */
-  plans: () => request<PlanCatalog>('/platform/plans'),
-  /** Change a tenant's plan (SA3, SUPER_ADMIN) — audited. */
-  changePlan: (id: string, planTier: string) =>
-    request<{ id: string; planTier: string }>(`/platform/tenants/${id}/plan`, { method: 'PATCH', body: { planTier } }),
   /** The vendor operators (SA4, SUPER_ADMIN). */
   operators: () => request<PlatformOperator[]>('/platform/operators'),
   /** Change an operator's role and/or status (SA4, SUPER_ADMIN) — audited. */

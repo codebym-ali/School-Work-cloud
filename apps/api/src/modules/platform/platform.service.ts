@@ -1,13 +1,12 @@
 import { HttpStatus, Inject, Injectable } from '@nestjs/common';
 import { randomBytes } from 'node:crypto';
-import { Prisma, type PlanTier, type PlatformRole } from '@prisma/client';
+import { Prisma, type PlatformRole } from '@prisma/client';
 import { AppError, ENV, ErrorCodes, paginate, toSkipTake, type Env, type Paginated } from '@common';
 import { PlatformPrismaService, purgeTenant, exportTenant } from '@database';
 import { TenantResolutionMiddleware } from '../../tenant/tenant-resolution.middleware';
 import { ProvisioningService } from './provisioning.service';
 import { PlatformAuditService } from './platform-audit.service';
 import { TokenService } from '../auth/token.service';
-import { PLAN_LIMITS, type PlanLimits } from './plan-limits';
 import type { CreateOperatorDto, ListTenantsQuery, ProvisionTenantDto } from './dto/platform.dto';
 
 /** Who is performing a platform write, and from where — threaded to the audit row (SA-P2). */
@@ -21,7 +20,6 @@ export interface TenantSummary {
   name: string;
   subdomain: string;
   customDomain: string | null;
-  planTier: string;
   isActive: boolean;
   suspendedAt: Date | null;
   /** SA7: set when scheduled for termination — the instant the hard-delete becomes allowed. */
@@ -30,8 +28,7 @@ export interface TenantSummary {
   pricePerStudent: string | null;
   createdAt: Date;
   userCount: number;
-  /** Current usage for the plan-cap surfacing (SA3): ACTIVE enrollments — the SAME definition as the
-   *  fleet dashboard (Law 4), not raw `students` rows (those diverge — the E2E-campus cleanup proved it). */
+  /** ACTIVE enrollments — the SAME definition as the fleet dashboard (Law 4), not raw `students` rows. */
   activeStudents: number;
 }
 
@@ -131,7 +128,6 @@ export class PlatformService {
           name: true,
           subdomain: true,
           customDomain: true,
-          planTier: true,
           isActive: true,
           suspendedAt: true,
           purgeAfter: true,
@@ -149,7 +145,6 @@ export class PlatformService {
       name: s.name,
       subdomain: s.subdomain,
       customDomain: s.customDomain,
-      planTier: s.planTier,
       isActive: s.isActive,
       suspendedAt: s.suspendedAt,
       purgeAfter: s.purgeAfter,
@@ -189,31 +184,6 @@ export class PlatformService {
       staffEmployed: snap.staffEmployed,
       newSchools30d: snap.newSchools30d,
     };
-  }
-
-  /**
-   * The plan catalog (SA3) — the per-tier limits straight from the single server-side source
-   * (`PLAN_LIMITS`). A read, so open to every operator role; the console renders it and shows each
-   * school's usage against its plan's caps. SA3a exposes and assigns plans; enforcing the caps on
-   * the tenant request path is SA3b.
-   */
-  getPlans(): Record<PlanTier, PlanLimits> {
-    return PLAN_LIMITS;
-  }
-
-  /** Change a tenant's plan (SA3, SUPER_ADMIN); audited as `TENANT_PLAN_CHANGE` with from→to. */
-  async changePlan(id: string, planTier: PlanTier, ctx: PlatformActionContext): Promise<{ id: string; planTier: PlanTier }> {
-    const school = await this.platform.school.findUnique({ where: { id }, select: { planTier: true } });
-    if (!school) throw new AppError(ErrorCodes.TENANT_NOT_FOUND, HttpStatus.NOT_FOUND, 'Tenant not found');
-    await this.platform.school.update({ where: { id }, data: { planTier } });
-    await this.audit.record({
-      platformUserId: ctx.platformUserId,
-      action: 'TENANT_PLAN_CHANGE',
-      targetTenantId: id,
-      metadata: { from: school.planTier, to: planTier },
-      ip: ctx.ip,
-    });
-    return { id, planTier };
   }
 
   // ── Operator management (SA4) ────────────────────────────────────────────────

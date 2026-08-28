@@ -1,5 +1,5 @@
 import { IsBoolean, IsDateString, IsEmail, IsEnum, IsIn, IsInt, IsNumber, IsOptional, IsString, IsUUID, Length, Matches, Max, MaxLength, Min, MinLength } from 'class-validator';
-import { PlanTier, PlatformRole } from '@prisma/client';
+import { PlatformRole } from '@prisma/client';
 import { PaginationQuery } from '@common';
 
 export class ListTenantsQuery extends PaginationQuery {
@@ -154,12 +154,6 @@ export class UpdateLeadDto {
 
   @IsOptional() @IsString() @MaxLength(2000)
   note?: string;
-}
-
-/** Change a tenant's plan tier (SA3). Must be one of the catalog tiers (BASIC / PLUS / PRO). */
-export class ChangePlanDto {
-  @IsEnum(PlanTier)
-  planTier!: PlanTier;
 }
 
 /** Change a vendor operator's role and/or status (SA4). Both optional; status is limited to the two

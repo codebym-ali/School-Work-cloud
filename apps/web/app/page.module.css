@@ -54,6 +54,45 @@
 .trustline span { display: inline-flex; align-items: center; gap: 7px; }
 .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent-light); }
 
+/* Two-column hero: copy left, product preview right */
+.heroCols { display: grid; grid-template-columns: 1.05fr 0.95fr; gap: 56px; align-items: center; }
+.heroCopy { min-width: 0; }
+
+/* Product preview mock (fills the hero + shows the product) */
+.preview { background: var(--card); border-radius: 14px; box-shadow: 0 34px 70px -24px rgb(0 0 0 / .5); overflow: hidden; }
+.previewBar { display: flex; align-items: center; gap: 12px; padding: 11px 14px; background: #eef1f6; border-bottom: 1px solid var(--border); }
+.previewDots { display: inline-flex; gap: 6px; }
+.previewDots i { width: 10px; height: 10px; border-radius: 50%; background: #cbd5e1; }
+.previewUrl { font-size: 12px; color: var(--muted); background: #fff; border: 1px solid var(--border); border-radius: var(--r-pill); padding: 4px 14px; }
+.previewBody { padding: 16px; display: flex; flex-direction: column; gap: 12px; background: #f6f8fb; }
+.previewTiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.pTile { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 12px; }
+.pTileVal { font-family: var(--font-heading); font-size: 19px; color: var(--brand); line-height: 1; }
+.pTileLbl { font-size: 11px; color: var(--muted); margin-top: 6px; }
+.pCard { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 14px; }
+.pCardHead { display: flex; justify-content: space-between; align-items: baseline; font-size: 12px; color: var(--ink); margin-bottom: 12px; font-weight: 600; }
+.pMuted { color: var(--muted); font-weight: 400; }
+.pChart { display: flex; align-items: flex-end; gap: 8px; height: 78px; }
+.pBar, .pBarPeak { flex: 1; border-radius: 4px 4px 0 0; background: var(--brand-soft); }
+.pBarPeak { background: var(--accent); }
+.pRows { display: flex; flex-direction: column; gap: 8px; }
+.pRow { display: flex; align-items: center; gap: 10px; background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 9px 12px; }
+.pAvatar { width: 26px; height: 26px; border-radius: 50%; background: var(--brand-tint); color: var(--brand); font-size: 12px; font-weight: 700; display: grid; place-items: center; flex: none; }
+.pRowText { flex: 1; font-size: 12.5px; color: var(--ink); }
+.pTag { font-size: 10px; font-weight: 700; color: var(--ok-ink); background: var(--ok-tint); padding: 3px 8px; border-radius: var(--r-pill); white-space: nowrap; }
+.pTagAmber { font-size: 10px; font-weight: 700; color: var(--accent-ink); background: var(--accent-tint); padding: 3px 8px; border-radius: var(--r-pill); white-space: nowrap; }
+
+@media (max-width: 940px) {
+  .heroCols { grid-template-columns: 1fr; gap: 40px; }
+  .preview { max-width: 500px; width: 100%; margin: 0 auto; }
+}
+
+/* Capability strip — a slim band of real feature names under the hero */
+.strip { background: var(--brand-dark); }
+.stripInner { display: flex; flex-wrap: wrap; gap: 12px 26px; align-items: center; justify-content: center; padding: 16px 24px; }
+.stripItem { display: inline-flex; align-items: center; gap: 8px; color: rgb(255 255 255 / .72); font-size: 13px; font-weight: 600; }
+.stripItem::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: var(--accent-light); flex: none; }
+
 /* ── Sections ────────────────────────────────────────────────────────────── */
 .section { padding: 76px 0; }
 .sectionAlt { background: var(--card); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }

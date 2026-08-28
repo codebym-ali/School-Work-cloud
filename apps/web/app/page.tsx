@@ -55,25 +55,37 @@ export default function Home() {
 
       {/* Hero */}
       <section className={styles.hero} id="top">
-        <div className={styles.inner}>
-          <span className={styles.eyebrow}>School management, built for Pakistan</span>
-          <h1 className={styles.h1}>Run your whole school in <em>one place</em>.</h1>
-          <p className={styles.lead}>
-            SchoolWorks brings admissions, attendance, fees, exams, payroll and parent SMS together for
-            private schools — across every campus, for every role, on one secure platform.
-          </p>
-          <div className={styles.ctas}>
-            <a className={styles.ctaPrimary} href={DEMO}>Book a demo</a>
-            <Link className={styles.ctaSecondary} href="/login">Sign in →</Link>
+        <div className={`${styles.inner} ${styles.heroCols}`}>
+          <div className={styles.heroCopy}>
+            <span className={styles.eyebrow}>School management, built for Pakistan</span>
+            <h1 className={styles.h1}>Run your whole school in <em>one place</em>.</h1>
+            <p className={styles.lead}>
+              SchoolWorks brings admissions, attendance, fees, exams, payroll and parent SMS together for
+              private schools — across every campus, for every role, on one secure platform.
+            </p>
+            <div className={styles.ctas}>
+              <a className={styles.ctaPrimary} href={DEMO}>Book a demo</a>
+              <Link className={styles.ctaSecondary} href="/login">Sign in →</Link>
+            </div>
+            <div className={styles.trustline}>
+              <span><i className={styles.dot} /> Multi-campus</span>
+              <span><i className={styles.dot} /> Automatic parent SMS</span>
+              <span><i className={styles.dot} /> Fees, exams &amp; report cards</span>
+              <span><i className={styles.dot} /> Your data stays isolated</span>
+            </div>
           </div>
-          <div className={styles.trustline}>
-            <span><i className={styles.dot} /> Multi-campus</span>
-            <span><i className={styles.dot} /> Automatic parent SMS</span>
-            <span><i className={styles.dot} /> Fees, exams &amp; report cards</span>
-            <span><i className={styles.dot} /> Your data stays isolated</span>
-          </div>
+          <HeroPreview />
         </div>
       </section>
+
+      {/* Capability strip */}
+      <div className={styles.strip}>
+        <div className={`${styles.inner} ${styles.stripInner}`}>
+          {['Admissions', 'Attendance', 'Fees & billing', 'Exams', 'Report cards', 'Payroll', 'Timetable', 'Parent SMS', 'Multi-campus'].map((c) => (
+            <span key={c} className={styles.stripItem}>{c}</span>
+          ))}
+        </div>
+      </div>
 
       {/* Features */}
       <section className={styles.section} id="features">
@@ -263,6 +275,39 @@ function DemoForm({ defaultStudents }: { defaultStudents: number }) {
       {status === 'error' && <p className={styles.demoError}>Something went wrong. Please try again in a moment.</p>}
       <button className={styles.demoSubmit} type="submit" disabled={!canSubmit}>{status === 'sending' ? 'Sending…' : 'Request a demo'}</button>
     </form>
+  );
+}
+
+/** A stylized product preview for the hero (SA — marketing). A CSS app-window mock with sample
+ *  dashboard data — fills the hero visually and shows what SchoolWorks looks like. Decorative, so
+ *  aria-hidden. Numbers are illustrative sample data, as on any product screenshot. */
+function HeroPreview() {
+  return (
+    <div className={styles.preview} aria-hidden="true">
+      <div className={styles.previewBar}>
+        <span className={styles.previewDots}><i /><i /><i /></span>
+        <span className={styles.previewUrl}>greenwood.schoolworks.pk</span>
+      </div>
+      <div className={styles.previewBody}>
+        <div className={styles.previewTiles}>
+          <div className={styles.pTile}><div className={styles.pTileVal}>1,240</div><div className={styles.pTileLbl}>Students</div></div>
+          <div className={styles.pTile}><div className={styles.pTileVal}>94%</div><div className={styles.pTileLbl}>Present today</div></div>
+          <div className={styles.pTile}><div className={styles.pTileVal}>PKR 2.4M</div><div className={styles.pTileLbl}>Fees this month</div></div>
+        </div>
+        <div className={styles.pCard}>
+          <div className={styles.pCardHead}><span>Fee collections</span><span className={styles.pMuted}>last 6 months</span></div>
+          <div className={styles.pChart}>
+            {[52, 64, 58, 82, 71, 90].map((h, i) => (
+              <span key={i} className={i === 5 ? styles.pBarPeak : styles.pBar} style={{ height: `${h}%` }} />
+            ))}
+          </div>
+        </div>
+        <div className={styles.pRows}>
+          <div className={styles.pRow}><span className={styles.pAvatar}>A</span><span className={styles.pRowText}>Attendance marked — Class 5-A</span><span className={styles.pTag}>done</span></div>
+          <div className={styles.pRow}><span className={styles.pAvatar}>S</span><span className={styles.pRowText}>Fee reminder SMS — 38 parents</span><span className={styles.pTagAmber}>sent</span></div>
+        </div>
+      </div>
+    </div>
   );
 }
 

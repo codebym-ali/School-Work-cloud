@@ -140,12 +140,15 @@ export default function Home() {
           <div className={styles.sectionHead}>
             <div className={styles.sectionKicker}>Testimonials</div>
             <h2 className={styles.sectionTitle}>What schools will say</h2>
-            <p className={styles.sectionLead}>Placeholder — real quotes from schools using SchoolWorks will appear here as they come on board.</p>
+            <p className={styles.sectionLead}>Sample testimonials — illustrative examples of the feedback we build for. Real quotes from partner schools will replace these.</p>
           </div>
           <div className={styles.quotes}>
             {TESTIMONIALS.map((t) => (
-              <figure key={t.role} className={styles.quoteCard}>
-                <div className={styles.quoteMark} aria-hidden="true">&rdquo;</div>
+              <figure key={t.name} className={styles.quoteCard}>
+                <div className={styles.quoteTop}>
+                  <div className={styles.quoteMark} aria-hidden="true">&rdquo;</div>
+                  {t.sample && <span className={styles.quoteSample}>Sample</span>}
+                </div>
                 <blockquote className={styles.quoteText}>{t.quote}</blockquote>
                 <figcaption className={styles.quoteWho}>
                   <span className={styles.quoteAvatar} aria-hidden="true">{t.name.charAt(0)}</span>
@@ -291,13 +294,14 @@ const STEPS = [
   { n: 4, title: 'Stay on top', desc: 'Owners get live dashboards across every campus, with report cards and reports whenever you need them.', icon: <FileText /> },
 ];
 
-/** Placeholder testimonials — deliberately generic ("will appear here" / "Your school") so they read
- *  as a template, never as real endorsements. Replace with real quotes (and remove the placeholder note
- *  in the section above) once schools are on board. */
+/** SAMPLE testimonials — illustrative examples with fictional schools, each shown with a visible
+ *  "Sample" badge and an honest section note so no visitor mistakes them for real endorsements
+ *  (a marketing site must not present invented quotes as genuine reviews). Replace with real quotes
+ *  from partner schools — and drop the `sample` flag + the note — once they're collected. */
 const TESTIMONIALS = [
-  { quote: 'A short quote from a school owner about running admissions, fees and attendance in one place will appear here.', name: 'School Owner', role: 'Your school, Lahore' },
-  { quote: 'A principal’s words on saving office time and keeping parents informed by SMS will go here.', name: 'Principal', role: 'Your school, Karachi' },
-  { quote: 'An accountant’s note about faster fee collection and clean receipts will appear here.', name: 'Accountant', role: 'Your school, Islamabad' },
+  { quote: 'Admissions, fees and attendance used to live in three separate registers. Now it’s one screen — and parents get an SMS the moment their child is marked absent.', name: 'Green Valley Grammar School', role: 'Owner · Lahore', sample: true },
+  { quote: 'Fee collection is faster and cleaner — invoices, receipts and the defaulters list in a few clicks. The front office saves hours every week.', name: 'Roshni Public School', role: 'Principal · Karachi', sample: true },
+  { quote: 'We run two campuses from one login, with report cards and payroll in the same system. It has genuinely cut our admin time.', name: 'Al-Faisal Model School', role: 'Director · Islamabad', sample: true },
 ];
 
 const FAQS = [

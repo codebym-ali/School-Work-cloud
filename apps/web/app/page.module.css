@@ -161,7 +161,9 @@
 /* ── Testimonials (placeholder) ────────────────────────────────────────────── */
 .quotes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
 .quoteCard { margin: 0; background: var(--card); border: 1px solid var(--border); border-radius: var(--r-lg); padding: 26px; box-shadow: var(--shadow-card); display: flex; flex-direction: column; }
+.quoteTop { display: flex; align-items: flex-start; justify-content: space-between; }
 .quoteMark { font-family: var(--font-heading); font-size: 46px; line-height: .6; color: var(--accent); height: 22px; }
+.quoteSample { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--accent-ink); background: var(--accent-tint); border: 1px solid #eaddc0; padding: 3px 8px; border-radius: var(--r-pill); }
 .quoteText { color: var(--muted); font-size: 15px; line-height: 1.6; font-style: italic; margin: 10px 0 0; flex: 1; }
 .quoteWho { display: flex; align-items: center; gap: 12px; margin-top: 20px; }
 .quoteAvatar { width: 40px; height: 40px; border-radius: 50%; background: var(--brand-tint); color: var(--brand); display: grid; place-items: center; font-weight: 700; font-family: var(--font-heading); flex: none; }

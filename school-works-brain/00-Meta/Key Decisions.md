@@ -644,3 +644,22 @@ Blueprint's AWS reference (RDS/ECS/S3/KMS…) is replaced by **Contabo + Coolify
   parents' phone numbers and message bodies, plus the credit balance. Latent precisely because there
   was no screen, so nobody looked. Now `@Controller('sms')` is admin-only. **A route with no UI is
   also a route whose authz nobody has eyeballed** — the gate is a security check as much as a UX one.
+
+## Production hosting: subdomain-per-tenant, never port-per-role (operator, 2026-08-29)
+
+- **The operator proposed hosting each role on its own port** (marketing :3000, superadmin :3001, owner
+  :3002, campus :3003, staff :3004). **Rejected — wrong boundary.** (1) **Ports are not a security
+  boundary: cookies are scoped to the hostname, not the port**, so `localhost:3001` and `:3002` *share*
+  cookies — role-per-port would let sessions collide, the opposite of isolation. (2) A port encodes a
+  role but not *which school*, so multi-tenancy still needs subdomains on top. (3) Real users never see
+  ports — prod is HTTPS on 443 behind a reverse proxy; 3000–3004 are a dev-only convenience.
+- **The rule: a subdomain = a SCHOOL (tenant), not a role.** Owner/campus-admin/staff/student are *roles
+  inside one school*, resolved by the role guards + `landingPath`, and they all sign in on their school's
+  subdomain (`<school>.schoolworks.com/{owner,staff,student}-login`). A global `admin.`/`student.`
+  role-subdomain would re-merge every school onto one cookie domain (a regression). The **one** legitimate
+  global-subdomain split is the **vendor console** (`superadmin.` / the reserved `admin.`) — different app,
+  different `platform_users`, different cookies.
+- **The system is already built this way** (subdomain tenancy via `TenantResolutionMiddleware`, reserved
+  subdomains, `admin` for the console), so hosting under `schoolworks.com` is **infra, not a re-architecture**:
+  wildcard DNS `*.schoolworks.com`, a wildcard TLS cert (DNS-01), Traefik host-preserving path-split, and
+  `APP_APEX_DOMAIN`/`RESERVED_SUBDOMAINS` env. Checklist in [[Deployment & Operations]] (⏳ TODO: the VPS deploy).

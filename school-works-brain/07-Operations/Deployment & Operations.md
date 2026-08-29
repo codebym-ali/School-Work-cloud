@@ -1,7 +1,7 @@
 ---
 title: Deployment & Operations
 type: ops
-updated: 2026-07-14
+updated: 2026-08-29
 ---
 
 # Deployment & Operations
@@ -26,6 +26,44 @@ updated: 2026-07-14
 
 ## Environments & deploys
 Local (docker-compose: pg/redis/minio/clamav) → staging → prod. Blue/green at the proxy; migrations **N-1 compatible** (expand/contract); per-tenant feature flags (pilot → 10% → all); rollback section in every deploy.
+
+## Production go-live: subdomain hosting on the VPS ⏳ TODO
+**Operator decision (2026-08-29): host on a VPS under `schoolworks.com`, subdomain-per-tenant.** The whole
+front end is ONE web app on ONE port, separated by **subdomain** (the Host header), **never by port** — ports
+share cookies across the same hostname and don't encode which tenant, so they are the wrong boundary (they
+are a dev-only convenience). See [[Multi-Tenancy & Isolation]].
+
+**The rule: a subdomain = a SCHOOL (tenant), not a role.** Owner, campus admin, staff and students all sign in
+on THEIR school's subdomain via the role doors (`/owner-login`, `/staff-login`, `/student-login`) — the
+subdomain identifies the school, the door + role identifies the person. A single global `admin.`/`student.`
+role-subdomain would **break tenancy** (re-merges every school onto one cookie domain) and is a security
+regression, not an improvement. The only legitimate global-subdomain split is the vendor console.
+
+**Target layout:**
+- `schoolworks.com` (+ `www.`) → the **marketing** landing page (apex).
+- `superadmin.schoolworks.com` → the **vendor console** (super admin) — one global subdomain, separate
+  `platform_users` + separate cookies. *(Console is currently reachable under the reserved `admin` subdomain;
+  add `superadmin` to serve it there.)*
+- `<school>.schoolworks.com` → each school's app, e.g. `greenwood.schoolworks.com/owner-login`.
+
+**Go-live checklist** (the concrete "production Coolify deploy on the VPS" item from Implementation status):
+1. **DNS (Cloudflare):** `A schoolworks.com → VPS IP` **plus a wildcard** `A *.schoolworks.com → VPS IP`, so a
+   new school subdomain resolves with **no per-school DNS change**. Proxied (orange-cloud) for CDN/WAF.
+2. **TLS:** a **wildcard** Let's Encrypt cert `*.schoolworks.com` on the Traefik edge — wildcards need the
+   **DNS-01** challenge (Cloudflare API token); HTTP-01 cannot issue wildcards.
+3. **Env:** `APP_APEX_DOMAIN=schoolworks.com`; add `superadmin` to `RESERVED_SUBDOMAINS`
+   (`www,api,admin,app,superadmin`); prod cookie domain + `secure`/HTTPS cookie flags on; `NODE_ENV=production`
+   (which also enforces `RATE_LIMIT_ENABLED=true`).
+4. **Reverse proxy:** Traefik path-split (`/api` → api, `/` → web) **preserving the Host header** (already
+   designed + proven locally — see the ingress-topology note under Implementation status) with a
+   `websecure :443` entrypoint + the Let's Encrypt certresolver.
+5. **A new school gets its subdomain for free** — provisioning writes the `<subdomain>` record; wildcard DNS +
+   wildcard cert mean it resolves and is HTTPS with zero per-school setup.
+6. **Then:** `migrate deploy` + SQL companions + RLS-coverage check, seed the platform admin, and smoke-test
+   every entry point on the real domain (marketing apex, `superadmin.`, a `<school>.` with its three doors).
+
+⚠️ **Do NOT split roles onto separate ports or role-subdomains.** Roles are resolved inside the tenant app
+(role guards + `landingPath`); the vendor console is the one global-subdomain split.
 
 ## Jobs & schedules (§27)
 BullMQ, `attempts:3` + backoff, dead-letter monitored. Inventory: invoice-batch-generate, `mark-overdue` (nightly), the `*-sms` event jobs, report-cards-generate, promotion-batch, payroll-run, sms-log-purge, idempotency-purge, `fee-integrity-check` (nightly, pages on mismatch), reconciliation, `tenant-export`, `db-backup-verify` (weekly). → [[System Architecture]].

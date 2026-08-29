@@ -34,7 +34,8 @@ export const NO_CAMPUS = '00000000-0000-0000-0000-000000000000';
  */
 export function restrictedCampusId(user: RequestUser | undefined): string | null {
   if (!user) return NO_CAMPUS;
-  if (user.roles.includes('OWNER_ADMIN')) return null;
+  // OWNER_ADMIN and its deputy OPERATIONS_ADMIN are school-wide (no campus restriction).
+  if (user.roles.includes('OWNER_ADMIN') || user.roles.includes('OPERATIONS_ADMIN')) return null;
   return user.campusId ?? NO_CAMPUS;
 }
 

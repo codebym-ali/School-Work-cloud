@@ -381,6 +381,31 @@ function AccessPanel({ userId, roles, campusId, onMsg, onRolesChanged }: {
       </div>
 
       <div className="stack" style={{ gap: 8 }}>
+        {/* The owner's deputy. Distinct, weightier card because it is a near-owner grant — and
+            owner-only: the backend grant-ceiling refuses this toggle for anyone but the owner. */}
+        {(() => {
+          const has = roles.includes('OPERATIONS_ADMIN');
+          return (
+            <div style={{ border: '1px solid var(--accent, #a1741c)', borderRadius: 8, padding: 10, background: '#fffdf7' }}>
+              <div className="row" style={{ alignItems: 'center' }}>
+                <div>
+                  <strong style={{ fontSize: 13 }}>Ops Admin</strong>
+                  <span className="muted" style={{ fontSize: 12, marginLeft: 6 }}>Deputy — runs the school on your behalf</span>
+                  {has && <span className="badge ok" style={{ marginLeft: 8 }}>on</span>}
+                </div>
+                <button className={has ? 'ghost small' : 'small'} disabled={busy === 'OPERATIONS_ADMIN'}
+                  onClick={() => toggleRole('OPERATIONS_ADMIN', !has)}>
+                  {busy === 'OPERATIONS_ADMIN' ? '…' : has ? 'Remove' : 'Appoint'}
+                </button>
+              </div>
+              <p className="muted" style={{ margin: '6px 0 0', fontSize: 11 }}>
+                A school-wide deputy: manages staff, admissions, fees, attendance and campus settings on your
+                behalf. Cannot appoint another Ops Admin, remove staff, or change owner-only settings. Signs in
+                with two-factor.
+              </p>
+            </div>
+          );
+        })()}
         {CAPABILITIES.map((cap) => {
           const has = roles.includes(cap.role);
           const mods = modulesByRole.get(cap.role) ?? [];

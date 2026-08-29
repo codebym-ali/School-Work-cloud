@@ -3,12 +3,13 @@ import { Role, UserStatus } from '@prisma/client';
 
 /** Staff/admin roles an owner (or campus admin) may provision. PARENT/STUDENT are
  *  auto-created by admissions/portal flows, not from this screen. */
-export const MANAGEABLE_ROLES: Role[] = [Role.OWNER_ADMIN, Role.CAMPUS_ADMIN, Role.ADMISSION_CONTROLLER, Role.ACCOUNTANT, Role.TEACHER, Role.STAFF];
+export const MANAGEABLE_ROLES: Role[] = [Role.OWNER_ADMIN, Role.OPERATIONS_ADMIN, Role.CAMPUS_ADMIN, Role.ADMISSION_CONTROLLER, Role.ACCOUNTANT, Role.TEACHER, Role.STAFF];
 
 /** Access-capability roles an owner may toggle on an EXISTING employee (reusing their
  *  login — no new credentials). Their base identity (TEACHER/STAFF) and OWNER_ADMIN are
- *  never toggled here. */
-export const ACCESS_GRANTABLE_ROLES: Role[] = [Role.HR_MANAGER, Role.CAMPUS_ADMIN, Role.ACCOUNTANT, Role.ADMISSION_CONTROLLER];
+ *  never toggled here. OPERATIONS_ADMIN (the owner's deputy) is grantable here too — only by the
+ *  owner (the grant-ceiling in UsersService forbids a deputy from granting its own level or above). */
+export const ACCESS_GRANTABLE_ROLES: Role[] = [Role.OPERATIONS_ADMIN, Role.HR_MANAGER, Role.CAMPUS_ADMIN, Role.ACCOUNTANT, Role.ADMISSION_CONTROLLER];
 
 export class CreateUserDto {
   @IsEmail()

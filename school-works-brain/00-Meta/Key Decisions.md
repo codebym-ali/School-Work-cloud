@@ -663,3 +663,38 @@ Blueprint's AWS reference (RDS/ECS/S3/KMS…) is replaced by **Contabo + Coolify
   subdomains, `admin` for the console), so hosting under `schoolworks.com` is **infra, not a re-architecture**:
   wildcard DNS `*.schoolworks.com`, a wildcard TLS cert (DNS-01), Traefik host-preserving path-split, and
   `APP_APEX_DOMAIN`/`RESERVED_SUBDOMAINS` env. Checklist in [[Deployment & Operations]] (⏳ TODO: the VPS deploy).
+
+## Operations Admin: a one-directional role hierarchy, not an authz sweep (2026-08-29)
+
+- **Problem.** The owner wanted a near-owner **deputy** (`OPERATIONS_ADMIN`, "Ops Admin") that runs the
+  school operationally but can't become a second root. The obvious build — visit every `@Roles` decorator
+  and add `OPERATIONS_ADMIN` beside `OWNER_ADMIN` for the operational ones — is a **large, error-prone
+  sweep**: miss one route and the deputy silently can't do part of its job; add it to the wrong one and it
+  breaches the ceiling. The failure mode is invisible until someone hits that route.
+- **Decision — give the role a hierarchy instead of editing the routes.** `RolesGuard` was a flat "holds
+  one of the required roles" check. A new `libs/common/authz/role-hierarchy.ts` `rolesSatisfying(held)`
+  **expands** a held `OPERATIONS_ADMIN` into the set of roles it covers (Campus Admin, Admission
+  Controller, HR, Accountant, Teacher, Staff) — **never `OWNER_ADMIN`** — and the guard matches on the
+  expanded set. Consequence, **by construction, with zero per-route edits**:
+  - routes gated `@Roles('OWNER_ADMIN', <lower>)` **admit Ops** (via the lower role it now satisfies);
+  - routes gated **`@Roles('OWNER_ADMIN')` ALONE stay owner-reserved** (Ops never satisfies owner).
+  So the *existing shape* of the decorators already encodes the ceiling — owner-only routes are exactly
+  the reserved set. The one-directional inheritance is the **only** hierarchy in the system; every other
+  role still satisfies only itself.
+- **The guard is coarse; the ceiling is fine-grained — so it lives in the service.** The guard answers
+  "may you reach this route type?" It **cannot** express "you may grant roles *below* you but not your own
+  level, and may not touch a user who outranks you" — that reads tenant rows and depends on the *target*.
+  Per the §22.8 rule (ownership checks that read tenant data go in the service, not a guard), the
+  grant-ceiling (`grantableRoles` + `assertMayManageTarget` on create/update/setAccess/resetPassword) is
+  **service-level**: OP-1 (only the owner grants/revokes a deputy) and OP-2 (a deputy can't grant its own
+  level-or-above, nor modify/reset/re-role an owner or another deputy). Owner-only roots of trust
+  (module-access toggles, user removal) simply keep `@Roles('OWNER_ADMIN')` and are unreachable by Ops.
+- **The web mirrors the same hierarchy, in one place.** `apps/web/lib/roles.ts` gets a matching
+  `effectiveRoles()` so the sidebar/route-gate shows Ops exactly the screens the API will allow — no
+  second enumeration of "screens Ops can see" to drift from the backend. Owner-only screens (Campus Hub,
+  module access) stay hidden (OP-7: hide, don't show-then-403).
+- **Why this is safer than the sweep.** A missed route in the sweep is a silent capability hole or a
+  silent breach; here the hierarchy is **one function with one rule**, proven by `matrix-conformance` +
+  the dedicated `ops-admin-authz` e2e rather than by having eyeballed 100 decorators. Same lesson as the
+  nav-stricter-than-API bugs: **a permission that falls out of a list's contents is one that drifts;
+  state the rule once and derive from it.** See [[Operations Admin Role Plan]].

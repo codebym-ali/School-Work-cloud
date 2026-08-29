@@ -7,6 +7,7 @@ import { AppError } from '../errors/app.error';
 import { ErrorCodes } from '../errors/error-codes';
 import { HttpStatus } from '@nestjs/common';
 import type { RequestUser } from '../context/tenant-context';
+import { rolesSatisfying } from '../authz/role-hierarchy';
 
 /**
  * Role gate (blueprint §23). Runs after JwtAuthGuard + TenantScopeGuard.
@@ -31,8 +32,10 @@ export class RolesGuard implements CanActivate {
     if (!required || required.length === 0) return true;
 
     const req = context.switchToHttp().getRequest<{ user?: RequestUser }>();
-    const roles = req.user?.roles ?? [];
-    if (!roles.some((r) => required.includes(r))) {
+    // Expand held roles through the hierarchy: OPERATIONS_ADMIN satisfies requirements for roles below
+    // it (never OWNER_ADMIN), so owner-only routes stay reserved by construction (role-hierarchy.ts).
+    const effective = rolesSatisfying(req.user?.roles ?? []);
+    if (!required.some((r) => effective.has(r))) {
       throw new AppError(ErrorCodes.FORBIDDEN, HttpStatus.FORBIDDEN, 'Insufficient role');
     }
     return true;

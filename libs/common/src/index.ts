@@ -20,6 +20,7 @@ export * from './context/tenant-context';
 export * from './authz/campus-scope';
 export * from './authz/ownership';
 export * from './authz/modules';
+export * from './authz/role-hierarchy';
 export * from './crypto/field-encryption';
 export * from './decorators/public.decorator';
 export * from './decorators/roles.decorator';

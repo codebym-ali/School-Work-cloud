@@ -9,6 +9,7 @@ import type { IconName } from '@/components/icon';
 
 export type Role =
   | 'OWNER_ADMIN'
+  | 'OPERATIONS_ADMIN'
   | 'CAMPUS_ADMIN'
   | 'ADMISSION_CONTROLLER'
   | 'HR_MANAGER'
@@ -161,7 +162,22 @@ export const NAV: NavItem[] = [
 ];
 
 /** Roles the API mandates MFA for (mirrors MANDATORY_MFA_ROLES in auth.service). */
-export const MFA_REQUIRED_ROLES = ['OWNER_ADMIN', 'ACCOUNTANT'] as const;
+export const MFA_REQUIRED_ROLES = ['OWNER_ADMIN', 'OPERATIONS_ADMIN', 'ACCOUNTANT'] as const;
+
+/**
+ * Roles the OPERATIONS_ADMIN deputy stands in for (mirrors OPERATIONS_ADMIN_COVERS in the backend
+ * libs/common role-hierarchy). It is the owner's operational deputy, so for UI gating it satisfies
+ * every role below itself — never OWNER_ADMIN, so owner-only screens (Campus Hub, module access)
+ * stay owner-only exactly as the API enforces.
+ */
+const OPERATIONS_ADMIN_COVERS: Role[] = ['CAMPUS_ADMIN', 'ADMISSION_CONTROLLER', 'HR_MANAGER', 'ACCOUNTANT', 'TEACHER', 'STAFF'];
+
+/** Effective roles for UI gating: expands an OPERATIONS_ADMIN to the roles it covers so the sidebar
+ *  shows the same screens the API will let it open. Every other role passes through unchanged. */
+function effectiveRoles(userRoles: string[] | undefined): string[] {
+  const r = userRoles ?? [];
+  return r.includes('OPERATIONS_ADMIN') ? Array.from(new Set([...r, ...OPERATIONS_ADMIN_COVERS])) : r;
+}
 
 /**
  * Single source of truth for a multi-role user's "primary" identity — ordered most- to
@@ -171,6 +187,8 @@ export const MFA_REQUIRED_ROLES = ['OWNER_ADMIN', 'ACCOUNTANT'] as const;
  */
 const ROLE_INFO: { role: Role; label: string; landing: string }[] = [
   { role: 'OWNER_ADMIN', label: 'School Admin', landing: '/dashboard' },
+  // The owner's operational deputy — sits directly below the owner and lands on the same dashboard.
+  { role: 'OPERATIONS_ADMIN', label: 'Ops Admin', landing: '/dashboard' },
   { role: 'CAMPUS_ADMIN', label: 'Campus Admin', landing: '/dashboard' },
   { role: 'ACCOUNTANT', label: 'Accountant', landing: '/dashboard' },
   { role: 'ADMISSION_CONTROLLER', label: 'Admission Portal', landing: '/admissions' },
@@ -211,10 +229,11 @@ export function landingPath(roles: string[] | undefined): string {
   return primaryRole(roles)?.landing ?? '/dashboard';
 }
 
-/** True if the user holds any of the allowed roles (or the item is unrestricted). */
+/** True if the user holds any of the allowed roles (or the item is unrestricted). An Ops admin is
+ *  expanded to the roles it covers first, so it matches every screen a campus admin/below can open. */
 export function hasAnyRole(userRoles: string[] | undefined, allowed?: Role[]): boolean {
   if (!allowed || allowed.length === 0) return true;
-  return (userRoles ?? []).some((r) => (allowed as string[]).includes(r));
+  return effectiveRoles(userRoles).some((r) => (allowed as string[]).includes(r));
 }
 
 /** The nav entry that owns a pathname, used to gate the routed page. */
@@ -239,7 +258,7 @@ export type AdmissionsMode = 'DIRECT' | 'PIPELINE';
 function isUsable(item: NavItem, userRoles: string[] | undefined, admissionsMode?: AdmissionsMode): boolean {
   if (!hasAnyRole(userRoles, item.roles)) return false;
   if (item.href === '/admissions' && admissionsMode === 'DIRECT') {
-    return (userRoles ?? []).includes('ADMISSION_CONTROLLER');
+    return effectiveRoles(userRoles).includes('ADMISSION_CONTROLLER');
   }
   return true;
 }

@@ -31,6 +31,10 @@ datasource db {
 enum Role {
   PLATFORM_ADMIN
   OWNER_ADMIN
+  // The owner's operational deputy (Operations Admin Role Plan): school-wide, appointed + revocable by
+  // the owner. Ranks just below OWNER_ADMIN — runs everything operational, but the owner reserves
+  // appointing deputies, the owner account, and module-access toggles (the root of trust).
+  OPERATIONS_ADMIN
   CAMPUS_ADMIN
   ADMISSION_CONTROLLER
   HR_MANAGER
@@ -2019,7 +2023,7 @@ model ClassTestScore {
   @@map("class_test_scores")
 }
 
-/// Single-use MFA recovery codes (§22.5). MFA is MANDATORY for OWNER_ADMIN and ACCOUNTANT, so
+/// Single-use MFA recovery codes (§22.5). MFA is MANDATORY for OWNER_ADMIN, OPERATIONS_ADMIN and ACCOUNTANT, so
 /// without these a lost authenticator locks a school out of its own system and the only remedy
 /// is an operator editing `mfa_enabled` in the database by hand.
 ///

@@ -53,11 +53,39 @@ const DEFAULT_SEAT_REMEDY = 'Remove or reassign them before adding another.';
 /** Audit action pair (granted, revoked) per access role. HR and campus-admin keep their
  *  specific actions; the rest use the generic role-access pair. */
 const ACCESS_AUDIT: Record<string, [AuditAction, AuditAction]> = {
+  [Role.OPERATIONS_ADMIN]: [AuditActions.ROLE_ACCESS_GRANTED, AuditActions.ROLE_ACCESS_REVOKED],
   [Role.HR_MANAGER]: [AuditActions.HR_ACCESS_GRANTED, AuditActions.HR_ACCESS_REVOKED],
   [Role.CAMPUS_ADMIN]: [AuditActions.CAMPUS_ADMIN_GRANTED, AuditActions.CAMPUS_ADMIN_REVOKED],
   [Role.ACCOUNTANT]: [AuditActions.ROLE_ACCESS_GRANTED, AuditActions.ROLE_ACCESS_REVOKED],
   [Role.ADMISSION_CONTROLLER]: [AuditActions.ROLE_ACCESS_GRANTED, AuditActions.ROLE_ACCESS_REVOKED],
 };
+
+/**
+ * Grant-ceiling for the Operations Admin role (Operations Admin Role Plan, OP-1/OP-2). A grantor may
+ * only grant/manage roles strictly below its own level:
+ *  - OWNER_ADMIN → anything (base set as-is; includes appointing an OPERATIONS_ADMIN).
+ *  - OPERATIONS_ADMIN → the base set minus OWNER_ADMIN and OPERATIONS_ADMIN (never its own level or above).
+ *  - CAMPUS_ADMIN (or lower) → the existing narrow CAMPUS_ADMIN_MAY_GRANT set.
+ */
+function grantableRoles(actorRoles: readonly Role[], base: Role[]): Role[] {
+  if (actorRoles.includes(Role.OWNER_ADMIN)) return base;
+  if (actorRoles.includes(Role.OPERATIONS_ADMIN)) return base.filter((r) => r !== Role.OWNER_ADMIN && r !== Role.OPERATIONS_ADMIN);
+  return CAMPUS_ADMIN_MAY_GRANT;
+}
+
+/** Reject managing a TARGET user at or above the actor's level (OP-2): an OPERATIONS_ADMIN may not
+ *  modify / reset / re-role an OWNER_ADMIN or another OPERATIONS_ADMIN; a CAMPUS_ADMIN may only manage
+ *  the narrow set it can grant. The owner may manage anyone. Throws 403 on violation. */
+function assertMayManageTarget(actorRoles: readonly Role[], targetRoles: readonly Role[]): void {
+  if (actorRoles.includes(Role.OWNER_ADMIN)) return;
+  if (actorRoles.includes(Role.OPERATIONS_ADMIN)) {
+    const blocked = targetRoles.find((r) => r === Role.OWNER_ADMIN || r === Role.OPERATIONS_ADMIN);
+    if (blocked) throw new AppError(ErrorCodes.FORBIDDEN, HttpStatus.FORBIDDEN, `You cannot manage a ${blocked}`);
+    return;
+  }
+  const forbidden = targetRoles.find((r) => !CAMPUS_ADMIN_MAY_GRANT.includes(r));
+  if (forbidden) throw new AppError(ErrorCodes.FORBIDDEN, HttpStatus.FORBIDDEN, `You are not permitted to manage a ${forbidden}`);
+}
 
 /**
  * Users & roles (blueprint §23, §22.8). The owner provisions staff/admin logins and binds
@@ -217,17 +245,17 @@ export class UsersService {
 
   async create(dto: CreateUserDto) {
     const creator = this.ctx.user!;
-    const isOwner = creator.roles.includes(Role.OWNER_ADMIN);
-    const allowed = isOwner ? MANAGEABLE_ROLES : CAMPUS_ADMIN_MAY_GRANT;
+    const allowed = grantableRoles(creator.roles, MANAGEABLE_ROLES);
     const forbidden = dto.roles.find((r) => !allowed.includes(r));
     if (forbidden) {
       throw new AppError(ErrorCodes.FORBIDDEN, HttpStatus.FORBIDDEN, `You are not permitted to grant the role ${forbidden}`);
     }
 
-    // Campus binding: OWNER_ADMIN is school-wide (no campus); every other role needs one.
+    // Campus binding: OWNER_ADMIN and its deputy OPERATIONS_ADMIN are school-wide (no campus); every
+    // other role needs one.
     let campusId: string | null;
-    if (dto.roles.includes(Role.OWNER_ADMIN)) {
-      if (dto.campusId) throw new AppError(ErrorCodes.VALIDATION_FAILED, HttpStatus.UNPROCESSABLE_ENTITY, 'OWNER_ADMIN is school-wide — do not set a campus');
+    if (dto.roles.includes(Role.OWNER_ADMIN) || dto.roles.includes(Role.OPERATIONS_ADMIN)) {
+      if (dto.campusId) throw new AppError(ErrorCodes.VALIDATION_FAILED, HttpStatus.UNPROCESSABLE_ENTITY, 'This role is school-wide — do not set a campus');
       campusId = null;
     } else {
       const restricted = restrictedCampusId(creator); // a campus admin is forced to their own campus
@@ -266,6 +294,15 @@ export class UsersService {
 
   async update(id: string, dto: UpdateUserDto) {
     const user = await this.getOneScoped(id);
+    const actor = this.ctx.user!;
+    // Grant-ceiling (OP-2): you cannot re-role/disable a user at or above your level, nor grant a role
+    // above yours. The owner may manage anyone; an ops admin only lower staff.
+    assertMayManageTarget(actor.roles, user.roles);
+    if (dto.roles) {
+      const allowed = grantableRoles(actor.roles, MANAGEABLE_ROLES);
+      const forbidden = dto.roles.find((r) => !allowed.includes(r));
+      if (forbidden) throw new AppError(ErrorCodes.FORBIDDEN, HttpStatus.FORBIDDEN, `You are not permitted to grant the role ${forbidden}`);
+    }
 
     const resultingRoles = dto.roles ?? user.roles;
     const effectiveCampus = dto.campusId !== undefined ? dto.campusId : user.campusId;
@@ -304,13 +341,8 @@ export class UsersService {
    */
   async resetPassword(id: string, password: string) {
     const target = await this.getOneScoped(id);
-    const creator = this.ctx.user!;
-    if (!creator.roles.includes(Role.OWNER_ADMIN)) {
-      const forbidden = target.roles.find((r) => !CAMPUS_ADMIN_MAY_GRANT.includes(r));
-      if (forbidden) {
-        throw new AppError(ErrorCodes.FORBIDDEN, HttpStatus.FORBIDDEN, `You are not permitted to reset the password for a ${forbidden}`);
-      }
-    }
+    // Grant-ceiling (OP-2): you cannot reset the password of a user at or above your level.
+    assertMayManageTarget(this.ctx.user!.roles, target.roles);
     const passwordHash = await this.passwords.hash(password);
     await this.db.user.update({ where: { id }, data: { passwordHash, status: 'ACTIVE' } });
     return { ok: true };
@@ -369,15 +401,25 @@ export class UsersService {
   }
 
   /**
-   * Grant/revoke an access capability (HR_MANAGER, CAMPUS_ADMIN, ACCOUNTANT,
-   * ADMISSION_CONTROLLER) on an EXISTING employee — OWNER_ADMIN only. The account is reused
-   * (no new login); the role is added to / removed from the existing `roles[]`. Single entry
-   * point for all access toggles.
+   * Grant/revoke an access capability (OPERATIONS_ADMIN, HR_MANAGER, CAMPUS_ADMIN, ACCOUNTANT,
+   * ADMISSION_CONTROLLER) on an EXISTING employee. OWNER_ADMIN, or an OPERATIONS_ADMIN deputy for
+   * roles below itself (the grant-ceiling forbids a deputy from granting its own level or above, or
+   * touching an owner / another deputy). The account is reused (no new login); the role is added to /
+   * removed from the existing `roles[]`. Single entry point for all access toggles.
    */
-  setAccess(id: string, role: Role, grant: boolean) {
+  async setAccess(id: string, role: Role, grant: boolean) {
     if (!ACCESS_GRANTABLE_ROLES.includes(role)) {
       throw new AppError(ErrorCodes.VALIDATION_FAILED, HttpStatus.UNPROCESSABLE_ENTITY, `${role} is not an access-grantable role`);
     }
+    const actor = this.ctx.user!;
+    // Grant-ceiling (OP-1/OP-2): a deputy can grant lower roles but never OPERATIONS_ADMIN or above,
+    // so appointing/removing an ops admin is owner-only. And nobody below the owner may toggle a role
+    // on a user who is an owner or another ops admin.
+    if (grant && !grantableRoles(actor.roles, ACCESS_GRANTABLE_ROLES).includes(role)) {
+      throw new AppError(ErrorCodes.FORBIDDEN, HttpStatus.FORBIDDEN, `You are not permitted to grant the role ${role}`);
+    }
+    const target = await this.getOneScoped(id);
+    assertMayManageTarget(actor.roles, target.roles);
     const [grantedAction, revokedAction] = ACCESS_AUDIT[role];
     return this.grantRole(id, role, grant, grantedAction, revokedAction);
   }

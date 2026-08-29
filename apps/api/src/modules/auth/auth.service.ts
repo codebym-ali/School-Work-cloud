@@ -39,7 +39,7 @@ import type {
 
 const MAX_FAILED = 10;
 const LOCK_MS = 15 * 60 * 1000;
-const MANDATORY_MFA_ROLES: Role[] = ['OWNER_ADMIN', 'ACCOUNTANT'];
+const MANDATORY_MFA_ROLES: Role[] = ['OWNER_ADMIN', 'OPERATIONS_ADMIN', 'ACCOUNTANT'];
 
 export interface SessionResult {
   user: { id: string; email: string; roles: Role[]; campusId: string | null };

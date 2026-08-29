@@ -1,19 +1,83 @@
 ---
 title: Operations Admin Role Plan
 type: plan
-status: PLANNED — not built
+status: SHIPPED (Phase 1) — 2026-08-29
 updated: 2026-08-29
 ---
 
 # Operations Admin Role Plan — the owner's operational deputy
 
+> ## ✅ Shipped — Phase 1 (2026-08-29)
+> The `OPERATIONS_ADMIN` role, its one-directional hierarchy, and the full grant-ceiling are **built,
+> green, and live**. What landed:
+> - **Data model:** `OPERATIONS_ADMIN` added to the `Role` enum, just after `OWNER_ADMIN`
+>   (migration `20260829120000_ops_admin_role` — a bare `ALTER TYPE … ADD VALUE`).
+> - **One-directional hierarchy (the low-blast-radius core):** new `libs/common/authz/role-hierarchy.ts`
+>   `rolesSatisfying(held)` — an `OPERATIONS_ADMIN` satisfies every `@Roles` requirement **below** it
+>   (Campus Admin, Admission Controller, HR, Accountant, Teacher, Staff) but **never `OWNER_ADMIN`**.
+>   `RolesGuard` now matches on this expanded set, so `@Roles('OWNER_ADMIN', <lower>)` routes admit Ops
+>   automatically while **`@Roles('OWNER_ADMIN')`-alone routes stay owner-reserved by construction**. No
+>   per-route decorator sweep was needed.
+> - **School-wide, like the owner:** `restrictedCampusId` and `isAdminRole` treat Ops as school-wide
+>   (no campus binding); `create()` blocks a campus on an Ops grant.
+> - **Service grant-ceiling (OP-1/OP-2)** in `users.service.ts`: `grantableRoles(actor, base)` +
+>   `assertMayManageTarget(actor, target)` applied to `create`, `update`, `setAccess`, `resetPassword`.
+>   A deputy can staff **lower** roles but never grant `OPERATIONS_ADMIN`/`OWNER_ADMIN`, and never
+>   modify/reset/re-role a user who is an owner or another deputy. Module-access toggles + user removal
+>   stay `@Roles('OWNER_ADMIN')`-only (unreachable by Ops → 403).
+> - **MFA (OP-5):** `OPERATIONS_ADMIN` added to `MANDATORY_MFA_ROLES` (api) + `MFA_REQUIRED_ROLES` (web).
+> - **Web (`lib/roles.ts`):** `OPERATIONS_ADMIN` in the `Role` union + `ROLE_INFO` (label **"Ops Admin"**,
+>   landing `/dashboard`, admin shell); a frontend `effectiveRoles()` mirrors the backend hierarchy so
+>   the sidebar shows Ops exactly the screens the API will let it open (owner-only screens stay hidden — OP-7).
+> - **Appoint UI:** an **"Ops Admin"** card at the top of the owner-only **Staff → ⚙ Manage access**
+>   panel — *Appoint* / *Remove*, with a plain-language description of the ceiling. (This is the Phase-1
+>   grant path the plan anticipated — "grantable via the existing staff role UI once the hierarchy rule is
+>   in.")
+> - **Login door:** unchanged — Ops is non-owner, signs in at the staff door; the owner door refuses it.
+>
+> **DoD / gates (all green):** authz e2e `test/integration/ops-admin-authz.e2e-spec.ts` — **8/8**
+> (appoint flips 403→200; deputy does campus-admin work; OP-1 can't appoint a deputy; OP-2 can't touch
+> the owner or a peer deputy; module/remove owner-only → 403; owner revokes; audit trail written).
+> Adjacent role/authz specs (hr-access, users, **matrix-conformance**, route-coverage, campus-scope,
+> module-access, admission-officer, auth, ownership) — **671/671**. Tenant-isolation — **7/7**.
+> Migration + SQL companions + RLS-coverage, api+worker build, lint, web `tsc` — all clean.
+>
+> **Two deliberate deviations from the plan, recorded honestly:**
+> 1. **Appoint UI placement.** D-E picked *Campus Hub → School-wide*. Phase 1 instead uses the existing
+>    owner-only **Staff "Manage access"** panel (least build, already the home of role grants). A dedicated
+>    Campus Hub block + onboarding-link invite + delegate banner is **deferred to Phase 2** (§8) — not built.
+> 2. **Audit action names.** The plan proposed dedicated `OPS_ADMIN_APPOINT/REVOKE`. Phase 1 reuses the
+>    existing `ROLE_ACCESS_GRANTED/REVOKED` actions (same as HR/Accountant grants) via `ACCESS_AUDIT`, so
+>    the appointment is audited under the deputy's `entityId` with the owner's `userId`. Dedicated action
+>    names remain a possible future nicety.
+>
+> **Deferred (not built):** Phase 2 appoint UX (Campus Hub block, invite link, delegate banner); Phase 3
+> optional finance threshold (D-B), payroll-approval reservation (D-C beyond the existing owner-only gate),
+> and the owner's "delegation activity" view. The **D-B/D-C business rules are not separately enforced**
+> beyond what already exists — Ops inherits the accountant/finance routes wholesale for now.
+
+---
+
 **Raised by the operator (2026-08-29):** *"Owner admin should not have this much time to perform tasks.
 The owner should be able to give access to an ops role — a person he chooses from staff/teachers — who
 performs tasks on the owner's behalf."* Plan the ideal design for this role.
 
-**Status:** 📋 **PLANNED — not built.** This document is the design; implementation is a follow-on
-(phases in §7). Companion context: [[Owner Login Plan]] (the owner door), [[Finance Roles Plan]]
-(segregation of duties), [[Multi-Tenancy & Isolation]], [[Key Decisions]].
+**Status:** 🟢 **SHIPPED — Phase 1 (2026-08-29)** (see the green banner above for exactly what landed).
+Decisions locked by the operator: **D-A** label =
+**"Ops Admin"** (enum `OPERATIONS_ADMIN`); **D-B** fee waivers/reversals **allowed + audited**; **D-C**
+payroll **approval owner-reserved** (deputy may run/prepare); **D-D** **multiple** deputies allowed;
+**D-E** appoint UI on **Campus Hub**. Companion context: [[Owner Login Plan]], [[Finance Roles Plan]],
+[[Multi-Tenancy & Isolation]], [[Key Decisions]].
+
+**Build design (chosen, low-blast-radius):** the `RolesGuard` is a FLAT check, so give
+`OPERATIONS_ADMIN` a **one-directional hierarchy** — it **satisfies any `@Roles` requirement for a role
+BELOW it** (Campus Admin, Accountant, Admission Controller, HR, Teacher, Staff) but **NOT `OWNER_ADMIN`**.
+Result: routes gated `@Roles('OWNER_ADMIN', <lower>)` admit Ops automatically; routes gated
+**`OWNER_ADMIN` alone become the reserved set** by construction. Then only targeted edits remain: add
+`OPERATIONS_ADMIN` to the campus-scope/ownership bypass (school-wide like owner), `MANDATORY_MFA_ROLES`,
+`ROLE_INFO`, and to the **user role-change / access-grant routes** (so Ops can staff lower roles) — with a
+**service-level grant-ceiling** (`assertCanGrant` / `assertCanModify` by role rank) enforcing OP-1/OP-2
+(can't grant or touch its own level or above). Module-access toggles + remove stay `OWNER_ADMIN`-only.
 
 ---
 

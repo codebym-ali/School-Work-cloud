@@ -35,7 +35,9 @@ export class UsersController {
     return this.users.removeMany(dto.ids);
   }
 
-  @Roles('OWNER_ADMIN')
+  // Ops Admin may change lower staff's roles/status too; the service grant-ceiling forbids it from
+  // touching an owner or another ops admin, or granting its own level or above.
+  @Roles('OWNER_ADMIN', 'OPERATIONS_ADMIN')
   @Patch(':id')
   update(@Param('id') id: string, @Body() dto: UpdateUserDto) {
     return this.users.update(id, dto);
@@ -54,9 +56,10 @@ export class UsersController {
     return this.users.resetPassword(id, dto.password);
   }
 
-  // Owner-only: toggle an access capability (HR_MANAGER / CAMPUS_ADMIN / ACCOUNTANT /
-  // ADMISSION_CONTROLLER) on an existing employee. Reuses the account — no duplicate login.
-  @Roles('OWNER_ADMIN')
+  // Toggle an access capability on an existing employee (reuses the account — no duplicate login).
+  // Owner + Ops Admin; the service grant-ceiling forbids Ops from granting OPERATIONS_ADMIN/OWNER_ADMIN
+  // or toggling one on an owner/another ops admin. Granting OPERATIONS_ADMIN is therefore owner-only.
+  @Roles('OWNER_ADMIN', 'OPERATIONS_ADMIN')
   @Patch(':id/access')
   setAccess(@Param('id') id: string, @Body() dto: SetAccessDto) {
     return this.users.setAccess(id, dto.role, dto.grant);

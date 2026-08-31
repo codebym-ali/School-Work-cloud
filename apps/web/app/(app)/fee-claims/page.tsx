@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, ApiError, type FeeClaim } from '@/lib/api';
 import { useMe } from '@/lib/me-context';
+import { hasAnyRole } from '@/lib/roles';
 
 const STATUSES = ['PENDING', 'VERIFIED', 'REJECTED'] as const;
 const rs = (n: string | number) => `Rs ${Number(n).toLocaleString()}`;
@@ -25,7 +26,7 @@ const SOURCE: Record<string, string> = {
  */
 export default function FeeClaimsPage() {
   const me = useMe();
-  const canDecide = (me?.roles ?? []).some((r) => r === 'OWNER_ADMIN' || r === 'ACCOUNTANT');
+  const canDecide = hasAnyRole(me?.roles, ['OWNER_ADMIN', 'ACCOUNTANT']);
 
   const [status, setStatus] = useState<string>('PENDING');
   const [claims, setClaims] = useState<FeeClaim[] | null>(null);

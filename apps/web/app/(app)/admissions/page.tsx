@@ -6,7 +6,7 @@ import { api, apiGet, apiPatch, apiPost, ApiError, type AdmissionsSummary, type 
 import type { Inquiry } from '@/lib/api';
 import { hasModule, useMe } from '@/lib/me-context';
 import { classLabeller } from '@/lib/labels';
-import { canReach } from '@/lib/roles';
+import { canReach, isSchoolWideAdmin } from '@/lib/roles';
 import { Metric, MetricFilter } from '@/components/metric';
 import { useCampusLens } from '@/lib/campus-lens';
 import { DirectAdmission } from './direct-admission';
@@ -19,7 +19,7 @@ const funnelBadge = (s: string) =>
 
 export default function AdmissionsPage() {
   const me = useMe();
-  const isOwner = (me?.roles ?? []).includes('OWNER_ADMIN');
+  const schoolWide = isSchoolWideAdmin(me?.roles);
   const lens = useCampusLens();
   const isAdmissionController = (me?.roles ?? []).includes('ADMISSION_CONTROLLER');
   // DIRECT (the default) means this school takes admissions on one form and never tracks
@@ -152,7 +152,7 @@ export default function AdmissionsPage() {
       )}
 
       {adding && (
-        <NewInquiry defaultCampusId={lens.campusId ?? undefined} campuses={isOwner ? campuses : campuses.filter((c) => c.id === me?.campusId)} classes={classes}
+        <NewInquiry defaultCampusId={lens.campusId ?? undefined} campuses={schoolWide ? campuses : campuses.filter((c) => c.id === me?.campusId)} classes={classes}
           onDone={async (ok, text) => { setMsg({ ok, text }); if (ok) { setAdding(false); await load(); } }} />
       )}
 

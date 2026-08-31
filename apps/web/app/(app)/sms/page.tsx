@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { api, ApiError, type SmsLog, type SmsTemplate } from '@/lib/api';
 import { useMe } from '@/lib/me-context';
+import { isSchoolWideAdmin } from '@/lib/roles';
 import { Metric } from '@/components/metric';
 
 /**
@@ -33,7 +34,7 @@ const STATUS_TONE: Record<string, string> = {
 
 export default function SmsPage() {
   const me = useMe();
-  const isOwner = (me?.roles ?? []).includes('OWNER_ADMIN');
+  const canEditTemplates = isSchoolWideAdmin(me?.roles);
 
   const [templates, setTemplates] = useState<SmsTemplate[]>([]);
   const [balance, setBalance] = useState<number | null>(null);
@@ -95,11 +96,11 @@ export default function SmsPage() {
         <div className="section-title" style={{ margin: 0 }}>Templates</div>
         <p className="muted" style={{ margin: 0, fontSize: 12 }}>
           Placeholders in {'{curly braces}'} are filled in when the message is sent.
-          {!isOwner && ' Only the school owner can change these.'}
+          {!canEditTemplates && ' Only the school owner or an operations admin can change these.'}
         </p>
         <table>
           <thead>
-            <tr><th style={{ width: 160 }}>Sent when</th><th>Message</th>{isOwner && <th style={{ width: 90 }} />}</tr>
+            <tr><th style={{ width: 160 }}>Sent when</th><th>Message</th>{canEditTemplates && <th style={{ width: 90 }} />}</tr>
           </thead>
           <tbody>
             {templates.map((t) => (
@@ -115,7 +116,7 @@ export default function SmsPage() {
                     </span>
                   )}
                 </td>
-                {isOwner && (
+                {canEditTemplates && (
                   <td>
                     {editing === t.triggerKey ? (
                       <div className="chips">

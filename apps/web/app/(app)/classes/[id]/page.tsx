@@ -9,6 +9,7 @@ import {
   type FeeStructure, type Section, type Subject, type SubjectCatalogueEntry, type TeacherAssignment,
 } from '@/lib/api';
 import { useMe } from '@/lib/me-context';
+import { hasAnyRole, isSchoolWideAdmin } from '@/lib/roles';
 import { subjectCatalogueFrom } from '@/lib/subject-match';
 import { SubjectCatalogue } from './subject-catalogue';
 import { SectionList } from './section-list';
@@ -32,8 +33,8 @@ export default function ClassDetailPage() {
   const router = useRouter();
   const me = useMe();
   const classId = String(params?.id ?? '');
-  const canEdit = (me?.roles ?? []).some((r) => r === 'OWNER_ADMIN' || r === 'CAMPUS_ADMIN');
-  const isOwner = (me?.roles ?? []).includes('OWNER_ADMIN');
+  const canEdit = hasAnyRole(me?.roles, ['OWNER_ADMIN', 'CAMPUS_ADMIN']);
+  const schoolWide = isSchoolWideAdmin(me?.roles);
 
   const [klass, setKlass] = useState<Klass | null>(null);
   const [campuses, setCampuses] = useState<Campus[]>([]);
@@ -173,7 +174,7 @@ export default function ClassDetailPage() {
           {/* "What does this class cost?" belongs beside "who teaches it?" — it was previously
               answerable only by adding fee rows up by eye on another screen. Read-only here and
               owner-only, because setting the price is a money decision that lives on Fees. */}
-          {isOwner && monthlyFee !== null && (
+          {schoolWide && monthlyFee !== null && (
             <p className="muted" style={{ margin: 0, fontSize: 13 }}>
               {monthlyFee > 0
                 ? <>Fees <b>Rs {monthlyFee.toLocaleString()}</b> per month · <Link href="/fees">change →</Link></>

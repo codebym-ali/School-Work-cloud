@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { api, ApiError, PAYMENT_METHODS, PAYMENT_METHOD_LABEL, type SchoolSettings, type WeekDay } from '@/lib/api';
 import { useMe } from '@/lib/me-context';
+import { isSchoolWideAdmin } from '@/lib/roles';
 
 const DAYS: WeekDay[] = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY'];
 const short = (d: WeekDay) => d.slice(0, 3);
@@ -20,7 +21,7 @@ const short = (d: WeekDay) => d.slice(0, 3);
  */
 export default function SettingsPage() {
   const me = useMe();
-  const isOwner = (me?.roles ?? []).includes('OWNER_ADMIN');
+  const canEdit = isSchoolWideAdmin(me?.roles);
   const [s, setS] = useState<SchoolSettings | null>(null);
   const [err, setErr] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
@@ -57,9 +58,9 @@ export default function SettingsPage() {
         </p>
       </div>
 
-      {!isOwner && (
+      {!canEdit && (
         <div className="toast warn">
-          These are set by the school owner. You can see the rules you work under, but not change them.
+          These are set by the school owner or an operations admin. You can see the rules you work under, but not change them.
         </div>
       )}
       {msg && <div className={`toast ${msg.ok ? 'ok' : 'err'}`}>{msg.text}</div>}
@@ -67,7 +68,7 @@ export default function SettingsPage() {
       <Section title="Where the school is" blurb="The clock every timing rule is judged against — lateness, the staff day close, and when a class register counts as overdue.">
         <div style={{ maxWidth: 260 }}>
           <label>Time zone</label>
-          <select value={s.timezone} disabled={!isOwner || busy === 'timezone'}
+          <select value={s.timezone} disabled={!canEdit || busy === 'timezone'}
             onChange={(e) => save('timezone', { timezone: e.target.value })}>
             {/* A short, honest list rather than all ~600 IANA zones: this product serves Pakistani
                 schools, and a 600-item dropdown is a worse answer than five relevant ones. The API
@@ -89,7 +90,7 @@ export default function SettingsPage() {
             const on = s.weeklyOffDays.includes(d);
             return (
               <button key={d} type="button" className={`chip${on ? ' active' : ''}`}
-                disabled={!isOwner || busy === 'weeklyOffDays'}
+                disabled={!canEdit || busy === 'weeklyOffDays'}
                 onClick={() => save('weeklyOffDays', {
                   weeklyOffDays: on ? s.weeklyOffDays.filter((x) => x !== d) : [...s.weeklyOffDays, d],
                 })}>
@@ -114,18 +115,18 @@ export default function SettingsPage() {
       <Section title="Staff attendance" blurb="How your teachers' own attendance is recorded. These feed the payroll attendance deduction, so they are owner-only.">
         <Toggle label="Let staff check themselves in"
           hint="A teacher marks only that they are present, only for today. They can never record their own absence, and the system decides on time vs late from the clock."
-          checked={attendance.selfMarking} disabled={!isOwner || busy === 'staffAttendance'}
+          checked={attendance.selfMarking} disabled={!canEdit || busy === 'staffAttendance'}
           onChange={(v) => save('staffAttendance', { staffAttendance: { selfMarking: v } })} />
 
         <div className="inline-form" style={{ alignItems: 'flex-end' }}>
           <div style={{ maxWidth: 160 }}>
             <label>The school day starts at</label>
-            <input type="time" defaultValue={attendance.dayStartTime} disabled={!isOwner}
+            <input type="time" defaultValue={attendance.dayStartTime} disabled={!canEdit}
               onBlur={(e) => { if (e.target.value && e.target.value !== attendance.dayStartTime) save('staffAttendance', { staffAttendance: { dayStartTime: e.target.value } }); }} />
           </div>
           <div style={{ maxWidth: 190 }}>
             <label>Still on time for (minutes)</label>
-            <input type="number" min={0} max={120} defaultValue={attendance.graceMinutes} disabled={!isOwner}
+            <input type="number" min={0} max={120} defaultValue={attendance.graceMinutes} disabled={!canEdit}
               onBlur={(e) => { const n = Number(e.target.value); if (Number.isFinite(n) && n !== attendance.graceMinutes) save('staffAttendance', { staffAttendance: { graceMinutes: n } }); }} />
           </div>
         </div>
@@ -136,7 +137,7 @@ export default function SettingsPage() {
         </Hint>
 
         <Toggle label="Mark everyone unmarked as absent at the end of each day"
-          checked={attendance.autoMarkAbsent} disabled={!isOwner || busy === 'staffAttendance'}
+          checked={attendance.autoMarkAbsent} disabled={!canEdit || busy === 'staffAttendance'}
           onChange={(v) => save('staffAttendance', { staffAttendance: { autoMarkAbsent: v } })}
           hint="Approved leave is recorded as leave, holidays are skipped, and anything already recorded is left alone." />
         {/* This is the one switch that creates salary deductions with nobody pressing anything,
@@ -154,7 +155,7 @@ export default function SettingsPage() {
           <>
             <div style={{ maxWidth: 160 }}>
               <label>Close the register at</label>
-              <input type="time" defaultValue={attendance.closeAtTime} disabled={!isOwner}
+              <input type="time" defaultValue={attendance.closeAtTime} disabled={!canEdit}
                 onBlur={(e) => { if (e.target.value && e.target.value !== attendance.closeAtTime) save('staffAttendance', { staffAttendance: { closeAtTime: e.target.value } }); }} />
             </div>
             {/* Was 20:00 for every school on the platform, in the server's timezone — so a school
@@ -170,7 +171,7 @@ export default function SettingsPage() {
 
       <Section title="Payroll" blurb="How attendance turns into money. Owner-only, because it decides what people are paid.">
         <Toggle label="Deduct pay for an unexplained absence"
-          checked={s.payrollDeductsAbsence} disabled={!isOwner || busy === 'payrollDeductsAbsence'}
+          checked={s.payrollDeductsAbsence} disabled={!canEdit || busy === 'payrollDeductsAbsence'}
           onChange={(v) => save('payrollDeductsAbsence', { payrollDeductsAbsence: v })}
           hint="A day marked ABSENT costs one day of basic pay (basic ÷ working days in the month). Allowances are never docked." />
         {/* The distinction people get wrong: this governs ABSENCE, not unpaid leave. Approved
@@ -193,7 +194,7 @@ export default function SettingsPage() {
       <Section title="Student attendance" blurb="When registers are expected, and how far back one may be filled in or corrected.">
         <div style={{ maxWidth: 160 }}>
           <label>Registers marked by</label>
-          <input type="time" defaultValue={s.attendanceMarkByTime} disabled={!isOwner}
+          <input type="time" defaultValue={s.attendanceMarkByTime} disabled={!canEdit}
             onBlur={(e) => { if (e.target.value && e.target.value !== s.attendanceMarkByTime) save('attendanceMarkByTime', { attendanceMarkByTime: e.target.value }); }} />
         </div>
         {/* Says plainly what it does and — just as importantly — what it does NOT do. A setting
@@ -204,25 +205,25 @@ export default function SettingsPage() {
           stays a gap until a person fills it in.
         </Hint>
         <NumberRow label="A teacher may fill in a missed day up to" suffix="days later"
-          value={s.attendanceBackfillDays} min={0} max={90} disabled={!isOwner}
+          value={s.attendanceBackfillDays} min={0} max={90} disabled={!canEdit}
           onSave={(v) => save('attendanceBackfillDays', { attendanceBackfillDays: v })}
           hint="Admins are never limited. Set 0 to allow marking today only." />
         <NumberRow label="A mark can be corrected for" suffix="days"
-          value={s.attendanceEditWindowDays} min={0} max={90} disabled={!isOwner}
+          value={s.attendanceEditWindowDays} min={0} max={90} disabled={!canEdit}
           onSave={(v) => save('attendanceEditWindowDays', { attendanceEditWindowDays: v })}
           hint="After this, only an admin can change it — and the change is recorded." />
       </Section>
 
       <Section title="Fees" blurb="Defaults applied when invoices are generated.">
         <NumberRow label="Fees are due on day" suffix="of the month"
-          value={s.feeDueDay} min={1} max={28} disabled={!isOwner}
+          value={s.feeDueDay} min={1} max={28} disabled={!canEdit}
           onSave={(v) => save('feeDueDay', { feeDueDay: v })}
           hint="Capped at 28 so every month has that day." />
         <NumberRow label="Sibling discount" suffix="%"
-          value={s.siblingDiscountPercent} min={0} max={100} disabled={!isOwner}
+          value={s.siblingDiscountPercent} min={0} max={100} disabled={!canEdit}
           onSave={(v) => save('siblingDiscountPercent', { siblingDiscountPercent: v })} />
         <Toggle label="A student must clear their fees before being promoted"
-          checked={s.promotionRequiresFeeClearance} disabled={!isOwner || busy === 'promotionRequiresFeeClearance'}
+          checked={s.promotionRequiresFeeClearance} disabled={!canEdit || busy === 'promotionRequiresFeeClearance'}
           onChange={(v) => save('promotionRequiresFeeClearance', { promotionRequiresFeeClearance: v })}
           hint="An admin can still override for one student, and the override is recorded." />
       </Section>
@@ -238,7 +239,7 @@ export default function SettingsPage() {
               const last = on && s.feeSubmission.methods.length === 1;
               return (
                 <button key={m} type="button" className={`chip${on ? ' active' : ''}`}
-                  disabled={!isOwner || last || busy === 'feeSubmission'}
+                  disabled={!canEdit || last || busy === 'feeSubmission'}
                   title={last ? 'Your school must accept at least one way of paying' : undefined}
                   onClick={() => save('feeSubmission', {
                     feeSubmission: {
@@ -259,7 +260,7 @@ export default function SettingsPage() {
         <div className="stack" style={{ gap: 4 }}>
           <span style={{ fontSize: 14 }}>Proof of payment for non-cash</span>
           <Choice
-            value={s.feeSubmission.proofPolicy} disabled={!isOwner || busy === 'feeSubmission'}
+            value={s.feeSubmission.proofPolicy} disabled={!canEdit || busy === 'feeSubmission'}
             onChange={(v) => save('feeSubmission', { feeSubmission: { proofPolicy: v as SchoolSettings['feeSubmission']['proofPolicy'] } })}
             options={[
               { value: 'OFF', label: 'Don’t ask for it', hint: 'Only the reference number is recorded.' },
@@ -270,20 +271,20 @@ export default function SettingsPage() {
 
         {s.feeSubmission.methods.includes('CHEQUE') && (
           <NumberRow label="A cheque counts as paid after" suffix="days"
-            value={s.feeSubmission.chequeClearingDays} min={0} max={30} disabled={!isOwner}
+            value={s.feeSubmission.chequeClearingDays} min={0} max={30} disabled={!canEdit}
             onSave={(v) => save('feeSubmission', { feeSubmission: { chequeClearingDays: v } })}
             hint="A cheque is not money until it clears — this is how long it is held first." />
         )}
 
         <Toggle label="Let parents send proof from a link in the fee SMS"
-          checked={s.feeSubmission.guardianUploadLink} disabled={!isOwner || busy === 'feeSubmission'}
+          checked={s.feeSubmission.guardianUploadLink} disabled={!canEdit || busy === 'feeSubmission'}
           onChange={(v) => save('feeSubmission', { feeSubmission: { guardianUploadLink: v } })}
           hint="No account needed — the fee SMS carries a private link where a parent can upload their transfer screenshot. The office still verifies every one before a receipt is issued." />
       </Section>
 
       <Section title="Admissions" blurb="How students are taken on.">
         <Choice
-          value={s.admissionsMode} disabled={!isOwner || busy === 'admissionsMode'}
+          value={s.admissionsMode} disabled={!canEdit || busy === 'admissionsMode'}
           onChange={(v) => save('admissionsMode', { admissionsMode: v as SchoolSettings['admissionsMode'] })}
           options={[
             { value: 'DIRECT', label: 'Fill the form and admit', hint: 'No enquiry register, no entry tests. Most schools work this way.' },
@@ -293,7 +294,7 @@ export default function SettingsPage() {
 
       <Section title="Sections" blurb="What happens when a section is full.">
         <Choice
-          value={s.sectionCapacityMode} disabled={!isOwner || busy === 'sectionCapacityMode'}
+          value={s.sectionCapacityMode} disabled={!canEdit || busy === 'sectionCapacityMode'}
           onChange={(v) => save('sectionCapacityMode', { sectionCapacityMode: v as SchoolSettings['sectionCapacityMode'] })}
           options={[
             { value: 'ADVISORY', label: 'Warn, but allow', hint: 'The seat count goes red; admission still goes through.' },

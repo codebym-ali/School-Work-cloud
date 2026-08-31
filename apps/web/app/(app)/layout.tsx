@@ -9,7 +9,7 @@ import { MeContext } from '@/lib/me-context';
 import { CampusLensContext, CAMPUS_LENS_KEY } from '@/lib/campus-lens';
 import type { Campus } from '@/lib/api';
 import { NotificationBell } from '@/components/notification-bell';
-import { groupedNav, hasAnyRole, navItemFor, panelLabel, usesTeacherShell, MFA_REQUIRED_ROLES } from '@/lib/roles';
+import { groupedNav, hasAnyRole, isSchoolWideAdmin, navItemFor, panelLabel, usesTeacherShell, MFA_REQUIRED_ROLES } from '@/lib/roles';
 import { TeacherSidebarNav, TeacherTabs } from '@/components/teacher-tabs';
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
@@ -60,7 +60,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   // The lens only exists for an owner (a campus-bound user has exactly one campus and no choice).
   // Fetched once, and a previously-chosen branch is restored only if it still exists.
   useEffect(() => {
-    if (!me?.roles.includes('OWNER_ADMIN')) return;
+    if (!isSchoolWideAdmin(me?.roles)) return;
     api.campuses.list().then((cs) => {
       setLensCampuses(cs);
       try {
@@ -107,11 +107,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
    */
   const teacherShell = usesTeacherShell(me.roles);
 
-  // The lens: an owner chooses; everyone else is fixed to their own campus (null for a single-campus
-  // owner = "all", which is the same one campus). The control shows only when there is a real choice.
-  const isOwner = me.roles.includes('OWNER_ADMIN');
-  const canChooseCampus = isOwner && lensCampuses.length > 1;
-  const activeCampusId = isOwner ? lensCampusId : (me.campusId ?? null);
+  // The lens: a school-wide admin (owner or ops deputy) chooses; everyone else is fixed to their own
+  // campus (null for a single-campus school = "all", the same one campus). Shown only on a real choice.
+  const schoolWide = isSchoolWideAdmin(me.roles);
+  const canChooseCampus = schoolWide && lensCampuses.length > 1;
+  const activeCampusId = schoolWide ? lensCampusId : (me.campusId ?? null);
   const setLens = (id: string | null) => {
     if (!canChooseCampus) return;
     setLensCampusId(id);

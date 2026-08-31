@@ -236,6 +236,19 @@ export function hasAnyRole(userRoles: string[] | undefined, allowed?: Role[]): b
   return effectiveRoles(userRoles).some((r) => (allowed as string[]).includes(r));
 }
 
+/**
+ * Owner-level configuration authority: the school **owner** OR their **Operations Admin** deputy —
+ * and no one else (a campus admin is deliberately excluded). Mirrors the backend routes gated
+ * `@Roles('OWNER_ADMIN', 'OPERATIONS_ADMIN')` — school settings, academic years, campus create/delete,
+ * fee & exam setup, SMS templates, the admission seat. Use it to show/enable those write controls so
+ * the deputy's UI matches what the API will accept. (Not `hasAnyRole`, because that expands Ops to
+ * the roles it covers, which would also admit a campus admin here.)
+ */
+export function isSchoolWideAdmin(roles: string[] | undefined): boolean {
+  const r = roles ?? [];
+  return r.includes('OWNER_ADMIN') || r.includes('OPERATIONS_ADMIN');
+}
+
 /** The nav entry that owns a pathname, used to gate the routed page. */
 export function navItemFor(pathname: string): NavItem | undefined {
   return NAV.find((n) => pathname === n.href || pathname.startsWith(`${n.href}/`));

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { api, apiGet, apiPost, ApiError, type AcademicYear, type Campus, type Klass, type Section, type Subject } from '@/lib/api';
 import { useMe } from '@/lib/me-context';
+import { isSchoolWideAdmin } from '@/lib/roles';
 import { ConfirmDialog } from '../classes/confirm-dialog';
 import { subjectCatalogueFrom } from '@/lib/subject-match';
 
@@ -13,7 +14,7 @@ import { subjectCatalogueFrom } from '@/lib/subject-match';
  *  equal-looking cards the reader has to sequence themselves. */
 export default function SetupPage() {
   const me = useMe();
-  const isOwner = (me?.roles ?? []).includes('OWNER_ADMIN');
+  const canConfigure = isSchoolWideAdmin(me?.roles);
   const [years, setYears] = useState<AcademicYear[]>([]);
   const [campuses, setCampuses] = useState<Campus[]>([]);
   const [classes, setClasses] = useState<Klass[]>([]);
@@ -50,7 +51,7 @@ export default function SetupPage() {
   }
 
   // A campus-bound admin only works within their own campus (the API force-scopes anyway).
-  const myCampuses = isOwner ? campuses : campuses.filter((c) => c.id === me?.campusId);
+  const myCampuses = canConfigure ? campuses : campuses.filter((c) => c.id === me?.campusId);
 
   const hasCampus = myCampuses.length > 0;
   const hasYear = years.some((y) => y.isCurrent);
@@ -99,7 +100,7 @@ export default function SetupPage() {
         openByDefault={nextStep === 1}
         count={hasCampus ? `${myCampuses.length} campus${myCampuses.length === 1 ? '' : 'es'}` : undefined}
       >
-        <CampusStep campuses={myCampuses} isOwner={isOwner}
+        <CampusStep campuses={myCampuses} canConfigure={canConfigure}
           onCreate={(b) => run(() => apiPost('/campuses', b), 'Campus added')}
           onUpdate={(id, body) => run(() => api.campuses.update(id, body), 'Campus updated')}
           onDelete={(id) => run(() => api.campuses.remove(id), 'Campus deleted')} />
@@ -113,7 +114,7 @@ export default function SetupPage() {
         openByDefault={nextStep === 2}
         count={hasYear ? years.find((y) => y.isCurrent)?.name : undefined}
       >
-        <YearStep years={years} isOwner={isOwner}
+        <YearStep years={years} canConfigure={canConfigure}
           onCreate={(b) => run(() => apiPost('/academic-years', b), 'School year added')}
           onSetCurrent={(id) => run(() => apiPost(`/academic-years/${id}/set-current`), 'Current year updated')} />
       </Step>
@@ -215,8 +216,8 @@ function Step({ n, title, blurb, state, count, openByDefault, lockedReason, chil
   );
 }
 
-function CampusStep({ campuses, isOwner, onCreate, onUpdate, onDelete }: {
-  campuses: Campus[]; isOwner: boolean;
+function CampusStep({ campuses, canConfigure, onCreate, onUpdate, onDelete }: {
+  campuses: Campus[]; canConfigure: boolean;
   onCreate: (b: object) => void;
   onUpdate: (id: string, body: { name?: string; address?: string }) => void;
   onDelete: (id: string) => Promise<string | null> | void;
@@ -254,7 +255,7 @@ function CampusStep({ campuses, isOwner, onCreate, onUpdate, onDelete }: {
                   <>
                     <strong>{c.name}</strong>
                     {c.address && <span className="muted" style={{ fontSize: 13 }}>{c.address}</span>}
-                    {isOwner && (
+                    {canConfigure && (
                       <div className="row" style={{ gap: 8, marginLeft: 'auto' }}>
                         <button className="ghost small" onClick={() => setEditing({ id: c.id, name: c.name, address: c.address ?? '' })}>Rename</button>
                         <button className="ghost small" style={{ color: '#b91c1c' }}
@@ -269,7 +270,7 @@ function CampusStep({ campuses, isOwner, onCreate, onUpdate, onDelete }: {
             ))}
           </div>
         )}
-      {isOwner && campuses.length > 0 && (
+      {canConfigure && campuses.length > 0 && (
         <p className="muted" style={{ margin: 0, fontSize: 12 }}>
           Staff logins for each campus are managed in <Link href="/campuses" style={{ fontWeight: 600 }}>Campus Hub</Link>.
         </p>
@@ -282,7 +283,7 @@ function CampusStep({ campuses, isOwner, onCreate, onUpdate, onDelete }: {
           onConfirm={() => onDelete(pendingDelete.id)}
           onClose={() => setPendingDelete(null)} />
       )}
-      {isOwner ? (
+      {canConfigure ? (
         <div className="inline-form">
           <div><label>Campus name</label><input value={name} onChange={(e) => setName(e.target.value)} placeholder="Main Campus" /></div>
           <div style={{ flex: 1 }}><label>Address (optional)</label><input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Street, city" /></div>
@@ -297,7 +298,7 @@ function CampusStep({ campuses, isOwner, onCreate, onUpdate, onDelete }: {
   );
 }
 
-function YearStep({ years, isOwner, onCreate, onSetCurrent }: { years: AcademicYear[]; isOwner: boolean; onCreate: (b: object) => void; onSetCurrent: (id: string) => void }) {
+function YearStep({ years, canConfigure, onCreate, onSetCurrent }: { years: AcademicYear[]; canConfigure: boolean; onCreate: (b: object) => void; onSetCurrent: (id: string) => void }) {
   const thisYear = new Date().getFullYear();
   const [name, setName] = useState(`${thisYear}-${String((thisYear + 1) % 100).padStart(2, '0')}`);
   const [startDate, setStart] = useState(`${thisYear}-04-01`);
@@ -309,19 +310,19 @@ function YearStep({ years, isOwner, onCreate, onSetCurrent }: { years: AcademicY
         ? <p className="muted" style={{ margin: 0, fontSize: 13 }}>No school year yet. Add the year you are currently teaching.</p>
         : (
           <table>
-            <thead><tr><th>Year</th><th>Status</th>{isOwner && <th></th>}</tr></thead>
+            <thead><tr><th>Year</th><th>Status</th>{canConfigure && <th></th>}</tr></thead>
             <tbody>
               {years.map((y) => (
                 <tr key={y.id}>
                   <td>{y.name}</td>
                   <td>{y.isCurrent ? <span className="badge ok">In progress</span> : <span className="muted">Past year</span>}</td>
-                  {isOwner && <td>{!y.isCurrent && <button className="ghost small" onClick={() => onSetCurrent(y.id)}>Make this the current year</button>}</td>}
+                  {canConfigure && <td>{!y.isCurrent && <button className="ghost small" onClick={() => onSetCurrent(y.id)}>Make this the current year</button>}</td>}
                 </tr>
               ))}
             </tbody>
           </table>
         )}
-      {isOwner ? (
+      {canConfigure ? (
         <div className="inline-form">
           <div><label>Year name</label><input value={name} onChange={(e) => setName(e.target.value)} placeholder="2026-27" /></div>
           <div><label>First day</label><input type="date" value={startDate} onChange={(e) => setStart(e.target.value)} /></div>

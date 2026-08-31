@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { apiGet, ApiError } from '@/lib/api';
 import { useMe } from '@/lib/me-context';
+import { hasAnyRole } from '@/lib/roles';
 
 const REPORTS: Array<{ key: string; label: string; params: string[]; financial?: boolean }> = [
   { key: 'daily-collection', label: 'Daily collection', params: ['date'], financial: true },
@@ -18,7 +19,7 @@ type Row = Record<string, unknown>;
 
 export default function ReportsPage() {
   const me = useMe();
-  const isAdmin = (me?.roles ?? []).some((r) => r === 'OWNER_ADMIN' || r === 'CAMPUS_ADMIN');
+  const isAdmin = hasAnyRole(me?.roles, ['OWNER_ADMIN', 'CAMPUS_ADMIN']);
   const reports = isAdmin ? REPORTS : REPORTS.filter((r) => r.financial);
 
   const [key, setKey] = useState('daily-collection');

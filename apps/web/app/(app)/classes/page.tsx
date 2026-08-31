@@ -9,6 +9,7 @@ import {
   type SubjectCatalogueEntry, type TeacherAssignment,
 } from '@/lib/api';
 import { useMe } from '@/lib/me-context';
+import { hasAnyRole, isSchoolWideAdmin } from '@/lib/roles';
 import { Metric, MetricFilter, MetricLink } from '@/components/metric';
 import { useCampusLens } from '@/lib/campus-lens';
 import { subjectCatalogueFrom } from '@/lib/subject-match';
@@ -28,8 +29,8 @@ import { ClassCard } from './class-card';
 export default function ClassesPage() {
   const me = useMe();
   const roles = me?.roles ?? [];
-  const isOwner = roles.includes('OWNER_ADMIN');
-  const canEdit = roles.some((r) => r === 'OWNER_ADMIN' || r === 'CAMPUS_ADMIN');
+  const schoolWide = isSchoolWideAdmin(roles);
+  const canEdit = hasAnyRole(roles, ['OWNER_ADMIN', 'CAMPUS_ADMIN']);
 
   const [campuses, setCampuses] = useState<Campus[]>([]);
   const [classes, setClasses] = useState<Klass[]>([]);
@@ -75,7 +76,7 @@ export default function ClassesPage() {
 
   // A campus-bound admin only works within their own campus (the API force-scopes anyway).
   const lens = useCampusLens();
-  const myCampuses = isOwner ? campuses : campuses.filter((c) => c.id === me?.campusId);
+  const myCampuses = schoolWide ? campuses : campuses.filter((c) => c.id === me?.campusId);
   // Grouping follows the lens: one branch when a director is lensed in, all when viewing All.
   const shownCampuses = lens.campusId ? myCampuses.filter((c) => c.id === lens.campusId) : myCampuses;
 

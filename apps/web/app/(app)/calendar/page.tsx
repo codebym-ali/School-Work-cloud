@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, ApiError, type Campus, type Holiday } from '@/lib/api';
 import { useMe } from '@/lib/me-context';
+import { hasAnyRole, isSchoolWideAdmin } from '@/lib/roles';
 import { ConfirmDialog } from '../classes/confirm-dialog';
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -30,10 +31,10 @@ const pretty = (d: string) =>
  */
 export default function CalendarPage() {
   const me = useMe();
-  const isOwner = (me?.roles ?? []).includes('OWNER_ADMIN');
+  const schoolWide = isSchoolWideAdmin(me?.roles);
   // A teacher reads this calendar but never writes it. Rendering controls that always 403 is the
   // same defect as the CSV-import button that was offered to everyone and worked for nobody.
-  const canEdit = (me?.roles ?? []).some((r) => r === 'OWNER_ADMIN' || r === 'CAMPUS_ADMIN');
+  const canEdit = hasAnyRole(me?.roles, ['OWNER_ADMIN', 'CAMPUS_ADMIN']);
 
   const [rows, setRows] = useState<Holiday[] | null>(null);
   const [campuses, setCampuses] = useState<Campus[]>([]);
@@ -159,7 +160,7 @@ export default function CalendarPage() {
 
           {/* Only an owner may close the whole school; a campus admin's closure is their campus
               whatever they pick, so the choice is not offered to them at all. */}
-          {isOwner && campuses.length > 1 && (
+          {schoolWide && campuses.length > 1 && (
             <div style={{ minWidth: 190 }}>
               <label>Applies to</label>
               <select

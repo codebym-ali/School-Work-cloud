@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, ApiError, type CampusAdmissionOfficer, type ManagedUser } from '@/lib/api';
 import { useMe } from '@/lib/me-context';
+import { isSchoolWideAdmin } from '@/lib/roles';
 
 type Msg = { ok: boolean; text: string } | null;
 
@@ -19,7 +20,7 @@ type Msg = { ok: boolean; text: string } | null;
  */
 export default function AdmissionsTeamPage() {
   const me = useMe();
-  const isOwner = (me?.roles ?? []).includes('OWNER_ADMIN');
+  const canAssign = isSchoolWideAdmin(me?.roles);
   const [rows, setRows] = useState<CampusAdmissionOfficer[]>([]);
   const [staff, setStaff] = useState<ManagedUser[]>([]);
   const [msg, setMsg] = useState<Msg>(null);
@@ -80,7 +81,7 @@ export default function AdmissionsTeamPage() {
           <div className="card stack" key={c.campusId}>
             <div className="row">
               <h2 style={{ margin: 0, fontSize: 18 }}>{c.campusName}</h2>
-              {isOwner && !isEditing && (
+              {canAssign && !isEditing && (
                 <div className="row" style={{ gap: 8 }}>
                   <button className="ghost small" onClick={() => setEditing(c.campusId)}>
                     {c.officer ? 'Change person' : 'Assign officer'}
@@ -144,7 +145,7 @@ export default function AdmissionsTeamPage() {
 
       {rows.length === 0 && (
         <p className="muted">
-          {isOwner ? 'No campuses yet — add one in Campus Hub first.' : 'Your account isn’t bound to a campus.'}
+          {canAssign ? 'No campuses yet — add one in Campus Hub first.' : 'Your account isn’t bound to a campus.'}
         </p>
       )}
     </div>

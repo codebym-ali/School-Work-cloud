@@ -68,8 +68,20 @@ updated: 2026-08-29
 > appointing/removing a deputy, `PATCH /users/:id/modules`, `DELETE /users/:id`, and the `GET /fees/integrity-check`
 > diagnostic. Verified: `ops-admin-authz.e2e` extended (9 cases), matrix-conformance + isolation green, and a
 > live re-run of the QA probe confirms Ops now reaches the opened routes while module-access stays 403. **D-B is
-> now honoured.** ⚠️ **Web follow-up:** a few setup/settings screens still hide write controls behind an
-> owner-only UI check — button visibility for the deputy is a small separate web pass (backend authority is done).
+> now honoured.**
+>
+> ## 🎛️ Web pass — deputy UI parity (2026-08-29)
+> The deputy now has the backend authority; this makes the web UI match it so the deputy sees the controls it
+> can actually use. Two hierarchy-aware helpers in `apps/web/lib/roles.ts`: **`isSchoolWideAdmin(roles)`**
+> (owner **or** ops — for the owner-level config the API grants ops) and the existing **`hasAnyRole`** (which
+> expands ops → the roles it covers — for owner-or-campus-admin writes). Replaced the raw `me.roles` checks on:
+> **settings** (school settings edit), **setup** (academic year + campus create/delete), **fees** (fee setup
+> panel), **sms** (template edit), **admissions-team** (the admission seat), **exams** (admin console),
+> **classes** + **classes/[id]** (edit + fee structure), **calendar** (closures), **staff-attendance** (marking),
+> **fee-claims** (verify/reject), **reports**, **admissions** (campus scope), and the **shell campus lens**
+> (`(app)/layout.tsx`) so the school-wide deputy gets the campus filter. **Left owner-only (roots of trust):**
+> the staff **Manage access** panel (appoint deputy / module access), **Campus Hub** (`/campuses`), and
+> **student delete**. Web `tsc` clean.
 
 ---
 

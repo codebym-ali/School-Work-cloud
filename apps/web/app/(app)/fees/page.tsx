@@ -8,6 +8,7 @@ import {
   type Paged, type PaymentMethodKey, type SchoolSettings, type Student,
 } from '@/lib/api';
 import { hasModule, useMe } from '@/lib/me-context';
+import { isSchoolWideAdmin } from '@/lib/roles';
 import { classLabeller } from '@/lib/labels';
 import { FeePlanPanel } from './fee-plan-panel';
 import { ConfirmDialog } from '../classes/confirm-dialog';
@@ -16,7 +17,7 @@ const now = new Date();
 
 export default function FeesPage() {
   const me = useMe();
-  const isOwner = (me?.roles ?? []).includes('OWNER_ADMIN');
+  const canConfigure = isSchoolWideAdmin(me?.roles);
   const canInvoicing = hasModule(me, 'fees.invoicing');
   const canPayments = hasModule(me, 'fees.payments');
   const [classes, setClasses] = useState<Klass[]>([]);
@@ -141,7 +142,7 @@ export default function FeesPage() {
     <div className="stack">
       <div className="row">
         <h1>Fees</h1>
-        {isOwner && (
+        {canConfigure && (
           <button className="ghost" onClick={() => setSetupOpen((v) => !v)}>
             {setupOpen ? 'Close fee setup' : '⚙ Fee setup'}
           </button>
@@ -159,7 +160,7 @@ export default function FeesPage() {
         </div>
       )}
 
-      {isOwner && setupOpen && (
+      {canConfigure && setupOpen && (
         <FeeSetupPanel
           heads={heads} structures={structures} classes={classes} years={years}
           classLabel={classLabel}
@@ -183,9 +184,9 @@ export default function FeesPage() {
         {!selectedHasStructure ? (
           <div className="toast err" style={{ margin: 0 }}>
             This class has no fee structure yet, so no invoices can be generated.
-            {isOwner
+            {canConfigure
               ? <> Open <b>⚙ Fee setup</b> above to add one.</>
-              : <> Ask the school owner to add one under Fee setup.</>}
+              : <> Ask the owner or an operations admin to add one under Fee setup.</>}
           </div>
         ) : (
           <p className="muted" style={{ margin: 0 }}>Invoices come from the class&apos;s fee structure. Idempotent per class + month + year.</p>

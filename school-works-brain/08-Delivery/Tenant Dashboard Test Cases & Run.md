@@ -154,7 +154,8 @@ Live re-check: owner still 200 on `/classes` and `/campuses`; unauthenticated 40
 - **Issue 3 — done (2026-08-29).** The eight structural reference reads are now `STAFF_ROLES`-gated
   (`libs/common/authz/role-sets.ts`); a STUDENT session is refused (proved in `student-portal.e2e`).
   Non-breaking for every staff caller; owner/staff reads still 200 live.
-- **UI polish (minor, not a defect).** The Ops deputy now *has* the authority for fee/exam setup and
-  school settings; a few of those screens hide their write controls behind an owner-only check in the web,
-  so the deputy may need those buttons revealed for parity with the API. Backend authority (what these
-  tests measure) is correct; button visibility is a separate small web pass.
+- **UI parity — done (2026-08-29).** The deputy's write controls are now revealed to match its API
+  authority: a new `isSchoolWideAdmin` helper (owner or ops) + the hierarchy-aware `hasAnyRole` replace the
+  raw owner/campus checks across settings, setup, fees, sms, admissions-team, exams, classes, classes/[id],
+  calendar, staff-attendance, fee-claims, reports, admissions, and the shell campus lens. Roots of trust
+  stay owner-only (staff Manage-access panel, Campus Hub, student delete). Web `tsc` clean.

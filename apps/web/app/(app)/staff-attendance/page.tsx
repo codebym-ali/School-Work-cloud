@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { api, ApiError, type StaffDaySummary, type StaffRegisterRow } from '@/lib/api';
 import { useCampusLens } from '@/lib/campus-lens';
 import { useMe } from '@/lib/me-context';
+import { hasAnyRole } from '@/lib/roles';
 import { attendanceBadge, humanizeStatus } from '@/lib/format';
 
 const STATUSES = ['PRESENT', 'LATE', 'HALF_DAY', 'ON_LEAVE', 'ABSENT'] as const;
@@ -40,7 +41,7 @@ const MARKED_BY: Record<string, string> = { SELF: 'Self', ADMIN: 'Office', SYSTE
  */
 export default function StaffAttendancePage() {
   const me = useMe();
-  const canMark = (me?.roles ?? []).some((r) => r === 'OWNER_ADMIN' || r === 'CAMPUS_ADMIN');
+  const canMark = hasAnyRole(me?.roles, ['OWNER_ADMIN', 'CAMPUS_ADMIN']);
 
   const lens = useCampusLens();
   const campusId = lens.campusId ?? ''; // campus now comes from the shell lens, not a local select

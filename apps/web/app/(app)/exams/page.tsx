@@ -9,6 +9,7 @@ import {
 } from '@/lib/api';
 import { classLabeller, sectionLabeller } from '@/lib/labels';
 import { useMe } from '@/lib/me-context';
+import { hasAnyRole } from '@/lib/roles';
 import TeacherExams from './TeacherExams';
 
 const EXAM_TYPES = ['MONTHLY', 'MID_TERM', 'FINAL', 'SURPRISE_TEST'];
@@ -17,7 +18,7 @@ export default function ExamsPage() {
   const me = useMe();
   // Owners/campus admins run the full setup console; a teacher-only account gets the focused
   // marks-entry view instead of a wall of admin controls they can't use.
-  const isAdmin = me?.roles.some((r) => r === 'OWNER_ADMIN' || r === 'CAMPUS_ADMIN') ?? false;
+  const isAdmin = hasAnyRole(me?.roles, ['OWNER_ADMIN', 'CAMPUS_ADMIN']);
   if (!isAdmin && me?.roles.includes('TEACHER')) return <TeacherExams />;
 
   return <ExamsAdminConsole />;

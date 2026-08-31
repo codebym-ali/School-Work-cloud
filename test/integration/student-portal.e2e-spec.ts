@@ -249,6 +249,27 @@ describe('Student portal (e2e, §28)', () => {
     expect(Array.isArray(res.body.records)).toBe(true);
   });
 
+  // Issue 3 (Tenant Dashboard QA, 2026-08-29): these structural reference lists shipped with no
+  // @Roles, so a STUDENT portal session could enumerate the whole school's structure. They are now
+  // STAFF_ROLES-gated. Asserted with a real student session (the permission matrix can't — STUDENT
+  // is not a seeded matrix role), and on the CODE (FORBIDDEN = RolesGuard, not an incidental 404).
+  it('cannot enumerate the school structure — class/section/subject/campus/year/exam lists are staff-only (Issue 3)', async () => {
+    for (const path of [
+      '/api/v1/classes',
+      '/api/v1/sections',
+      '/api/v1/subjects',
+      '/api/v1/campuses',
+      '/api/v1/academic-years',
+      '/api/v1/exams',
+      '/api/v1/terms',
+      '/api/v1/grade-scales',
+    ]) {
+      const res = await get(path, studentCookies);
+      expect(res.status).toBe(403);
+      expect(res.body.error.code).toBe('FORBIDDEN');
+    }
+  });
+
   it('denies a non-student (owner) the portal (403)', async () => {
     expect((await get('/api/v1/portal/overview', ownerCookies)).status).toBe(403);
   });

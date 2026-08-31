@@ -21,6 +21,7 @@ export * from './authz/campus-scope';
 export * from './authz/ownership';
 export * from './authz/modules';
 export * from './authz/role-hierarchy';
+export * from './authz/role-sets';
 export * from './crypto/field-encryption';
 export * from './decorators/public.decorator';
 export * from './decorators/roles.decorator';

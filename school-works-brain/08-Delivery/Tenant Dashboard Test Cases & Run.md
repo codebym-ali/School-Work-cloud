@@ -105,8 +105,8 @@ not, and no role was denied one it should reach. **No RBAC violations. No 5xx.**
 **192 authority checks (8 roles × 24 endpoints): all correct. 0 RBAC violations. 0 server errors.**
 The guard layer, the Ops one-directional hierarchy, and the service grant-ceiling all behave exactly as
 designed. The findings below were **design/spec gaps** (shipped behaviour was secure and internally
-consistent, but narrower than the approved Ops plan). **Issues 1 & 2 were fixed the same day (2026-08-29)
-and re-verified live; Issue 3 remains open as a deliberate-design decision.**
+consistent, but narrower than the approved Ops plan). **All three issues were fixed the same day
+(2026-08-29) and re-verified — Issues 1 & 2 via a live re-run, Issue 3 via a real STUDENT e2e session.**
 
 ### Issue 1 — Ops Admin cannot waive fees or reverse payments *(Medium — contradicts locked decision D-B)* — ✅ FIXED 2026-08-29
 `POST /fees/invoices/:id/waive` and `POST /fees/payments/:id/reversals` were `@Roles('OWNER_ADMIN')`-only, so
@@ -129,12 +129,16 @@ green because OPS is not a seeded matrix role).
 > access), `DELETE /users/:id` (remove a user), and appointing/removing a deputy. These are the root of trust
 > the plan deliberately reserves (OP-1). The grid confirms Ops is 403 on all three. ✅
 
-### Issue 3 — Structural reference reads are open to any authenticated user *(Low — API more permissive than the UI)*
-`GET /classes` returns **200 for every role including Staff/Teacher/HR** (grid col `cls`); the same applies to
-`GET /sections`, `/subjects`, `/campuses`, `GET /exams` (no `@Roles` → any authenticated tenant user). The
-sidebar hides these screens from Staff/Teacher, but the API allows the read. No PII is exposed (structural data
-only), so this is low-risk, but it is an API surface broader than the UI implies — worth a deliberate decision
-rather than an accident. Contrast: `/students`, `/fees/*`, `/users` are correctly gated.
+### Issue 3 — Structural reference reads were open to any authenticated user (incl. STUDENT) *(Low)* — ✅ FIXED 2026-08-29
+`GET /classes`, `/sections`, `/subjects`, `/campuses`, `/academic-years`, `/exams`, `/terms`, `/grade-scales`
+shipped with no `@Roles`, so any authenticated session — **including a STUDENT portal login** — could enumerate
+the school's structure. No PII (structural names only), hence Low; but a portal role should not reach admin
+endpoints. **Fix:** a shared `STAFF_ROLES` set (every tenant role except STUDENT, PARENT, PLATFORM_ADMIN;
+`libs/common/authz/role-sets.ts`) now gates all eight reads via `@Roles(...STAFF_ROLES)` — non-breaking, because
+every caller is a staff screen (verified: the only shell-level call, `api.campuses.list()`, is owner-gated and
+error-swallowed; no `/me` student page calls these). **Proof:** `student-portal.e2e` now asserts a real STUDENT
+session gets **403 `FORBIDDEN`** on all eight (the permission matrix can't — STUDENT isn't a seeded matrix role).
+Live re-check: owner still 200 on `/classes` and `/campuses`; unauthenticated 401.
 
 ### Ruled out (checked, not defects)
 - **Owner `DELETE /users/:id` showed 403 in the raw grid** — the probe omitted the CSRF token on bodyless
@@ -147,9 +151,9 @@ rather than an accident. Contrast: `/students`, `/fees/*`, `/users` are correctl
   roots of trust (module access, user removal, deputy appointment) + the integrity-check diagnostic stay
   owner-only. `ops-admin-authz.e2e` extended (now 9 cases); build/lint/matrix-conformance/isolation green;
   live re-run confirmed. Realigns the build with decision D-B and plan §3.
-- **Issue 3 — open (deliberate-design decision).** Whether to gate the structural reference reads
-  (`/classes`, `/sections`, `/subjects`, `/campuses`, `/exams`) is a product call; no PII is exposed. Left
-  as-is pending a decision.
+- **Issue 3 — done (2026-08-29).** The eight structural reference reads are now `STAFF_ROLES`-gated
+  (`libs/common/authz/role-sets.ts`); a STUDENT session is refused (proved in `student-portal.e2e`).
+  Non-breaking for every staff caller; owner/staff reads still 200 live.
 - **UI polish (minor, not a defect).** The Ops deputy now *has* the authority for fee/exam setup and
   school settings; a few of those screens hide their write controls behind an owner-only check in the web,
   so the deputy may need those buttons revealed for parity with the API. Backend authority (what these

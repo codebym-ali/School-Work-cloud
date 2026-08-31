@@ -1,5 +1,5 @@
 import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Patch, Post, Put, Query } from '@nestjs/common';
-import { Roles } from '@common';
+import { Roles, STAFF_ROLES } from '@common';
 import { SetupService } from './setup.service';
 import {
   ClassListQuery,
@@ -56,6 +56,9 @@ export class AcademicYearController {
     return this.setup.createAcademicYear(dto);
   }
 
+  // Staff-only (Issue 3): a picker every staff screen uses, but a STUDENT portal session must not
+  // be able to enumerate the school's structure.
+  @Roles(...STAFF_ROLES)
   @Get()
   list() {
     return this.setup.listAcademicYears();
@@ -119,6 +122,7 @@ export class CampusController {
     return this.setup.createCampus(dto);
   }
 
+  @Roles(...STAFF_ROLES)
   @Get()
   list() {
     return this.setup.listCampuses();
@@ -148,6 +152,7 @@ export class ClassController {
     return this.setup.createClass(dto);
   }
 
+  @Roles(...STAFF_ROLES)
   @Get()
   list(@Query() q: ClassListQuery) {
     return this.setup.listClasses(q.campusId);
@@ -190,6 +195,7 @@ export class SectionController {
     return this.setup.createSection(dto);
   }
 
+  @Roles(...STAFF_ROLES)
   @Get()
   list(@Query() q: SectionListQuery) {
     return this.setup.listSections(q.classId);
@@ -235,6 +241,7 @@ export class SubjectController {
     return this.setup.subjectCatalogue();
   }
 
+  @Roles(...STAFF_ROLES)
   @Get()
   list(@Query() q: SectionListQuery) {
     return this.setup.listSubjects(q.classId);

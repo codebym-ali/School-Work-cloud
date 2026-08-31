@@ -698,3 +698,30 @@ Blueprint's AWS reference (RDS/ECS/S3/KMS…) is replaced by **Contabo + Coolify
   the dedicated `ops-admin-authz` e2e rather than by having eyeballed 100 decorators. Same lesson as the
   nav-stricter-than-API bugs: **a permission that falls out of a list's contents is one that drifts;
   state the rule once and derive from it.** See [[Operations Admin Role Plan]].
+
+## Front-end split into one app per audience — but still one API, still tenant-in-host (operator, 2026-08-29)
+
+- **Decision.** Split the single `apps/web` into **four front-end apps by audience — SuperAdmin, Owner,
+  Staff, Student** (plus marketing), each its own build/origin/subdomain, **all sharing the one unchanged
+  NestJS API**. Aligns to the existing **login doors** (`login-door.ts`): owner door → Owner app, staff
+  door → Staff app, portal → Student app, platform console → SuperAdmin app. Driver: **security /
+  blast-radius isolation** (origin isolation so a student-page XSS can't reach owner/superadmin cookies or
+  code). Full plan: [[Front-End Instance Separation Plan]].
+- **This is NOT a reversal of "subdomain = school, NOT role."** That earlier decision rejected *global
+  role subdomains that DROP the tenant* (e.g. one `student.schoolworks.com` for every school, re-merging
+  tenants). The new hosts keep the school in the host — **`<role>.<school>.schoolworks.com`** — so the
+  tenant is still the school; the role prefix only selects which *app/origin* loads. Tenant is resolved
+  from the school label pre-auth and from `JWT.sid` post-auth, exactly as now. And it is still **not
+  role-per-port** (ports were rejected as a boundary because they share cookies and don't encode a tenant;
+  per-app dev ports are a dev convenience only, prod is subdomains on 443).
+- **Same-origin BFF, not cross-origin API.** Each app proxies `/api` to the internal API on its own
+  origin, so cookies stay **first-party + SameSite=Strict** and the API keeps `origin: false`. A shared
+  cross-origin `api.schoolworks.com` was rejected: it would force `SameSite=None` + a CORS allow-list,
+  reopening the cross-site cookie exposure the split exists to reduce.
+- **The split is defence-in-depth on the CLIENT, not the authorization boundary.** The API's RLS +
+  `@Roles` remain the one enforcement point; a direct API call is bounded by them regardless of which
+  front-end exists. No security check may move out of the API into "that app isn't shipped to them."
+- **Owner vs Staff overlap (~90%) is the main cost** and is mitigated by a shared `school-ui` package —
+  never by duplicating screens (two truths for one screen is the failure the Classes refactor + permission
+  matrix exist to prevent). Open question in the plan: 4 apps now, or ship Owner+Staff as one `school-web`
+  (3 apps) and split later.

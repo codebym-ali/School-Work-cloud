@@ -8,7 +8,7 @@ import { BulkMarksDto, CreateExamDto, CreateTermDto, SetGradeScaleDto } from './
 @Controller('grade-scales')
 export class GradeScalesController {
   constructor(private readonly setup: ExamSetupService) {}
-  @Roles('OWNER_ADMIN') @Put() set(@Body() dto: SetGradeScaleDto) { return this.setup.setGradeScale(dto); }
+  @Roles('OWNER_ADMIN', 'OPERATIONS_ADMIN') @Put() set(@Body() dto: SetGradeScaleDto) { return this.setup.setGradeScale(dto); }
   @Get() get(@Query('academicYearId') yearId: string) { return this.setup.getGradeScale(yearId); }
 }
 
@@ -19,11 +19,11 @@ export class TermsController {
     private readonly reportCards: ReportCardsService,
   ) {}
 
-  @Roles('OWNER_ADMIN') @Post() create(@Body() dto: CreateTermDto) { return this.setup.createTerm(dto); }
+  @Roles('OWNER_ADMIN', 'OPERATIONS_ADMIN') @Post() create(@Body() dto: CreateTermDto) { return this.setup.createTerm(dto); }
   @Get() list(@Query('academicYearId') yearId?: string) { return this.setup.listTerms(yearId); }
 
   // Remove a term created by mistake. Blocked (409) once exams/report cards reference it.
-  @Roles('OWNER_ADMIN') @Delete(':id') remove(@Param('id') id: string) { return this.setup.deleteTerm(id); }
+  @Roles('OWNER_ADMIN', 'OPERATIONS_ADMIN') @Delete(':id') remove(@Param('id') id: string) { return this.setup.deleteTerm(id); }
 
   @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
   @Post(':id/report-cards/generate')

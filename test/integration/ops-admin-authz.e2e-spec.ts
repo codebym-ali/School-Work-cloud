@@ -47,7 +47,8 @@ describe('Operations Admin deputy (e2e, RBAC)', () => {
     return { status: res.status, cookies: res.headers['set-cookie'] as unknown as string[] };
   };
   const csrfOf = (c: string[]) => (c.find((x) => x.startsWith('csrf=')) ?? '').split(';')[0].slice(5);
-  const send = (method: 'post' | 'patch' | 'delete', p: string, b: object, cookies: string[]) =>
+  const DUMMY = '00000000-0000-0000-0000-000000000000';
+  const send = (method: 'post' | 'patch' | 'delete' | 'put', p: string, b: object, cookies: string[]) =>
     request(server())[method](p).set('Host', host).set('Cookie', cookies).set('X-CSRF-Token', csrfOf(cookies)).send(b);
   const get = (p: string, cookies: string[]) => request(server()).get(p).set('Host', host).set('Cookie', cookies);
 
@@ -134,6 +135,34 @@ describe('Operations Admin deputy (e2e, RBAC)', () => {
     const dep = (await login(deputy.email, deputy.password)).cookies;
     expect((await send('patch', `/api/v1/users/${lowerId}/modules`, { moduleKey: 'recruitment.hire', allowed: false }, dep)).status).toBe(403);
     expect((await send('delete', `/api/v1/users/${lowerId}`, {}, dep)).status).toBe(403);
+  });
+
+  // Issues 1 & 2 (QA run 2026-08-29): the deputy's remit was narrower than the plan (§3, D-B) — every
+  // OWNER-only route was denied. These operational routes are now OWNER_ADMIN + OPERATIONS_ADMIN.
+  it('the deputy can run finance + setup on the owner\'s behalf — the operational OWNER-only routes are now open (not 403)', async () => {
+    const dep = (await login(deputy.email, deputy.password)).cookies;
+    // "not 403" == authorized (reached the handler/validation). Dummy ids -> 404/400; empty body -> 400.
+    const opened: [Parameters<typeof send>[0], string, object][] = [
+      ['post', `/api/v1/fees/invoices/${DUMMY}/waive`, { reason: 'qa' }],      // D-B waiver
+      ['post', `/api/v1/fees/payments/${DUMMY}/reversals`, { reason: 'qa' }],  // D-B reversal
+      ['post', '/api/v1/fee-heads', {}],                                        // fee setup
+      ['post', '/api/v1/fee-structures', {}],
+      ['patch', '/api/v1/school-settings', {}],
+      ['post', '/api/v1/academic-years', {}],
+      ['put', '/api/v1/grade-scales', {}],                                      // exam setup
+      ['post', '/api/v1/terms', {}],
+      ['put', '/api/v1/sms/templates', {}],                                     // comms config
+      ['put', `/api/v1/admission-officers/${DUMMY}`, { userId: DUMMY }],        // staff the admission seat
+      ['post', '/api/v1/fees/jobs/mark-overdue', {}],                           // defaulters sweep
+    ];
+    for (const [m, p, b] of opened) {
+      const status = (await send(m, p, b, dep)).status;
+      expect(status).not.toBe(403);
+    }
+    // A valid campus create actually succeeds for the deputy (201) — proving the write path end-to-end.
+    expect((await send('post', '/api/v1/campuses', { name: 'Ops Campus' }, dep)).status).toBe(201);
+    // Still owner-reserved: integrity-check is a diagnostic, deliberately NOT opened to the deputy.
+    expect((await get('/api/v1/fees/integrity-check', dep)).status).toBe(403);
   });
 
   it('the owner revokes the deputy, and the ex-deputy immediately loses the reach', async () => {

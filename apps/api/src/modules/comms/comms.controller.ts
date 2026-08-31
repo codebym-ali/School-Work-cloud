@@ -30,7 +30,7 @@ export class SmsController {
     return this.comms.listTemplates();
   }
 
-  @Roles('OWNER_ADMIN')
+  @Roles('OWNER_ADMIN', 'OPERATIONS_ADMIN')
   @Put('templates')
   upsertTemplate(@Body() dto: UpsertTemplateDto) {
     return this.comms.upsertTemplate(dto);

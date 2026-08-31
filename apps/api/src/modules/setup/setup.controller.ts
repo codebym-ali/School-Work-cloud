@@ -37,8 +37,9 @@ export class SchoolSettingsController {
     return this.setup.getSettings();
   }
 
-  /** Owner-only: these govern money and pay. Partial — send only what changes. */
-  @Roles('OWNER_ADMIN')
+  /** Owner + Ops Admin: these govern money and pay, so the deputy who runs the school day-to-day
+   *  may change them on the owner's behalf (audited). Partial — send only what changes. */
+  @Roles('OWNER_ADMIN', 'OPERATIONS_ADMIN')
   @Patch()
   update(@Body() dto: UpdateSchoolSettingsDto) {
     return this.setup.updateSettings({ ...dto } as Record<string, unknown>);
@@ -49,7 +50,7 @@ export class SchoolSettingsController {
 export class AcademicYearController {
   constructor(private readonly setup: SetupService) {}
 
-  @Roles('OWNER_ADMIN')
+  @Roles('OWNER_ADMIN', 'OPERATIONS_ADMIN')
   @Post()
   create(@Body() dto: CreateAcademicYearDto) {
     return this.setup.createAcademicYear(dto);
@@ -60,7 +61,7 @@ export class AcademicYearController {
     return this.setup.listAcademicYears();
   }
 
-  @Roles('OWNER_ADMIN')
+  @Roles('OWNER_ADMIN', 'OPERATIONS_ADMIN')
   @Post(':id/set-current')
   setCurrent(@Param('id') id: string) {
     return this.setup.setCurrentAcademicYear(id);
@@ -112,7 +113,7 @@ export class HolidayController {
 export class CampusController {
   constructor(private readonly setup: SetupService) {}
 
-  @Roles('OWNER_ADMIN')
+  @Roles('OWNER_ADMIN', 'OPERATIONS_ADMIN')
   @Post()
   create(@Body() dto: CreateCampusDto) {
     return this.setup.createCampus(dto);
@@ -129,7 +130,7 @@ export class CampusController {
     return this.setup.updateCampus(id, dto);
   }
 
-  @Roles('OWNER_ADMIN')
+  @Roles('OWNER_ADMIN', 'OPERATIONS_ADMIN')
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   remove(@Param('id') id: string) {

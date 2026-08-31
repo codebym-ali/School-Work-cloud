@@ -51,10 +51,25 @@ updated: 2026-08-29
 >    the appointment is audited under the deputy's `entityId` with the owner's `userId`. Dedicated action
 >    names remain a possible future nicety.
 >
-> **Deferred (not built):** Phase 2 appoint UX (Campus Hub block, invite link, delegate banner); Phase 3
-> optional finance threshold (D-B), payroll-approval reservation (D-C beyond the existing owner-only gate),
-> and the owner's "delegation activity" view. The **D-B/D-C business rules are not separately enforced**
-> beyond what already exists — Ops inherits the accountant/finance routes wholesale for now.
+> **Deferred (not built):** Phase 2 appoint UX (Campus Hub block, invite link, delegate banner); a
+> payroll-approval reservation (D-C) beyond the existing owner-only gate; and the owner's "delegation
+> activity" view.
+>
+> ## 🔧 Follow-up fix — Ops operational remit widened (2026-08-29, same day)
+> A QA pass ([[Tenant Dashboard Test Cases & Run]]) found the shipped deputy was **narrower than this plan**:
+> because the one-directional hierarchy stops below `OWNER_ADMIN`, every `@Roles('OWNER_ADMIN')`-only route was
+> denied to Ops — including operational ones the plan's §3 CAN-list and **decision D-B** (waivers/reversals
+> *allowed + audited*) explicitly grant. *(The earlier note that Ops "inherits the finance routes wholesale"
+> was wrong: waive/reversal were owner-only, so Ops was blocked.)* **Fixed** by adding `OPERATIONS_ADMIN` to
+> the operational routes: fee **waive** + payment **reversal** (D-B); **fee setup** (heads/structures/
+> late-fee-policy/discounts + copy/revoke); **exam setup** (grade-scales, terms); **school-settings** PATCH;
+> **academic-years** (create + set-current); **campus** create/delete; **SMS templates**; the **admission-officer
+> seat** (PUT/DELETE); and the **mark-overdue** defaulters sweep. **Still owner-only by design** (roots of trust):
+> appointing/removing a deputy, `PATCH /users/:id/modules`, `DELETE /users/:id`, and the `GET /fees/integrity-check`
+> diagnostic. Verified: `ops-admin-authz.e2e` extended (9 cases), matrix-conformance + isolation green, and a
+> live re-run of the QA probe confirms Ops now reaches the opened routes while module-access stays 403. **D-B is
+> now honoured.** ⚠️ **Web follow-up:** a few setup/settings screens still hide write controls behind an
+> owner-only UI check — button visibility for the deputy is a small separate web pass (backend authority is done).
 
 ---
 

@@ -17,6 +17,18 @@ export type MatrixRole = 'OWNER_ADMIN' | 'CAMPUS_ADMIN' | 'ADMISSION_CONTROLLER'
 // PARENT is retained even though its portal was removed (2026-07-28): the role still exists,
 // and every row's deny-side asserts a PARENT-bearing session reaches NOTHING. That is a
 // regression guard worth keeping until the role itself is retired (scope B).
+//
+// ⚠️ OPERATIONS_ADMIN is deliberately NOT a MatrixRole here, for the same reason as HR_MANAGER: it
+// carries a HIERARCHY (it satisfies every role below it — role-hierarchy.ts), so a row's `allow`
+// array cannot express its access without special-casing every deny-side. Seeding it here would mean
+// re-deriving all ~90 rows against that hierarchy. Its authority is instead pinned directly by
+// `ops-admin-authz.e2e` with a real deputy session (appointment, the operational allow-set — incl.
+// the D-B finance waivers/reversals and setup routes opened 2026-08-29 — and the owner-reserved
+// deny-set: appoint-deputy, module access, user removal). Measured by a different instrument, not
+// unmeasured. NOTE: rows below whose comment says a route is "owner-only" (create campus, change
+// school settings, create academic year, reverse payment, edit sms template, fee setup, delete term,
+// set admission officer) are, since that date, OWNER_ADMIN + OPERATIONS_ADMIN in code; these rows
+// still hold because OPS is not a seeded role, so the six seeded roles' allow/deny are unchanged.
 export const MATRIX_ROLES: MatrixRole[] = ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ADMISSION_CONTROLLER', 'ACCOUNTANT', 'TEACHER', 'PARENT'];
 
 export interface MatrixRow {

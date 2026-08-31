@@ -13,7 +13,8 @@ import { SetAdmissionOfficerDto } from './dto/users.dto';
  * grant while the outgoing holder still held it.
  *
  * Reads are campus-scoped in the service (a campus admin sees only their own campus); the
- * writes are OWNER_ADMIN-only, because the seat says who speaks for a campus's admissions.
+ * writes are OWNER_ADMIN + OPERATIONS_ADMIN — the deputy staffs the school's roles on the owner's
+ * behalf, and the admission seat is one of them (Operations Admin Role Plan §3).
  */
 @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
 @Controller('admission-officers')
@@ -27,14 +28,14 @@ export class AdmissionOfficersController {
   }
 
   /** Assign the seat, or hand it over to someone else on the same campus. */
-  @Roles('OWNER_ADMIN')
+  @Roles('OWNER_ADMIN', 'OPERATIONS_ADMIN')
   @Put(':campusId')
   set(@Param('campusId') campusId: string, @Body() dto: SetAdmissionOfficerDto) {
     return this.users.setAdmissionOfficer(campusId, dto.userId);
   }
 
   /** Vacate the seat. The person keeps their login and every other role. */
-  @Roles('OWNER_ADMIN')
+  @Roles('OWNER_ADMIN', 'OPERATIONS_ADMIN')
   @Delete(':campusId')
   remove(@Param('campusId') campusId: string) {
     return this.users.removeAdmissionOfficer(campusId);

@@ -1,7 +1,7 @@
 ---
 title: Front-End Instance Separation Plan
 type: plan
-status: PLANNED — not built
+status: IN PROGRESS — Phase 0 partially shipped (react-free packages)
 updated: 2026-08-29
 ---
 
@@ -136,9 +136,20 @@ staff `:3002`, student `:3003`, superadmin `:3004` — each rewriting `/api` →
 - **Observability:** tag Sentry/analytics by app so a spike is attributable to one surface.
 
 ## 7. Phased rollout (each phase independently shippable, lowest risk first)
-- **Phase 0 — extract packages, still one app.** Pull `ui`, `api-client`, `session`, `roles` out of
-  `apps/web`; `apps/web` imports them and behaves identically. Pure refactor; green gates prove no
-  behaviour change. **De-risks everything after.**
+- **Phase 0 — extract packages, still one app. ✅ PARTIALLY SHIPPED (2026-08-29).** Pull the shared libs
+  out of `apps/web`; the app imports them via re-export shims and behaves identically. **Done:** the
+  **react-free** libs — `@sw/api-client` (`lib/api.ts`), `@sw/roles` (`lib/roles.ts`), and `@sw/ui` (the
+  `IconName` type only, so `@sw/roles` stays pure-logic). Wired via a tsconfig alias `@sw/* →
+  packages/*/src` (no pnpm workspace needed — same idiom as `@common`) + Next `experimental.externalDir`.
+  Shims at the old `@/lib/*` / `@/components/icon` paths keep every existing import byte-identical.
+  Gates green: web `tsc`, **full `next build`**, `lint`, backend build.
+  **Deferred to Phase 1:** the **react-bearing** packages — the `<Icon>` component and the full `ui`
+  component set, and `session` (`me-context`, `campus-lens`). Reason: this repo is **not** a pnpm
+  workspace, so a package outside `apps/web` cannot resolve `react` (no hoisting). The correct fix is the
+  **workspace foundation**, which lands with the first *new* app (Phase 1) — that also gives a real second
+  consumer to validate React hoisting against, rather than migrating the tooling speculatively now. The
+  `<Icon>` component stays in `apps/web/components/icon.tsx` (using the shared `IconName` type); `session`
+  stays in `apps/web/lib`.
 - **Phase 1 — SuperAdmin app.** Move `/admin/*` → `superadmin-web` on `superadmin.schoolworks.com`. It is
   the **most separable** (own `platform_users` auth, own routes, no tenant overlap) — best first cut.
 - **Phase 2 — Student app.** Move `/portal` + `/me` → `student-web` on `student.<school>…`. Also cleanly

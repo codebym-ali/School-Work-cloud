@@ -16,16 +16,10 @@
  * where a hairline disappears and a 2px stroke turns a 24px glyph into a blob; 1.75 holds at both.
  */
 
-export type IconName =
-  // navigation
-  | 'dashboard' | 'admissions' | 'admissions-team' | 'students' | 'classes' | 'attendance'
-  | 'leaves' | 'timetable' | 'timings' | 'cover' | 'exams' | 'reports' | 'performance' | 'fees'
-  | 'fee-claims' | 'staff' | 'setup' | 'settings' | 'campuses' | 'calendar' | 'home'
-  | 'profile' | 'payslips' | 'lock' | 'school'
-  // dashboard + chrome
-  | 'alert' | 'message' | 'bell' | 'chevron-right' | 'trend-up'
-  // register states — present / absent / on leave / not yet marked
-  | 'check-circle' | 'x-circle' | 'leave' | 'unknown' | 'inbox' | 'menu';
+// The IconName type moved to the shared `@sw/ui` package (Phase 0) so `@sw/roles` can type nav items
+// without pulling in React. Re-exported here so `@/components/icon` still exports it app-wide.
+import type { IconName } from '@sw/ui';
+export type { IconName };
 
 /**
  * Paths only — every icon shares one `<svg>` wrapper below, so the box, stroke and colour

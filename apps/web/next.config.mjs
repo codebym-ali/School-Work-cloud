@@ -51,6 +51,9 @@ const STANDALONE = process.env.NEXT_STANDALONE === '1' || process.platform !== '
 /** @type {import('next').NextConfig} */
 export default {
   reactStrictMode: true,
+  // Shared UI/lib live in top-level `packages/*` (Front-End Instance Separation Plan, Phase 0),
+  // which sit OUTSIDE this app's directory — externalDir lets Next compile them as source.
+  experimental: { externalDir: true },
   ...(STANDALONE ? { output: 'standalone' } : {}),
   async rewrites() {
     if (EXPLICIT_ORIGIN) {

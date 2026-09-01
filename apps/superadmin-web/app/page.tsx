@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { ApiError } from '@/lib/api';
+import { ApiError } from '@sw/http';
 import { platformApi, type Tenant, type PlatformOverview } from '@/lib/platform-api';
 import { usePlatformMe } from './me-context';
 
@@ -396,7 +396,7 @@ function NewTenant({ onDone, onClose }: { onDone: (ok: boolean, text: string) =>
 
 /** The onboarding link, shown ONCE after provisioning (SA-P3). It cannot be shown again — only the
  *  token's hash is stored — so copy is offered up front and dismissing takes a deliberate click.
- *  Mirrors the recovery-codes card on /admin/security. */
+ *  Mirrors the recovery-codes card on /security. */
 function OnboardingLink({ subdomain, url, onClose }: { subdomain: string; url: string; onClose: () => void }) {
   const [copied, setCopied] = useState(false);
   async function copy() {

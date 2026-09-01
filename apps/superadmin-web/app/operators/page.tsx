@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { ApiError } from '@/lib/api';
+import { ApiError } from '@sw/http';
 import { platformApi, type PlatformOperator, type PlatformRole } from '@/lib/platform-api';
 import { usePlatformMe } from '../me-context';
 
@@ -61,7 +61,7 @@ export default function OperatorsPage() {
           onDone={(ok, text) => setMsg({ ok, text })}
           onCreated={async (email, onboardingToken) => {
             setAdding(false);
-            setInvite({ email, url: `${window.location.origin}/admin/set-password?token=${encodeURIComponent(onboardingToken)}` });
+            setInvite({ email, url: `${window.location.origin}/set-password?token=${encodeURIComponent(onboardingToken)}` });
             await load();
           }}
         />

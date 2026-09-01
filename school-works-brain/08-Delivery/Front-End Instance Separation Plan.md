@@ -1,7 +1,7 @@
 ---
 title: Front-End Instance Separation Plan
 type: plan
-status: IN PROGRESS — Phase 0 partially shipped (react-free packages)
+status: IN PROGRESS — Phase 0 (react-free packages) + Phase 1 (SuperAdmin app) shipped
 updated: 2026-08-29
 ---
 
@@ -143,15 +143,29 @@ staff `:3002`, student `:3003`, superadmin `:3004` — each rewriting `/api` →
   packages/*/src` (no pnpm workspace needed — same idiom as `@common`) + Next `experimental.externalDir`.
   Shims at the old `@/lib/*` / `@/components/icon` paths keep every existing import byte-identical.
   Gates green: web `tsc`, **full `next build`**, `lint`, backend build.
-  **Deferred to Phase 1:** the **react-bearing** packages — the `<Icon>` component and the full `ui`
-  component set, and `session` (`me-context`, `campus-lens`). Reason: this repo is **not** a pnpm
-  workspace, so a package outside `apps/web` cannot resolve `react` (no hoisting). The correct fix is the
-  **workspace foundation**, which lands with the first *new* app (Phase 1) — that also gives a real second
-  consumer to validate React hoisting against, rather than migrating the tooling speculatively now. The
-  `<Icon>` component stays in `apps/web/components/icon.tsx` (using the shared `IconName` type); `session`
-  stays in `apps/web/lib`.
-- **Phase 1 — SuperAdmin app.** Move `/admin/*` → `superadmin-web` on `superadmin.schoolworks.com`. It is
-  the **most separable** (own `platform_users` auth, own routes, no tenant overlap) — best first cut.
+  **Deferred:** the **react-bearing** packages — the `<Icon>` component and the full `ui` component set,
+  and `session` (`me-context`, `campus-lens`). Reason: this repo is **not** a pnpm workspace, so a package
+  outside an app cannot resolve `react` (no hoisting). **Update after Phase 1:** the SuperAdmin app shipped
+  *without* needing this (it uses only react-free `@sw/*` + its own components), which shows the react-share
+  problem only bites when two apps must **share React components** — i.e. **Phase 3 (Owner/Staff)**, which
+  share the big `school-ui`. So the pnpm-workspace foundation + the react-bearing `ui`/`session` extraction
+  now land in **Phase 3**, not Phase 1. Until then the `<Icon>` component stays in each app (using the
+  shared `IconName` type) and `session` stays in `apps/web/lib`.
+- **Phase 1 — SuperAdmin app. ✅ SHIPPED (2026-08-29).** Stood up `apps/superadmin-web` as a standalone
+  Next app (its own `package.json`/install/`node_modules`, dev port **3004**, own `next.config`/`tsconfig`),
+  and moved the whole console out of `apps/web`: `app/admin/*` → root routes (`/`, `/billing`, `/leads`,
+  `/operators`, `/security`, `/login`, `/set-password`) — the `/admin` prefix is gone because the origin
+  *is* the console; the nested `admin/layout.tsx` became a root `layout.tsx` + a client `ConsoleShell`;
+  `lib/platform-api.ts` + `me-context` moved with it; `globals.css` copied (its own design-system copy).
+  **Zero tenant code:** extracted `ApiError` into a new react-free **`@sw/http`** so the console (and
+  `platformApi`) use it without importing the tenant `@sw/api-client`. Its API proxy targets a **fixed
+  origin** (`127.0.0.1:4000` dev / `NEXT_API_ORIGIN`) — every call is `/api/v1/platform/*`, which the API
+  **excludes from tenant resolution**, so no tenant subdomain / `*.localhost` DNS is needed (prod: the
+  reserved `superadmin`/`admin` subdomain). **No pnpm workspace was needed** — a second standalone-install
+  app resolves the react-free `@sw/*` packages via the same tsconfig alias. **Verified:** console `tsc` +
+  full `next build` (all 7 routes); `apps/web` `tsc` + `next build` clean after the console's removal;
+  lint clean; **live smoke** — console serves on `:3004` (login renders) and its `/api` proxy reaches the
+  platform routes (401 guarded). `apps/web` no longer serves the console.
 - **Phase 2 — Student app.** Move `/portal` + `/me` → `student-web` on `student.<school>…`. Also cleanly
   separable (own login, own `/portal/*` endpoints, own screens).
 - **Phase 3 — Owner / Staff split.** Stand up `staff-web` (the operational app from `school-ui`) and

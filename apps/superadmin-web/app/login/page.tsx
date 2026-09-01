@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ApiError } from '@/lib/api';
+import { ApiError } from '@sw/http';
 import { platformApi, isPlatformMfaRequired } from '@/lib/platform-api';
 
 // The seed platform-admin email is pre-filled ONLY in `next dev`; prod ships empty.
@@ -25,13 +25,13 @@ export default function PlatformLoginPage() {
     setError(null);
     try {
       const res = await platformApi.login(email, password);
-      // MFA accounts get no session here — pause for the code instead of pushing to /admin, which
+      // MFA accounts get no session here — pause for the code instead of pushing to /, which
       // would 401 and bounce straight back to this page looking like a failed password.
       if (isPlatformMfaRequired(res)) {
         setMfaToken(res.mfaToken);
         return;
       }
-      router.push('/admin');
+      router.push('/');
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Login failed');
     } finally {
@@ -45,7 +45,7 @@ export default function PlatformLoginPage() {
     setError(null);
     try {
       await platformApi.mfaComplete(mfaToken!, code);
-      router.push('/admin');
+      router.push('/');
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Verification failed');
       setCode('');

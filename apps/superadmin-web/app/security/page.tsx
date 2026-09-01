@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { ApiError } from '@/lib/api';
+import { ApiError } from '@sw/http';
 import { platformApi } from '@/lib/platform-api';
 import { usePlatformMe } from '../me-context';
 

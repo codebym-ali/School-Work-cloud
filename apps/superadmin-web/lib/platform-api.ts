@@ -5,7 +5,7 @@
  * from the non-httpOnly `platform_csrf` cookie (distinct from the tenant `csrf` cookie
  * so a platform session and a tenant session can coexist in one browser).
  */
-import { ApiError } from './api';
+import { ApiError } from '@sw/http';
 
 const BASE = '/api/v1';
 

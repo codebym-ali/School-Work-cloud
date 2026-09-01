@@ -2,14 +2,14 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ApiError } from '@/lib/api';
+import { ApiError } from '@sw/http';
 import { platformApi } from '@/lib/platform-api';
 
 /**
  * Public operator set-password page (SA4b) — the destination of the one-time invite link a Super Admin
  * hands a new operator. It lives on the admin console host and posts to the public
  * `/platform/auth/set-password` (no session; the token is the whole authorisation), then routes to the
- * console login. The admin layout treats this path as public so it isn't bounced to /admin/login.
+ * console login. The admin layout treats this path as public so it isn't bounced to /login.
  *
  * The token is read from `window.location` (not `useSearchParams`) to avoid Next 14's Suspense-boundary
  * build failure.
@@ -67,7 +67,7 @@ export default function PlatformSetPasswordPage() {
             </p>
             {msg && <div className={`toast ${msg.ok ? 'ok' : 'err'}`}>{msg.text}</div>}
             {done ? (
-              <button onClick={() => router.replace('/admin/login')}>Go to sign in</button>
+              <button onClick={() => router.replace('/login')}>Go to sign in</button>
             ) : (
               <>
                 <div>

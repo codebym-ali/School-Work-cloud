@@ -4,25 +4,12 @@
  * and this client attaches the CSRF double-submit header for state-changing requests
  * (reads the non-httpOnly `csrf` cookie, blueprint §22.2).
  */
-const BASE = '/api/v1';
+// ApiError moved to the shared react-free `@sw/http` package (Phase 1) so the SuperAdmin console can
+// use it without importing this tenant client. Re-exported so `@/lib/api` consumers are unchanged.
+import { ApiError } from '@sw/http';
+export { ApiError };
 
-export class ApiError extends Error {
-  constructor(
-    public status: number,
-    public code: string | undefined,
-    message: string,
-    public details?: unknown,
-    public requestId?: string,
-  ) {
-    super(message);
-  }
-  /** Field-level validation issues from a 422 (each `issue` names its field in the text). */
-  get fieldIssues(): string[] {
-    return Array.isArray(this.details)
-      ? (this.details as Array<{ field?: string; issue?: string }>).map((d) => d.issue ?? '').filter(Boolean)
-      : [];
-  }
-}
+const BASE = '/api/v1';
 
 function csrfToken(): string {
   if (typeof document === 'undefined') return '';

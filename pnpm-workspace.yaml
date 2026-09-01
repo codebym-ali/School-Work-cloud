@@ -1,0 +1,10 @@
+# Workspace (Front-End Instance Separation Plan, Phase 3). Makes the front-end apps members of one
+# install so their shared deps (react/react-dom/next) dedupe to a single copy at the (hoisted) root
+# node_modules — which is what lets the shared React packages under packages/* resolve ONE react
+# instance, so owner-web and staff-web can share React components instead of duplicating them.
+#
+# Only apps/* are members: the packages/* are plain source dirs resolved via the `@sw/*` tsconfig
+# alias (not node_modules), so they need no package.json. The backend (apps/api, apps/worker) has no
+# package.json and stays driven by the root package; libs/* keep resolving via @common/@database.
+packages:
+  - 'apps/*'

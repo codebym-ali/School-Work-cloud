@@ -1,0 +1,104 @@
+# SchoolWorks reverse proxy — Front-End Instance Separation Plan, Phase 4.
+#
+# ONE NestJS API (:4000) behind FIVE front-end apps, split by audience across subdomains under
+# schoolworks.com. Each app is served same-origin with its /api proxied to the shared API, so the
+# browser only ever talks to its own origin (first-party, SameSite=Strict cookies preserved).
+#
+# Container/service ports (match each app's `start` script):
+#   web (marketing + login chooser) :3001 · superadmin-web :3004 · student-web :3003
+#   owner-web :3005 · staff-web :3006 · api (NestJS) :4000
+#
+# TLS: on-demand issuance mints a cert per hostname on first request — needed because
+# owner.<school>.schoolworks.com is TWO labels deep (a single *.schoolworks.com wildcard covers only
+# one). The `ask` endpoint MUST return 200 only for hosts of a real, active tenant, so junk hosts
+# can't make us mint certs; add a tiny `GET /api/v1/platform/public/host-allowed?host=` on the API
+# (public, tenant-agnostic) for this. Alternative: DNS-01 wildcard `*.<school>.schoolworks.com` issued
+# when each tenant is provisioned.
+
+{
+	on_demand_tls {
+		ask http://api:4000/api/v1/platform/public/host-allowed
+	}
+}
+
+# Snippet: proxy /api to the API, stripping the ROLE label so the tenant middleware resolves the
+# SCHOOL. Caddy labels are right-indexed: for owner.greenwood.schoolworks.com →
+# labels.0=com, labels.1=schoolworks, labels.2=greenwood, labels.3=owner. So the school host is
+# {labels.2}.{labels.1}.{labels.0} = greenwood.schoolworks.com.
+(tenant_api) {
+	handle /api/* {
+		reverse_proxy api:4000 {
+			header_up Host {labels.2}.{labels.1}.{labels.0}
+		}
+	}
+}
+
+# One catch-all TLS site; route by Host inside. (Site addresses can't be regex, so the two-label
+# role hosts are matched with host_regexp here.)
+https:// {
+	tls {
+		on_demand
+	}
+
+	# ── Marketing + login chooser (apex) ──────────────────────────────
+	@apex host schoolworks.com www.schoolworks.com
+	handle @apex {
+		reverse_proxy web:3001
+	}
+
+	# ── Vendor console (reserved subdomain; platform routes are tenant-agnostic → Host untouched) ─
+	@superadmin host superadmin.schoolworks.com admin.schoolworks.com
+	handle @superadmin {
+		handle /api/* {
+			reverse_proxy api:4000
+		}
+		handle {
+			reverse_proxy superadmin-web:3004
+		}
+	}
+
+	# ── Owner app: owner.<school>.schoolworks.com ─────────────────────
+	@owner host_regexp owner ^owner\.[^.]+\.schoolworks\.com$
+	handle @owner {
+		import tenant_api
+		handle {
+			reverse_proxy owner-web:3005
+		}
+	}
+
+	# ── Staff app: staff.<school>.schoolworks.com ─────────────────────
+	@staff host_regexp staff ^staff\.[^.]+\.schoolworks\.com$
+	handle @staff {
+		import tenant_api
+		handle {
+			reverse_proxy staff-web:3006
+		}
+	}
+
+	# ── Student portal: student.<school>.schoolworks.com ──────────────
+	@student host_regexp student ^student\.[^.]+\.schoolworks\.com$
+	handle @student {
+		import tenant_api
+		handle {
+			reverse_proxy student-web:3003
+		}
+	}
+
+	# ── Bare tenant host <school>.schoolworks.com → marketing/chooser ─
+	# (Single label before the apex; a school with no role prefix lands on the chooser, branded
+	# by ?campus. Its /api resolves the tenant directly, Host untouched.)
+	@tenant host_regexp tenant ^[^.]+\.schoolworks\.com$
+	handle @tenant {
+		handle /api/* {
+			reverse_proxy api:4000
+		}
+		handle {
+			reverse_proxy web:3001
+		}
+	}
+
+	# Anything else → 404 (don't leak which hosts are live).
+	handle {
+		respond "Not found" 404
+	}
+}

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import Link from 'next/link';
+import { APP_URLS } from '@/lib/app-urls';
 
 /**
  * The chooser — three doors, one neutral landing.
@@ -16,23 +16,25 @@ import Link from 'next/link';
  * So `/login` names the options and lets the person pick. Everything that redirects here keeps
  * working, and no bookmark or campus link breaks.
  */
+// Each door lives on its own app/origin now (Phase 4), so these are cross-origin links to the
+// deployed sign-in pages (dev: the local ports). The chooser stays on the apex marketing app.
 const DOORS = [
   {
-    href: '/staff-login',
+    href: `${APP_URLS.staff}/login`,
     icon: '🏫',
     title: 'School staff',
     detail: 'Campus admins, teachers, accountants, admissions and office staff. Sign in with your email.',
     carriesCampus: true,
   },
   {
-    href: '/owner-login',
+    href: `${APP_URLS.owner}/login`,
     icon: '🔑',
     title: 'School owner',
     detail: 'The owner of the school. Sign in with your email.',
     carriesCampus: false,
   },
   {
-    href: '/student-login',
+    href: `${APP_URLS.student}/login`,
     icon: '🎒',
     title: 'Student',
     detail: 'Sign in with your registration number and CNIC / B-Form.',
@@ -57,7 +59,7 @@ export default function LoginChooserPage() {
         </div>
 
         {DOORS.map((d) => (
-          <Link
+          <a
             key={d.href}
             /* The campus name brands the staff page only. An owner belongs to no campus
                (`restrictedCampusId()` returns null for them) and a student signs in with a
@@ -68,7 +70,7 @@ export default function LoginChooserPage() {
           >
             <strong>{d.icon} {d.title} →</strong>
             <p className="muted" style={{ margin: '4px 0 0', fontSize: 13 }}>{d.detail}</p>
-          </Link>
+          </a>
         ))}
       </div>
     </main>

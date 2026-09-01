@@ -1,7 +1,7 @@
 ---
 title: Front-End Instance Separation Plan
 type: plan
-status: SHIPPED — Phases 0–3 done (5 apps split); Phase 4 (marketing-only apps/web + prod hosting) remains
+status: SHIPPED — Phases 0–3 + Phase 4 wiring/hosting done; only prod cutover (apps/web trim, Dockerfiles, TLS ask) remains
 updated: 2026-08-29
 ---
 
@@ -206,8 +206,22 @@ staff `:3002`, student `:3003`, superadmin `:3004` — each rewriting `/api` →
     staff-web 34/34, apps/web 42/42; superadmin + student `tsc`; backend build; lint. One hoisted React
     across all apps. ⚠️ *Build-verified, not dev-smoked for owner/staff (builds static-generate every page,
     which executes the components); the shell + proxy pattern is the same one live-smoked for student.*
-- **Phase 4 — Marketing app** on the apex; retire the old `apps/web`.
-- **Infra (parallel):** reverse proxy + on-demand TLS + `<role>.<school>` routing, wired in [[Deployment & Operations]].
+- **Phase 4 — cross-app wiring + hosting. 🟡 MOSTLY SHIPPED (2026-08-29).**
+  - ✅ **Cross-app URL wiring:** new `apps/web/lib/app-urls.ts` (`NEXT_PUBLIC_OWNER/STAFF/STUDENT/SUPERADMIN_URL`,
+    dev-port defaults). The apex login **chooser** and the marketing **footer** now link CROSS-ORIGIN to
+    the split apps (external `<a>`, not internal `<Link>`); the `/student-login` redirect stub already uses
+    the env. So the apps actually navigate to each other.
+  - ✅ **Reverse-proxy / hosting config:** `deploy/Caddyfile` routes all five apps + the API across
+    subdomains with on-demand TLS, and — crucially — **strips the role label from the Host** on the tenant
+    apps' `/api` proxy (`owner.greenwood…` → `greenwood.schoolworks.com`) so `TenantResolutionMiddleware`
+    still resolves the school without any backend change. `deploy/README.md` documents ports, env, and the
+    topology.
+  - ⛔ **Remaining (prod cutover):** trim `apps/web` to marketing+chooser only — relocate the school routes
+    and the edge pages (**break-glass, admission-portal, set-password**, which land in the school app) into
+    owner/staff-web, then drop the transitional `(app)` re-exports + the owner/staff-login pages. `apps/web`
+    is a harmless working superset until then. Also: add the API `host-allowed` endpoint for on-demand TLS
+    (or per-school DNS-01), and per-app Dockerfiles + a compose/orchestrator. Verified: `apps/web` `next
+    build` 42/42 after the wiring.
 
 ## 8. Risks & open decisions
 - **Owner/Staff overlap (§2).** Confirmed the biggest cost. Mitigated by `school-ui`; still doubles the

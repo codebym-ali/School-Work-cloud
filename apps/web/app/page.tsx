@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import { landingPath } from '@/lib/roles';
+import { APP_URLS } from '@/lib/app-urls';
 import styles from './page.module.css';
 
 /** Fallback per-active-student monthly rate (decision D3) until the public pricing endpoint responds.
@@ -259,9 +260,9 @@ export default function Home() {
         <div className={`${styles.inner} ${styles.footerInner}`}>
           <span className={styles.footerBrand}><Cap className={styles.brandMark} /> SchoolWorks</span>
           <nav className={styles.footerLinks}>
-            <Link href="/owner-login">Owner sign-in</Link>
-            <Link href="/staff-login">Staff sign-in</Link>
-            <Link href="/student-login">Student sign-in</Link>
+            <a href={`${APP_URLS.owner}/login`}>Owner sign-in</a>
+            <a href={`${APP_URLS.staff}/login`}>Staff sign-in</a>
+            <a href={`${APP_URLS.student}/login`}>Student sign-in</a>
             <a href={DEMO}>Book a demo</a>
             <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a>
           </nav>

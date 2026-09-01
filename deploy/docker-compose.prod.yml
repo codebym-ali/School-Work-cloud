@@ -1,0 +1,62 @@
+# Production topology for the SPLIT (Front-End Instance Separation Plan, Phase 4). One API + worker
+# (the root Dockerfile, two entrypoints), five front-ends (deploy/Dockerfile, one per APP arg), and
+# Caddy as the edge doing SUBDOMAIN routing + on-demand TLS.
+#
+# ⚠️ Supersedes the root `docker-compose.prod.yml`, which is the PRE-split single-origin topology
+# (Traefik path-routing, one `web`). Compose this over the base for the DB services:
+#   docker compose -f docker-compose.yml -f deploy/docker-compose.prod.yml up -d --build
+# Set real secrets/domains in .env (APP_APEX_DOMAIN=schoolworks.com; RESERVED_SUBDOMAINS include
+# superadmin,admin,owner,staff,student,www). TEMPLATE — validate on the deploy host.
+
+x-web-build: &web-build
+  context: ..
+  dockerfile: deploy/Dockerfile
+
+services:
+  # Backend: the root Dockerfile builds one image; api and worker override CMD (as in the root compose).
+  migrate:
+    build: { context: .. }
+    command: sh -c "npx prisma migrate deploy && node scripts/apply-sql-companions.mjs && node scripts/check-rls-coverage.mjs"
+    env_file: [../.env]
+    restart: 'no'
+  api:
+    build: { context: .. }
+    command: node dist/apps/api/main
+    env_file: [../.env]           # API_PORT=4000 → the Caddyfile targets api:4000
+    expose: ['4000']
+    depends_on: [postgres, redis, migrate]
+  worker:
+    build: { context: .. }
+    command: node dist/apps/worker/main
+    env_file: [../.env]
+    depends_on: [postgres, redis, migrate]
+
+  web:            # apex marketing + login chooser + public tenant pages
+    build: { <<: *web-build, args: { APP: web } }
+    expose: ['3001']
+  superadmin-web: # vendor console
+    build: { <<: *web-build, args: { APP: superadmin-web } }
+    expose: ['3004']
+  owner-web:
+    build: { <<: *web-build, args: { APP: owner-web } }
+    expose: ['3005']
+  staff-web:
+    build: { <<: *web-build, args: { APP: staff-web } }
+    expose: ['3006']
+  student-web:
+    build: { <<: *web-build, args: { APP: student-web } }
+    expose: ['3003']
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports: ['80:80', '443:443']
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data      # persists issued certs
+      - caddy_config:/config
+    depends_on: [web, superadmin-web, owner-web, staff-web, student-web, api]
+
+volumes:
+  caddy_data:
+  caddy_config:

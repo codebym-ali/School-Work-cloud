@@ -36,14 +36,24 @@ the API's `TenantResolutionMiddleware` still resolves the school. TLS is on-dema
 gated by an `ask` endpoint) since `owner.<school>.schoolworks.com` is two labels deep.
 
 ## Container build
-Each front-end is a standard Next standalone build (`output: 'standalone'`, skipped on Windows). One
-Dockerfile per app (mirror `apps/web/Dockerfile`), or a shared multi-stage build parameterised by app
-dir. The pnpm workspace means one install produces all apps' node_modules.
+`Dockerfile` (this dir) is a **generic** front-end image: build once per app with
+`--build-arg APP=<dir>` from the repo root (each app depends on `packages/*` + the workspace install,
+so a per-app context can't work). `docker-compose.prod.yml` wires the five front-ends + the backend
+(root `Dockerfile`, api/worker) + Caddy. It **supersedes** the root `docker-compose.prod.yml`, which
+is the pre-split single-origin (Traefik) topology. ⚠️ These container files are **templates validated
+against the app layout, not run in this environment** — smoke them on the deploy host.
 
-## Remaining before cutover
-- Trim `apps/web` to marketing + chooser only: relocate the school-app routes and the edge pages
-  (break-glass, admission-portal, set-password — they land in the school app) into owner/staff-web,
-  and drop the transitional `(app)` re-exports + owner/staff-login pages. `apps/web` currently still
-  serves the full app as a harmless superset.
-- Add the API `host-allowed` endpoint for on-demand TLS (or switch to per-school DNS-01 wildcards).
-- Per-app Dockerfiles + a compose/orchestrator for the five apps.
+## Done in Phase 4
+- ✅ `apps/web` **trimmed to marketing** — apex marketing + login chooser + `p/[token]` public link +
+  `student-login` redirect (7 routes, down from 42). The school app + doors live in owner/staff-web;
+  the edge pages (break-glass, admission-portal, set-password) moved into `@sw/school-ui/pages` and are
+  thin-routed on the role apps (same-origin cookies + redirects).
+- ✅ Cross-app URL wiring (`app-urls.ts`, `NEXT_PUBLIC_*_URL`).
+- ✅ On-demand-TLS gate: `GET /api/v1/platform/public/host-allowed?domain=` (implemented + live-tested:
+  real tenant / role host / reserved console → 200; unknown → 404). The Caddyfile's `ask` points at it.
+- ✅ `deploy/` Caddyfile + generic Dockerfile + split compose.
+
+## Remaining (deploy host / ops, not code)
+- Build + run the five front-end images + backend + Caddy on the VPS; point DNS `*.schoolworks.com`
+  (and per-school `<school>` / `<role>.<school>`) at it; confirm on-demand TLS issues certs.
+- Retire the old root `docker-compose.prod.yml` (Traefik/single-origin) once the split stack is proven.

@@ -1,7 +1,7 @@
 ---
 title: Front-End Instance Separation Plan
 type: plan
-status: SHIPPED — Phases 0–3 + Phase 4 wiring/hosting done; only prod cutover (apps/web trim, Dockerfiles, TLS ask) remains
+status: SHIPPED — Phases 0–4 code-complete (5 apps split, trimmed, wired, containerised); only deploy-host ops remain
 updated: 2026-08-29
 ---
 
@@ -216,12 +216,25 @@ staff `:3002`, student `:3003`, superadmin `:3004` — each rewriting `/api` →
     apps' `/api` proxy (`owner.greenwood…` → `greenwood.schoolworks.com`) so `TenantResolutionMiddleware`
     still resolves the school without any backend change. `deploy/README.md` documents ports, env, and the
     topology.
-  - ⛔ **Remaining (prod cutover):** trim `apps/web` to marketing+chooser only — relocate the school routes
-    and the edge pages (**break-glass, admission-portal, set-password**, which land in the school app) into
-    owner/staff-web, then drop the transitional `(app)` re-exports + the owner/staff-login pages. `apps/web`
-    is a harmless working superset until then. Also: add the API `host-allowed` endpoint for on-demand TLS
-    (or per-school DNS-01), and per-app Dockerfiles + a compose/orchestrator. Verified: `apps/web` `next
-    build` 42/42 after the wiring.
+  - ✅ **Prod cutover — code-complete (2026-08-29):**
+    - **`apps/web` trimmed to marketing** (42 → **7 routes**): apex marketing + login chooser + `p/[token]`
+      public link + `student-login` redirect. The school `(app)` routes + owner/staff-login are gone; the
+      edge pages (**break-glass, admission-portal, set-password**) moved into `@sw/school-ui/pages` and are
+      thin-routed on the role apps (owner-web: break-glass, set-password; staff-web: those + admission-portal)
+      — same-origin so their session cookies + redirects work. set-password's redirect fixed `/owner-login`
+      → `/login`.
+    - **On-demand-TLS gate:** `GET /api/v1/platform/public/host-allowed?domain=` (PlatformPublicController)
+      — allows apex / reserved console / `<school>` / `<role>.<school>` / custom domain where `<school>` is a
+      real tenant; else 404. **Live-tested:** localhost/demo/owner.demo/superadmin → 200, nope/owner.nope →
+      404. The Caddyfile `ask` points at it.
+    - **Containers:** `deploy/Dockerfile` (generic, `--build-arg APP=<dir>`, repo-root context, `next start`)
+      + `deploy/docker-compose.prod.yml` (5 front-ends + backend via the root Dockerfile + Caddy), superseding
+      the pre-split root `docker-compose.prod.yml`. Container files are templates (Docker not runnable here).
+    - **Verified:** web `next build` 7/7, owner-web 37/37, staff-web 36/36, superadmin+student tsc, backend
+      build, lint.
+  - ⛔ **Remaining = deploy-host ops only (not code):** build+run the images on the VPS, point DNS
+    `*.schoolworks.com` + per-school hosts at Caddy, confirm on-demand TLS issues certs, retire the old
+    Traefik compose. See `deploy/README.md` + [[Deployment & Operations]].
 
 ## 8. Risks & open decisions
 - **Owner/Staff overlap (§2).** Confirmed the biggest cost. Mitigated by `school-ui`; still doubles the

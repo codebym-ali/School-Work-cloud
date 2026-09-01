@@ -1,8 +1,8 @@
 ---
 title: Front-End Split — QA & Test Cases
 type: qa
-status: RUN 2026-08-29
-updated: 2026-08-29
+status: RUN 2026-08-29 · all 3 issues FIXED 2026-09-01
+updated: 2026-09-01
 ---
 
 # Front-End Instance Separation — QA test cases + live run
@@ -96,14 +96,16 @@ route absent = correctly NOT in this app.)
 
 ## Issues found
 
-### Issue 1 — `route-coverage` merge gate broken by the split *(Medium — CI gate, no user impact)*
+### Issue 1 — `route-coverage` merge gate broken by the split *(Medium — CI gate, no user impact)* — ✅ FIXED (commit `0c6ee64`)
 `test/integration/route-coverage.e2e-spec.ts` asserts every API route has a caller in the web source,
 but its `readWeb()` scans **only `apps/web/{app,lib,components}`**. The split moved the calling UI into
 `packages/school-ui` (and the other apps), so it now reports **146 routes with no caller** and fails.
 The routes ARE called — the scanner is looking in the wrong place. **Fix:** extend `readWeb()` to also
 walk `packages/school-ui/src` (and the app dirs), or point it at the whole `packages/`+`apps/` front-end.
+> **Done:** `readWeb()` now walks `packages`, `apps/web/{lib,components}`, and every `apps/*/app` (with an
+> `existsSync` guard + node_modules/.next skip). Gate green — 0 uncovered beyond the existing backlog.
 
-### Issue 2 — Playwright e2e suite targets moved routes *(Medium — broken test coverage)*
+### Issue 2 — Playwright e2e suite targets moved routes *(Medium — broken test coverage)* — ✅ FIXED (commit `6fd606b`)
 `test/e2e/*.spec.ts` (~20 specs: admin, admissions, attendance, calendar, campuses, classes, exams,
 fees, owner-login, …) drive the school app at `apps/web` (`/dashboard`, `/students`, `/owner-login`,
 `/staff-login`, …). After the trim those routes 404 on `apps/web` and the owner/staff doors are gone, so
@@ -111,12 +113,25 @@ the whole suite would fail against `apps/web:3001`. It's not in the standard mer
 servers), so builds didn't catch it. **Fix:** re-home the specs to the new apps' origins — owner/staff
 flows → owner-web:3005 / staff-web:3006, the console spec → superadmin-web:3004 — and update the base
 URLs / login helpers. (Backend integration + isolation suites are unaffected.)
+> **Done.** Default `baseURL` → owner-web :3005 (serves the whole school app + the owner door + the
+> `/api` proxy). Two levers made it low-churn: **(1) origin = door** — each app's `/login` IS its door,
+> so a spec selects owner/staff/student by its `baseURL`, not by a path; **(2) host-scoped dev cookies**
+> — the shared owner `storageState` (host `localhost`) reaches every port, so staff specs still seed via
+> the owner session before the officer login takes over. Per-audience overrides: officer specs
+> (admissions, students-import) `test.use` :3006; teacher specs keep the owner page at :3005 and put the
+> teacher browser-context on :3006; student-portal :3003; console via the `platformLogin`/`gotoAdmin`
+> helpers at :3004. `owner-login.spec` rewritten for the new topology. **Verified:** suite compiles/lists
+> (45 tests/27 files); live against the running front-ends all five doors serve at their own origin and
+> the chooser hrefs are exactly :3005/:3006/:3003 (owner-login test 2 passes live). Full auth-driven run
+> is pending the API being up — a runner concern, not a code one.
 
-### Issue 3 — dead shim files left in `apps/web` *(Low — cleanup)*
+### Issue 3 — dead shim files left in `apps/web` *(Low — cleanup)* — ✅ FIXED (commit `0c6ee64`)
 After the trim, `apps/web` still contains re-export shims used by **zero** remaining pages:
 `lib/me-context`, `lib/campus-lens`, `lib/format`, `lib/student-status`, `lib/timetable`,
 `components/icon`, `components/metric`. Harmless (tree-shaken out of the build) but dead. `lib/api`,
 `lib/roles`, `lib/app-urls` are still live (marketing/login/`p`). **Fix:** delete the seven dead shims.
+> **Done:** all seven `git rm`'d; `apps/web/components` now gone; `apps/web/lib` keeps only
+> `{api,roles,app-urls}`. web build unchanged (7/7).
 
 ### Minor observations (not defects)
 - **Over-mounting:** owner-web ships the teacher-mobile routes (`home`, `my-classes`, `my-timetable`,
@@ -126,5 +141,9 @@ After the trim, `apps/web` still contains re-export shims used by **zero** remai
 - **Windows build quirk (not a code issue):** `next build` must run with dev servers stopped — stray node
   crashes Next's static-generation workers (`0xC0000142`).
 
-**Verdict:** the split is functionally correct and regression-free on the product side; the open items are
-test-infra (Issues 1–2, worth fixing before relying on CI) and one cleanup (Issue 3).
+**Verdict:** the split is functionally correct and regression-free on the product side. All three
+issues were test-infra / cleanup, and **all three are now fixed** (Issue 1 + 3 → `0c6ee64`, Issue 2 →
+`6fd606b`): `route-coverage` is green again, the dead shims are gone, and the Playwright suite is
+re-homed onto the split origins (compiles + door topology live-verified; auth-driven run pending the API
+being up). The minor observations (owner-web teacher-mobile over-mount; `packages/*` not ESLinted) remain
+as optional hygiene — see [[Front-End Split QA Fixes Plan]] Fix 4.

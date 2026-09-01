@@ -725,3 +725,30 @@ Blueprint's AWS reference (RDS/ECS/S3/KMS…) is replaced by **Contabo + Coolify
   never by duplicating screens (two truths for one screen is the failure the Classes refactor + permission
   matrix exist to prevent). Open question in the plan: 4 apps now, or ship Owner+Staff as one `school-web`
   (3 apps) and split later.
+
+## E2E suite re-homing after the split: origin = door, and dev cookies are host-scoped (2026-09-01)
+
+Recorded because two facts, non-obvious until you hit them, are what made re-homing the Playwright suite
+onto the five split apps tractable — and one of them is a **dev-only** property that must not be mistaken
+for a security guarantee. Fix 2 of [[Front-End Split QA & Test Cases]]; commit `6fd606b`.
+
+- **Origin = door.** Post-split there is no single-origin login form to branch by path. Each app serves
+  *its own* door at `/login` (owner-web:3005/login = owner form, staff-web:3006/login = staff form,
+  student-web:3003/login = reg-no+CNIC form, superadmin-web:3004/login = console). So a test selects the
+  door by the **origin it runs on** (`baseURL`), and `login()` collapsed from `goto('/owner-login' | '/staff-login')`
+  to a bare `goto('/login')`. The old `/login` chooser survives only on the apex marketing app (:3001),
+  now linking **cross-origin** to each door (:3005/:3006/:3003) — which is exactly what `owner-login.spec`
+  asserts, and it was live-verified.
+- **Dev cookies are host-scoped (port-agnostic).** A cookie for host `localhost` is sent to *every* port
+  on localhost (RFC 6265 does not scope cookies by port). So the shared owner `storageState` obtained on
+  owner-web:3005 is also sent to staff-web:3006 — which is why a staff/officer spec can still do its
+  owner-only seeding (create the officer, the class) through the shared session before the officer login
+  overwrites it. ⚠️ **This is a dev-only convenience, NOT the isolation boundary.** In prod the apps live
+  on different subdomains (real, distinct hosts), so their cookies *are* isolated — that isolation is the
+  whole point of the split. Never reason from "the test shared a cookie across ports" to "the apps share a
+  session in prod"; they do not.
+- **Consequence for the suite layout.** Default `baseURL` = owner-web (it serves the whole school app +
+  the owner door + the `/api` proxy). Officer specs `test.use` :3006; teacher specs keep the owner `page`
+  at :3005 and put the *teacher* `browser.newContext` on :3006; student-portal :3003; console via the
+  absolute-origin helpers. Kept the "no `webServer`, run against the live stack" model — the required apps
+  are documented in the config header (API :4000, owner :3005, staff :3006, console :3004, apex :3001).

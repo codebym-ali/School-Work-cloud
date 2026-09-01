@@ -1,9 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { api, type PortalAttendanceSummary } from '@/lib/api';
+import { api, type PortalAttendanceSummary } from '@sw/api-client';
 import { Metric, MetricFilter } from '@/components/metric';
-import { attendanceBadge, humanizeStatus } from '@/lib/format';
+import { attendanceBadge, humanizeStatus } from '@sw/ui';
 
 /**
  * My Attendance — the counts first, the day list second.

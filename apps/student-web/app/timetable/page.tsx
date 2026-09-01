@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { api, type MyTimetable } from '@/lib/api';
-import { DAY_NAMES, DAY_SHORT, byCell, gridShape, teacherLabel, todayDow } from '@/lib/timetable';
+import { api, type MyTimetable } from '@sw/api-client';
+import { DAY_NAMES, DAY_SHORT, byCell, gridShape, teacherLabel, todayDow } from '@sw/ui';
 
 /**
  * A student's week (§28 portal).

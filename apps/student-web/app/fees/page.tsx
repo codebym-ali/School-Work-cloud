@@ -1,8 +1,8 @@
 'use client';
 
 import { Fragment, useEffect, useState } from 'react';
-import { api, ApiError, type PortalFee } from '@/lib/api';
-import { feeBadge, monthYear } from '@/lib/format';
+import { api, ApiError, type PortalFee } from '@sw/api-client';
+import { feeBadge, monthYear } from '@sw/ui';
 
 const METHOD: Record<string, string> = {
   CASH: 'Cash', BANK_TRANSFER: 'Bank transfer', EASYPAISA: 'EasyPaisa',

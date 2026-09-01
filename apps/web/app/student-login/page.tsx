@@ -1,66 +1,23 @@
 'use client';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
-import Link from 'next/link';
-import { api, ApiError } from '@/lib/api';
-import { landingPath } from '@/lib/roles';
+import { useEffect } from 'react';
 
 /**
- * Read-only student portal sign-in (#34/#35). Students have no password — they authenticate
- * with their registration number + CNIC/B-Form (a convenience credential, acceptable because
- * the portal is strictly read-only). Auth is enumeration-safe: a wrong reg-no and a wrong CNIC
- * return the same generic error.
+ * Redirect stub (Front-End Instance Separation Plan, Phase 2). The student portal moved to its own
+ * app/origin (`student.<school>.schoolworks.com`; dev `localhost:3003`). This keeps every existing
+ * `/student-login` link in this app (marketing footer, the login-door chooser, the admissions portal)
+ * working by bouncing to the portal. Set `NEXT_PUBLIC_STUDENT_URL` per environment; Phase 4 replaces
+ * these internal links with direct cross-origin ones once the deployment URLs are fixed.
  */
-export default function StudentLoginPage() {
-  const router = useRouter();
-  const [registrationNo, setRegistrationNo] = useState('');
-  const [cnic, setCnic] = useState('');
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+const STUDENT_PORTAL_URL = process.env.NEXT_PUBLIC_STUDENT_URL || 'http://localhost:3003';
 
-  async function onSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setBusy(true);
-    setError(null);
-    try {
-      await api.studentPortal.login(registrationNo.trim(), cnic.trim());
-      const me = await api.me();
-      router.push(landingPath(me.roles));
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Sign in failed');
-    } finally {
-      setBusy(false);
-    }
-  }
-
+export default function StudentLoginRedirect() {
+  useEffect(() => {
+    window.location.href = STUDENT_PORTAL_URL;
+  }, []);
   return (
     <main className="center">
-      <form className="card stack" style={{ width: 380 }} onSubmit={onSubmit}>
-        <div>
-          <h1>🎒 Student Portal</h1>
-          <p className="sub">Sign in with your registration number and CNIC / B-Form.</p>
-        </div>
-        <div>
-          <label htmlFor="registrationNo">Registration number</label>
-          <input id="registrationNo" value={registrationNo} onChange={(e) => setRegistrationNo(e.target.value)}
-            autoComplete="username" autoFocus required />
-        </div>
-        <div>
-          <label htmlFor="cnic">CNIC / B-Form</label>
-          <input id="cnic" value={cnic} onChange={(e) => setCnic(e.target.value)}
-            inputMode="numeric" placeholder="12345-1234567-1" autoComplete="off" required />
-        </div>
-        {error && <p className="error">{error}</p>}
-        <button type="submit" disabled={busy || !registrationNo.trim() || !cnic.trim()}>
-          {busy ? 'Signing in…' : 'Sign in'}
-        </button>
-        {/* Every sign-in page now names the others. Four of them existed with zero cross-links,
-            so landing on the wrong one left you failing against a field you could never satisfy. */}
-        <p className="muted" style={{ margin: 0, fontSize: 13, textAlign: 'center' }}>
-          Staff or teacher? <Link href="/staff-login">Sign in with your email →</Link>
-        </p>
-      </form>
+      <p className="muted">Taking you to the student portal…</p>
     </main>
   );
 }

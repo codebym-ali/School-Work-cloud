@@ -1,7 +1,7 @@
 ---
 title: Front-End Instance Separation Plan
 type: plan
-status: IN PROGRESS — Phase 0 (react-free packages) + Phase 1 (SuperAdmin app) shipped
+status: IN PROGRESS — Phases 0–2 shipped (packages, SuperAdmin, Student); Phase 3 (Owner/Staff) next
 updated: 2026-08-29
 ---
 
@@ -166,8 +166,21 @@ staff `:3002`, student `:3003`, superadmin `:3004` — each rewriting `/api` →
   full `next build` (all 7 routes); `apps/web` `tsc` + `next build` clean after the console's removal;
   lint clean; **live smoke** — console serves on `:3004` (login renders) and its `/api` proxy reaches the
   platform routes (401 guarded). `apps/web` no longer serves the console.
-- **Phase 2 — Student app.** Move `/portal` + `/me` → `student-web` on `student.<school>…`. Also cleanly
-  separable (own login, own `/portal/*` endpoints, own screens).
+- **Phase 2 — Student app. ✅ SHIPPED (2026-08-29).** Stood up `apps/student-web` (standalone install,
+  dev port **3003**) and moved the portal out of `apps/web`: `(app)/me/*` → root routes (`/`,
+  `/attendance`, `/timetable`, `/results`, `/fees`) and `student-login` → `/login`; a small client
+  `StudentShell` (auth gate + top nav) replaces the shared `(app)` shell. **Tenant-scoped** (student
+  signs in by reg-no + CNIC, which is per-school), so — unlike the console — it uses the same tenant-aware
+  dev runner as `apps/web` (`dev.mjs` + `dev-dns.cjs`, `NEXT_API_ORIGIN=demo.localhost:4000`) and the
+  subdomain-following `/api` proxy; prod host `student.<school>.schoolworks.com`. **Sharing without a
+  workspace:** the react-**free** utils it needed (`format`, `student-status`, `timetable`) moved into
+  `@sw/ui` (shims left in `apps/web/lib`), and it imports `@sw/api-client`/`@sw/http` via the alias. The
+  one react component it uses (`Metric`) is **copied** into `student-web/components` for now — the single
+  duplicated file, deduped into `@sw/ui` when the workspace lands (Phase 3). `apps/web` keeps a tiny
+  `/student-login` **redirect stub** (→ `NEXT_PUBLIC_STUDENT_URL`, dev `localhost:3003`) so its existing
+  links (marketing footer, login chooser, admissions portal) don't 404. **Verified:** student-web tsc +
+  `next build`; `apps/web` tsc + build clean after removal; lint clean; **live smoke** — portal serves on
+  `:3003` (login renders) and its `/api` proxy reaches `/portal/*` (401 guarded).
 - **Phase 3 — Owner / Staff split.** Stand up `staff-web` (the operational app from `school-ui`) and
   `owner-web` (= staff screens + root-of-trust screens). The hardest phase (largest shared surface) — do
   it last, on top of proven shared packages. *Fallback if effort is too high: ship a single `school-web`

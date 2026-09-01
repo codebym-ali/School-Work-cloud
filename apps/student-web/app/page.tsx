@@ -1,9 +1,9 @@
 'use client';
 
 import { type ReactNode, useEffect, useState } from 'react';
-import { api, type PortalOverview } from '@/lib/api';
+import { api, type PortalOverview } from '@sw/api-client';
 import { MetricLink } from '@/components/metric';
-import { STUDENT_STATUS, statusStyle } from '@/lib/student-status';
+import { STUDENT_STATUS, statusStyle } from '@sw/ui';
 
 export default function MyDashboard() {
   const [data, setData] = useState<PortalOverview | null>(null);
@@ -37,11 +37,11 @@ export default function MyDashboard() {
         {/* The clearest case in the product for Law 1: every one of these already HAS a screen
             behind it, and a student reading "Rs 4,500 outstanding" wants the invoice, not the
             number. Each tile is the front door of the page it summarises. */}
-        <MetricLink label="Attendance" href="/me/attendance"
+        <MetricLink label="Attendance" href="/attendance"
           value={data.attendancePercent == null ? '—' : `${data.attendancePercent}%`} />
-        <MetricLink label="Outstanding fees" href="/me/fees" alert={data.outstandingFees > 0}
+        <MetricLink label="Outstanding fees" href="/fees" alert={data.outstandingFees > 0}
           value={`Rs ${data.outstandingFees.toLocaleString()}`} />
-        <MetricLink label="Report cards" href="/me/results" value={data.reportCards} />
+        <MetricLink label="Report cards" href="/results" value={data.reportCards} />
       </div>
 
       <div className="card stack">

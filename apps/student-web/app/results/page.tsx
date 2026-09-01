@@ -1,9 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { api, type PortalPerformance, type PortalResult } from '@/lib/api';
+import { api, type PortalPerformance, type PortalResult } from '@sw/api-client';
 import { Metric } from '@/components/metric';
-import { monthKeyLabel } from '@/lib/format';
+import { monthKeyLabel } from '@sw/ui';
 
 /**
  * My Results — class tests by subject, plus published report cards.

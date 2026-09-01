@@ -1,6 +1,6 @@
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { AppModule } from '../../apps/api/src/app.module';
 
@@ -85,12 +85,28 @@ describe('Route coverage — every route has a UI or a listed exception (Law 3)'
   const allow = (p: string) =>
     NO_UI_BY_DESIGN.some((r) => r.test(p)) || MISSING_UI_BACKLOG.some((r) => r.test(p));
 
-  /** One big string of every web source file, for caller detection. */
+  /**
+   * One big string of every FRONT-END source file, for caller detection.
+   *
+   * ⚠️ Since the app was split into five per-audience apps (Front-End Instance Separation Plan), the
+   * calling UI no longer lives only in `apps/web`: the API path literals moved to `packages/api-client`,
+   * the school screens to `packages/school-ui`, and each app has its own routes. Scanning just
+   * `apps/web` made 146 routes look uncovered. This now walks every front-end root — the shared
+   * `packages/*` (source only) plus each app's `app/` dir — so a route is "covered" if ANY of them
+   * calls it. `existsSync` guards a not-yet-created app dir.
+   */
   const readWeb = (): string => {
-    const roots = ['app', 'lib', 'components'].map((d) => join('apps/web', d));
+    const roots = [
+      'packages',
+      join('apps', 'web', 'lib'),
+      join('apps', 'web', 'components'),
+      ...['web', 'owner-web', 'staff-web', 'student-web', 'superadmin-web'].map((a) => join('apps', a, 'app')),
+    ];
     let out = '';
     const walk = (dir: string) => {
+      if (!existsSync(dir)) return;
       for (const name of readdirSync(dir)) {
+        if (name === 'node_modules' || name === '.next') continue;
         const full = join(dir, name);
         const st = statSync(full);
         if (st.isDirectory()) walk(full);

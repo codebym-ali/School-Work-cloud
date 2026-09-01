@@ -45,14 +45,13 @@ test.describe('teacher shell', () => {
     });
 
     try {
-      const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+      const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, baseURL: 'http://localhost:3006' });
       const teacher = await ctx.newPage();
       try {
-        // ⚠️ `/staff-login`, not `/login`. `/login` is a CHOOSER now, not a form — filling
-        // "Email" there finds nothing. And the wait below cannot be `!startsWith('/login')`,
-        // because `/staff-login` does not start with `/login` and the guard would pass before the
-        // form was ever submitted.
-        await teacher.goto('/staff-login');
+        // ⚠️ The staff door is **staff-web:3006/login** — its own origin (this context's `baseURL`),
+        // not the marketing chooser at apps/web:3001/login. The wait below stays `!== '/login'` (not
+        // `!startsWith('/login')`) so it only clears once the form has submitted and redirected away.
+        await teacher.goto('/login');
         await teacher.getByLabel('Email').fill(email);
         await teacher.getByLabel('Password').fill(password);
         await teacher.getByRole('button', { name: /sign in/i }).click();
@@ -125,10 +124,10 @@ test.describe('teacher shell', () => {
     });
 
     try {
-      const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+      const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, baseURL: 'http://localhost:3006' });
       const dual = await ctx.newPage();
       try {
-        await dual.goto('/staff-login');
+        await dual.goto('/login');
         await dual.getByLabel('Email').fill(email);
         await dual.getByLabel('Password').fill(password);
         await dual.getByRole('button', { name: /sign in/i }).click();

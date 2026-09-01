@@ -21,7 +21,7 @@ test.describe('guardian fee link', () => {
 
     try {
       if (!wasOn) {
-        await page.request.patch('http://localhost:3001/api/v1/school-settings', {
+        await page.request.patch('/api/v1/school-settings', {
           headers: {
             'Content-Type': 'application/json',
             'X-CSRF-Token': (await page.context().cookies()).find((c) => c.name === 'csrf')?.value ?? '',
@@ -118,7 +118,7 @@ test.describe('guardian fee link', () => {
       }
     } finally {
       if (!wasOn) {
-        await page.request.patch('http://localhost:3001/api/v1/school-settings', {
+        await page.request.patch('/api/v1/school-settings', {
           headers: {
             'Content-Type': 'application/json',
             'X-CSRF-Token': (await page.context().cookies()).find((c) => c.name === 'csrf')?.value ?? '',

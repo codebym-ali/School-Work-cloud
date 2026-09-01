@@ -58,7 +58,7 @@ test.describe('classes — first run, responsive, keyboard', () => {
     } finally {
       const cookies = await page.context().cookies();
       const csrf = cookies.find((c) => c.name === 'csrf')?.value ?? '';
-      const del = (p: string) => page.request.delete(`http://localhost:3001/api/v1${p}`, { headers: { 'X-CSRF-Token': csrf } });
+      const del = (p: string) => page.request.delete(`/api/v1${p}`, { headers: { 'X-CSRF-Token': csrf } });
       await del(`/sections/${sectionId}`);
       for (const s of await apiSetupGet<{ id: string }[]>(page, `/subjects?classId=${classId}`)) await del(`/subjects/${s.id}`);
       await del(`/classes/${classId}`);

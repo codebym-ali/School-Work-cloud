@@ -23,12 +23,14 @@ const regNo = process.env.E2E_STUDENT_REG_NO;
 const cnic = process.env.E2E_STUDENT_CNIC;
 
 test.describe('student portal', () => {
-  test.use({ storageState: { cookies: [], origins: [] } });
+  // Since the split the portal is its own app (student-web:3003), serving the student door at
+  // `/login` and the portal at root (`/me`, `/me/fees`). Run the whole spec on that origin.
+  test.use({ baseURL: 'http://localhost:3003', storageState: { cookies: [], origins: [] } });
 
   test('student logs in with registration number + CNIC and sees their own read-only portal', async ({ page }) => {
     test.skip(!regNo || !cnic, 'Set E2E_STUDENT_REG_NO and E2E_STUDENT_CNIC to a student on the tenant under test.');
 
-    await page.goto('/student-login');
+    await page.goto('/login');
     await page.getByLabel('Registration number').fill(regNo!);
     await page.getByLabel('CNIC / B-Form').fill(cnic!);
     await page.getByRole('button', { name: /sign in/i }).click();

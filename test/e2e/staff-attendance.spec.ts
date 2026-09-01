@@ -29,10 +29,12 @@ test.describe('staff attendance', () => {
 
     try {
       // ── The teacher's own screen ────────────────────────────────────────────
-      const teacherCtx = await browser.newContext();
+      // The teacher signs in at the STAFF door, which since the split is its own app
+      // (staff-web:3006) — its origin, not the owner's (:3005) that the main `page` uses.
+      const teacherCtx = await browser.newContext({ baseURL: 'http://localhost:3006' });
       const teacher = await teacherCtx.newPage();
       try {
-        await teacher.goto('/staff-login');
+        await teacher.goto('/login');
         await teacher.getByLabel('Email').fill(email);
         await teacher.getByLabel('Password').fill(password);
         await teacher.getByRole('button', { name: /sign in/i }).click();
@@ -115,8 +117,8 @@ test.describe('staff attendance', () => {
       // an attendance record is history, not a live directory entry.
       const cookies = await page.context().cookies();
       const csrf = cookies.find((c) => c.name === 'csrf')?.value ?? '';
-      const ctx = await request.newContext({ baseURL: 'http://localhost:3001' });
-      await page.request.delete(`http://localhost:3001/api/v1/users/${created.userId}`, {
+      const ctx = await request.newContext({ baseURL: 'http://localhost:3005' });
+      await page.request.delete(`/api/v1/users/${created.userId}`, {
         headers: { 'X-CSRF-Token': csrf },
       });
       await ctx.dispose();

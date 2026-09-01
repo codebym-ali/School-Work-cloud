@@ -19,11 +19,13 @@ export async function login(
   landing = '**/dashboard',
   door: 'staff' | 'owner' = 'owner',
 ): Promise<void> {
-  // ⚠️ **Defaults to the OWNER door, because the default credentials are the owner's.** Since O2
-  // the two doors are mutually exclusive — `/login` refuses an `OWNER_ADMIN` outright — so the
-  // shared session every spec depends on has to be obtained at `/owner-login`. Specs signing in as
-  // anyone else pass `'staff'`.
-  await page.goto(door === 'owner' ? '/owner-login' : '/staff-login');
+  // ⚠️ **Since the front-end split, the ORIGIN is the door, not the path.** Each app serves its own
+  // door at `/login`: owner-web:3005/login is the owner form, staff-web:3006/login the staff form.
+  // A spec picks its door by its `baseURL` — the default project is owner-web (owner credentials);
+  // staff/officer specs `test.use({ baseURL: 'http://localhost:3006' })`. The `door` arg is kept for
+  // call-site compatibility but no longer selects the path (there is no single-origin chooser here).
+  void door;
+  await page.goto('/login');
   await page.getByLabel('Email').fill(email);
   await page.getByLabel('Password').fill(password);
   await page.getByRole('button', { name: /sign in/i }).click();
@@ -31,19 +33,25 @@ export async function login(
   await expect(page.locator('.sidebar')).toBeVisible();
 }
 
-/** Logs in to the vendor console via the /admin/login form and lands on /admin. */
+/**
+ * Logs in to the vendor console and lands on its home.
+ *
+ * ⚠️ Post-split the console is its **own app** (superadmin-web:3004), serving the login form at
+ * `/login` and the tenants home at `/` — not `/admin/*` inside apps/web. Absolute URLs, because the
+ * console origin differs from the default (owner-web) `baseURL`.
+ */
+export const CONSOLE_ORIGIN = 'http://localhost:3004';
 export async function platformLogin(page: Page, email = 'admin@platform.pk', password = 'Admin!Secret12'): Promise<void> {
-  await page.goto('/admin/login');
+  await page.goto(`${CONSOLE_ORIGIN}/login`);
   await page.getByLabel('Email').fill(email);
   await page.getByLabel('Password').fill(password);
   await page.getByRole('button', { name: /sign in/i }).click();
-  await page.waitForURL('**/admin');
   await expect(page.getByRole('heading', { name: 'Tenants' })).toBeVisible();
 }
 
 /** Enter the vendor console already authenticated (via the platform storageState). */
 export async function gotoAdmin(page: Page): Promise<void> {
-  await page.goto('/admin');
+  await page.goto(`${CONSOLE_ORIGIN}/`);
   await expect(page.getByRole('heading', { name: 'Tenants' })).toBeVisible();
 }
 
@@ -90,7 +98,7 @@ export function cardByHeading(page: Page, heading: string): Locator {
 export async function apiSetupPost<T = unknown>(page: Page, path: string, body: unknown): Promise<T> {
   const cookies = await page.context().cookies();
   const csrf = cookies.find((c) => c.name === 'csrf')?.value ?? '';
-  const res = await page.request.post(`http://localhost:3001/api/v1${path}`, {
+  const res = await page.request.post(`/api/v1${path}`, {
     headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
     data: body,
   });
@@ -105,7 +113,7 @@ export async function apiSetupPost<T = unknown>(page: Page, path: string, body: 
 export async function apiSetupPut<T = unknown>(page: Page, path: string, body: unknown): Promise<T> {
   const cookies = await page.context().cookies();
   const csrf = cookies.find((c) => c.name === 'csrf')?.value ?? '';
-  const res = await page.request.put(`http://localhost:3001/api/v1${path}`, {
+  const res = await page.request.put(`/api/v1${path}`, {
     headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
     data: body,
   });
@@ -129,7 +137,7 @@ export async function apiSetupDelete(page: Page, path: string): Promise<void> {
   try {
     const cookies = await page.context().cookies();
     const csrf = cookies.find((c) => c.name === 'csrf')?.value ?? '';
-    await page.request.delete(`http://localhost:3001/api/v1${path}`, {
+    await page.request.delete(`/api/v1${path}`, {
       headers: { 'X-CSRF-Token': csrf },
     });
   } catch {
@@ -139,7 +147,7 @@ export async function apiSetupDelete(page: Page, path: string): Promise<void> {
 
 /** Authenticated same-origin GET for test setup (reads seed ids like the current year). */
 export async function apiSetupGet<T = unknown>(page: Page, path: string): Promise<T> {
-  const res = await page.request.get(`http://localhost:3001/api/v1${path}`);
+  const res = await page.request.get(`/api/v1${path}`);
   if (!res.ok()) throw new Error(`Setup GET ${path} failed: ${res.status()} ${await res.text()}`);
   return res.json() as Promise<T>;
 }
@@ -355,7 +363,7 @@ export async function seedClassSectionStudent(
   // consecutive logins returned 200 with `RATE_LIMIT_ENABLED` set BOTH ways, after an API restart
   // and a Redis flush. The §29 login limit does not fire against this dev server and **why is
   // unresolved**. Do not repeat the earlier claim that it does — see Key Decisions.
-  const officer = await request.newContext({ baseURL: 'http://localhost:3001' });
+  const officer = await request.newContext({ baseURL: 'http://localhost:3005' });
   try {
     const auth = await officer.post('/api/v1/auth/login', { data: { email, password } });
     if (!auth.ok()) throw new Error(`Admission officer login failed: ${auth.status()} ${await auth.text()}`);

@@ -29,7 +29,7 @@ test.describe('reports', () => {
     expect(href).toContain('/reports/class-strength');
     expect(href).toContain('format=csv');
 
-    const res = await page.request.get(`http://localhost:3001${href}`);
+    const res = await page.request.get(`${href}`);
     expect(res.ok()).toBe(true);
     const ctype = res.headers()['content-type'] ?? '';
     expect(ctype).toContain('csv');

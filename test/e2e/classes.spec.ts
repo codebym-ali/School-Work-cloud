@@ -136,7 +136,7 @@ test.describe('classes', () => {
       const cookies = await page.context().cookies();
       const csrf = cookies.find((c) => c.name === 'csrf')?.value ?? '';
       const del = (path: string) =>
-        page.request.delete(`http://localhost:3001/api/v1${path}`, { headers: { 'X-CSRF-Token': csrf } });
+        page.request.delete(`/api/v1${path}`, { headers: { 'X-CSRF-Token': csrf } });
       for (const a of await apiSetupGet<{ id: string; sectionId: string }[]>(page, `/teacher-assignments?sectionId=${sectionId}`)) {
         await del(`/teacher-assignments/${a.id}`);
       }

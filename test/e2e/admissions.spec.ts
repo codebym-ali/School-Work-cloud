@@ -14,6 +14,11 @@ import { gotoApp, login, apiSetupGet, e2eOfficer, fieldInput, fieldSelect, cardB
  * officer, who is both the only role that may admit and the only one this page is built for.
  */
 test.describe('admissions', () => {
+  // The whole spec runs as the admission OFFICER, whose door + screens live on staff-web (:3006).
+  // The owner-seeding calls (e2eOfficer) still work here because dev cookies are host-scoped, so the
+  // shared owner storageState reaches :3006 too — until the officer login below takes the session over.
+  test.use({ baseURL: 'http://localhost:3006' });
+
   test('inquiry -> entry test -> admit -> appears in Students', async ({ page }) => {
     await gotoApp(page);
     const settings = await apiSetupGet<{ admissionsMode: string }>(page, '/school-settings');

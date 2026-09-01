@@ -60,7 +60,7 @@ test.describe('fee plan', () => {
     } finally {
       const cookies = await page.context().cookies();
       const csrf = cookies.find((c) => c.name === 'csrf')?.value ?? '';
-      const del = (p: string) => page.request.delete(`http://localhost:3001/api/v1${p}`, { headers: { 'X-CSRF-Token': csrf } });
+      const del = (p: string) => page.request.delete(`/api/v1${p}`, { headers: { 'X-CSRF-Token': csrf } });
       for (const s of await apiSetupGet<{ id: string }[]>(page, `/fee-structures?classId=${classId}`)) await del(`/fee-structures/${s.id}`);
       for (const s of await apiSetupGet<{ id: string; classId: string }[]>(page, '/sections')) {
         if (s.classId === classId) await del(`/sections/${s.id}`);

@@ -8,6 +8,10 @@ import { gotoApp, login, seedClassSectionStudent, e2eOfficer, cardByHeading } fr
  * one guardian phone → "Imported 2" and both appear in the directory.
  */
 test.describe('students CSV import', () => {
+  // Import is ADMISSION_CONTROLLER-only, so this spec runs as the officer — whose door + screens are
+  // on staff-web (:3006). Owner-seeding still works via the host-scoped (port-agnostic) dev cookie.
+  test.use({ baseURL: 'http://localhost:3006' });
+
   test('validate reports bad rows, then a clean import adds siblings', async ({ page }) => {
     await gotoApp(page);
     const { className, sectionName } = await seedClassSectionStudent(page, { name: 'E2E Import' });

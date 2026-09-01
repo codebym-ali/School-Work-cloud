@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { api } from '@/lib/api';
-import { EmailPasswordSignIn } from '@/components/email-password-signin';
+import { EmailPasswordSignIn } from '@school/components/email-password-signin';
 
 // Demo credentials pre-filled ONLY in `next dev` (production ships empty fields) — moved here from
 // `/login` at O2, because the staff door now refuses this account.

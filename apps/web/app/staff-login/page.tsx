@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { api } from '@/lib/api';
-import { EmailPasswordSignIn } from '@/components/email-password-signin';
+import { EmailPasswordSignIn } from '@school/components/email-password-signin';
 
 /**
  * The staff door — campus admins, teachers, accountants, admission officers, HR and general staff.

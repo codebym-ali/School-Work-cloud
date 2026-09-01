@@ -1,7 +1,7 @@
 ---
 title: Front-End Instance Separation Plan
 type: plan
-status: IN PROGRESS — Phases 0–2 shipped (packages, SuperAdmin, Student); Phase 3 (Owner/Staff) next
+status: IN PROGRESS — Phases 0–2 + 3a shipped; Phase 3b (Owner+Staff apps) is the remaining migration
 updated: 2026-08-29
 ---
 
@@ -181,11 +181,27 @@ staff `:3002`, student `:3003`, superadmin `:3004` — each rewriting `/api` →
   links (marketing footer, login chooser, admissions portal) don't 404. **Verified:** student-web tsc +
   `next build`; `apps/web` tsc + build clean after removal; lint clean; **live smoke** — portal serves on
   `:3003` (login renders) and its `/api` proxy reaches `/portal/*` (401 guarded).
-- **Phase 3 — Owner / Staff split.** Stand up `staff-web` (the operational app from `school-ui`) and
-  `owner-web` (= staff screens + root-of-trust screens). The hardest phase (largest shared surface) — do
-  it last, on top of proven shared packages. *Fallback if effort is too high: ship a single `school-web`
-  for both doors and revisit the owner/staff split later — note this trades away the owner↔staff origin
-  isolation only.*
+- **Phase 3 — Owner / Staff split.**
+  - **3a — workspace + shared React UI. ✅ SHIPPED (2026-08-29).** The architectural unlock: a
+    `pnpm-workspace.yaml` (members `apps/*`) + `.npmrc` `node-linker=hoisted` give a flat root
+    `node_modules` with a SINGLE react/react-dom/next, reachable from `packages/*` — so apps can now share
+    React components. Moved the shared React UI into `@sw/ui` (the `Icon` set + the `Metric` components)
+    and extracted `@sw/session` (`me-context`, `campus-lens`); `apps/web` keeps re-export shims, and
+    student-web's Phase-2 `Metric` copy is deduped. Removed the per-app lockfiles (one root lock now).
+    Verified in a clean env: backend build; all three existing apps `next build` (web 42/42 static pages);
+    lint; Prisma regenerated. ⚠️ *Windows note:* run `next build` with the dev servers stopped — stray
+    node processes make the static-generation workers crash (`0xC0000142`), unrelated to the code.
+  - **3b — the Owner + Staff apps. ⛔ NOT BUILT (large remaining migration).** Stand up `staff-web` (staff
+    door: ops/campus-admin/accountant/HR/admission/teacher/staff) and `owner-web` (owner door: all of that
+    + the roots of trust). Both compose the **~40 school screens**, which must live in a shared
+    **`@sw/school-ui`** package (React, now possible via 3a) with **thin per-app route files** re-exporting
+    the shared page components (Next routes are file-based, so each app needs an `app/<route>/page.tsx`
+    that `export { default } from '@sw/school-ui/...'`); plus the shared `(app)` shell (sidebar `groupedNav`,
+    campus lens, MFA prompt, notification bell). Owner-only screens (Campus Hub, staff Manage-access,
+    student delete, module access) get route files ONLY in owner-web. This is ~100+ files and is best done
+    as a **dedicated, decomposed effort** (it partitions cleanly by screen area). *Fallback: ship a single
+    `school-web` for both doors (3 apps total) and revisit the owner↔staff origin split later — trades away
+    only the owner↔staff origin isolation.*
 - **Phase 4 — Marketing app** on the apex; retire the old `apps/web`.
 - **Infra (parallel):** reverse proxy + on-demand TLS + `<role>.<school>` routing, wired in [[Deployment & Operations]].
 

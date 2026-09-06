@@ -752,3 +752,33 @@ for a security guarantee. Fix 2 of [[Front-End Split QA & Test Cases]]; commit `
   at :3005 and put the *teacher* `browser.newContext` on :3006; student-portal :3003; console via the
   absolute-origin helpers. Kept the "no `webServer`, run against the live stack" model — the required apps
   are documented in the config header (API :4000, owner :3005, staff :3006, console :3004, apex :3001).
+
+## The teacher panel is the school's work; Profile is the person (operator, 2026-09-01 → 09-06)
+
+Three related calls, all front-end, all made by the operator watching the live teacher shell. Recorded
+because each one **reverses an earlier deliberate design**, and the reasoning for the original is still
+in the code comments — a later reader will otherwise "fix" this back.
+
+- **The desktop panel lists everything; "More" is gone.** The Teacher App Shell Plan (T0) gave a teacher
+  the SAME four destinations at every width — phone bar and desktop rail — on the argument that "the
+  phone's structure IS the product's structure". The operator wanted the full menu on a laptop, so
+  `teacherSidebarNav()` now flattens `groupedNav`. ⚠️ **The phone bar is unchanged and still four** (a
+  bar past four is unreadable at thumb size), with `me-more` as its overflow — so nothing reachable on a
+  laptop became unreachable on a phone.
+- **`My Portal` moved out of the panel and into Profile**, pinned to the rail's footer. The line is the
+  existing `NAV` **group**, not the words "My …": `My Classes` is `Teaching` (work she does for the
+  school) and stays in the panel; her attendance, timetable, leaves and payslips are `My Portal` (the
+  employee) and live behind Profile. Keying off the group means a `My Portal` screen added tomorrow
+  lands in Profile on its own and cannot re-clutter the panel.
+- **The brand names the PANEL; role chips name the PERSON.** The sidebar showed `panelLabel` — one role
+  — so a TEACHER+ADMISSION_CONTROLLER+HR_MANAGER was branded plainly "Teacher" while the top bar printed
+  raw enums (`TEACHER, ADMISSION_CONTROLLER, HR_MANAGER`), a database value rather than a job title.
+  `roleLabels()` now renders every hat as chips in the shell, so they are on every screen.
+  ⚠️ **Held roles only, never `effectiveRoles`** — an Ops Admin satisfies six lower roles by hierarchy,
+  and listing those would tell a deputy she is a Teacher, which is a claim about her job rather than her
+  permissions. ⚠️ `ADMISSION_CONTROLLER` needed a separate `title`: its `label` names the *screen*
+  ("Admission Portal"), and a chip reading that would tell her that her job is a page.
+
+Profile itself stays **read-only** — the operator asked only to *see* details related to her — so it adds
+no capability, just re-homes what already existed (Security, Sign out) plus the self-service list. Richer
+HR fields (designation, employee code, join date) would need a read-only self endpoint and were NOT added.

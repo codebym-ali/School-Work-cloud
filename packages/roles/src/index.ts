@@ -159,6 +159,9 @@ export const NAV: NavItem[] = [
   // Account security is every user's own business — no `roles` (any authenticated) and reached
   // from the top bar rather than the sidebar.
   { href: '/security', label: 'Security', icon: 'lock', group: 'My Portal', hidden: true },
+  // A read-only "my details" page, every user's own business (no `roles`). `hidden` because it is
+  // pinned to the panel footer / reached from the top bar, not auto-listed among the screens.
+  { href: '/profile', label: 'Profile', icon: 'profile', group: 'My Portal', hidden: true },
 ];
 
 /** Roles the API mandates MFA for (mirrors MANDATORY_MFA_ROLES in auth.service). */
@@ -185,13 +188,16 @@ function effectiveRoles(userRoles: string[] | undefined): string[] {
  * one list, so they can never disagree (e.g. a TEACHER+HR_MANAGER lands on Staff and
  * is branded "HR Manager", not one of each). Keyed on the first role the user holds.
  */
-const ROLE_INFO: { role: Role; label: string; landing: string }[] = [
+const ROLE_INFO: { role: Role; label: string; landing: string; title?: string }[] = [
   { role: 'OWNER_ADMIN', label: 'School Admin', landing: '/dashboard' },
   // The owner's operational deputy — sits directly below the owner and lands on the same dashboard.
   { role: 'OPERATIONS_ADMIN', label: 'Ops Admin', landing: '/dashboard' },
   { role: 'CAMPUS_ADMIN', label: 'Campus Admin', landing: '/dashboard' },
   { role: 'ACCOUNTANT', label: 'Accountant', landing: '/dashboard' },
-  { role: 'ADMISSION_CONTROLLER', label: 'Admission Portal', landing: '/admissions' },
+  // ⚠️ `label` names the PANEL ("Admission Portal" is the screen they land in); `title` names the
+  // PERSON. Only this role needed the split — a chip reading "Admission Portal" would be telling
+  // Ayesha her job is a screen. Everywhere else the panel label already reads as a job title.
+  { role: 'ADMISSION_CONTROLLER', label: 'Admission Portal', landing: '/admissions', title: 'Admission Controller' },
   { role: 'HR_MANAGER', label: 'HR Manager', landing: '/staff' },
   // Landing moved from `/attendance` to `/home` 2026-08-08 (Teacher Mobile Home Plan 7.2).
   // `/attendance` is a work screen - it opened cold, with no idea which section was wanted.
@@ -208,6 +214,33 @@ const ROLE_INFO: { role: Role; label: string; landing: string }[] = [
 export function primaryRole(roles: string[] | undefined) {
   const r = roles ?? [];
   return ROLE_INFO.find((x) => r.includes(x.role));
+}
+
+/**
+ * **Every** hat this person wears, in human words (operator, 2026-09-06).
+ *
+ * ⚠️ **The shell used to under- and over-state this at the same time.** The sidebar brand showed
+ * `panelLabel` — ONE role — so a teacher who also ran admissions and HR was branded plainly
+ * "Teacher" and her other two jobs were invisible; meanwhile the top bar printed the raw enums
+ * (`TEACHER, ADMISSION_CONTROLLER, HR_MANAGER`), which is a database value, not a job title. This
+ * is the one place that answers "who am I here?", so the brand can keep naming the *panel* while
+ * the chips name the *person*.
+ *
+ * **Held roles only — never `effectiveRoles`.** An Ops Admin satisfies six lower roles by
+ * hierarchy; listing those would tell a deputy she is a Teacher and an Accountant, which is a claim
+ * about her job rather than about her permissions.
+ *
+ * Ordered by `ROLE_INFO` (most- to least-privileged) so the list reads the same everywhere, and an
+ * unrecognised/future role is prettified rather than dropped — a role silently missing from the one
+ * screen that states your identity is worse than an imperfect label.
+ */
+export function roleLabels(roles: string[] | undefined): string[] {
+  const held = new Set(roles ?? []);
+  const known = ROLE_INFO.filter((x) => held.has(x.role)).map((x) => x.title ?? x.label);
+  const unknown = [...held]
+    .filter((r) => !ROLE_INFO.some((x) => x.role === r))
+    .map((r) => r.toLowerCase().split('_').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' '));
+  return [...known, ...unknown];
 }
 
 export function panelLabel(roles: string[] | undefined): string {
@@ -363,4 +396,60 @@ export function usesTeacherShell(roles: string[] | undefined): boolean {
 export function tabsFor(roles: string[] | undefined, admissionsMode?: AdmissionsMode) {
   return TEACHER_TABS.filter((t) =>
     t.href === '/home' || t.href === '/me-more' || canReach(roles, t.href, admissionsMode));
+}
+
+/**
+ * The person's OWN records — "everything related to herself" (operator, 2026-09-06).
+ *
+ * `My Portal` is the group `NAV` already uses for exactly this: My Attendance, My Timetable, My
+ * Leaves, My Payslips. It is the line between *the job* and *the employee* — note that **My Classes
+ * is NOT here** (it is `Teaching`, i.e. work she does for the school), which is why this keys off
+ * the existing group rather than a `startsWith('/my-')` guess on the label.
+ */
+export const SELF_SERVICE_GROUP: NavGroup = 'My Portal';
+
+/**
+ * The self-service list rendered INSIDE Profile, so a teacher has one place for her own things.
+ *
+ * A projection of `NAV` like every other nav helper — `groupedNav` has already dropped `hidden`
+ * entries (`/home`, `/me-more`, `/security`, `/profile`) and filtered to what this person may
+ * reach, so an item she cannot open never appears, and Profile can never drift from the sidebar.
+ */
+export function selfServiceNav(
+  userRoles: string[] | undefined,
+  admissionsMode?: AdmissionsMode,
+): { href: string; label: string; icon: IconName }[] {
+  return groupedNav(userRoles, admissionsMode)
+    .filter((g) => g.group === SELF_SERVICE_GROUP)
+    .flatMap((g) => g.items)
+    .map((n) => ({ href: n.href, label: n.label, icon: n.icon }));
+}
+
+/**
+ * The teacher's desktop left panel — every screen she may reach, listed flat, **work only**.
+ *
+ * ⚠️ **This deliberately reverses `tabsFor`'s "four everywhere" rule for the desktop panel.** The
+ * phone tab bar still holds four hot destinations (a phone bar past four is unreadable), but on a
+ * laptop the left panel lists everything instead of hiding the rest behind "More" — the operator
+ * asked for a complete menu, not a stub.
+ *
+ * ⚠️ **`My Portal` is excluded (operator, 2026-09-06): her own attendance, timetable, leaves and
+ * payslips moved into Profile**, so the panel is the school's work and the pinned Profile footer is
+ * her own record. Anything self-service therefore has exactly ONE home, and adding a `My Portal`
+ * entry to `NAV` tomorrow lands there automatically instead of re-cluttering this list.
+ *
+ * **Still a projection of `NAV`, never a second list** (the discipline `tabsFor` and `me-more`
+ * keep): it flattens `groupedNav` and prepends `/home` (which is `hidden` only so the phone bar can
+ * own it). `/profile` is `hidden` too, and the panel renders its pinned footer itself.
+ */
+export function teacherSidebarNav(
+  userRoles: string[] | undefined,
+  admissionsMode?: AdmissionsMode,
+): { href: string; label: string; icon: IconName }[] {
+  const home = NAV.find((n) => n.href === '/home');
+  const rest = groupedNav(userRoles, admissionsMode)
+    .filter((g) => g.group !== SELF_SERVICE_GROUP)
+    .flatMap((g) => g.items)
+    .filter((n) => n.href !== '/home');
+  return [...(home ? [home] : []), ...rest].map((n) => ({ href: n.href, label: n.label, icon: n.icon }));
 }

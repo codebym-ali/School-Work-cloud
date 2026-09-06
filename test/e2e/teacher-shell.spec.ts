@@ -58,14 +58,32 @@ test.describe('teacher shell', () => {
         await teacher.waitForURL((u) => !u.pathname.endsWith('-login') && u.pathname !== '/login');
         await expect(teacher).toHaveURL(/\/home$/);
 
-        // ── T0: the same four destinations, at desktop width ──────────────────
+        // ── T0: the full teacher menu on the desktop panel ────────────────────
+        // The desktop panel now lists every screen the teacher can open directly (operator
+        // 2026-09-01) — no longer a four-item stub with the rest hidden behind "More".
         const sidebar = teacher.locator('.sidebar');
         await expect(sidebar).toBeVisible();
-        for (const label of TABS) {
+        for (const label of ['Home', 'Attendance', 'My Classes', 'Exams & Results', 'Profile']) {
           await expect(sidebar.getByRole('link', { name: label, exact: true })).toBeVisible();
         }
-        // The administrator's filing system must NOT be what a teacher sees. "MY PORTAL" is an
-        // admin's word for a teacher's own things, and its presence means the wrong nav rendered.
+        // "More" is gone from the desktop panel — everything it hid is listed above, and Profile is
+        // pinned in its place.
+        await expect(sidebar.getByRole('link', { name: 'More', exact: true })).toHaveCount(0);
+        // ⚠️ Her OWN records are not in the work panel (operator 2026-09-06) — they live behind
+        // Profile, so the panel is the school's work and Profile is the employee. `My Classes`
+        // above proves the line is the `My Portal` GROUP, not the words "My …".
+        for (const own of ['My Attendance', 'My Leaves', 'My Payslips', 'My Timetable']) {
+          await expect(sidebar.getByRole('link', { name: own, exact: true })).toHaveCount(0);
+        }
+
+        // …and they ARE reachable there, which is what stops the move from being a deletion.
+        await sidebar.getByRole('link', { name: 'Profile', exact: true }).click();
+        await teacher.waitForURL('**/profile');
+        for (const own of ['My Attendance', 'My Leaves', 'My Payslips']) {
+          await expect(teacher.getByRole('link', { name: own, exact: true })).toBeVisible();
+        }
+        await teacher.goto('/home');
+        // Still NOT the administrator's grouped filing system: one flat list, no group labels.
         await expect(teacher.locator('.sidebar .group-label')).toHaveCount(0);
 
         // The regression that started this plan: leave Home, and be able to come back.
@@ -145,15 +163,16 @@ test.describe('teacher shell', () => {
         await expect(dual.locator('.sidebar')).toContainText('Teacher');
         await expect(dual.locator('.sidebar').getByRole('link', { name: 'Home', exact: true })).toBeVisible();
 
-        // **The accounting job is not lost — it moved.** `/me-more` is built from the person's
-        // roles, so it still carries every screen the accountant shell used to show in its sidebar.
-        // Asserting this is what stops "give the teacher an app" from quietly meaning "take the
-        // other half of their work away".
-        await dual.getByRole('link', { name: 'More', exact: true }).click();
-        await dual.waitForURL('**/me-more');
+        // **The accounting job is not lost — it is listed directly.** The desktop panel now shows
+        // every screen the person can reach, so a teacher-accountant's Dashboard, Fees, Payment
+        // submissions and Reports sit in the panel itself rather than behind "More". This is what
+        // stops "give the teacher an app" from quietly meaning "take the other half of their work
+        // away". (On a phone those still live under the "More" tab — the bar holds only four.)
+        const nav = dual.locator('.sidebar');
         for (const label of ['Dashboard', 'Fees', 'Payment submissions', 'Reports']) {
-          await expect(dual.getByRole('link', { name: label, exact: true })).toBeVisible();
+          await expect(nav.getByRole('link', { name: label, exact: true })).toBeVisible();
         }
+        await expect(nav.getByRole('link', { name: 'More', exact: true })).toHaveCount(0);
       } finally {
         // Best-effort: after a timeout the context may already be tearing down, and a throw here
         // would be reported instead of the assertion that actually failed.

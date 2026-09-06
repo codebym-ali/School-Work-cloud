@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { api, apiGet, apiPost, apiDelete, ApiError, type Campus, type ManagedUser } from '@sw/api-client';
 import { useMe } from '@sw/session';
+import { roleLabels } from '@sw/roles';
 
 type Msg = { ok: boolean; text: string } | null;
 
@@ -211,7 +212,7 @@ export default function CampusesPage() {
           <table>
             <tbody>
               {schoolWide.map((u) => (
-                <tr key={u.id}><td>{u.email}</td><td>{u.roles.join(', ')}</td><td><span className={`badge ${u.status === 'ACTIVE' ? 'ok' : 'bad'}`}>{u.status}</span></td></tr>
+                <tr key={u.id}><td>{u.email}</td><td>{roleLabels(u.roles).join(', ')}</td><td><span className={`badge ${u.status === 'ACTIVE' ? 'ok' : 'bad'}`}>{u.status}</span></td></tr>
               ))}
             </tbody>
           </table>

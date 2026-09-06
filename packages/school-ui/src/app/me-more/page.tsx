@@ -56,6 +56,14 @@ export default function MePage() {
       <div className="card">
         <div className="section-title">Account</div>
         <ul className="day-rail">
+          {/* Profile is pinned to the desktop panel's footer; on the phone the panel is this list,
+              so it lives here in Account alongside Security. */}
+          <li style={{ gridTemplateColumns: '26px 1fr', alignItems: 'center' }}>
+            <Icon name="profile" size={18} />
+            <Link href="/profile" style={{ color: 'inherit', textDecoration: 'none', minHeight: 44, display: 'flex', alignItems: 'center' }}>
+              <span className="what">Profile</span>
+            </Link>
+          </li>
           <li style={{ gridTemplateColumns: '26px 1fr', alignItems: 'center' }}>
             <span aria-hidden="true" style={{ fontSize: 17 }}>🔒</span>
             <Link href="/security" style={{ color: 'inherit', textDecoration: 'none', minHeight: 44, display: 'flex', alignItems: 'center' }}>

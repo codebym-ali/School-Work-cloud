@@ -3,7 +3,7 @@
 import { Icon } from '@sw/ui';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { tabsFor } from '@sw/roles';
+import { tabsFor, teacherSidebarNav } from '@sw/roles';
 import type { AdmissionsMode } from '@sw/roles';
 
 /**
@@ -63,31 +63,53 @@ export function TeacherTabs({ admissionsMode, roles }: Props) {
 }
 
 /**
- * The same destinations as a sidebar, for a teacher on anything wider than a phone.
+ * The teacher's desktop left panel — the FULL list of their screens, with **Profile pinned to the
+ * bottom** (Teacher panel change, operator 2026-09-01).
  *
- * Deliberately NOT the grouped admin nav: a teacher is not an administrator with a smaller menu,
- * and "ACADEMICS / ADMINISTRATION / MY PORTAL" is an admin's filing system for a teacher's own
- * things. Four items need no grouping.
+ * ⚠️ **This replaces the old four-item stub + "More".** The panel used to mirror the phone's four
+ * tabs and hide everything else behind a "More" page; the operator asked for the complete list here
+ * instead. So the body renders `teacherSidebarNav` (every screen the teacher may reach, a projection
+ * of `NAV` — still not a hand-kept second list) and the footer pins a single **Profile** link, from
+ * which the teacher sees their own details and reaches Security / Sign out.
+ *
+ * Still deliberately NOT the grouped admin nav ("ACADEMICS / ADMINISTRATION" is an admin's filing
+ * system for a teacher's own things): one flat list, no group labels. The **phone** keeps its
+ * four-item bottom bar (`TeacherTabs`) with "More" as the overflow — a phone bar cannot carry the
+ * full list — so nothing a teacher can reach on a laptop becomes unreachable on a phone.
  */
 export function TeacherSidebarNav({ admissionsMode, roles }: Props) {
   const pathname = usePathname();
+  const profileActive = pathname.startsWith('/profile');
 
   return (
-    <div className="nav-group">
-      {tabsFor(roles, admissionsMode).map((t) => {
-        const active = isActive(pathname, t.href);
-        return (
-          <Link
-            key={t.href}
-            href={t.href}
-            className={active ? 'active' : ''}
-            aria-current={active ? 'page' : undefined}
-          >
-            <span className="nav-icon"><Icon name={t.icon} size={18} /></span>
-            {t.label}
-          </Link>
-        );
-      })}
+    <div className="teacher-nav">
+      <div className="nav-group">
+        {teacherSidebarNav(roles, admissionsMode).map((t) => {
+          const active = isActive(pathname, t.href);
+          return (
+            <Link
+              key={t.href}
+              href={t.href}
+              className={active ? 'active' : ''}
+              aria-current={active ? 'page' : undefined}
+            >
+              <span className="nav-icon"><Icon name={t.icon} size={18} /></span>
+              {t.label}
+            </Link>
+          );
+        })}
+      </div>
+
+      <div className="nav-group teacher-profile">
+        <Link
+          href="/profile"
+          className={profileActive ? 'active' : ''}
+          aria-current={profileActive ? 'page' : undefined}
+        >
+          <span className="nav-icon"><Icon name="profile" size={18} /></span>
+          Profile
+        </Link>
+      </div>
     </div>
   );
 }

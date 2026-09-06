@@ -9,7 +9,7 @@ import { MeContext } from '@sw/session';
 import { CampusLensContext, CAMPUS_LENS_KEY } from '@sw/session';
 import type { Campus } from '@sw/api-client';
 import { NotificationBell } from '@school/components/notification-bell';
-import { groupedNav, hasAnyRole, isSchoolWideAdmin, navItemFor, panelLabel, usesTeacherShell, MFA_REQUIRED_ROLES } from '@sw/roles';
+import { groupedNav, hasAnyRole, isSchoolWideAdmin, navItemFor, panelLabel, roleLabels, usesTeacherShell, MFA_REQUIRED_ROLES } from '@sw/roles';
 import { TeacherSidebarNav, TeacherTabs } from '@school/components/teacher-tabs';
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
@@ -128,8 +128,20 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         {navOpen && (
           <button className="nav-overlay" aria-label="Close menu" onClick={() => setNavOpen(false)} />
         )}
-        <aside className={`sidebar${navOpen ? ' open' : ''}`} id="app-nav">
+        <aside className={`sidebar${navOpen ? ' open' : ''}${teacherShell ? ' teacher' : ''}`} id="app-nav">
           <div className="brand"><Icon name="school" size={19} /> {panelLabel(me.roles)}</div>
+          {/*
+            * **The brand names the PANEL; these name the PERSON** (operator, 2026-09-06).
+            * A teacher who also runs admissions and HR was branded only "Teacher" — every other
+            * hat she wears was invisible on every screen. Sitting in the shell's sidebar, this is
+            * on the *entire* dashboard rather than on one profile page you have to go looking for.
+            * Rendered above the shell switch, so the teacher panel and the admin panel both get it.
+            */}
+          <div className="role-chips">
+            {roleLabels(me.roles).map((label) => (
+              <span key={label} className="role-chip">{label}</span>
+            ))}
+          </div>
           {teacherShell ? (
             <TeacherSidebarNav roles={me.roles} admissionsMode={me.admissionsMode} />
           ) : (
@@ -166,7 +178,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 </select>
               </label>
             )}
-            <div className="who topbar-desktop">{me.email} · {me.roles.join(', ')}</div>
+            <div className="who topbar-desktop">{me.email} · {roleLabels(me.roles).join(' · ')}</div>
             <div className="row" style={{ gap: 8 }}>
               {/* Beside Security, not on a dashboard — see the note on the closure banner below.
                   Renders nothing at all when there is nothing to say. */}
@@ -205,7 +217,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           {authorized ? children : (
             <div className="card stack">
               <h1>Not authorized</h1>
-              <p className="muted">Your role ({me.roles.join(', ')}) doesn’t have access to this screen.</p>
+              <p className="muted">Your role ({roleLabels(me.roles).join(', ')}) doesn’t have access to this screen.</p>
             </div>
           )}
         </div>

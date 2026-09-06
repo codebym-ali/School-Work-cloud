@@ -396,6 +396,18 @@ a.metric-link.pipeline-card .metric-go { opacity: 1; margin-top: 0; }
 .sidebar .brand { color: #fff; font-weight: 700; padding: 8px 12px 16px; font-size: 16px;
   display: flex; align-items: center; gap: 8px; }
 .sidebar .nav-group { margin-bottom: 14px; }
+/* Role chips — WHO the signed-in person is, on every screen (operator 2026-09-06). The brand above
+   names the panel ("Teacher"); these name every hat she actually wears, so a teacher who also runs
+   admissions and HR is no longer described by one of her three jobs. Wraps: a 220px rail holds two
+   short chips per line, and three roles is already an unusual person.
+   ⚠️ Text `#e2e8f0` on the navy fill, not a muted slate — same lesson as `.group-label`, where
+   `#64748b` measured 3.28 and was never legible on a dark background. */
+.sidebar .role-chips { display: flex; flex-wrap: wrap; gap: 4px; padding: 0 12px 16px; }
+.sidebar .role-chip {
+  font-size: 11px; font-weight: 600; letter-spacing: .02em; line-height: 1.5;
+  padding: 2px 8px; border-radius: 999px; white-space: nowrap;
+  background: rgb(255 255 255 / .10); color: #e2e8f0; border: 1px solid rgb(255 255 255 / .14);
+}
 .sidebar .group-label {
   /* ⚠️ 6.08 on the navy sidebar. The previous `#64748b` measured **3.28** — slate-500 is a
      colour for LIGHT backgrounds, and it was never legible here. On a dark fill the ramp inverts:
@@ -417,6 +429,14 @@ a.metric-link.pipeline-card .metric-go { opacity: 1; margin-top: 0; }
 .sidebar a .nav-icon svg { display: block; }
 .sidebar a:hover { background: rgb(255 255 255 / .08); color: #fff; }
 .sidebar a.active { background: var(--brand); color: #fff; }
+/* Teacher left panel (operator 2026-09-01): the full screen list, with Profile pinned to the very
+   bottom of the panel rather than sitting directly under the last link. Making the sidebar a flex
+   column lets the `.teacher-profile` footer take `margin-top: auto`. Teacher-shell only (the admin
+   sidebar keeps its default block flow); still hidden under the phone breakpoint, where
+   `.has-tabbar .sidebar { display: none }` (defined later) takes over and the tab bar leads. */
+.sidebar.teacher { display: flex; flex-direction: column; }
+.sidebar.teacher .teacher-nav { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.sidebar.teacher .teacher-profile { margin-top: auto; margin-bottom: 0; padding-top: 12px; border-top: 1px solid rgb(255 255 255 / .08); }
 /* Cap the reading width — full-viewport forms on a wide monitor turn into columns of
    narrow boxes. `min-width: 0` lets grid children shrink instead of forcing overflow. */
 .content { padding: 24px 28px; overflow: auto; min-width: 0; }

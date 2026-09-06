@@ -128,7 +128,10 @@ export const NAV: NavItem[] = [
   // `navItemFor` role-gate them. Leaving them out entirely would have made both routes reachable
   // by every signed-in role, since the shell treats an unknown path as unrestricted.
   // STAFF added 2026-09-06 (Phase 3): a non-teaching staff member had NO home at all.
-  { href: '/home', label: 'Home', icon: 'home', group: 'My Portal', roles: ['TEACHER', 'STAFF'], hidden: true },
+  // ADMISSION_CONTROLLER + HR_MANAGER added 2026-09-06 (Phase 2): `/dashboard` is
+  // `@Roles('OWNER_ADMIN','CAMPUS_ADMIN','ACCOUNTANT')` on the API, so these two could not open it
+  // either — they had no overview of any kind and dropped straight into a work screen.
+  { href: '/home', label: 'Home', icon: 'home', group: 'My Portal', roles: ['TEACHER', 'STAFF', 'ADMISSION_CONTROLLER', 'HR_MANAGER'], hidden: true },
   { href: '/me-more', label: 'More', icon: 'profile', group: 'My Portal', roles: ['TEACHER'], hidden: true },
 
   { href: '/me', label: 'My Dashboard', icon: 'home', group: 'My Portal', roles: ['STUDENT'] },
@@ -198,8 +201,10 @@ const ROLE_INFO: { role: Role; label: string; landing: string; title?: string }[
   // ⚠️ `label` names the PANEL ("Admission Portal" is the screen they land in); `title` names the
   // PERSON. Only this role needed the split — a chip reading "Admission Portal" would be telling
   // Ayesha her job is a screen. Everywhere else the panel label already reads as a job title.
-  { role: 'ADMISSION_CONTROLLER', label: 'Admission Portal', landing: '/admissions', title: 'Admission Controller' },
-  { role: 'HR_MANAGER', label: 'HR Manager', landing: '/staff' },
+  // Landing moved to `/home` 2026-09-06 (Phase 2) — same reasoning as the teacher's move off
+  // `/attendance`: the pipeline is still one click away, and the home says what is waiting first.
+  { role: 'ADMISSION_CONTROLLER', label: 'Admission Portal', landing: '/home', title: 'Admission Controller' },
+  { role: 'HR_MANAGER', label: 'HR Manager', landing: '/home' },
   // Landing moved from `/attendance` to `/home` 2026-08-08 (Teacher Mobile Home Plan 7.2).
   // `/attendance` is a work screen - it opened cold, with no idea which section was wanted.
   { role: 'TEACHER', label: 'Teacher', landing: '/home' },
@@ -417,6 +422,25 @@ const JOB_ROLES: readonly Role[] = [
 export function isPlainStaff(roles: string[] | undefined): boolean {
   const r = roles ?? [];
   return r.includes('STAFF') && !r.some((x) => (JOB_ROLES as readonly string[]).includes(x));
+}
+
+/**
+ * True when this person should be offered **Home** in the administrator's grouped sidebar
+ * (Role-Based Home Dashboard Plan, Phase 2).
+ *
+ * ⚠️ **`/home` is `hidden` in `NAV`, so it renders nowhere on the admin sidebar** — the phone tab bar
+ * owns it. Phase 3 solved that for plain staff by giving them the personal rail, but an Admission
+ * Controller or HR Manager needs the *grouped* sidebar: they have a real job with many screens. So
+ * they get an explicit Home entry instead, and without it they would land on a screen they could not
+ * navigate back to — the T0 regression, again.
+ *
+ * **Only for people who have no `/dashboard`.** `/dashboard` is `@Roles('OWNER_ADMIN',
+ * 'CAMPUS_ADMIN', 'ACCOUNTANT')` on the API, so an admission officer and an HR manager have no
+ * overview of any kind, while an owner/campus admin/accountant (and an Ops deputy, by hierarchy)
+ * already have one and must not be handed a second, competing front door.
+ */
+export function needsHomeLink(roles: string[] | undefined): boolean {
+  return canReach(roles, '/home') && !canReach(roles, '/dashboard');
 }
 
 /**

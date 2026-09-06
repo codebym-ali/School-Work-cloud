@@ -9,7 +9,7 @@ import { MeContext } from '@sw/session';
 import { CampusLensContext, CAMPUS_LENS_KEY } from '@sw/session';
 import type { Campus } from '@sw/api-client';
 import { NotificationBell } from '@school/components/notification-bell';
-import { groupedNav, hasAnyRole, isSchoolWideAdmin, navItemFor, panelLabel, roleLabels, usesPersonalShell, MFA_REQUIRED_ROLES } from '@sw/roles';
+import { groupedNav, hasAnyRole, isSchoolWideAdmin, navItemFor, needsHomeLink, panelLabel, roleLabels, usesPersonalShell, MFA_REQUIRED_ROLES } from '@sw/roles';
 import { TeacherSidebarNav, TeacherTabs } from '@school/components/teacher-tabs';
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
@@ -151,7 +151,23 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           {teacherShell ? (
             <TeacherSidebarNav roles={me.roles} admissionsMode={me.admissionsMode} />
           ) : (
-            nav.map(({ group, items }) => (
+            <>
+              {/*
+                * Phase 2: an Admission Controller and an HR Manager have NO `/dashboard` — it is
+                * `@Roles('OWNER_ADMIN','CAMPUS_ADMIN','ACCOUNTANT')` on the API — and `/home` is
+                * `hidden` in NAV, so without this entry they would land on a screen with no link
+                * back to it. Shown only to people who have no dashboard of their own, so an owner
+                * or accountant is never handed a second, competing front door.
+                */}
+              {needsHomeLink(me.roles) && (
+                <div className="nav-group">
+                  <Link href="/home" className={pathname === '/home' ? 'active' : ''} aria-current={pathname === '/home' ? 'page' : undefined}>
+                    <span className="nav-icon"><Icon name="home" size={18} /></span>
+                    Home
+                  </Link>
+                </div>
+              )}
+              {nav.map(({ group, items }) => (
               <div key={group} className="nav-group">
                 <div className="group-label">{group}</div>
                 {items.map((n) => (
@@ -161,7 +177,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                   </Link>
                 ))}
               </div>
-            ))
+              ))}
+            </>
           )}
         </aside>
         <div className="content">

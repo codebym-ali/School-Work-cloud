@@ -1,4 +1,4 @@
-import { canReach, homeSections, isPlainStaff, landingPath, panelLabel, roleLabels, usesPersonalShell } from './index';
+import { canReach, homeSections, isPlainStaff, landingPath, needsHomeLink, panelLabel, roleLabels, usesPersonalShell } from './index';
 
 /**
  * The rules behind the divided home (Role-Based Home Dashboard Plan, Phase 1) and the role chips.
@@ -101,5 +101,42 @@ describe('plain staff get a home of their own', () => {
     expect(homeSections(['STAFF'])).toEqual(['MY_DAY']);
     // Teaching still leads: the register closes today, the payslip does not.
     expect(homeSections(['STAFF', 'TEACHER'])).toEqual(['TEACHING', 'MY_DAY']);
+  });
+});
+
+/**
+ * Phase 2 — the admin-shell roles that had no dashboard at all.
+ *
+ * `/dashboard` is `@Roles('OWNER_ADMIN','CAMPUS_ADMIN','ACCOUNTANT')` on the API, so an Admission
+ * Controller and an HR Manager could not open it: they dropped straight into a work screen with no
+ * overview of any kind. They keep the administrator's grouped sidebar (they have a real job with
+ * many screens), so they get an explicit Home entry in it rather than the personal rail.
+ */
+describe('the roles with no dashboard get a home instead', () => {
+  it('offers Home only to people who have no dashboard of their own', () => {
+    expect(needsHomeLink(['ADMISSION_CONTROLLER'])).toBe(true);
+    expect(needsHomeLink(['HR_MANAGER'])).toBe(true);
+    // ⚠️ These already have `/dashboard`; a second front door would compete with it.
+    expect(needsHomeLink(['OWNER_ADMIN'])).toBe(false);
+    expect(needsHomeLink(['CAMPUS_ADMIN'])).toBe(false);
+    expect(needsHomeLink(['ACCOUNTANT'])).toBe(false);
+    // The Ops deputy reaches `/dashboard` through the role hierarchy, so it has one too.
+    expect(needsHomeLink(['OPERATIONS_ADMIN'])).toBe(false);
+  });
+
+  it('lands them on that home rather than cold in a work screen', () => {
+    expect(landingPath(['ADMISSION_CONTROLLER'])).toBe('/home');
+    expect(landingPath(['HR_MANAGER'])).toBe('/home');
+    // Unchanged for everyone who already had a dashboard.
+    expect(landingPath(['OWNER_ADMIN'])).toBe('/dashboard');
+    expect(landingPath(['ACCOUNTANT'])).toBe('/dashboard');
+  });
+
+  it('gives them the section Phase 1 already built, and no teaching', () => {
+    expect(homeSections(['ADMISSION_CONTROLLER'])).toEqual(['ADMISSIONS']);
+    expect(homeSections(['HR_MANAGER'])).toEqual(['HR']);
+    // They keep the grouped admin sidebar — the personal rail is for teachers and plain staff.
+    expect(usesPersonalShell(['ADMISSION_CONTROLLER'])).toBe(false);
+    expect(usesPersonalShell(['HR_MANAGER'])).toBe(false);
   });
 });

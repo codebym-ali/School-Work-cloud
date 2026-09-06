@@ -1,7 +1,7 @@
 ---
 title: Role-Based Home — divide the dashboard by the hats a person wears
 type: plan
-status: Phases 1 + 3 SHIPPED 2026-09-06 · Phase 2 deferred (optional)
+status: ALL PHASES SHIPPED 2026-09-06
 updated: 2026-09-06
 ---
 
@@ -120,10 +120,24 @@ her sections will populate rather than 403.
    link through. Green "All clear" when genuinely empty (same as owner dashboard).
 4. Effort **M**. Risk **Low** — additive, no backend, no schema.
 
-**Phase 2 — the admin `/dashboard`** *(optional, smaller than it looks)*
-Already sectioned by area (Academics & Enrollment / Finance / Communication) and already role-filtered,
-so a multi-hat *admin* is mostly served. Revisit only if an admin reports the same complaint; do not
-re-cut a working screen for symmetry.
+**Phase 2 — the admin `/dashboard`** ✅ **SHIPPED 2026-09-06 — but NOT as scoped**
+> **The scoped work turned out to be a no-op, and the investigation is the deliverable.** `/dashboard`
+> is *already* divided by role: every tile is filtered by the server's `visible` list **and** by
+> `canReach`, sections with no surviving tiles are dropped, the attention chips are `canReach`-filtered,
+> and the stale recruitment section was cleaned up when that feature was deleted. There was nothing
+> worth re-cutting, and doing it for symmetry would have been churn on a working screen.
+>
+> **The real gap sat next to it.** `/dashboard` is `@Roles('OWNER_ADMIN','CAMPUS_ADMIN','ACCOUNTANT')`
+> on the API — so an **Admission Controller** and an **HR Manager** cannot open it at all. They had no
+> overview of any kind and dropped straight into a work screen: the Phase 3 gap again, for the two
+> admin-shell roles. Phase 1 had already built their sections; they simply could not reach them.
+>
+> Fix: `/home` admits both roles, both now land there, and — because they keep the *grouped* sidebar
+> (a real job with many screens, so the personal rail is wrong for them) — `needsHomeLink()` puts an
+> explicit **Home** entry in it. Gated on having **no** `/dashboard`, so an owner, campus admin,
+> accountant or Ops deputy is never handed a second, competing front door. Without that entry they
+> would have landed on a screen with no link back to it — the T0 regression a third time, which is
+> why `/home` is `hidden` in `NAV`.
 
 **Phase 3 — plain `STAFF` have no home at all** ✅ **SHIPPED 2026-09-06**
 > **The two decisions turned out to be one.** `/home` is `hidden` in `NAV` so the phone bar can own

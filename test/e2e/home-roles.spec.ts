@@ -60,6 +60,61 @@ test.describe('home — divided by role', () => {
   });
 
   /**
+   * Phase 2 — the admin-shell roles that had no dashboard at all.
+   *
+   * `/dashboard` is `@Roles('OWNER_ADMIN','CAMPUS_ADMIN','ACCOUNTANT')` on the API, so an HR manager
+   * could not open it: she landed cold in `/staff` with no overview of any kind. She keeps the
+   * administrator's grouped sidebar — she has a real job with many screens — so the fix is an
+   * explicit Home entry in it, not the teacher's personal rail.
+   */
+  test('an HR manager who does not teach lands on a home she can navigate back to', async ({ page, browser }) => {
+    await gotoApp(page);
+    const ts = Date.now();
+    const email = `hronly-${ts}@e2e.local`;
+    const password = 'HrOnly!Secret12';
+    const campuses = await apiSetupGet<{ id: string }[]>(page, '/campuses');
+    const created = await apiSetupPost<{ id: string }>(page, '/users', {
+      email, password, roles: ['HR_MANAGER'], campusId: campuses[0].id,
+    });
+
+    try {
+      const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, baseURL: 'http://localhost:3006' });
+      const her = await ctx.newPage();
+      try {
+        await her.goto('/login');
+        await her.getByLabel('Email').fill(email);
+        await her.getByLabel('Password').fill(password);
+        await her.getByRole('button', { name: /sign in/i }).click();
+        await her.waitForURL((u) => !u.pathname.endsWith('-login') && u.pathname !== '/login');
+        await expect(her).toHaveURL(/\/home$/);
+
+        // The administrator's grouped sidebar (not the personal rail) …
+        await expect(her.locator('.sidebar .group-label').first()).toBeVisible();
+        // … carrying an explicit Home, without which this landing page would be unreachable again.
+        await expect(her.locator('.sidebar').getByRole('link', { name: 'Home', exact: true })).toBeVisible();
+        // She has no dashboard, so she is not offered one.
+        await expect(her.locator('.sidebar').getByRole('link', { name: 'Dashboard', exact: true })).toHaveCount(0);
+
+        // Her work is on the home now, not only behind a nav click.
+        await expect(her.locator('.section-title', { hasText: /^HR$/ })).toBeVisible();
+        await expect(her.getByText('Staff on the books')).toBeVisible();
+        // No teacher card — its only action opens a screen she may not use.
+        await expect(her.locator('.now')).toHaveCount(0);
+
+        // And Home stays reachable once she has walked into her work.
+        await her.locator('.sidebar').getByRole('link', { name: 'Staff', exact: true }).click();
+        await her.waitForURL('**/staff');
+        await her.locator('.sidebar').getByRole('link', { name: 'Home', exact: true }).click();
+        await expect(her).toHaveURL(/\/home$/);
+      } finally {
+        await ctx.close().catch(() => undefined);
+      }
+    } finally {
+      await apiSetupDelete(page, `/users/${created.id}`);
+    }
+  });
+
+  /**
    * Phase 3 — the person who does not teach.
    *
    * A plain staff member (office assistant, driver, lab attendant) had **no home at all**: `/home`

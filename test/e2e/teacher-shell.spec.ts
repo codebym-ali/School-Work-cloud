@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { gotoApp, apiSetupGet, apiSetupPost, apiSetupDelete } from './helpers';
+import { gotoApp, apiSetupGet, apiSetupPost, apiSetupDelete, e2eCampusId } from './helpers';
 
 /**
  * The teacher's navigation is the same at every width (Teacher App Shell Plan, T0).
@@ -135,17 +135,21 @@ test.describe('teacher shell', () => {
    * Accountant shell with no tab bar and no Home, **on a phone as well as a laptop**. In a small
    * school one person wearing two hats is normal staffing, so this is the common case.
    *
-   * ACCOUNTANT rather than ADMISSION_CONTROLLER because the API refuses a second admission officer
-   * per campus, which would make this spec fight demo's seed data.
+   * ⚠️ **ACCOUNTANT IS A SEAT TOO — the note that used to sit here was wrong.** It read "ACCOUNTANT
+   * rather than ADMISSION_CONTROLLER because the API refuses a second admission officer per campus",
+   * but the accountant is *also* one-per-campus, so seeding onto the school's first campus was a
+   * time bomb: it passed only while that campus happened to have no accountant. It went off the day
+   * the operator appointed one — `409 This campus already has an accountant`. The spec now seeds
+   * into the suite's own `E2E Automation` campus, which exists for exactly this reason and has its
+   * own free seat, so it never fights the school's real staffing.
    */
   test('a teacher who also keeps the books still gets the teacher app', async ({ page, browser }) => {
     await gotoApp(page);
     const ts = Date.now();
     const email = `dual-${ts}@e2e.local`;
     const password = 'Dual!Secret12';
-    const campuses = await apiSetupGet<{ id: string }[]>(page, '/campuses');
     const created = await apiSetupPost<{ id: string }>(page, '/users', {
-      email, password, roles: ['TEACHER', 'ACCOUNTANT'], campusId: campuses[0].id,
+      email, password, roles: ['TEACHER', 'ACCOUNTANT'], campusId: await e2eCampusId(page),
     });
 
     try {

@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { gotoApp, apiSetupGet, apiSetupPost, apiSetupDelete } from './helpers';
+import { gotoApp, apiSetupGet, apiSetupPost, apiSetupPatch, apiSetupDelete } from './helpers';
 
 /**
  * `/home` is divided by the hats the person wears (Role-Based Home Dashboard Plan, Phase 1).
@@ -13,6 +13,13 @@ import { gotoApp, apiSetupGet, apiSetupPost, apiSetupDelete } from './helpers';
  * signed-in person's roles, and a real teacher may hold a different second role. **HR_MANAGER, not
  * ADMISSION_CONTROLLER** — the admission officer is a *seat* (one per campus, partial unique index),
  * so nominating one would evict whoever holds it on every run. HR manager is not a seat.
+ *
+ * ⚠️ **Created as a TEACHER, then GRANTED HR.** `POST /users` accepts only `MANAGEABLE_ROLES`, which
+ * deliberately excludes `HR_MANAGER`: HR access is a hat you give someone who already works here
+ * (`PATCH /users/:id/access`), not a new set of credentials. The first version of this spec asked
+ * for both roles at creation and the API correctly answered *"You are not permitted to grant the
+ * role HR_MANAGER"* — the product was right and the test was wrong, so the test now does what the
+ * Staff screen does.
  */
 test.describe('home — divided by role', () => {
   test('a teacher who also keeps the staff file gets an HR section on her home', async ({ page, browser }) => {
@@ -22,8 +29,9 @@ test.describe('home — divided by role', () => {
     const password = 'HomeRole!Secret12';
     const campuses = await apiSetupGet<{ id: string }[]>(page, '/campuses');
     const created = await apiSetupPost<{ id: string }>(page, '/users', {
-      email, password, roles: ['TEACHER', 'HR_MANAGER'], campusId: campuses[0].id,
+      email, password, roles: ['TEACHER'], campusId: campuses[0].id,
     });
+    await apiSetupPatch(page, `/users/${created.id}/access`, { role: 'HR_MANAGER', grant: true });
 
     try {
       // The staff door is staff-web's own origin since the front-end split.
@@ -73,9 +81,12 @@ test.describe('home — divided by role', () => {
     const email = `hronly-${ts}@e2e.local`;
     const password = 'HrOnly!Secret12';
     const campuses = await apiSetupGet<{ id: string }[]>(page, '/campuses');
+    // Same create-then-grant as above. She keeps STAFF alongside HR, which is exactly how a real
+    // HR manager exists in this product: an employee who was given the HR hat.
     const created = await apiSetupPost<{ id: string }>(page, '/users', {
-      email, password, roles: ['HR_MANAGER'], campusId: campuses[0].id,
+      email, password, roles: ['STAFF'], campusId: campuses[0].id,
     });
+    await apiSetupPatch(page, `/users/${created.id}/access`, { role: 'HR_MANAGER', grant: true });
 
     try {
       const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, baseURL: 'http://localhost:3006' });

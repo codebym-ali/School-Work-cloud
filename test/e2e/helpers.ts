@@ -122,6 +122,26 @@ export async function apiSetupPut<T = unknown>(page: Page, path: string, body: u
 }
 
 /**
+ * Authenticated same-origin PATCH.
+ *
+ * Needed because **some roles cannot be minted with an account — they are granted to an existing
+ * employee.** `MANAGEABLE_ROLES` (what `POST /users` accepts) deliberately excludes `HR_MANAGER`;
+ * it lives in `ACCESS_GRANTABLE_ROLES` and is conferred by `PATCH /users/:id/access`, because HR
+ * access is a hat you give someone who already works here, not a new set of credentials. A spec
+ * needing such a person has to create-then-grant, exactly as the Staff screen does.
+ */
+export async function apiSetupPatch<T = unknown>(page: Page, path: string, body: unknown): Promise<T> {
+  const cookies = await page.context().cookies();
+  const csrf = cookies.find((c) => c.name === 'csrf')?.value ?? '';
+  const res = await page.request.patch(`/api/v1${path}`, {
+    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
+    data: body,
+  });
+  if (!res.ok()) throw new Error(`Setup PATCH ${path} failed: ${res.status()} ${await res.text()}`);
+  return res.json() as Promise<T>;
+}
+
+/**
  * Authenticated same-origin DELETE, for a spec tidying up what it created.
  *
  * These specs run against the operator's real demo tenant, so anything a spec creates and does

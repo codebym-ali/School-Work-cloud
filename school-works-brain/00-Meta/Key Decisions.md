@@ -782,3 +782,33 @@ in the code comments — a later reader will otherwise "fix" this back.
 Profile itself stays **read-only** — the operator asked only to *see* details related to her — so it adds
 no capability, just re-homes what already existed (Security, Sign out) plus the self-service list. Richer
 HR fields (designation, employee code, join date) would need a read-only self endpoint and were NOT added.
+
+## Seeding staff in tests: some roles are GRANTED, and two of them are seats (2026-09-06)
+
+Both learned the hard way from a live e2e run, both times the **product was right and the test was
+wrong**. Worth recording because the next person writing a staff fixture will reach for
+`POST /users { roles: [...] }` and get a 403 or a 409 that reads like a bug.
+
+- **`HR_MANAGER` cannot be created with an account.** `POST /users` accepts only `MANAGEABLE_ROLES`
+  (owner, ops, campus admin, admission controller, accountant, teacher, staff). HR lives in
+  `ACCESS_GRANTABLE_ROLES` and is conferred on an **existing** employee via
+  `PATCH /users/:id/access { role, grant }` — deliberately, because HR access is a hat you give
+  someone who already works here, not a new set of credentials (the same reasoning that consolidated
+  the grant endpoints). Fixtures must **create-then-grant**; `apiSetupPatch` in the e2e helpers
+  exists for this.
+- **`ACCOUNTANT` is a per-campus seat, exactly like `ADMISSION_CONTROLLER`.** A stale comment in
+  `teacher-shell.spec` claimed the opposite ("ACCOUNTANT rather than ADMISSION_CONTROLLER because
+  the API refuses a second admission officer per campus") and seeded onto the school's first campus.
+  That was a time bomb: it passed only while that campus happened to have no accountant, and went
+  off the day the operator appointed one — `409 This campus already has an accountant`. Anything
+  needing a **seat** role must seed into the suite's own `E2E Automation` campus (`e2eCampusId`),
+  which exists for precisely this reason and has its own free seat.
+
+⚠️ **Related, still open: the Playwright `globalTeardown` is broken.** It imports `destroyTenant`
+from `test/integration/support/tenant.ts`, which pulls in `@database` — and Playwright's TS loader
+cannot parse NestJS **parameter decorators** (`constructor(@Inject(ENV) env: Env)`), so the teardown
+dies with a `SyntaxError` on every run. Playwright reports it as *"1 error was not a part of any
+test"*, which is easy to miss, and the consequence is that the cleanup written to stop test debris
+accumulating in the operator's demo tenant **is not running at all** — the exact failure that let the
+G3 unmarked-register count reach 71, 67 of them ours. Fix needs the teardown to delete tenants
+without importing the Nest module (its own raw `PrismaClient` is already imported there).

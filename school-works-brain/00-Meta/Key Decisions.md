@@ -817,3 +817,34 @@ last time and left 251 dead schools). ts-jest is unaffected; isolation stayed 7/
 reports its work on every run — *“removed 1 suite-provisioned tenant(s) · withdrew 9 test
 enrolment(s) · removed 7 seeded student record(s)”* — so the cleanup is visible rather than silent.
 ⚠️ Do not “tidy” that deep import back to the barrel: the comment on it explains why.
+
+## The split moved a capability and left its assets behind (2026-09-06)
+
+**PWA installability was silently lost for eight days and nothing failed.** Installability shipped
+with the Teacher Mobile Home Plan (M4) and lived in `apps/web`. When the front-end split moved the
+school screens onto their own origins, `manifest.webmanifest` and the icons **stayed on the marketing
+app** — so the site nobody installs remained installable, while the **phone-first staff app the
+feature was built for** could not be added to a home screen at all.
+
+Worth recording because of *why the gates missed it*:
+- `route-coverage` guards API routes having a caller. Nothing guards a **static asset** following the
+  screens that need it.
+- `installable.spec` kept passing — it was still pointed at `apps/web`, the one app that kept the
+  manifest. It only surfaced when the suite was re-homed onto the split origins and the spec started
+  asking `owner-web` for a manifest.
+
+**The general rule this argues for: when a capability moves apps, its assets and its test's target
+move in the same change.** The spec now runs against **the apps that are supposed to be installable**
+(staff + student, parameterised), so "which app is this asserting?" cannot drift from "which app do
+people install?" again.
+
+⚠️ **A second bug fell out of fixing it: `staff-web` had no root page, so its bare origin 404'd** —
+meaning `staff.<school>.schoolworks.com` returned "This page could not be found" in production, and an
+installed PWA (whose `start_url` is `/`) would have cold-started onto that 404. Invisible because every
+link in the product is deep: you only meet it by typing the domain, which is exactly what someone does
+with a newly installed app. Fixed with a root page that resolves to `landingPath(me.roles)` — the same
+rule the sign-in form uses, so the front door and the door after login cannot disagree — and a new
+`start_url actually resolves` assertion, because a manifest can be perfectly valid and point at nothing.
+
+⚠️ **Still open: `owner-web` has the identical `/` 404** (`superadmin-web` and `student-web` both have
+root pages). Not fixed here only because owner-web was out of scope for the manifest work.

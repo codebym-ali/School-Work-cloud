@@ -15,6 +15,15 @@ export const metadata: Metadata = {
   title: 'School Staff',
   description: 'Run the school day-to-day',
   appleWebApp: { capable: true, statusBarStyle: 'default', title: 'Staff' },
+  /**
+   * Static PNGs rather than Next's generated `app/icon.tsx`: the bundled `@vercel/og` cannot load
+   * its own font on Windows and 500s, which would leave every icon a broken link with nothing
+   * failing. Regenerate with `node scripts/generate-app-icons.mjs`.
+   */
+  icons: {
+    icon: [{ url: '/favicon-32.png', sizes: '32x32', type: 'image/png' }],
+    apple: [{ url: '/apple-icon.png', sizes: '180x180', type: 'image/png' }],
+  },
 };
 
 export const viewport: Viewport = {

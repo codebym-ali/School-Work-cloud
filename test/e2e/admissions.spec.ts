@@ -25,7 +25,11 @@ test.describe('admissions', () => {
     test.skip(settings.admissionsMode !== 'PIPELINE', 'This tenant is DIRECT — it has no enquiry pipeline to drive.');
 
     const officer = await e2eOfficer(page);
-    await login(page, officer.email, officer.password, '**/admissions', 'staff');
+    // ⚠️ Lands on `/home` since Phase 2 (Role-Based Home Dashboard Plan): an Admission
+    // Controller has no `/dashboard` and used to be dropped cold into the pipeline; the
+    // home names what is waiting first. The pipeline is one navigation away, below.
+    await login(page, officer.email, officer.password, '**/home', 'staff');
+    await gotoApp(page, '/admissions');
 
     const ts = Date.now();
     const studentName = `Test Applicant ${ts}`;

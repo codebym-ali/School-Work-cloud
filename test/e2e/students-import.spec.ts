@@ -23,7 +23,10 @@ test.describe('students CSV import', () => {
     // (Worth noting separately: the "Import CSV" button is NOT role-gated in the UI, so an owner
     // is offered an action that always fails. Recorded as a gap, not fixed here.)
     const officer = await e2eOfficer(page);
-    await login(page, officer.email, officer.password, '**/admissions', 'staff');
+    // ⚠️ Lands on `/home` since Phase 2 (Role-Based Home Dashboard Plan): an Admission
+    // Controller has no `/dashboard` and used to be dropped cold into the pipeline; the
+    // home names what is waiting first. The pipeline is one navigation away, below.
+    await login(page, officer.email, officer.password, '**/home', 'staff');
     // The helper used to leave the browser on /students by driving the UI; it is API-only now,
     // so the navigation has to be explicit.
     await gotoApp(page, '/students');

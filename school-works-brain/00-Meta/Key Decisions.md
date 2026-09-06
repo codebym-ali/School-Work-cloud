@@ -804,11 +804,16 @@ wrong**. Worth recording because the next person writing a staff fixture will re
   needing a **seat** role must seed into the suite's own `E2E Automation` campus (`e2eCampusId`),
   which exists for precisely this reason and has its own free seat.
 
-⚠️ **Related, still open: the Playwright `globalTeardown` is broken.** It imports `destroyTenant`
+✅ **Related, FIXED same day: the Playwright `globalTeardown` was broken.** It imports `destroyTenant`
 from `test/integration/support/tenant.ts`, which pulls in `@database` — and Playwright's TS loader
 cannot parse NestJS **parameter decorators** (`constructor(@Inject(ENV) env: Env)`), so the teardown
 dies with a `SyntaxError` on every run. Playwright reports it as *"1 error was not a part of any
 test"*, which is easy to miss, and the consequence is that the cleanup written to stop test debris
 accumulating in the operator's demo tenant **is not running at all** — the exact failure that let the
-G3 unmarked-register count reach 71, 67 of them ours. Fix needs the teardown to delete tenants
-without importing the Nest module (its own raw `PrismaClient` is already imported there).
+G3 unmarked-register count reach 71, 67 of them ours. **Fixed** by importing `@database/tenant-purge` **directly instead of through the `@database`
+barrel** — `tenant-purge.ts` has no imports at all, so it parses fine outside Nest, and the single
+shared copy of the FK-graph walk is preserved (no duplicated delete order, which is what rotted
+last time and left 251 dead schools). ts-jest is unaffected; isolation stayed 7/7. The teardown now
+reports its work on every run — *“removed 1 suite-provisioned tenant(s) · withdrew 9 test
+enrolment(s) · removed 7 seeded student record(s)”* — so the cleanup is visible rather than silent.
+⚠️ Do not “tidy” that deep import back to the barrel: the comment on it explains why.

@@ -21,7 +21,9 @@ test.describe('admin (vendor console)', () => {
     await fieldInput(form, 'School name').fill(`Admin Test ${ts}`);
     await fieldInput(form, 'Subdomain').fill(subdomain);
     await fieldInput(form, 'Owner email').fill(`owner-${subdomain}@example.com`);
-    await fieldInput(form, 'Owner password').fill('OwnerPass!12');
+    // ⚠️ There is no 'Owner password' field any more, deliberately: provisioning takes only
+    // name + subdomain + owner email and the owner sets their own via the set-password link.
+    // A console that types a password on the operator's behalf is the thing that was removed.
 
     const provReq = page.waitForRequest((r) => r.url().endsWith('/platform/tenants') && r.method() === 'POST');
     await form.getByRole('button', { name: 'Provision tenant' }).click();
@@ -37,6 +39,12 @@ test.describe('admin (vendor console)', () => {
     expect(subdomain).not.toBe('demo');
     const suspendReq = page.waitForRequest((r) => /\/platform\/tenants\/.+\/suspend$/.test(r.url()) && r.method() === 'POST');
     await row.getByRole('button', { name: 'Suspend' }).click();
+    // ⚠️ **Suspending demands a stated REASON (SA0) — the row button opens a form, it does not
+    // act.** Locking a school out of the product is not a one-click side effect, and the reason is
+    // recorded against the tenant. This spec used to click the row button and wait for the POST,
+    // which therefore never came: the test was asserting a bare-button flow the product removed.
+    await page.locator('#suspend-reason').fill('e2e automated check');
+    await page.getByRole('button', { name: 'Suspend tenant' }).click();
     await suspendReq;
     const rowSuspended = page.locator('tbody tr', { hasText: subdomain });
     await expect(rowSuspended.locator('.badge')).toContainText('suspended');

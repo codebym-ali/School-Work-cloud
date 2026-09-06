@@ -1,4 +1,19 @@
-import { purgeTenant, type RawSqlClient } from '@database';
+/**
+ * ⚠️ **Deep import, deliberately — do not "tidy" this back to the `@database` barrel.**
+ *
+ * The barrel re-exports `database.module`, which pulls in `prisma.service` and its NestJS
+ * **parameter decorator** (`constructor(@Inject(ENV) env: Env)`). Playwright's TypeScript loader
+ * cannot parse those, so importing the barrel here made the e2e `globalTeardown` die with
+ * `SyntaxError: Decorators cannot be used to decorate parameters` on **every run** — reported only
+ * as "1 error was not a part of any test", which is easy to read past. The result was that the
+ * cleanup written to stop test debris accumulating in the operator's demo tenant had silently
+ * stopped running (the failure that once had the dashboard reporting 71 unmarked registers, 67 of
+ * them ours).
+ *
+ * `tenant-purge.ts` has **no imports at all**, so naming it directly keeps the single shared copy of
+ * the FK-graph walk — no duplication — while staying parseable outside Nest. ts-jest is unaffected.
+ */
+import { purgeTenant, type RawSqlClient } from '@database/tenant-purge';
 
 export type { RawSqlClient };
 

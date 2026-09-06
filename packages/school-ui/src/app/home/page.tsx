@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { api, type AdmissionsSummary, type CheckInState, type CoverRow, type HrSummary, type MyCover, type MyTimetable, type MyUnmarkedRegisters, type NotificationItem, type TimetableSlot } from '@sw/api-client';
+import { api, type AdmissionsSummary, type CheckInState, type CoverRow, type HrSummary, type MyCover, type MyTimetable, type MyUnmarkedRegisters, type NotificationItem, type Payslip, type StaffAttendanceSummary, type StaffLeave, type TimetableSlot } from '@sw/api-client';
 import { useMe } from '@sw/session';
 import { canReach, homeSections } from '@sw/roles';
 import { DAY_NAMES, Metric, MetricLink, sectionLabel, todayDow } from '@sw/ui';
@@ -40,35 +40,53 @@ export default function TeacherHome() {
   // The other hats she wears (Role-Based Home Dashboard Plan, Phase 1).
   const [adm, setAdm] = useState<AdmissionsSummary | null>(null);
   const [hr, setHr] = useState<HrSummary | null>(null);
-
-  async function load() {
-    // Each fails silently and independently: a home screen that goes blank because one of three
-    // rollups was denied is worse than a home screen missing one card.
-    api.timetable.mine().then(setTimetable).catch(() => setTimetable({ as: 'NONE', academicYearId: '', slots: [] }));
-    api.notifications.list().then((r) => setItems(r.items)).catch(() => {});
-    api.staff.checkInState().then(setCheckIn).catch(() => {});
-    api.cover.mine().then(setCover).catch(() => {});
-    api.staff.myUnmarkedRegisters().then(setUnmarkedMine).catch(() => {});
-  }
-  useEffect(() => { load(); }, []);
+  // A plain staff member's own day (Phase 3).
+  const [myAtt, setMyAtt] = useState<StaffAttendanceSummary | null>(null);
+  const [myLeaves, setMyLeaves] = useState<StaffLeave[] | null>(null);
+  const [myPayslips, setMyPayslips] = useState<Payslip[] | null>(null);
 
   /**
    * One section per hat. `homeSections` states the rule (and the order); this only fetches.
    *
-   * ⚠️ **Asked for only when she holds the role.** Both rollups are role-gated on the API, so
-   * firing them for a plain teacher would mean two guaranteed 403s on every home load — and the
+   * ⚠️ **Asked for only when the person holds the role.** The rollups are role-gated on the API, so
+   * firing them for a plain teacher would mean guaranteed 403s on every home load — and the
    * single-role screen has to stay exactly as it was, down to the network tab. The API remains the
    * enforcement point; this gate is about not making pointless requests, never about security.
+   *
+   * Declared above `load` so the teaching fetches can honour it too: since Phase 3 this screen also
+   * serves people who do not teach, and `/cover/mine` and the timetable are not theirs to ask for.
    */
   const sections = homeSections(me?.roles);
+  const showTeaching = sections.includes('TEACHING');
   const showAdmissions = sections.includes('ADMISSIONS');
   const showHr = sections.includes('HR');
+  const showMyDay = sections.includes('MY_DAY');
+
+  async function load() {
+    // Each fails silently and independently: a home screen that goes blank because one of three
+    // rollups was denied is worse than a home screen missing one card.
+    api.notifications.list().then((r) => setItems(r.items)).catch(() => {});
+    // Check-in is NOT teaching — it is the one thing every member of staff does every morning, and
+    // for a driver or an office assistant it is the whole reason this screen exists.
+    api.staff.checkInState().then(setCheckIn).catch(() => {});
+    if (!showTeaching) return;
+    api.timetable.mine().then(setTimetable).catch(() => setTimetable({ as: 'NONE', academicYearId: '', slots: [] }));
+    api.cover.mine().then(setCover).catch(() => {});
+    api.staff.myUnmarkedRegisters().then(setUnmarkedMine).catch(() => {});
+  }
+  useEffect(() => { load(); }, [showTeaching]);
+
   useEffect(() => {
     // Same fail-silent contract as above: a denied or slow rollup hides its own section and leaves
     // the rest of the page alone.
     if (showAdmissions) api.admissions.summary().then(setAdm).catch(() => {});
     if (showHr) api.hr.summary().then(setHr).catch(() => {});
-  }, [showAdmissions, showHr]);
+    if (showMyDay) {
+      api.staff.myAttendanceSummary().then(setMyAtt).catch(() => {});
+      api.staffLeaves.mine().then((r) => setMyLeaves(r.data)).catch(() => {});
+      api.payslips.mine().then(setMyPayslips).catch(() => {});
+    }
+  }, [showAdmissions, showHr, showMyDay]);
 
   const dow = todayDow();
   const today = (timetable?.slots ?? []).filter((s) => s.dayOfWeek === dow).sort((a, b) => a.periodNo - b.periodNo);
@@ -104,6 +122,7 @@ export default function TeacherHome() {
   // thing better — it names the class and links straight to it. Two versions of one message on one
   // screen is how a list of alerts stops being read.
   const needsYou = items.filter((i) => i.kind !== 'REGISTER_UNMARKED');
+  const pendingLeaves = (myLeaves ?? []).filter((l) => l.status === 'PENDING').length;
 
   /**
    * **The other hats' urgent work, in one strip** — so a multi-hat person does not have to remember
@@ -196,8 +215,12 @@ export default function TeacherHome() {
         </div>
       )}
 
-      {/* ── The one loud thing on the page ── */}
-      {coverNow ? (
+      {/* ── The one loud thing on the page ── TEACHING only since Phase 3.
+          ⚠️ Ungated, this whole chain falls through to "No timetable has been set for you yet" with
+          an *Open attendance* button — and `/attendance` is TEACHER-gated, so a driver or an office
+          assistant would have landed on a home whose single call to action dead-ends on "Not
+          authorized". Their equivalent is the "Your day" card below. */}
+      {showTeaching && (coverNow ? (
         <div className="now">
           <p className="eyebrow">Covering{coverNow.periodNo ? ` · Period ${coverNow.periodNo}` : ' · all day'}</p>
           <p className="headline">{coverNow.section.class.name}-{coverNow.section.name}</p>
@@ -258,9 +281,9 @@ export default function TeacherHome() {
           </p>
           <Link className="cta" href="/attendance">Open attendance</Link>
         </div>
-      )}
+      ))}
 
-      {(rest.length > 0 || covering.length > 1 || (coverNow && today.length > 0)) && (
+      {showTeaching && (rest.length > 0 || covering.length > 1 || (coverNow && today.length > 0)) && (
         <div className="card">
           <div className="section-title">Later today</div>
           <ul className="day-rail">
@@ -288,13 +311,43 @@ export default function TeacherHome() {
         </div>
       )}
 
+      {/*
+        * ── Phase 3: the person who does not teach ──────────────────────────────────────────────
+        * A plain staff member — the office assistant, the driver, the lab attendant — had no home
+        * at all and landed straight in `/my-attendance`. This is their equivalent of the teacher's
+        * "now" card: the four things about their own day, each walking into the screen that holds
+        * the detail. Every source is self-scoped, so it needs no new endpoint and no new permission.
+        */}
+      {showMyDay && (
+        <div className="card">
+          <div className="section-title">Your day</div>
+          <div className="grid">
+            {/* `alert` only while the morning's one action is still outstanding — a tile that shouts
+                after you have already checked in teaches people to ignore it. */}
+            <MetricLink
+              label="Today"
+              value={checkIn?.today ? 'Checked in' : checkIn?.nonWorkingDay ? 'Day off' : 'Not in yet'}
+              href="/my-attendance"
+              alert={!!checkIn?.enabled && !checkIn.nonWorkingDay && !checkIn.today}
+            />
+            <MetricLink
+              label="Attendance this month"
+              value={myAtt?.percent != null ? `${myAtt.percent}%` : '—'}
+              href="/my-attendance"
+            />
+            <MetricLink label="Leave requests pending" value={pendingLeaves} href="/my-leaves" alert={pendingLeaves > 0} />
+            <MetricLink label="Payslips" value={myPayslips?.length ?? 0} href="/my-payslips" />
+          </div>
+        </div>
+      )}
+
         </div>
 
         <div className="home-side">
       {/* The rest of the day's registers. Computed since T2 and shown NOWHERE — the card above
           only counted them ("2 more registers after this"), so the teacher could see that more
           existed and not what they were. One tap each, same as the first. */}
-      {restUnmarked.length > 0 && (
+      {showTeaching && restUnmarked.length > 0 && (
         <div className="card">
           <div className="section-title">Also today</div>
           <ul className="day-rail">

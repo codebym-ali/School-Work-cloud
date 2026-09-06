@@ -127,7 +127,8 @@ export const NAV: NavItem[] = [
   // - they are tab-bar destinations - while still being IN `NAV`, which is what makes
   // `navItemFor` role-gate them. Leaving them out entirely would have made both routes reachable
   // by every signed-in role, since the shell treats an unknown path as unrestricted.
-  { href: '/home', label: 'Home', icon: 'home', group: 'My Portal', roles: ['TEACHER'], hidden: true },
+  // STAFF added 2026-09-06 (Phase 3): a non-teaching staff member had NO home at all.
+  { href: '/home', label: 'Home', icon: 'home', group: 'My Portal', roles: ['TEACHER', 'STAFF'], hidden: true },
   { href: '/me-more', label: 'More', icon: 'profile', group: 'My Portal', roles: ['TEACHER'], hidden: true },
 
   { href: '/me', label: 'My Dashboard', icon: 'home', group: 'My Portal', roles: ['STUDENT'] },
@@ -202,7 +203,10 @@ const ROLE_INFO: { role: Role; label: string; landing: string; title?: string }[
   // Landing moved from `/attendance` to `/home` 2026-08-08 (Teacher Mobile Home Plan 7.2).
   // `/attendance` is a work screen - it opened cold, with no idea which section was wanted.
   { role: 'TEACHER', label: 'Teacher', landing: '/home' },
-  { role: 'STAFF', label: 'Staff', landing: '/my-attendance' },
+  // Landing moved from `/my-attendance` to `/home` 2026-09-06 (Phase 3) — same reasoning as the
+  // teacher's move off `/attendance`: a records screen is where you go to look something up, not
+  // where a working day should start.
+  { role: 'STAFF', label: 'Staff', landing: '/home' },
   // Parent portal removed 2026-07-28 (see Key Decisions). Parents have no logins and no
   // screens; landing on the admin-gated dashboard yields the shell's "Not authorized" card,
   // which is truthful, instead of a 404 on a deleted route.
@@ -391,6 +395,54 @@ export function usesTeacherShell(roles: string[] | undefined): boolean {
   return r.includes('TEACHER') && !r.some((x) => (ADMIN_SHELL_ROLES as readonly string[]).includes(x));
 }
 
+/**
+ * Roles that come with a job of their own, and therefore a screen of their own to run it from.
+ * Someone holding any of these keeps the administrator's grouped sidebar even if they are also on
+ * the payroll as STAFF.
+ */
+const JOB_ROLES: readonly Role[] = [
+  'OWNER_ADMIN', 'OPERATIONS_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT',
+  'ADMISSION_CONTROLLER', 'HR_MANAGER', 'TEACHER',
+];
+
+/**
+ * A **plain** staff member: on the payroll, with no second job in the system — the office assistant,
+ * the driver, the lab attendant, the guard.
+ *
+ * ⚠️ **Deliberately narrow.** An ACCOUNTANT or HR_MANAGER who also carries STAFF must NOT be swept
+ * in here: they have a dashboard and a job to run, and flipping their shell and their landing page
+ * would be a regression for people who are working fine today. Only someone with *nothing but*
+ * STAFF qualifies, which is exactly the person Phase 3 is about.
+ */
+export function isPlainStaff(roles: string[] | undefined): boolean {
+  const r = roles ?? [];
+  return r.includes('STAFF') && !r.some((x) => (JOB_ROLES as readonly string[]).includes(x));
+}
+
+/**
+ * Who gets the **personal shell** — the compact one built around a person's own day (a short flat
+ * rail, Profile pinned at the foot, a phone tab bar) rather than the administrator's grouped filing
+ * system (Role-Based Home Dashboard Plan, Phase 3).
+ *
+ * ⚠️ **Plain staff had no home at all, and could not have been given one without this.** `/home` is
+ * `hidden` in `NAV` so the phone bar can own it, so on the admin sidebar it renders nowhere: a staff
+ * member landing there would have had no link back to the screen they start on — the exact T0
+ * regression that created the teacher shell ("landed on Home, clicked anything, and could only get
+ * back with the browser's back button"). The personal rail lists `/home` explicitly, so giving them
+ * the shell and giving them the home are one decision, not two.
+ *
+ * Their rail comes out short and correct on its own: `teacherSidebarNav` flattens `groupedNav` minus
+ * `My Portal`, and a plain staff member's only entries ARE `My Portal` — so they get **Home** and the
+ * pinned **Profile**, with their attendance, leaves and payslips inside it. `tabsFor` likewise
+ * reduces to Home + More, because the other two tabs are `canReach`-filtered away.
+ *
+ * The brand still reads "Staff", not "Teacher": `panelLabel` keys off `usesTeacherShell`, which this
+ * deliberately does not widen.
+ */
+export function usesPersonalShell(roles: string[] | undefined): boolean {
+  return usesTeacherShell(roles) || isPlainStaff(roles);
+}
+
 /** Tabs this user can actually open. `/home` and `/me-more` are teacher-only routes with no NAV
  *  entry of their own, so they pass through; the rest face the same gate as the sidebar. */
 export function tabsFor(roles: string[] | undefined, admissionsMode?: AdmissionsMode) {
@@ -411,12 +463,15 @@ export function tabsFor(roles: string[] | undefined, admissionsMode?: Admissions
  * and an owner or campus admin keeps the ADMIN shell (`usesTeacherShell`) and its own `/dashboard`.
  * Adding a section later is one row plus its card — never an `if` in the page.
  */
-export type HomeSection = 'TEACHING' | 'ADMISSIONS' | 'HR';
+export type HomeSection = 'TEACHING' | 'ADMISSIONS' | 'HR' | 'MY_DAY';
 
 const HOME_SECTIONS: { key: HomeSection; roles: Role[] }[] = [
   { key: 'TEACHING', roles: ['TEACHER'] },
   { key: 'ADMISSIONS', roles: ['ADMISSION_CONTROLLER'] },
   { key: 'HR', roles: ['HR_MANAGER'] },
+  // Phase 3: the non-teaching staff member's own day — check-in, attendance, leaves, payslips.
+  // Last by design: for anyone who also teaches, the register closes today and this does not.
+  { key: 'MY_DAY', roles: ['STAFF'] },
 ];
 
 /**

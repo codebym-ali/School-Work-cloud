@@ -58,4 +58,60 @@ test.describe('home — divided by role', () => {
       await apiSetupDelete(page, `/users/${created.id}`);
     }
   });
+
+  /**
+   * Phase 3 — the person who does not teach.
+   *
+   * A plain staff member (office assistant, driver, lab attendant) had **no home at all**: `/home`
+   * was TEACHER-only, so they landed straight in `/my-attendance`. The trap this guards is that
+   * simply granting them `/home` would have handed them the teacher's card — whose only call to
+   * action is *Open attendance*, a TEACHER-gated screen — i.e. a home that dead-ends.
+   */
+  test('a staff member who does not teach gets their own day, not a teacher’s', async ({ page, browser }) => {
+    await gotoApp(page);
+    const ts = Date.now();
+    const email = `plainstaff-${ts}@e2e.local`;
+    const password = 'PlainStaff!Secret12';
+    const campuses = await apiSetupGet<{ id: string }[]>(page, '/campuses');
+    const created = await apiSetupPost<{ id: string }>(page, '/users', {
+      email, password, roles: ['STAFF'], campusId: campuses[0].id,
+    });
+
+    try {
+      const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, baseURL: 'http://localhost:3006' });
+      const him = await ctx.newPage();
+      try {
+        await him.goto('/login');
+        await him.getByLabel('Email').fill(email);
+        await him.getByLabel('Password').fill(password);
+        await him.getByRole('button', { name: /sign in/i }).click();
+        await him.waitForURL((u) => !u.pathname.endsWith('-login') && u.pathname !== '/login');
+
+        // He lands on a HOME now, not in the middle of a records screen.
+        await expect(him).toHaveURL(/\/home$/);
+
+        // The personal shell, but branded as himself — `panelLabel` was deliberately not widened,
+        // so a driver is never told he is a Teacher.
+        await expect(him.locator('.sidebar .brand')).toContainText('Staff');
+        await expect(him.locator('.sidebar .role-chip', { hasText: 'Staff' })).toBeVisible();
+        // …and the rail lists Home, so he can always get back to where he started (the T0 bug).
+        await expect(him.locator('.sidebar').getByRole('link', { name: 'Home', exact: true })).toBeVisible();
+        await expect(him.locator('.sidebar').getByRole('link', { name: 'Profile', exact: true })).toBeVisible();
+
+        // ⚠️ No teacher card: its only button opens `/attendance`, which he may not use.
+        await expect(him.locator('.now')).toHaveCount(0);
+        await expect(him.getByRole('link', { name: 'Open attendance' })).toHaveCount(0);
+
+        // His own day instead — and it walks into the screen holding the detail.
+        await expect(him.locator('.section-title', { hasText: 'Your day' })).toBeVisible();
+        await expect(him.getByText('Attendance this month')).toBeVisible();
+        await him.getByText('Leave requests pending').click();
+        await him.waitForURL('**/my-leaves');
+      } finally {
+        await ctx.close().catch(() => undefined);
+      }
+    } finally {
+      await apiSetupDelete(page, `/users/${created.id}`);
+    }
+  });
 });

@@ -1,7 +1,7 @@
 ---
 title: Role-Based Home — divide the dashboard by the hats a person wears
 type: plan
-status: Phase 1 SHIPPED 2026-09-06 · Phases 2–3 optional/deferred
+status: Phases 1 + 3 SHIPPED 2026-09-06 · Phase 2 deferred (optional)
 updated: 2026-09-06
 ---
 
@@ -125,7 +125,29 @@ Already sectioned by area (Academics & Enrollment / Finance / Communication) and
 so a multi-hat *admin* is mostly served. Revisit only if an admin reports the same complaint; do not
 re-cut a working screen for symmetry.
 
-**Phase 3 — plain `STAFF` have no home at all** *(open question, not scoped here)*
+**Phase 3 — plain `STAFF` have no home at all** ✅ **SHIPPED 2026-09-06**
+> **The two decisions turned out to be one.** `/home` is `hidden` in `NAV` so the phone bar can own
+> it, which means it renders NOWHERE on the admin sidebar — so granting a staff member the route
+> without also giving them the personal shell would have landed them on a screen with **no link back
+> to it**: precisely the T0 regression that created the teacher shell. Hence `usesPersonalShell =
+> usesTeacherShell || isPlainStaff`, and the layout switched to it.
+>
+> `isPlainStaff` is **deliberately narrow** — STAFF *and none of* OWNER/OPS/CAMPUS_ADMIN/ACCOUNTANT/
+> ADMISSION_CONTROLLER/HR_MANAGER/TEACHER. Someone who carries STAFF alongside a real job already has
+> a dashboard, and flipping their shell and landing page would regress people working fine today.
+>
+> ⚠️ **The trap: granting `/home` alone would have dead-ended them.** Ungated, the teacher card
+> chain falls through to "No timetable has been set for you yet" with an *Open attendance* button —
+> and `/attendance` is TEACHER-gated. So the teaching cards (and their fetches, incl. `/cover/mine`)
+> are now `showTeaching`-gated, and a `MY_DAY` section gives them their own four things instead:
+> today's check-in, attendance this month, pending leave requests, payslips. All self-scoped
+> endpoints — again no new API and no new permission. Their rail comes out as **Home + Profile** on
+> its own, because a plain staff member's only nav entries are `My Portal`, which Profile now owns.
+>
+> `panelLabel` was deliberately **not** widened, so the brand still reads "Staff" — a driver is never
+> told he is a Teacher.
+
+*(Original open question, kept for context:)*
 `/home` is `roles: ['TEACHER']`; a non-teaching staff member lands on `/my-attendance`. If Phase 1 lands
 well, giving STAFF the same sectioned home is the natural follow-up — decide after Phase 1.
 

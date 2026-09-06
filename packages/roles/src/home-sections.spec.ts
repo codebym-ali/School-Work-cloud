@@ -1,4 +1,4 @@
-import { homeSections, roleLabels } from './index';
+import { canReach, homeSections, isPlainStaff, landingPath, panelLabel, roleLabels, usesPersonalShell } from './index';
 
 /**
  * The rules behind the divided home (Role-Based Home Dashboard Plan, Phase 1) and the role chips.
@@ -58,5 +58,48 @@ describe('roleLabels — every hat, in human words', () => {
   it('prettifies an unknown role rather than dropping it', () => {
     // A role missing from the one place that states your identity is worse than an imperfect label.
     expect(roleLabels(['TEACHER', 'SOME_FUTURE_ROLE'])).toEqual(['Teacher', 'Some Future Role']);
+  });
+});
+
+/**
+ * Phase 3 — the person who does not teach.
+ *
+ * A plain staff member (office assistant, driver, lab attendant) had **no home at all**: `/home` was
+ * TEACHER-only, so they landed straight in `/my-attendance`, a records screen. Giving them a home
+ * and giving them the personal shell had to be ONE decision — `/home` is `hidden` in `NAV`, so on
+ * the admin sidebar it renders nowhere and they would have landed on a screen with no link back.
+ */
+describe('plain staff get a home of their own', () => {
+  it('is narrow: only someone with NOTHING but STAFF qualifies', () => {
+    expect(isPlainStaff(['STAFF'])).toBe(true);
+    // ⚠️ These people have a job and a dashboard already. Sweeping them in would flip their shell
+    // and their landing page — a regression for people working fine today.
+    expect(isPlainStaff(['STAFF', 'ACCOUNTANT'])).toBe(false);
+    expect(isPlainStaff(['STAFF', 'TEACHER'])).toBe(false);
+    expect(isPlainStaff(['STAFF', 'HR_MANAGER'])).toBe(false);
+    expect(isPlainStaff(['TEACHER'])).toBe(false);
+  });
+
+  it('gives them the personal shell, and leaves everyone else’s shell alone', () => {
+    expect(usesPersonalShell(['STAFF'])).toBe(true);
+    expect(usesPersonalShell(['TEACHER'])).toBe(true);
+    expect(usesPersonalShell(['OWNER_ADMIN'])).toBe(false);
+    expect(usesPersonalShell(['ACCOUNTANT'])).toBe(false);
+    // Holds STAFF but also a job → keeps the administrator's grouped sidebar.
+    expect(usesPersonalShell(['STAFF', 'ACCOUNTANT'])).toBe(false);
+  });
+
+  it('starts their day on Home, not in a records screen', () => {
+    expect(canReach(['STAFF'], '/home')).toBe(true);
+    expect(landingPath(['STAFF'])).toBe('/home');
+    // ⚠️ The brand must still say Staff. `panelLabel` keys off `usesTeacherShell`, which Phase 3
+    // deliberately did NOT widen — else a driver's sidebar would call him a Teacher.
+    expect(panelLabel(['STAFF'])).toBe('Staff');
+  });
+
+  it('shows them their own day, and a teacher-who-is-also-staff both jobs in order', () => {
+    expect(homeSections(['STAFF'])).toEqual(['MY_DAY']);
+    // Teaching still leads: the register closes today, the payslip does not.
+    expect(homeSections(['STAFF', 'TEACHER'])).toEqual(['TEACHING', 'MY_DAY']);
   });
 });

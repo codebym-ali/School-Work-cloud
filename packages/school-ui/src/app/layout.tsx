@@ -9,7 +9,7 @@ import { MeContext } from '@sw/session';
 import { CampusLensContext, CAMPUS_LENS_KEY } from '@sw/session';
 import type { Campus } from '@sw/api-client';
 import { NotificationBell } from '@school/components/notification-bell';
-import { groupedNav, hasAnyRole, isSchoolWideAdmin, navItemFor, panelLabel, roleLabels, usesTeacherShell, MFA_REQUIRED_ROLES } from '@sw/roles';
+import { groupedNav, hasAnyRole, isSchoolWideAdmin, navItemFor, panelLabel, roleLabels, usesPersonalShell, MFA_REQUIRED_ROLES } from '@sw/roles';
 import { TeacherSidebarNav, TeacherTabs } from '@school/components/teacher-tabs';
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
@@ -104,8 +104,14 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
    * destinations at every width — as a bottom bar under 720px, as a short sidebar above it. It
    * used to swap only the phone half, so a teacher on a laptop got the administrator's eight-link
    * menu **with no `/home` in it at all**, and could not navigate back to the screen they land on.
+   *
+   * ⚠️ **`usesPersonalShell`, not `usesTeacherShell`, since Phase 3** — plain staff (the office
+   * assistant, the driver) get this shell too. They had no home at all, and could not be given one
+   * on the admin sidebar, where `/home` is `hidden` and so renders nowhere: they would have landed
+   * on a screen with no link back to it. The variable keeps its name because the CSS hook
+   * (`has-tabbar`) and the components are the teacher shell's; the audience is simply wider now.
    */
-  const teacherShell = usesTeacherShell(me.roles);
+  const teacherShell = usesPersonalShell(me.roles);
 
   // The lens: a school-wide admin (owner or ops deputy) chooses; everyone else is fixed to their own
   // campus (null for a single-campus school = "all", the same one campus). Shown only on a real choice.

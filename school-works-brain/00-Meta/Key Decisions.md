@@ -846,5 +846,11 @@ with a newly installed app. Fixed with a root page that resolves to `landingPath
 rule the sign-in form uses, so the front door and the door after login cannot disagree — and a new
 `start_url actually resolves` assertion, because a manifest can be perfectly valid and point at nothing.
 
-⚠️ **Still open: `owner-web` has the identical `/` 404** (`superadmin-web` and `student-web` both have
-root pages). Not fixed here only because owner-web was out of scope for the manifest work.
+✅ **`owner-web` had the identical `/` 404 — fixed same day**, with the same root page resolving to
+`landingPath(me.roles)`. **The bug shipping twice is the point:** the split turned one front door into
+five, and a 404 on one of them is invisible from inside any of the others, because every link in the
+product is deep. So it is now a gate rather than a memory — `test/e2e/app-roots.spec.ts` asks all five
+apps for their bare origin, one request each, no session. It asserts **not-404 rather than content**:
+each root legitimately differs (marketing paints a page, the portal a dashboard, owner/staff redirect),
+and pinning content would duplicate the specs that own those screens and break whenever a landing page
+moved — which is a decision, not a regression.

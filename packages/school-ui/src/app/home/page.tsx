@@ -2,9 +2,10 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { api, type CheckInState, type CoverRow, type MyCover, type MyTimetable, type MyUnmarkedRegisters, type NotificationItem, type TimetableSlot } from '@sw/api-client';
+import { api, type AdmissionsSummary, type CheckInState, type CoverRow, type HrSummary, type MyCover, type MyTimetable, type MyUnmarkedRegisters, type NotificationItem, type TimetableSlot } from '@sw/api-client';
 import { useMe } from '@sw/session';
-import { DAY_NAMES, sectionLabel, todayDow } from '@sw/ui';
+import { canReach, homeSections } from '@sw/roles';
+import { DAY_NAMES, Metric, MetricLink, sectionLabel, todayDow } from '@sw/ui';
 
 /**
  * The teacher's home (Teacher Mobile Home Plan, M1).
@@ -36,6 +37,9 @@ export default function TeacherHome() {
   const [unmarkedMine, setUnmarkedMine] = useState<MyUnmarkedRegisters | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  // The other hats she wears (Role-Based Home Dashboard Plan, Phase 1).
+  const [adm, setAdm] = useState<AdmissionsSummary | null>(null);
+  const [hr, setHr] = useState<HrSummary | null>(null);
 
   async function load() {
     // Each fails silently and independently: a home screen that goes blank because one of three
@@ -47,6 +51,24 @@ export default function TeacherHome() {
     api.staff.myUnmarkedRegisters().then(setUnmarkedMine).catch(() => {});
   }
   useEffect(() => { load(); }, []);
+
+  /**
+   * One section per hat. `homeSections` states the rule (and the order); this only fetches.
+   *
+   * ⚠️ **Asked for only when she holds the role.** Both rollups are role-gated on the API, so
+   * firing them for a plain teacher would mean two guaranteed 403s on every home load — and the
+   * single-role screen has to stay exactly as it was, down to the network tab. The API remains the
+   * enforcement point; this gate is about not making pointless requests, never about security.
+   */
+  const sections = homeSections(me?.roles);
+  const showAdmissions = sections.includes('ADMISSIONS');
+  const showHr = sections.includes('HR');
+  useEffect(() => {
+    // Same fail-silent contract as above: a denied or slow rollup hides its own section and leaves
+    // the rest of the page alone.
+    if (showAdmissions) api.admissions.summary().then(setAdm).catch(() => {});
+    if (showHr) api.hr.summary().then(setHr).catch(() => {});
+  }, [showAdmissions, showHr]);
 
   const dow = todayDow();
   const today = (timetable?.slots ?? []).filter((s) => s.dayOfWeek === dow).sort((a, b) => a.periodNo - b.periodNo);
@@ -82,6 +104,33 @@ export default function TeacherHome() {
   // thing better — it names the class and links straight to it. Two versions of one message on one
   // screen is how a list of alerts stops being read.
   const needsYou = items.filter((i) => i.kind !== 'REGISTER_UNMARKED');
+
+  /**
+   * **The other hats' urgent work, in one strip** — so a multi-hat person does not have to remember
+   * to go looking for her second and third jobs (Role-Based Home Dashboard Plan, Phase 1).
+   *
+   * ⚠️ **Teaching is deliberately NOT chipped here, though it is the loudest job on this screen.**
+   * The card above already names the exact register and links to it, and this file's own rule is
+   * that "two versions of one message on one screen is how a list of alerts stops being read" — the
+   * reason `REGISTER_UNMARKED` is filtered out of "Needs you" just above. So the strip carries the
+   * work that currently has NO representation on this page, and teaching keeps the better treatment
+   * it already has. A single-hat teacher therefore sees no strip at all: unchanged, as required.
+   *
+   * ⚠️ **`canReach`-filtered.** The owner dashboard shipped a tile that sent a campus admin to an
+   * owner-only screen and dead-ended on "Not authorized" (#2a). A task you cannot open is worse than
+   * a task you were not shown.
+   */
+  const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+  const otherHats = [
+    ...(adm ? [
+      { n: adm.testsToday, text: `${plural(adm.testsToday, 'entry test', 'entry tests')} today`, href: '/admissions' },
+      { n: adm.totals.readyToAdmit, text: `${plural(adm.totals.readyToAdmit, 'applicant', 'applicants')} ready to admit`, href: '/admissions' },
+    ] : []),
+    ...(hr ? [
+      { n: hr.needsSetup.length, text: `${plural(hr.needsSetup.length, 'staff member needs', 'staff need')} setup`, href: '/staff' },
+      { n: hr.coverageGaps.length, text: `${plural(hr.coverageGaps.length, 'subject has', 'subjects have')} no teacher`, href: '/staff' },
+    ] : []),
+  ].filter((c) => c.n > 0 && canReach(me?.roles, c.href, me?.admissionsMode));
   const firstName = (me?.email ?? '').split('@')[0].split('.')[0];
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
@@ -110,6 +159,19 @@ export default function TeacherHome() {
       </div>
 
       {msg && <div className="toast ok">{msg}</div>}
+
+      {/* Above the fold and above the grid: at 07:50 the question is "what must I do today?", not
+          "what must I do today as a teacher?" — she is one person with one morning. */}
+      {otherHats.length > 0 && (
+        <div className="card">
+          <div className="section-title">Needs you today</div>
+          <div className="chips">
+            {otherHats.map((c) => (
+              <Link key={`${c.href}-${c.text}`} className="chip" href={c.href}>{c.text} →</Link>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Two columns above 1024px, one below — same cards either way. The measured problem was a
           1164px-wide "now" card with 474px of empty viewport under it: a phone component stretched
@@ -273,6 +335,44 @@ export default function TeacherHome() {
       )}
         </div>
       </div>
+
+      {/*
+        * ── The other hats ──────────────────────────────────────────────────────────────────────
+        * Below the teaching grid, in `homeSections` order. Each renders only once its own rollup
+        * has resolved, so a denied or slow one is simply absent rather than an empty heading that
+        * reads as a fault — and a single-role teacher renders neither, leaving this screen exactly
+        * as it was for the ~90% who wear one hat.
+        *
+        * `MetricLink` where there are rows behind the number, `Metric` where there are not: a tile
+        * that lifts under the cursor and then does nothing teaches people to stop trying the ones
+        * that work. `alert` is reserved for a number that wants a person TODAY.
+        */}
+      {showAdmissions && adm && (
+        <div className="card">
+          <div className="section-title">Admissions</div>
+          <div className="grid">
+            <MetricLink label="Open inquiries" value={adm.totals.open} href="/admissions" />
+            <MetricLink label="Entry tests today" value={adm.testsToday} href="/admissions" alert={adm.testsToday > 0} />
+            <MetricLink label="Ready to admit" value={adm.totals.readyToAdmit} href="/admissions" alert={adm.totals.readyToAdmit > 0} />
+            {/* A closed count, not a queue — nothing to walk into, so it does not pretend to link. */}
+            <Metric label="Admitted this month" value={adm.admittedThisMonth} />
+          </div>
+        </div>
+      )}
+
+      {showHr && hr && (
+        <div className="card">
+          <div className="section-title">HR</div>
+          <div className="grid">
+            <MetricLink label="Staff on the books" value={hr.headcount} href="/staff" />
+            <Metric label="Joined this month" value={hr.joinersThisMonth} />
+            {/* Both of these name a person or a class that is currently stuck, which is the whole
+                reason an HR manager opens this screen at all. */}
+            <MetricLink label="Needs setup" value={hr.needsSetup.length} href="/staff" alert={hr.needsSetup.length > 0} />
+            <MetricLink label="Subjects with no teacher" value={hr.coverageGaps.length} href="/staff" alert={hr.coverageGaps.length > 0} />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

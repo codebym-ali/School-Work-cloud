@@ -9,6 +9,10 @@ const base = {
     '^@common/(.*)$': '<rootDir>/libs/common/src/$1',
     '^@database$': '<rootDir>/libs/database/src',
     '^@database/(.*)$': '<rootDir>/libs/database/src/$1',
+    // The shared front-end packages (Front-End Instance Separation Plan). They had NO unit
+    // coverage at all after the split — the pure rules that decide the nav and the role sections
+    // live here now, and they are the cheapest things in the app to test.
+    '^@sw/(.*)$': '<rootDir>/packages/$1/src',
   },
   transform: {
     '^.+\\.ts$': ['ts-jest', { tsconfig: '<rootDir>/tsconfig.spec.json' }],
@@ -22,7 +26,7 @@ module.exports = {
       displayName: 'unit',
       // Two explicit patterns rather than a `{apps,libs}` brace — brace expansion in
       // testMatch is unreliable across OS path separators (matches 0 tests on Windows).
-      testMatch: ['<rootDir>/apps/**/*.spec.ts', '<rootDir>/libs/**/*.spec.ts'],
+      testMatch: ['<rootDir>/apps/**/*.spec.ts', '<rootDir>/libs/**/*.spec.ts', '<rootDir>/packages/**/*.spec.ts'],
     },
     {
       ...base,

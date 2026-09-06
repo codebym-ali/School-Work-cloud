@@ -399,6 +399,52 @@ export function tabsFor(roles: string[] | undefined, admissionsMode?: Admissions
 }
 
 /**
+ * The sections of `/home`, one per hat the person wears (Role-Based Home Dashboard Plan, Phase 1).
+ *
+ * ⚠️ **`/home` was a single-role screen and multi-hat staff are normal here.** A teacher who also
+ * ran admissions and HR saw only teacher work — her entry test today and her HR queue were invisible
+ * until she remembered to go and click those screens, and on a day with no timetable the page told
+ * her "Nothing scheduled" while she had two other jobs. A home that under-reports work is worse than
+ * no home, because it is trusted.
+ *
+ * Only roles that can actually co-occur with TEACHER appear here: `/home` is `roles: ['TEACHER']`,
+ * and an owner or campus admin keeps the ADMIN shell (`usesTeacherShell`) and its own `/dashboard`.
+ * Adding a section later is one row plus its card — never an `if` in the page.
+ */
+export type HomeSection = 'TEACHING' | 'ADMISSIONS' | 'HR';
+
+const HOME_SECTIONS: { key: HomeSection; roles: Role[] }[] = [
+  { key: 'TEACHING', roles: ['TEACHER'] },
+  { key: 'ADMISSIONS', roles: ['ADMISSION_CONTROLLER'] },
+  { key: 'HR', roles: ['HR_MANAGER'] },
+];
+
+/**
+ * Which sections this person's home shows, **in the order they should read**.
+ *
+ * ⚠️ **Ordered by urgency, NOT by `ROLE_INFO` rank.** That list orders roles by *privilege* — HR
+ * Manager outranks Teacher — and privilege is the wrong axis for a to-do list: a register is
+ * time-boxed and closes today, an HR queue is weekly. The rule is **the shell's own job leads, then
+ * `ROLE_INFO` order for the rest**. `/home` only exists in the teacher shell, so TEACHING leads; that
+ * keeps one stated rule instead of a per-person judgement, and it cannot disagree with which app she
+ * is looking at.
+ *
+ * **Held roles only, never `effectiveRoles`** — same reasoning as `roleLabels`: an Ops deputy
+ * satisfies six lower roles by hierarchy, and sprouting a Teaching section on her home would be a
+ * claim about her job rather than her permissions.
+ */
+export function homeSections(userRoles: string[] | undefined): HomeSection[] {
+  const held = new Set(userRoles ?? []);
+  const rank = (s: { key: HomeSection; roles: Role[] }) =>
+    // The shell owns TEACHING, so it leads regardless of privilege.
+    s.key === 'TEACHING' ? -1 : ROLE_INFO.findIndex((x) => s.roles.includes(x.role));
+  return HOME_SECTIONS
+    .filter((s) => s.roles.some((r) => held.has(r)))
+    .sort((a, b) => rank(a) - rank(b))
+    .map((s) => s.key);
+}
+
+/**
  * The person's OWN records — "everything related to herself" (operator, 2026-09-06).
  *
  * `My Portal` is the group `NAV` already uses for exactly this: My Attendance, My Timetable, My

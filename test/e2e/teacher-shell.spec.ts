@@ -58,6 +58,13 @@ test.describe('teacher shell', () => {
         await teacher.waitForURL((u) => !u.pathname.endsWith('-login') && u.pathname !== '/login');
         await expect(teacher).toHaveURL(/\/home$/);
 
+        // ⚠️ **A single-hat teacher's home must be exactly what it always was.** Dividing `/home`
+        // by role (Role-Based Home Dashboard Plan) is a pure ADDITION for the ~90% who wear one
+        // hat; a stray "Admissions"/"HR" heading here would mean the sections are keyed on
+        // something other than the roles she holds. The multi-hat half is `home-roles.spec.ts`.
+        await expect(teacher.locator('.section-title', { hasText: /^(Admissions|HR)$/ })).toHaveCount(0);
+        await expect(teacher.locator('.section-title', { hasText: 'Needs you today' })).toHaveCount(0);
+
         // ── T0: the full teacher menu on the desktop panel ────────────────────
         // The desktop panel now lists every screen the teacher can open directly (operator
         // 2026-09-01) — no longer a four-item stub with the rest hidden behind "More".

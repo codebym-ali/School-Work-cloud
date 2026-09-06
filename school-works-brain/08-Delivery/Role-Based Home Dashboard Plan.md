@@ -1,7 +1,7 @@
 ---
 title: Role-Based Home — divide the dashboard by the hats a person wears
 type: plan
-status: PLANNED — not built
+status: Phase 1 SHIPPED 2026-09-06 · Phases 2–3 optional/deferred
 updated: 2026-09-06
 ---
 
@@ -102,7 +102,16 @@ her sections will populate rather than 403.
 
 ## Phases
 
-**Phase 1 — `/home` becomes role-sectioned.** *(the ask; front-end only)*
+**Phase 1 — `/home` becomes role-sectioned.** ✅ **SHIPPED 2026-09-06** *(front-end only)*
+> Built as planned, with one deliberate refinement: **the "Needs you today" strip carries the OTHER
+> hats only, not teaching.** The teaching card above already names the exact register and links to
+> it, and this file's own rule is that "two versions of one message on one screen is how a list of
+> alerts stops being read" (the reason `REGISTER_UNMARKED` is filtered out of "Needs you"). So the
+> strip surfaces the work that had NO representation on the page, and teaching keeps the better
+> treatment it already had. A single-hat teacher therefore sees no strip at all — unchanged, as
+> required. Rollups are fetched **only when she holds the role**, so a plain teacher does not incur
+> two guaranteed 403s per load; the API remains the enforcement point.
+
 1. `packages/roles`: `homeSections(roles)` → the ordered section keys she qualifies for (shell role
    first, then `ROLE_INFO` order). One exported rule, unit-testable, no component knows the ordering.
 2. `packages/school-ui/src/app/home/page.tsx`: keep today's teacher cards as the **Teaching** section

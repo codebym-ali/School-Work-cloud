@@ -28,7 +28,7 @@ leaving certificate, or to know who to call when a child is hurt and the one num
 
 | Field | Why a Pakistani school needs it | Schema reality |
 |---|---|---|
-| **Photograph** | ID cards, board/registration forms, the register the class teacher actually recognises faces from | ⚠️ **`Student.photoKey` already exists** and the form never asks — a wire-up, not a migration |
+| **Photograph** | ID cards, board/registration forms, the register the class teacher actually recognises faces from | ⚠️ **Corrected 2026-09-07:** `Student.photoKey` exists but is a **dead column** — zero references in API or UI. Needs the full upload pipeline (presign → scan → promote → signed read), **not** a wire-up |
 | **Religion** | Decides **Islamiat vs Ethics** streaming; it is a printed field on provincial board forms | ❌ new column |
 | **Current/residential address** | Transport routing, leaving certificates, home visits, legal correspondence. **Absent entirely** | ❌ new column |
 | **City / district / area** | Board forms; the address is not one free-text line in practice | ❌ new column |
@@ -36,8 +36,8 @@ leaving certificate, or to know who to call when a child is hurt and the one num
 | **Mother: name · CNIC · occupation · mobile** | Increasingly required on board forms; and she is often the reachable parent | ⚠️ partly |
 | **Guardian (only if not a parent): name · relation · CNIC · contact** | Real for hostel/expat/orphan cases | ⚠️ partly |
 | **Emergency contact: name · relation · phone** | ⚠️ **Deliberately distinct from the fee-paying guardian.** When a child is injured you call whoever answers, not whoever pays | ❌ nothing models this |
-| **Admission date / date of joining** | Office-set, **not** `createdAt`: it drives fee proration and seniority, and back-dated admissions are normal | ❌ new column |
-| **Academic session being admitted into** | Mid-year admissions are the norm; the enrolment must name its year | ⚠️ enrolment has a year; the form never asks |
+| **Admission date / date of joining** | Office-set, **not** `createdAt`: it drives fee proration and seniority, and back-dated admissions are normal | ✅ **SHIPPED** — needed **no** column: `StudentEnrollment.startedAt` existed and was never settable |
+| **Academic session being admitted into** | Mid-year admissions are the norm; the enrolment must name its year | ✅ **SHIPPED** — shown on the form (not chosen: the server always uses the current year) |
 
 ### ⚠️ The guardian problem is structural, and it is the real work here
 

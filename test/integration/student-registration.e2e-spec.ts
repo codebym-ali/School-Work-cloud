@@ -91,6 +91,43 @@ describe('Student registration & roll (e2e)', () => {
     expect(dup.body.error.code).toBe('ROLL_NUMBER_TAKEN');
   });
 
+  /**
+   * The office-set joining date (Admission Form Field Gaps, Tier 1).
+   *
+   * ⚠️ **This is money, not metadata.** A back-dated admission is routine — the child started on
+   * the 1st, the office keyed it in on the 5th — and the enrolment's `startedAt` is what fee
+   * proration and seniority read. Before this it was always `now()`, so every back-dated admission
+   * silently billed from the wrong day with nothing downstream able to tell.
+   */
+  it('records a back-dated joining date on the enrolment', async () => {
+    const created = await admit({ ...student('Echo', 4, '03110000005'), admissionDate: '2026-05-10' });
+    expect(created.status).toBe(201);
+
+    const profile = await get(`/api/v1/students/${created.body.studentId}`);
+    expect(profile.status).toBe(200);
+    expect(String(profile.body.enrollments[0].startedAt).slice(0, 10)).toBe('2026-05-10');
+  });
+
+  it('defaults to today when the form does not send one', async () => {
+    // Keeps every existing caller unchanged — CSV import and the pipeline admit send nothing.
+    const created = await admit(student('Foxtrot', 5, '03110000006'));
+    expect(created.status).toBe(201);
+
+    const profile = await get(`/api/v1/students/${created.body.studentId}`);
+    const today = new Date().toISOString().slice(0, 10);
+    expect(String(profile.body.enrollments[0].startedAt).slice(0, 10)).toBe(today);
+  });
+
+  it('refuses a FUTURE joining date rather than clamping it → 422', async () => {
+    // ⚠️ Refused, not silently moved to today: a future start would open a register the student
+    // cannot be marked on and bill from a day that has not happened. Clamping would hide the
+    // keying error until it surfaced as a wrong invoice weeks later.
+    const tomorrow = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
+    const res = await admit({ ...student('Golf', 6, '03110000007'), admissionDate: tomorrow });
+    expect(res.status).toBe(422);
+    expect(res.body.error.message).toMatch(/future/i);
+  });
+
   it('shows the registration number, GR, and roll on the student profile (GET :id)', async () => {
     const created = await admit(student('Delta', 3, '03110000004'));
     const profile = await get(`/api/v1/students/${created.body.studentId}`);

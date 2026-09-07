@@ -259,6 +259,8 @@ export interface DirectAdmissionBody {
   campusId: string; classId: string; sectionId: string;
   guardian?: { mode: 'LINK' | 'CREATE'; parentId?: string; fullName?: string; phone?: string; relation: string; cnic?: string; email?: string };
   cnic?: string; ageOverride?: boolean; grNumber?: string; rollNumber?: number;
+  /** Office-set joining date (YYYY-MM-DD); defaults to today. Drives fee proration + seniority. */
+  admissionDate?: string;
 }
 export interface AdmissionResult { studentId: string; grNumber: string; registrationNo: string | null; loginProvisioned: boolean }
 export interface EntryTest { id: string; inquiryId: string; scheduledAt: string; score: string | null; remarks: string | null }

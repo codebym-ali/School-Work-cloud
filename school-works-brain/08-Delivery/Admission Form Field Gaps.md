@@ -1,7 +1,7 @@
 ---
 title: Admission Form — field gaps for Pakistani private schools
 type: analysis
-status: ANALYSED 2026-09-06 · nothing built
+status: ANALYSED 2026-09-06 · Tier 1 quick win (joining date + session) SHIPPED 2026-09-07
 updated: 2026-09-07
 ---
 
@@ -78,7 +78,21 @@ hostel *(only if it has one)* · place of birth · mother tongue.
 
 ## Suggested phasing
 
-1. **Quick wins, no migration** — photograph (`photoKey` exists), admission date + session on the form.
+1. **Quick wins, no migration** — ✅ **SHIPPED 2026-09-07: the joining date + the session label.**
+   > ⚠️ **The photograph was wrongly on this list and has been moved out.** `Student.photoKey` exists,
+   > but it is a **dead column** — zero references anywhere in the API or the UI. There is no upload
+   > endpoint, no scan/promote step and no serve path, so it needs the whole pipeline the fee-proof
+   > upload has (presign → ClamAV → promote → signed read), not a wire-up. It is its own piece of work.
+   >
+   > ✅ **The joining date needed no column either** — `StudentEnrollment.startedAt` already existed with
+   > a `now()` default and was simply never settable. So the office-set date lands there rather than on
+   > a new `admissionDate` column, which would have created a second source of truth for "when did they
+   > join". A **future** date is refused (422), not clamped: the enrolment drives fee proration and the
+   > register, and silently moving it to today would hide a keying error until it surfaced as a wrong
+   > invoice weeks later.
+   >
+   > ✅ **The session is shown, not chosen.** The server always enrols into the current academic year
+   > (`requireCurrentYearId`), so a picker would have been a control that silently does nothing.
 2. **One migration, high value** — religion, address/city, `ParentProfile.occupation`; plus the
    **multi-guardian UI** (Father/Mother/emergency), which also clears a `MISSING_UI_BACKLOG` entry.
 3. **Tier 2** — previous school block, medical/blood group, documents checklist + declaration.

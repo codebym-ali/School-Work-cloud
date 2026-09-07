@@ -35,6 +35,9 @@ export interface CreateStudentCoreInput {
   guardian?: GuardianResolutionDto;
   grNumber?: string;
   rollNumber?: number; // manual, optional; unique per (section, year)
+  /** Office-set joining date (YYYY-MM-DD). Omitted ⇒ today, so CSV import and the pipeline
+   *  admit are unchanged. Lands on `StudentEnrollment.startedAt`. */
+  admissionDate?: string;
 }
 
 export interface CreatedStudent {
@@ -83,6 +86,28 @@ export class StudentsService {
     const section = await this.db.section.findFirst({ where: { id: input.sectionId } });
     if (!section || section.classId !== input.classId) {
       throw new AppError(ErrorCodes.VALIDATION_FAILED, HttpStatus.UNPROCESSABLE_ENTITY, 'Section does not belong to class');
+    }
+
+    /**
+     * The office-set joining date (Tier 1). Defaults to today when the form does not send one, so
+     * existing callers — CSV import, the pipeline admit — are unchanged.
+     *
+     * ⚠️ **A future date is refused, not clamped.** The enrolment is what the register, the fee
+     * proration and the seniority list all read; admitting someone as starting next month would
+     * open a register they cannot be marked on and bill from a day that has not happened. Refusing
+     * says so; silently moving it to today would hide a keying error that only surfaces as a
+     * wrong invoice weeks later.
+     */
+    const startedAt = input.admissionDate ? new Date(input.admissionDate) : undefined;
+    if (startedAt) {
+      const endOfToday = new Date();
+      endOfToday.setUTCHours(23, 59, 59, 999);
+      if (startedAt.getTime() > endOfToday.getTime()) {
+        throw new AppError(
+          ErrorCodes.VALIDATION_FAILED, HttpStatus.UNPROCESSABLE_ENTITY,
+          'Admission date cannot be in the future',
+        );
+      }
     }
 
     const academicYearId = await this.setup.requireCurrentYearId();
@@ -136,6 +161,8 @@ export class StudentsService {
           sectionId: input.sectionId,
           rollNumber: input.rollNumber ?? null,
           status: 'ACTIVE',
+          // Omitted (not null) when unset, so the column's `now()` default still applies.
+          ...(startedAt ? { startedAt } : {}),
         },
       });
     } catch (e) {

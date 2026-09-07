@@ -1,7 +1,7 @@
 'use client';
 
-import { useMemo, useState } from 'react';
-import { api, ApiError, type AdmissionResult, type Campus, type Klass, type ParentMatch, type Section } from '@sw/api-client';
+import { useEffect, useMemo, useState } from 'react';
+import { api, apiGet, ApiError, type AcademicYear, type AdmissionResult, type Campus, type Klass, type ParentMatch, type Section } from '@sw/api-client';
 import { classLabeller } from '@school/lib/labels';
 
 /**
@@ -20,7 +20,25 @@ export function DirectAdmission({
   onAdmitted: (r: AdmissionResult, name: string) => void;
 }) {
   const classLabel = classLabeller(classes, campuses);
-  const [f, setF] = useState<Record<string, string>>({ gender: 'MALE' });
+  /** Defaults to today: the overwhelmingly common case is admitting someone who starts now, and a
+   *  blank date field invites the office to leave it blank and lose the fact entirely. */
+  const today = new Date().toISOString().slice(0, 10);
+  const blankForm = () => ({ gender: 'MALE', admissionDate: today });
+  const [f, setF] = useState<Record<string, string>>(blankForm);
+
+  /**
+   * The session the student is being admitted INTO (Tier 1). Shown, not chosen: the server always
+   * enrols into the current academic year (`requireCurrentYearId`), so offering a picker here would
+   * be a control that silently does nothing. Mid-year admissions are normal, and "which session is
+   * this?" is a question the officer should not have to leave the form to answer.
+   */
+  const [session, setSession] = useState<string | null>(null);
+  useEffect(() => {
+    apiGet<AcademicYear[]>('/academic-years')
+      .then((ys) => setSession(ys.find((y) => y.isCurrent)?.name ?? null))
+      // Non-fatal: the label is context, and the year is decided by the server either way.
+      .catch(() => {});
+  }, []);
   const set = (k: string, v: string) => setF((prev) => ({ ...prev, [k]: v }));
 
   // Guardian resolution: null until the controller has picked link-or-create.
@@ -60,6 +78,8 @@ export function DirectAdmission({
         campusId: f.campusId, classId: f.classId, sectionId: f.sectionId,
         cnic: f.cnic || undefined,
         rollNumber: f.rollNumber ? Number(f.rollNumber) : undefined,
+        // Office-set joining date — what fee proration and seniority read, not `createdAt`.
+        admissionDate: f.admissionDate || undefined,
         ageOverride: ageOverride || undefined,
         // Omitted entirely when nothing was entered — the student is admitted with no
         // guardian and shows a "no guardian" flag in the directory until one is added.
@@ -117,7 +137,7 @@ export function DirectAdmission({
             student&apos;s profile in <b>Students</b> — that creates the login too.
           </p>
         )}
-        <div><button onClick={() => { setDone(null); setF({ gender: 'MALE' }); setGuardian({ mode: 'CREATE', relation: 'FATHER' }); }}>Admit another</button></div>
+        <div><button onClick={() => { setDone(null); setF(blankForm()); setGuardian({ mode: 'CREATE', relation: 'FATHER' }); }}>Admit another</button></div>
       </div>
     );
   }
@@ -143,7 +163,19 @@ export function DirectAdmission({
             <option value="">Select…</option>{sectionsForClass.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
           </select>
         </div>
+        {/* Placement, not biography: joining date belongs with the class the student joins, and it
+            is the enrolment's `startedAt`. `max` stops a future date being picked at all — the
+            server refuses one anyway, but being told before you submit is better than after. */}
+        <div><label>Admission date</label>
+          <input type="date" max={today} value={f.admissionDate ?? ''} onChange={(e) => set('admissionDate', e.target.value)} />
+        </div>
       </div>
+      {session && (
+        <p className="muted" style={{ margin: 0, fontSize: 12 }}>
+          Admitting into session <b>{session}</b>. Back-date the admission date if the student
+          started earlier — fee proration and seniority are calculated from it.
+        </p>
+      )}
 
       {/* Student */}
       <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(200px,1fr))' }}>

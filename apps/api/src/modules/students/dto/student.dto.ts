@@ -101,6 +101,20 @@ export class CreateStudentDto {
   @IsOptional() @IsString() @MaxLength(40)
   grNumber?: string;
 
+  /**
+   * The office-set **joining date** (Admission Form Field Gaps, Tier 1). Optional; defaults to today.
+   *
+   * ⚠️ **Not the row's `createdAt`.** A back-dated admission is routine — the child started on the
+   * 1st and the office keyed it in on the 5th — and the difference is money: the enrolment's
+   * `startedAt` is what fee proration and seniority read. Deriving it from a timestamp silently
+   * bills from the wrong day, and nothing downstream can tell it was wrong.
+   *
+   * Stored as `StudentEnrollment.startedAt`, which already existed and was simply never settable —
+   * so this adds no column and no second source of truth for "when did they join".
+   */
+  @IsOptional() @IsDateString()
+  admissionDate?: string;
+
   /** Manual roll number — optional; unique within the section for the academic year. */
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(1000)
   rollNumber?: number;

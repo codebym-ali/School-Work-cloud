@@ -35,7 +35,18 @@ export default function TimetablePage() {
   useEffect(() => {
     api.timetable.coverage().then((c) => {
       setCoverage(c);
-      if (c.sections.length && !sectionId) setSectionId(c.sections[0].sectionId);
+      /**
+       * ⚠️ **Functional update, because `sectionId` here is the value captured AT MOUNT.**
+       * This effect runs once, so the closure's `sectionId` is always `''` — meaning a late
+       * `coverage()` response overwrote whatever section the user had picked while it was still in
+       * flight, silently bouncing them back to the first one. On a slow connection that is a user
+       * choosing a section and watching it jump back; it also made the timetable e2e read another
+       * schedule's clock times and report them as a product fault.
+       *
+       * `(cur) => cur || …` asks the CURRENT value instead, so this only ever fills an empty
+       * selection — which is all a default was ever meant to do.
+       */
+      if (c.sections.length) setSectionId((cur) => cur || c.sections[0].sectionId);
     }).catch(() => setMsg({ ok: false, text: 'Could not load sections.' }));
     api.staff.list().then(setStaff).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps

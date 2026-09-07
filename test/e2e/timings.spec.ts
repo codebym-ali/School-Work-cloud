@@ -192,11 +192,36 @@ test.describe('school timings', () => {
      * assertions below are positional, so picking the wrong section failed as a *content* mismatch
      * and read like a product bug in the timetable. The control now has an id (and a real label).
      */
-    await selectWhenReady(page, '#tt-section', section.id);
+    /**
+     * WARNING: **Verifying the SELECT is not enough — the grid can lag behind it, or be reset.**
+     * `/timetable` sets its section from `coverage()` when that fetch resolves (`if (!sectionId)
+     * setSectionId(sections[0])`), and loads the grid from a second request after that. So a
+     * selection made while those are in flight can be overwritten, or leave the previous section's
+     * grid on screen — which is how this spec came to assert clock times belonging to the school's
+     * REAL "Regular" schedule and report it as a timetable bug.
+     *
+     * Retry until the GRID itself says it is rendering this spec's schedule; that is the only
+     * signal that the page has actually caught up with the selection.
+     */
+    await expect(async () => {
+      await page.selectOption('#tt-section', section.id);
+      await expect(page.locator('#tt-section')).toHaveValue(section.id);
+      await expect(page.getByText(`Periods and times come from`)).toContainText(NAME, { timeout: 2_000 });
+    }).toPass({ timeout: 30_000 });
 
-    // The grid says whose day it is rendering. Under the old inferred shape there was no such
-    // sentence, because there was nothing to name.
-    await expect(page.getByText(`Periods and times come from`)).toBeVisible();
+    /**
+     * The grid says whose day it is rendering — and this now checks WHICH, not merely that the
+     * sentence exists.
+     *
+     * WARNING: **asserting only the phrase is what let this spec read someone else's timings.**
+     * `resolveForClass` falls back to the campus DEFAULT schedule when a class has no attachment,
+     * so a grid rendered from the wrong schedule looks perfectly healthy — the sentence is there,
+     * the times are real — and the failure lands three lines later as a mismatched clock value that
+     * reads like a bug in the timetable. Naming the schedule turns that into "you are looking at
+     * the wrong one", which is the actual fault.
+     */
+    // (Already proven by the retry above — kept as the statement of intent for the reader.)
+    await expect(page.getByText(`Periods and times come from`)).toContainText(NAME);
 
     // Monday period 3 exists and carries a real clock time; Friday period 3 does not exist at all.
     // ⚠️ Asserting only "Friday is empty" would have passed on the OLD behaviour too — an

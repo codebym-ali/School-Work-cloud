@@ -896,7 +896,37 @@ Worth listing, because each failed in a way that blamed the product:
   as soon as a cell is opened for editing. Given a real `id="tt-section"` (and a proper
   `htmlFor` label, which it never had — an accessibility gap too).
 
-⚠️ **Still open:** `timings` "a short Friday…" passes in the full suite and when the first test in
-its file runs before it, but **fails when run alone** (`-g "short Friday"`) — it renders the *other*
-test's composed day (the 09:50–10:30 arithmetic matches assembly 15 + 40 + 40 + break 15 exactly). So
-it depends on state it does not create. Not chased further; the suite is green.
+### …and the "short Friday" chase found a fourth, in the product again
+
+Following it properly paid off. The spec was reading the school's **real "Regular"** schedule, and the
+reason was `/timetable`'s own mount effect:
+
+```ts
+api.timetable.coverage().then((c) => {
+  if (c.sections.length && !sectionId) setSectionId(c.sections[0].sectionId);  // ← stale closure
+});
+```
+
+The effect runs once, so `sectionId` there is forever `''` — meaning a **late `coverage()` response
+overwrote whatever section the user had already picked**. For a person on a slow connection that is
+choosing a section and watching it jump back to the first one; for the spec it meant asserting clock
+times that belonged to another schedule and blaming the timetable. Fixed with the functional form,
+`setSectionId((cur) => cur || …)`, so the default only ever fills an empty selection.
+
+Two lessons worth keeping:
+- **A test that reads the wrong thing must say so.** The spec asserted only that the sentence
+  *"Periods and times come from …"* existed, never **which** schedule it named — so a grid rendered
+  from the campus default looked perfectly healthy and failed three lines later as a clock mismatch.
+  It now names the schedule, which turns "the timetable is broken" into "you are looking at the wrong
+  one".
+- **A stale `.next` hid the fix for two runs.** Next's watcher for files outside the app dir
+  (`experimental.externalDir`, i.e. all of `@sw/school-ui`) has been unreliable throughout this work:
+  clearing `.next` and restarting the app was needed to see any of it. Worth reaching for early
+  rather than doubting the change.
+
+⚠️ **Residual, and honestly stated: `timings` still flakes occasionally under load.** A full suite run
+is green (56/0), but a repeat run can fail one of the two tests on a different assertion each time.
+The first test **composes a day through the UI** — a dozen clicks and fills — on a machine also
+running five Next dev servers, the API and the worker; the Friday test, which seeds the same data
+**through the API**, is now stable. If it needs to be bulletproof, the fix is to seed that day through
+the API too and keep the UI assertions on the *rendering*, not on the data entry.

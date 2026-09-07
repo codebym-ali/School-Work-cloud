@@ -79,6 +79,9 @@ export class GuardiansService {
         fullName: res.fullName!,
         email: res.email?.toLowerCase() ?? null,
         phone,
+        // CREATE only — a LINK must never rewrite an existing parent's record from a form filled
+        // in about a different child.
+        occupation: res.occupation ?? null,
         cnicEnc: res.cnic ? this.crypto.encrypt(res.cnic) : null,
       },
     });

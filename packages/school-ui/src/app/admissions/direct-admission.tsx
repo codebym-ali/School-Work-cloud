@@ -41,8 +41,21 @@ export function DirectAdmission({
   }, []);
   const set = (k: string, v: string) => setF((prev) => ({ ...prev, [k]: v }));
 
-  // Guardian resolution: null until the controller has picked link-or-create.
-  const [guardian, setGuardian] = useState<GuardianChoice>({ mode: 'CREATE', relation: 'FATHER' });
+  /**
+   * Guardians — **Father and Mother by default**, because that is the normal case in a Pakistani
+   * school, not an edge case (Admission Form Field Gaps, Tier 1). Both are still OPTIONAL: leaving
+   * them blank admits the child anyway, which is what lets a walk-in be seated in under a minute.
+   *
+   * ⚠️ **The first one filled in becomes the PRIMARY guardian** — the one every SMS and fee receipt
+   * resolves — so Father leads and the order on screen is the order sent.
+   */
+  const blankGuardians = (): GuardianChoice[] => ([
+    { mode: 'CREATE', relation: 'FATHER' },
+    { mode: 'CREATE', relation: 'MOTHER' },
+  ]);
+  const [guardians, setGuardians] = useState<GuardianChoice[]>(blankGuardians);
+  const setGuardianAt = (i: number, g: GuardianChoice) =>
+    setGuardians((prev) => prev.map((x, n) => (n === i ? g : x)));
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -59,13 +72,15 @@ export function DirectAdmission({
     [sections, f.classId],
   );
 
-  // The guardian is OPTIONAL, but half a guardian is not: once anything has been typed the
-  // details must be complete, so a partly-filled section can't be silently dropped on submit.
-  const guardianTouched =
-    guardian.mode === 'LINK' ? Boolean(guardian.parentId) : Boolean(guardian.fullName || guardian.phone || guardian.cnic || guardian.email);
-  const guardianComplete =
-    guardian.mode === 'LINK' ? Boolean(guardian.parentId) : Boolean(guardian.fullName && guardian.phone);
-  const guardianReady = !guardianTouched || guardianComplete;
+  // A guardian is OPTIONAL, but half a guardian is not: once anything has been typed the details
+  // must be complete, so a partly-filled block can't be silently dropped on submit. Applied per
+  // block, so an untouched Mother never blocks a form that only has a Father.
+  const touchedOf = (g: GuardianChoice) =>
+    g.mode === 'LINK' ? Boolean(g.parentId) : Boolean(g.fullName || g.phone || g.cnic || g.email || g.occupation);
+  const completeOf = (g: GuardianChoice) =>
+    g.mode === 'LINK' ? Boolean(g.parentId) : Boolean(g.fullName && g.phone);
+  const filledGuardians = guardians.filter(touchedOf);
+  const guardianReady = filledGuardians.every(completeOf);
   const ready = Boolean(f.campusId && f.classId && f.sectionId && f.fullName && f.dateOfBirth && guardianReady);
 
   async function submit(ageOverride: boolean) {
@@ -81,17 +96,24 @@ export function DirectAdmission({
         // Office-set joining date — what fee proration and seniority read, not `createdAt`.
         admissionDate: f.admissionDate || undefined,
         ageOverride: ageOverride || undefined,
-        // Omitted entirely when nothing was entered — the student is admitted with no
-        // guardian and shows a "no guardian" flag in the directory until one is added.
-        guardian: !guardianTouched
-          ? undefined
-          : guardian.mode === 'LINK'
-            ? { mode: 'LINK' as const, parentId: guardian.parentId, relation: guardian.relation }
+        religion: f.religion || undefined,
+        addressLine: f.addressLine || undefined,
+        city: f.city || undefined,
+        emergencyName: f.emergencyName || undefined,
+        emergencyPhone: f.emergencyPhone || undefined,
+        emergencyRelation: f.emergencyRelation || undefined,
+        // Omitted entirely when nothing was entered — the student is admitted with no guardian
+        // and shows a "no guardian" flag in the directory until one is added. Order is preserved
+        // because the server takes the FIRST as primary.
+        guardians: filledGuardians.length === 0 ? undefined : filledGuardians.map((g) =>
+          g.mode === 'LINK'
+            ? { mode: 'LINK' as const, parentId: g.parentId, relation: g.relation }
             : {
                 mode: 'CREATE' as const,
-                fullName: guardian.fullName, phone: guardian.phone, relation: guardian.relation,
-                cnic: guardian.cnic || undefined, email: guardian.email || undefined,
-              },
+                fullName: g.fullName, phone: g.phone, relation: g.relation,
+                cnic: g.cnic || undefined, email: g.email || undefined,
+                occupation: g.occupation || undefined,
+              }),
       };
       const result = await api.students.admit(body);
       setDone({ result, name: f.fullName });
@@ -99,8 +121,11 @@ export function DirectAdmission({
     } catch (e) {
       if (e instanceof ApiError && e.code === 'AGE_OUT_OF_RANGE') {
         setAgeWarning(e.message);
-      } else if (e instanceof ApiError && e.code === 'CONFLICT' && guardian.mode === 'CREATE') {
-        setError('A parent with this phone already exists — use "Find" to link them instead of creating a duplicate.');
+      } else if (e instanceof ApiError && e.code === 'CONFLICT' && filledGuardians.some((g) => g.mode === 'CREATE')) {
+        // ⚠️ Also the shared-phone case now that there are several blocks: a household where the
+        // father and mother give the SAME number resolves to ONE parent record, so the second
+        // block must LINK rather than create. The message says which button does that.
+        setError('A parent with this phone already exists — use "Find" on that guardian to link them instead of creating a duplicate.');
       } else {
         setError(e instanceof ApiError ? e.message : 'Admission failed');
       }
@@ -137,7 +162,7 @@ export function DirectAdmission({
             student&apos;s profile in <b>Students</b> — that creates the login too.
           </p>
         )}
-        <div><button onClick={() => { setDone(null); setF(blankForm()); setGuardian({ mode: 'CREATE', relation: 'FATHER' }); }}>Admit another</button></div>
+        <div><button onClick={() => { setDone(null); setF(blankForm()); setGuardians(blankGuardians()); }}>Admit another</button></div>
       </div>
     );
   }
@@ -184,13 +209,62 @@ export function DirectAdmission({
         <div><label>Date of birth</label><input type="date" value={f.dateOfBirth ?? ''} onChange={(e) => set('dateOfBirth', e.target.value)} /></div>
         <div><label>CNIC / B-Form (optional)</label><input value={f.cnic ?? ''} onChange={(e) => set('cnic', e.target.value)} placeholder="12345-1234567-1" /></div>
         <div><label>Roll number (optional)</label><input type="number" min={1} value={f.rollNumber ?? ''} onChange={(e) => set('rollNumber', e.target.value)} placeholder="auto" /></div>
+        {/* Religion is a free list, not a fixed enum: a school may need a spelling its own board
+            uses. `datalist` offers the common answers without refusing anything else. */}
+        <div><label>Religion</label>
+          <input list="religion-options" value={f.religion ?? ''} onChange={(e) => set('religion', e.target.value)} placeholder="e.g. Islam" />
+          <datalist id="religion-options">
+            <option value="Islam" /><option value="Christianity" /><option value="Hinduism" />
+            <option value="Sikhism" /><option value="Other" />
+          </datalist>
+        </div>
+        <div><label>Address</label><input value={f.addressLine ?? ''} onChange={(e) => set('addressLine', e.target.value)} placeholder="House / street / area" /></div>
+        <div><label>City</label><input value={f.city ?? ''} onChange={(e) => set('city', e.target.value)} /></div>
       </div>
       <p className="muted" style={{ margin: 0, fontSize: 12 }}>
         A CNIC provisions the read-only portal login (registration-no + CNIC). GR &amp; registration numbers are assigned on save.
       </p>
 
-      {/* Guardian match → link / create */}
-      <GuardianSection value={guardian} onChange={setGuardian} />
+      {/* Guardians — Father, Mother, and anyone else. Each optional; the first filled is primary. */}
+      <div className="stack" style={{ gap: 14 }}>
+        {guardians.map((g, i) => (
+          <GuardianSection
+            key={i}
+            index={i}
+            value={g}
+            onChange={(next) => setGuardianAt(i, next)}
+            onRemove={guardians.length > 1 ? () => setGuardians((prev) => prev.filter((_, n) => n !== i)) : undefined}
+          />
+        ))}
+        {guardians.length < 4 && (
+          <div className="inline-form">
+            <button className="ghost small" type="button"
+              onClick={() => setGuardians((prev) => [...prev, { mode: 'CREATE', relation: 'GUARDIAN' }])}>
+              + Add another guardian
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* ⚠️ Emergency contact — deliberately NOT a guardian. When a child is hurt you ring whoever
+          answers, not whoever pays the fees, and this person is often a neighbour or an uncle with
+          no custodial relationship. Keeping it out of the guardian list also keeps them out of the
+          fee and SMS paths, where they have no business. */}
+      <div className="stack" style={{ gap: 8 }}>
+        <div>
+          <h3 style={{ margin: 0, fontSize: 15 }}>
+            Emergency contact <span className="muted" style={{ fontWeight: 400, fontSize: 13 }}>— optional</span>
+          </h3>
+          <p className="muted" style={{ margin: '2px 0 0', fontSize: 12 }}>
+            Who to call if the guardian cannot be reached. Not used for fees or SMS.
+          </p>
+        </div>
+        <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(200px,1fr))' }}>
+          <div><label>Name</label><input value={f.emergencyName ?? ''} onChange={(e) => set('emergencyName', e.target.value)} /></div>
+          <div><label>Phone</label><input value={f.emergencyPhone ?? ''} onChange={(e) => set('emergencyPhone', e.target.value)} placeholder="03001234567" /></div>
+          <div><label>Relation</label><input value={f.emergencyRelation ?? ''} onChange={(e) => set('emergencyRelation', e.target.value)} placeholder="e.g. Uncle" /></div>
+        </div>
+      </div>
 
       {ageWarning && (
         <div className="toast warn stack" style={{ gap: 8 }}>
@@ -211,10 +285,16 @@ export function DirectAdmission({
 }
 
 type GuardianChoice =
-  | { mode: 'CREATE'; relation: string; fullName?: string; phone?: string; cnic?: string; email?: string }
-  | { mode: 'LINK'; relation: string; parentId?: string; phone?: string };
+  | { mode: 'CREATE'; relation: string; fullName?: string; phone?: string; cnic?: string; email?: string; occupation?: string }
+  | { mode: 'LINK'; relation: string; parentId?: string; phone?: string; occupation?: string };
 
-function GuardianSection({ value, onChange }: { value: GuardianChoice; onChange: (g: GuardianChoice) => void }) {
+function GuardianSection({ value, onChange, index, onRemove }: {
+  value: GuardianChoice;
+  onChange: (g: GuardianChoice) => void;
+  /** Position in the list — 0 is the primary, and it also namespaces this block's radio group. */
+  index: number;
+  onRemove?: () => void;
+}) {
   const [phone, setPhone] = useState('');
   const [matches, setMatches] = useState<ParentMatch[] | null>(null);
   const [searching, setSearching] = useState(false);
@@ -240,17 +320,28 @@ function GuardianSection({ value, onChange }: { value: GuardianChoice; onChange:
 
   return (
     <div className="stack" style={{ gap: 8 }}>
-      <div>
-        <h3 style={{ margin: 0, fontSize: 15 }}>
-          Guardian <span className="muted" style={{ fontWeight: 400, fontSize: 13 }}>— optional</span>
-        </h3>
-        {/* Stated up front, not after the fact: leaving this blank has a real, permanent
-            consequence until someone comes back and fills it in. */}
-        <p className="muted" style={{ margin: '2px 0 0', fontSize: 12 }}>
-          Leave blank to admit now and add the guardian later. Until one is added the school
-          <b> cannot send any SMS</b> about this student — no absence alerts, fee receipts or
-          results — and they&apos;ll be flagged <b>no guardian</b> in Students.
-        </p>
+      <div className="row" style={{ alignItems: 'flex-start', gap: 8 }}>
+        <div>
+          <h3 style={{ margin: 0, fontSize: 15 }}>
+            {value.relation === 'FATHER' ? 'Father' : value.relation === 'MOTHER' ? 'Mother' : 'Guardian'}
+            <span className="muted" style={{ fontWeight: 400, fontSize: 13 }}> — optional</span>
+            {index === 0 && <span className="badge" style={{ marginLeft: 8, fontSize: 11 }}>primary</span>}
+          </h3>
+          {/* Stated up front, not after the fact: leaving these blank has a real, permanent
+              consequence until someone comes back and fills them in. Said once, on the first
+              block, rather than repeated under every guardian. */}
+          {index === 0 && (
+            <p className="muted" style={{ margin: '2px 0 0', fontSize: 12 }}>
+              Leave blank to admit now and add the guardian later. Until one is added the school
+              <b> cannot send any SMS</b> about this student — no absence alerts, fee receipts or
+              results — and they&apos;ll be flagged <b>no guardian</b> in Students. The <b>first</b>
+              {' '}guardian filled in is the one every SMS and receipt goes to.
+            </p>
+          )}
+        </div>
+        {onRemove && (
+          <button className="ghost small" type="button" onClick={onRemove} aria-label="Remove this guardian">Remove</button>
+        )}
       </div>
       <div className="inline-form">
         <div style={{ minWidth: 200 }}><label>Phone</label>
@@ -265,13 +356,13 @@ function GuardianSection({ value, onChange }: { value: GuardianChoice; onChange:
           <span className="muted" style={{ fontSize: 13 }}>Existing parent(s) with this phone — link to keep siblings under one guardian:</span>
           {matches.map((m) => (
             <label key={m.id} className="row" style={{ justifyContent: 'flex-start', gap: 8, cursor: 'pointer' }}>
-              <input type="radio" name="parent" checked={value.mode === 'LINK' && value.parentId === m.id}
+              <input type="radio" name={`parent-${index}`} checked={value.mode === 'LINK' && value.parentId === m.id}
                 onChange={() => onChange({ mode: 'LINK', relation: value.relation, parentId: m.id, phone })} />
               <strong>{m.fullName}</strong><span className="muted">{m.phone}</span>
             </label>
           ))}
           <label className="row" style={{ justifyContent: 'flex-start', gap: 8, cursor: 'pointer' }}>
-            <input type="radio" name="parent" checked={value.mode === 'CREATE'}
+            <input type="radio" name={`parent-${index}`} checked={value.mode === 'CREATE'}
               onChange={() => onChange({ mode: 'CREATE', relation: value.relation, phone })} />
             <span>Create a new guardian instead</span>
           </label>
@@ -292,6 +383,10 @@ function GuardianSection({ value, onChange }: { value: GuardianChoice; onChange:
               <input value={value.cnic ?? ''} onChange={(e) => onChange({ ...value, cnic: e.target.value })} /></div>
             <div><label>Email (optional)</label>
               <input value={value.email ?? ''} onChange={(e) => onChange({ ...value, email: e.target.value })} /></div>
+            {/* CREATE only: linking an existing parent must not rewrite their record from a form
+                filled in about a different child. */}
+            <div><label>Occupation (optional)</label>
+              <input value={value.occupation ?? ''} onChange={(e) => onChange({ ...value, occupation: e.target.value })} placeholder="e.g. Shopkeeper" /></div>
           </>
         )}
         <div><label>Relation</label>

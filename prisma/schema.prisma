@@ -812,6 +812,9 @@ model ParentProfile {
   /// would be worse than storing it. Not a login — no uniqueness, no auth path reads it.
   email           String?
   phone           String // normalized E.164
+  /// Asked for on every Pakistani admission form and printed on board forms. The only column the
+  /// Father/Mother work needed — the many-guardian shape was already modelled.
+  occupation      String?
   phoneVerifiedAt DateTime? @map("phone_verified_at")
   otpCodeHash     String?   @map("otp_code_hash") // HMAC of the current OTP (§14)
   otpExpiresAt    DateTime? @map("otp_expires_at")
@@ -849,6 +852,23 @@ model Student {
   gender              Gender
   dateOfBirth         DateTime      @map("date_of_birth") @db.Date
   photoKey            String?       @map("photo_key")
+  /// Admission-record fields (Admission Form Field Gaps, Tier 1). All nullable: every student
+  /// admitted before this migration has none, and a walk-in is still seated in under a minute.
+  ///
+  /// A plain string, NOT an enum: a school may legitimately need "Parsi", "Ahmadi" or a spelling
+  /// its board uses, and an enum would mean a migration per addition. The form offers the common
+  /// set and allows anything.
+  religion            String?
+  /// The home. Absent entirely until now, which blocked transport routing, leaving certificates
+  /// and any legal correspondence.
+  addressLine         String?       @map("address_line")
+  city                String?
+  /// ⚠️ The person you ring when a child is hurt — DELIBERATELY not the fee-paying guardian, and
+  /// deliberately not a `ParentProfile`: it is often a neighbour or an uncle with no custodial
+  /// relationship to model. Three plain columns say exactly that and nothing more.
+  emergencyName       String?       @map("emergency_name")
+  emergencyPhone      String?       @map("emergency_phone")
+  emergencyRelation   String?       @map("emergency_relation")
   /// Derived mirror of `status == ACTIVE`, kept in sync on every status write. Many reads
   /// still filter on it; retire once those move to `status`.
   isActive            Boolean       @default(true) @map("is_active")

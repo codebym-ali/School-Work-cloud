@@ -257,7 +257,11 @@ export interface ParentMatch { id: string; fullName: string; phone: string }
 export interface DirectAdmissionBody {
   fullName: string; gender: string; dateOfBirth: string;
   campusId: string; classId: string; sectionId: string;
-  guardian?: { mode: 'LINK' | 'CREATE'; parentId?: string; fullName?: string; phone?: string; relation: string; cnic?: string; email?: string };
+  guardian?: { mode: 'LINK' | 'CREATE'; parentId?: string; fullName?: string; phone?: string; relation: string; cnic?: string; email?: string; occupation?: string };
+  /** Father, Mother and anyone else. Wins over `guardian`; the FIRST entry is the primary. */
+  guardians?: { mode: 'LINK' | 'CREATE'; parentId?: string; fullName?: string; phone?: string; relation: string; cnic?: string; email?: string; occupation?: string }[];
+  religion?: string; addressLine?: string; city?: string;
+  emergencyName?: string; emergencyPhone?: string; emergencyRelation?: string;
   cnic?: string; ageOverride?: boolean; grNumber?: string; rollNumber?: number;
   /** Office-set joining date (YYYY-MM-DD); defaults to today. Drives fee proration + seniority. */
   admissionDate?: string;

@@ -33,6 +33,14 @@ export interface CreateStudentCoreInput {
   sectionId: string;
   /** Optional (§8) — a walk-in may be seated before the guardian's details are collected. */
   guardian?: GuardianResolutionDto;
+  /** Father, Mother, and anyone else. Wins over `guardian`; the FIRST is the primary. */
+  guardians?: GuardianResolutionDto[];
+  religion?: string;
+  addressLine?: string;
+  city?: string;
+  emergencyName?: string;
+  emergencyPhone?: string;
+  emergencyRelation?: string;
   grNumber?: string;
   rollNumber?: number; // manual, optional; unique per (section, year)
   /** Office-set joining date (YYYY-MM-DD). Omitted ⇒ today, so CSV import and the pipeline
@@ -115,10 +123,26 @@ export class StudentsService {
     // this used to be private here, which is precisely why `/enrollments/transfer` never had it.
     await this.setup.assertSectionHasRoom(input.sectionId, academicYearId, section.capacity);
 
-    // Resolved only when a guardian was actually supplied — admitting without one is allowed
-    // and leaves zero `student_guardians` rows, which every downstream reader already handles
-    // (SMS dispatch and advance auto-application both bail out on a missing primary guardian).
-    const parentId = input.guardian ? await this.guardians.resolveParent(input.guardian) : null;
+    /**
+     * Resolved only when a guardian was actually supplied — admitting without one is allowed and
+     * leaves zero `student_guardians` rows, which every downstream reader already handles (SMS
+     * dispatch and advance auto-application both bail out on a missing primary guardian).
+     *
+     * ⚠️ **Resolved BEFORE the student row is written, and all of them.** A bad guardian (an
+     * unparseable phone, a LINK to a parent that does not exist, a CREATE whose phone already
+     * belongs to someone) must fail before a child exists — otherwise a half-admitted student is
+     * left behind holding a GR number that can never be reused. The whole method runs in the
+     * request transaction, so a throw here rolls the lot back either way; doing it in this order
+     * means the failure names the guardian rather than a constraint.
+     *
+     * `guardians` (Father + Mother + …) wins over the single `guardian`, which CSV import and the
+     * pipeline admit still send. The FIRST is the primary — the one every SMS and receipt resolves.
+     */
+    const guardianList = input.guardians?.length ? input.guardians : input.guardian ? [input.guardian] : [];
+    const resolvedGuardians: { parentId: string; relation: GuardianResolutionDto['relation'] }[] = [];
+    for (const g of guardianList) {
+      resolvedGuardians.push({ parentId: await this.guardians.resolveParent(g), relation: g.relation });
+    }
     // Both human IDs are assigned atomically in this same transaction: GR (student identity)
     // and the admission registration number (the form's reference), each gap-free per school.
     const grNumber = await this.nextGrNumber(input.grNumber);
@@ -134,6 +158,14 @@ export class StudentsService {
           fullName: input.fullName,
           gender: input.gender,
           dateOfBirth: new Date(input.dateOfBirth),
+          // Admission-record fields (Tier 1). `?? null` rather than omitted so an empty form field
+          // clears a value on the way through rather than leaving a stale one.
+          religion: input.religion ?? null,
+          addressLine: input.addressLine ?? null,
+          city: input.city ?? null,
+          emergencyName: input.emergencyName ?? null,
+          emergencyPhone: input.emergencyPhone ?? null,
+          emergencyRelation: input.emergencyRelation ?? null,
           createdById: this.ctx.user?.userId,
         },
       });
@@ -145,8 +177,10 @@ export class StudentsService {
     }
 
     // The first guardian is the primary one. Skipped entirely when none was given.
-    if (parentId && input.guardian) {
-      await this.guardians.link(student.id, parentId, input.guardian.relation, true);
+    // `link` enforces one primary per student and refuses the same parent twice, so a form that
+    // sends the same person as both Father and Guardian gets a clean 409 rather than two rows.
+    for (const [i, g] of resolvedGuardians.entries()) {
+      await this.guardians.link(student.id, g.parentId, g.relation, i === 0);
     }
 
     let enrollment;
@@ -173,6 +207,8 @@ export class StudentsService {
       throw e;
     }
 
+    // Still the PRIMARY parent, so every existing caller means the same thing by it as before.
+    const parentId = resolvedGuardians[0]?.parentId ?? null;
     return { studentId: student.id, enrollmentId: enrollment.id, parentId, grNumber, registrationNo, rollNumber: enrollment.rollNumber };
   }
 

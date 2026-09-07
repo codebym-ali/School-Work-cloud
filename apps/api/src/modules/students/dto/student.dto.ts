@@ -1,5 +1,7 @@
 import { Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
+  IsArray,
   IsBoolean,
   IsBooleanString,
   IsDateString,
@@ -51,6 +53,11 @@ export class GuardianResolutionDto {
 
   @IsOptional() @IsEmail()
   email?: string;
+
+  /** Asked for on every Pakistani admission form and printed on board forms. Only meaningful on
+   *  CREATE — linking an existing parent must not silently rewrite their record from a new form. */
+  @IsOptional() @IsString() @MaxLength(120)
+  occupation?: string;
 }
 
 export class CreateStudentDto {
@@ -87,6 +94,43 @@ export class CreateStudentDto {
   @ValidateNested()
   @Type(() => GuardianResolutionDto)
   guardian?: GuardianResolutionDto;
+
+  /**
+   * **Father, Mother, and anyone else** — the normal case, not an edge case (Tier 1).
+   *
+   * ⚠️ `guardian` above stays for the callers that genuinely have one: CSV import and the pipeline
+   * admit. When both are sent this wins. The FIRST entry becomes the primary guardian — the one every
+   * SMS dispatch and fee receipt resolves — so the form must send the fee-paying parent first.
+   *
+   * Capped at four: a child with five custodial adults is a data-entry error, and an uncapped array
+   * on an unauthenticated-shaped payload is a cheap way to make the server do unbounded work.
+   */
+  @IsOptional()
+  @IsArray() @ArrayMaxSize(4)
+  @ValidateNested({ each: true })
+  @Type(() => GuardianResolutionDto)
+  guardians?: GuardianResolutionDto[];
+
+  /** Religion — free text, not an enum: a school may need a spelling its board uses (Tier 1). */
+  @IsOptional() @IsString() @MaxLength(40)
+  religion?: string;
+
+  @IsOptional() @IsString() @MaxLength(240)
+  addressLine?: string;
+
+  @IsOptional() @IsString() @MaxLength(80)
+  city?: string;
+
+  /** ⚠️ The person to ring when a child is hurt — NOT the fee-paying guardian, and often not a
+   *  parent at all, which is why it is three plain fields rather than another guardian. */
+  @IsOptional() @IsString() @MaxLength(120)
+  emergencyName?: string;
+
+  @IsOptional() @IsString() @MaxLength(20)
+  emergencyPhone?: string;
+
+  @IsOptional() @IsString() @MaxLength(40)
+  emergencyRelation?: string;
 
   /** Student CNIC / B-Form (digits, dashes allowed). When present, the portal login is
    *  provisioned and this is the second factor for the CNIC + registration-no sign-in. */
@@ -145,6 +189,29 @@ export class UpdateStudentDto {
 
   @IsOptional() @IsDateString()
   dateOfBirth?: string;
+
+  /**
+   * The admission-record fields, editable after the fact — this is the other half of "admit fast,
+   * then complete the record". A walk-in seated in a minute has none of these, and the office must
+   * be able to fill them in without re-admitting the child.
+   */
+  @IsOptional() @IsString() @MaxLength(40)
+  religion?: string;
+
+  @IsOptional() @IsString() @MaxLength(240)
+  addressLine?: string;
+
+  @IsOptional() @IsString() @MaxLength(80)
+  city?: string;
+
+  @IsOptional() @IsString() @MaxLength(120)
+  emergencyName?: string;
+
+  @IsOptional() @IsString() @MaxLength(20)
+  emergencyPhone?: string;
+
+  @IsOptional() @IsString() @MaxLength(40)
+  emergencyRelation?: string;
 }
 
 /** Status changes are events, not profile edits — hence a dedicated DTO carrying a

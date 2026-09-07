@@ -1,7 +1,7 @@
 ---
 title: Admission Form — field gaps for Pakistani private schools
 type: analysis
-status: ANALYSED 2026-09-06 · Tier 1 quick win (joining date + session) SHIPPED 2026-09-07
+status: Tier 1 SHIPPED 2026-09-07 (all but the photograph) · Tiers 2–3 open
 updated: 2026-09-07
 ---
 
@@ -29,13 +29,13 @@ leaving certificate, or to know who to call when a child is hurt and the one num
 | Field | Why a Pakistani school needs it | Schema reality |
 |---|---|---|
 | **Photograph** | ID cards, board/registration forms, the register the class teacher actually recognises faces from | ⚠️ **Corrected 2026-09-07:** `Student.photoKey` exists but is a **dead column** — zero references in API or UI. Needs the full upload pipeline (presign → scan → promote → signed read), **not** a wire-up |
-| **Religion** | Decides **Islamiat vs Ethics** streaming; it is a printed field on provincial board forms | ❌ new column |
-| **Current/residential address** | Transport routing, leaving certificates, home visits, legal correspondence. **Absent entirely** | ❌ new column |
-| **City / district / area** | Board forms; the address is not one free-text line in practice | ❌ new column |
-| **Father: name · CNIC · occupation · mobile** | The CNIC is the legal parent identifier and links to the child's B-Form | ⚠️ partly — see *the guardian problem* |
-| **Mother: name · CNIC · occupation · mobile** | Increasingly required on board forms; and she is often the reachable parent | ⚠️ partly |
-| **Guardian (only if not a parent): name · relation · CNIC · contact** | Real for hostel/expat/orphan cases | ⚠️ partly |
-| **Emergency contact: name · relation · phone** | ⚠️ **Deliberately distinct from the fee-paying guardian.** When a child is injured you call whoever answers, not whoever pays | ❌ nothing models this |
+| **Religion** | Decides **Islamiat vs Ethics** streaming; it is a printed field on provincial board forms | ✅ **SHIPPED** — `students.religion`, free text (not an enum) |
+| **Current/residential address** | Transport routing, leaving certificates, home visits, legal correspondence. **Absent entirely** | ✅ **SHIPPED** — `students.address_line` |
+| **City / district / area** | Board forms; the address is not one free-text line in practice | ✅ **SHIPPED** — `students.city` (district deferred; nobody has asked) |
+| **Father: name · CNIC · occupation · mobile** | The CNIC is the legal parent identifier and links to the child's B-Form | ✅ **SHIPPED** — `guardians[]` + `parent_profiles.occupation` |
+| **Mother: name · CNIC · occupation · mobile** | Increasingly required on board forms; and she is often the reachable parent | ✅ **SHIPPED** — second block on the form, sent in one atomic admit |
+| **Guardian (only if not a parent): name · relation · CNIC · contact** | Real for hostel/expat/orphan cases | ✅ **SHIPPED** — “+ Add another guardian”, up to 4 |
+| **Emergency contact: name · relation · phone** | ⚠️ **Deliberately distinct from the fee-paying guardian.** When a child is injured you call whoever answers, not whoever pays | ✅ **SHIPPED** — three columns on `students`, NOT a guardian row (keeps them out of fees/SMS) |
 | **Admission date / date of joining** | Office-set, **not** `createdAt`: it drives fee proration and seniority, and back-dated admissions are normal | ✅ **SHIPPED** — needed **no** column: `StudentEnrollment.startedAt` existed and was never settable |
 | **Academic session being admitted into** | Mid-year admissions are the norm; the enrolment must name its year | ✅ **SHIPPED** — shown on the form (not chosen: the server always uses the current year) |
 
@@ -93,8 +93,22 @@ hostel *(only if it has one)* · place of birth · mother tongue.
    >
    > ✅ **The session is shown, not chosen.** The server always enrols into the current academic year
    > (`requireCurrentYearId`), so a picker would have been a control that silently does nothing.
-2. **One migration, high value** — religion, address/city, `ParentProfile.occupation`; plus the
-   **multi-guardian UI** (Father/Mother/emergency), which also clears a `MISSING_UI_BACKLOG` entry.
+2. **One migration, high value** — ✅ **SHIPPED 2026-09-07** (`20260907120000_admission_record_fields`):
+   religion, address/city, the emergency contact, and `parent_profiles.occupation`; plus the
+   **multi-guardian admit**.
+   > **What the guardian work actually needed.** The many-guardian *shape* was already modelled, so
+   > the missing piece was a way to send more than one **at admission**: `CreateStudentDto.guardians[]`
+   > (capped at 4), resolved **before** the student row is written and linked inside the same request
+   > transaction, with the **first as primary** — the one every SMS and fee receipt resolves. The old
+   > single `guardian` field stays for CSV import and the pipeline admit, so nothing else moved.
+   >
+   > ⚠️ **A household that shares one phone still resolves to ONE parent record.** `resolveParent`
+   > refuses to CREATE a second profile on an existing phone (“link instead of creating”), and the
+   > join is unique on (student, parent) — so Father and Mother on the same number is a 409, by
+   > design. The form now says which button fixes it (“use Find on that guardian to link them”).
+   >
+   > ⚠️ **`POST /students/:id/guardians` still has no UI** — adding a parent *after* admission remains
+   > in `MISSING_UI_BACKLOG`. This slice closed the admission-time half only.
 3. **Tier 2** — previous school block, medical/blood group, documents checklist + declaration.
 4. **Tier 3** — only what this school actually operates (transport/hostel), never speculatively.
 

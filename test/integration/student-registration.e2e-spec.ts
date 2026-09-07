@@ -128,6 +128,68 @@ describe('Student registration & roll (e2e)', () => {
     expect(res.body.error.message).toMatch(/future/i);
   });
 
+  /**
+   * Father AND Mother in one admission (Tier 1) — the normal case in a Pakistani school.
+   *
+   * ⚠️ The many-guardian SHAPE was already modelled (`student_guardians`); what was missing was a
+   * way to send more than one at admission. The first is the primary: every SMS dispatch and fee
+   * receipt resolves the primary guardian, so the order the form sends is load-bearing.
+   */
+  it('records both parents, with the first as the primary guardian', async () => {
+    const created = await admit({
+      fullName: 'Hotel', gender: 'MALE', dateOfBirth: '2013-04-01', campusId, classId, sectionId, rollNumber: 7,
+      religion: 'Islam', addressLine: 'House 12, Street 4', city: 'Lahore',
+      emergencyName: 'Uncle Kamal', emergencyPhone: '03110000099', emergencyRelation: 'Uncle',
+      guardians: [
+        { mode: 'CREATE', fullName: 'Hotel Father', phone: '03110000008', relation: 'FATHER', occupation: 'Shopkeeper' },
+        { mode: 'CREATE', fullName: 'Hotel Mother', phone: '03110000009', relation: 'MOTHER' },
+      ],
+    });
+    expect(created.status).toBe(201);
+
+    const profile = await get(`/api/v1/students/${created.body.studentId}`);
+    expect(profile.status).toBe(200);
+    expect(profile.body.guardians).toHaveLength(2);
+
+    const primary = profile.body.guardians.filter((g: { isPrimary: boolean }) => g.isPrimary);
+    expect(primary).toHaveLength(1);
+    expect(primary[0].relation).toBe('FATHER');
+    expect(primary[0].parent.fullName).toBe('Hotel Father');
+
+    // The admission-record fields land on the student, not just in the request.
+    expect(profile.body.religion).toBe('Islam');
+    expect(profile.body.addressLine).toBe('House 12, Street 4');
+    expect(profile.body.city).toBe('Lahore');
+    expect(profile.body.emergencyName).toBe('Uncle Kamal');
+    expect(profile.body.emergencyRelation).toBe('Uncle');
+  });
+
+  it('still admits with no guardian at all — the walk-in path is untouched', async () => {
+    // The whole reason `guardian` was optional: a child can be seated now and the parents chased
+    // later. Making Father+Mother possible must not quietly make either of them required.
+    const created = await admit({
+      fullName: 'India', gender: 'FEMALE', dateOfBirth: '2013-04-01', campusId, classId, sectionId, rollNumber: 8,
+    });
+    expect(created.status).toBe(201);
+
+    const profile = await get(`/api/v1/students/${created.body.studentId}`);
+    expect(profile.body.guardians).toHaveLength(0);
+    expect(profile.body.religion).toBeNull();
+  });
+
+  it('refuses the same parent twice rather than writing two rows → 409', async () => {
+    // A form that sends one person as both Father and Guardian is a keying error, and the join is
+    // unique on (student, parent) — so it must fail loudly rather than half-succeed.
+    const res = await admit({
+      fullName: 'Juliet', gender: 'MALE', dateOfBirth: '2013-04-01', campusId, classId, sectionId, rollNumber: 9,
+      guardians: [
+        { mode: 'CREATE', fullName: 'Juliet Father', phone: '03110000010', relation: 'FATHER' },
+        { mode: 'CREATE', fullName: 'Juliet Father again', phone: '03110000010', relation: 'GUARDIAN' },
+      ],
+    });
+    expect(res.status).toBe(409);
+  });
+
   it('shows the registration number, GR, and roll on the student profile (GET :id)', async () => {
     const created = await admit(student('Delta', 3, '03110000004'));
     const profile = await get(`/api/v1/students/${created.body.studentId}`);

@@ -869,6 +869,25 @@ model Student {
   emergencyName       String?       @map("emergency_name")
   emergencyPhone      String?       @map("emergency_phone")
   emergencyRelation   String?       @map("emergency_relation")
+  /// Previous academic history (Tier 2) — needed for any TRANSFER admission, which above KG is
+  /// most of them. Collected after the child is seated, not at the counter.
+  previousSchool      String?       @map("previous_school")
+  lastClassPassed     String?       @map("last_class_passed")
+  lastResult          String?       @map("last_result")
+  reasonForLeaving    String?       @map("reason_for_leaving")
+  /// ⚠️ Tri-state on purpose: `null` = never asked, `false` = asked and NOT received, `true` = in
+  /// hand. A plain boolean cannot tell "we have not chased this yet" from "the old school is
+  /// withholding it over unpaid fees" — and that second case is the one that surfaces at board
+  /// registration months later, when it is far too late to fix.
+  slcReceived         Boolean?      @map("slc_received")
+  /// Welfare (Tier 2). `medicalNotes` is duty-of-care: the teacher on a trip needs to know about
+  /// the asthma or the nut allergy, and "nobody wrote it down" is not a defence.
+  bloodGroup          String?       @map("blood_group")
+  medicalNotes        String?       @map("medical_notes")
+  nationality         String?
+  /// Not redundant with `addressLine`: families commonly keep a city residence and a village
+  /// hometown, and during long holidays the hometown is the only address that reaches them.
+  permanentAddress    String?       @map("permanent_address")
   /// Derived mirror of `status == ACTIVE`, kept in sync on every status write. Many reads
   /// still filter on it; retire once those move to `status`.
   isActive            Boolean       @default(true) @map("is_active")

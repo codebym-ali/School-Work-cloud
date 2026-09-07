@@ -344,7 +344,13 @@ export class StudentsService {
     ]);
     // `hasGuardian` is surfaced on every row so the UI can flag a student nobody can be
     // contacted about — without it, admitting without a guardian is an invisible dead end.
-    const data = rows.map(({ _count, ...s }) => ({ ...s, hasGuardian: _count.guardians > 0 }));
+    const data = rows.map(({ _count, ...s }) => ({
+      ...s,
+      hasGuardian: _count.guardians > 0,
+      // Same shape as `hasGuardian`: a derived flag the directory can badge, so an incomplete
+      // record is chased from the list rather than found one profile at a time.
+      recordComplete: StudentsService.recordGaps(s, _count.guardians).length === 0,
+    }));
     return paginate(data, total, q);
   }
 
@@ -375,6 +381,14 @@ export class StudentsService {
       /** A CNIC recorded before the encrypted column existed can be matched at login but not
        *  read back — so the UI can explain that instead of implying the number was lost. */
       cnicRevealable: Boolean(cnicEnc),
+      /**
+       * What is still missing from this record, as labels an admissions officer can act on.
+       *
+       * The other half of "admit fast, then complete the record": a walk-in is deliberately seated
+       * with almost nothing on file, and without a list saying what is outstanding, "later" means
+       * "never". Narrow by design — see `recordGaps`.
+       */
+      missingFields: StudentsService.recordGaps(student, student.guardians.length),
     };
   }
 
@@ -486,6 +500,39 @@ export class StudentsService {
     return { loginProvisioned, replacedExisting: replaced, registrationNo: row.registrationNo };
   }
 
+  /**
+   * What is still missing from a student's record — the "chase list" (Admission Form Field Gaps).
+   *
+   * ⚠️ **Deliberately narrow, and that is the whole design.** A completeness flag that can never
+   * reach zero trains people to ignore it, so this contains ONLY fields that are (a) applicable to
+   * every student and (b) actually obtainable at a front desk:
+   *
+   *  - **Previous school is excluded.** A child starting in KG has none, and flagging them forever
+   *    would be flagging the truth as an error.
+   *  - **Blood group and medical notes are excluded.** A parent may genuinely not know the blood
+   *    group, and "no known conditions" is indistinguishable from "nobody asked" in a text column.
+   *    Both are still *shown* on the profile so the office can fill them; they just do not make a
+   *    record permanently incomplete.
+   *  - **Guardian is included** — it already had its own flag (`hasGuardian`), and a student nobody
+   *    can be contacted about is the most consequential gap of all.
+   *
+   * Returns human labels, not field names: this list is rendered to an admissions officer.
+   */
+  static recordGaps(
+    s: { religion: string | null; addressLine: string | null; city: string | null;
+         emergencyName: string | null; emergencyPhone: string | null },
+    guardianCount: number,
+  ): string[] {
+    const gaps: string[] = [];
+    if (guardianCount === 0) gaps.push('Guardian');
+    if (!s.religion) gaps.push('Religion');
+    if (!s.addressLine) gaps.push('Address');
+    if (!s.city) gaps.push('City');
+    // One item, not two: half an emergency contact is no emergency contact.
+    if (!s.emergencyName || !s.emergencyPhone) gaps.push('Emergency contact');
+    return gaps;
+  }
+
   async update(id: string, dto: UpdateStudentDto) {
     const before = await this.getOne(id);
     const updated = await this.db.student.update({
@@ -494,6 +541,31 @@ export class StudentsService {
         fullName: dto.fullName,
         gender: dto.gender,
         dateOfBirth: dto.dateOfBirth ? new Date(dto.dateOfBirth) : undefined,
+        /**
+         * ⚠️ **The admission-record fields were accepted by the DTO and silently dropped here.**
+         * Tier 1 added them to `UpdateStudentDto` without adding them to this write, so a PATCH
+         * returned 200 and changed nothing — the worst kind of bug, because the caller is told it
+         * worked. Fixed with Tier 2; the integration test now pins every field.
+         *
+         * `undefined` (key omitted by the caller) leaves the column alone; an explicit value —
+         * including an empty string — writes. That distinction is what lets the profile form clear
+         * a field without every other field being resent.
+         */
+        religion: dto.religion,
+        addressLine: dto.addressLine,
+        city: dto.city,
+        emergencyName: dto.emergencyName,
+        emergencyPhone: dto.emergencyPhone,
+        emergencyRelation: dto.emergencyRelation,
+        previousSchool: dto.previousSchool,
+        lastClassPassed: dto.lastClassPassed,
+        lastResult: dto.lastResult,
+        reasonForLeaving: dto.reasonForLeaving,
+        slcReceived: dto.slcReceived,
+        bloodGroup: dto.bloodGroup,
+        medicalNotes: dto.medicalNotes,
+        nationality: dto.nationality,
+        permanentAddress: dto.permanentAddress,
       },
     });
     await this.audit.record({

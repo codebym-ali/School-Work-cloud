@@ -357,6 +357,166 @@ function DeleteStudentDialog({ student, onClose, onDone, onError }: {
  * "we never captured it" and "we captured it but can't read it back" are different facts and
  * collapsing them into one blank would mislead the office.
  */
+/**
+ * The admission record - what is outstanding, and the form that closes it.
+ *
+ * WARNING: **This is the other half of the admission form's deliberate emptiness.** A walk-in is
+ * seated in under a minute with almost nothing on file (Admission Form Field Gaps), which is only
+ * defensible if the gaps are visible afterwards and fillable without re-admitting the child. Until
+ * now `PATCH /students/:id` had **no caller at all**, so the profile could show an incomplete
+ * student and offer no way to correct it.
+ *
+ * Collapsed by default: most visits to a profile are to look something up, not to edit.
+ */
+function RecordCard({ student, onSaved }: { student: StudentDetail; onSaved: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [f, setF] = useState<Record<string, string>>({});
+
+  // Its own Row: the one in StudentProfile is a closure over that component's scope.
+  const Row = ({ k, v }: { k: string; v?: string | null }) =>
+    v === undefined || v === null || v === '' ? null : (
+      <div style={{ display: 'flex', gap: 8 }}>
+        <span className="muted" style={{ minWidth: 150, fontSize: 13 }}>{k}</span><span>{v}</span>
+      </div>
+    );
+
+  // Seeded from the student each time the editor opens, so it never shows a stale draft after a save.
+  function openEditor() {
+    setF({
+      religion: student.religion ?? '', addressLine: student.addressLine ?? '', city: student.city ?? '',
+      permanentAddress: student.permanentAddress ?? '', nationality: student.nationality ?? '',
+      emergencyName: student.emergencyName ?? '', emergencyPhone: student.emergencyPhone ?? '',
+      emergencyRelation: student.emergencyRelation ?? '',
+      previousSchool: student.previousSchool ?? '', lastClassPassed: student.lastClassPassed ?? '',
+      lastResult: student.lastResult ?? '', reasonForLeaving: student.reasonForLeaving ?? '',
+      slcReceived: student.slcReceived === null || student.slcReceived === undefined ? '' : String(student.slcReceived),
+      bloodGroup: student.bloodGroup ?? '', medicalNotes: student.medicalNotes ?? '',
+    });
+    setMsg(null); setErr(null); setOpen(true);
+  }
+  const set = (k: string, v: string) => setF((prev) => ({ ...prev, [k]: v }));
+
+  const emergency = student.emergencyName
+    ? [student.emergencyName, student.emergencyPhone, student.emergencyRelation].filter(Boolean).join(' - ')
+    : null;
+
+  async function save() {
+    setBusy(true); setErr(null); setMsg(null);
+    try {
+      const { slcReceived, ...text } = f;
+      await api.students.update(student.id, {
+        ...text,
+        // WARNING: tri-state, not a checkbox. "" means nobody has asked yet, which is a different
+        // fact from "asked, and the old school has not handed it over".
+        slcReceived: slcReceived === '' ? null : slcReceived === 'true',
+      });
+      setMsg('Record updated.');
+      setOpen(false);
+      onSaved();
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : 'Could not save');
+    } finally { setBusy(false); }
+  }
+
+  return (
+    <div className="card stack">
+      <div className="row" style={{ alignItems: 'flex-start' }}>
+        <div>
+          <h2 style={{ margin: 0, fontSize: 17 }}>Admission record</h2>
+          {student.missingFields.length === 0 ? (
+            <p className="muted" style={{ margin: '2px 0 0', fontSize: 13 }}>Nothing outstanding.</p>
+          ) : (
+            <p className="muted" style={{ margin: '2px 0 0', fontSize: 13 }}>
+              Still needed: <b>{student.missingFields.join(' - ')}</b>
+            </p>
+          )}
+        </div>
+        {!open && <button className="ghost small" onClick={openEditor}>Complete the record</button>}
+      </div>
+
+      {msg && <div className="toast ok">{msg}</div>}
+      {err && <div className="toast err">{err}</div>}
+
+      {/* Read-only summary shows only what IS known - an empty row for every unfilled field would
+          bury the handful that are actually there. */}
+      {!open && (
+        <div className="stack" style={{ gap: 4 }}>
+          <Row k="Religion" v={student.religion} />
+          <Row k="Address" v={[student.addressLine, student.city].filter(Boolean).join(', ') || null} />
+          <Row k="Permanent address" v={student.permanentAddress} />
+          <Row k="Nationality" v={student.nationality} />
+          <Row k="Emergency contact" v={emergency} />
+          <Row k="Blood group" v={student.bloodGroup} />
+          <Row k="Medical notes" v={student.medicalNotes} />
+          <Row k="Previous school" v={student.previousSchool} />
+          <Row k="Last class passed" v={student.lastClassPassed} />
+          <Row k="Last result" v={student.lastResult} />
+          <Row k="Reason for leaving" v={student.reasonForLeaving} />
+          {/* Shown only once someone has actually asked - see the tri-state note. */}
+          {student.slcReceived !== null && student.slcReceived !== undefined && (
+            <Row k="Leaving certificate" v={student.slcReceived ? 'Received' : 'NOT received - chase the previous school'} />
+          )}
+        </div>
+      )}
+
+      {open && (
+        <div className="stack">
+          <div className="section-title">Student</div>
+          <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(200px,1fr))' }}>
+            <div><label>Religion</label><input value={f.religion ?? ''} onChange={(e) => set('religion', e.target.value)} placeholder="e.g. Islam" /></div>
+            <div><label>Address</label><input value={f.addressLine ?? ''} onChange={(e) => set('addressLine', e.target.value)} placeholder="House / street / area" /></div>
+            <div><label>City</label><input value={f.city ?? ''} onChange={(e) => set('city', e.target.value)} /></div>
+            <div><label>Permanent address</label><input value={f.permanentAddress ?? ''} onChange={(e) => set('permanentAddress', e.target.value)} placeholder="Hometown / village, if different" /></div>
+            <div><label>Nationality</label><input value={f.nationality ?? ''} onChange={(e) => set('nationality', e.target.value)} placeholder="Pakistani" /></div>
+            <div><label>Blood group</label><input value={f.bloodGroup ?? ''} onChange={(e) => set('bloodGroup', e.target.value)} placeholder="e.g. O+" /></div>
+          </div>
+
+          <div className="section-title">Emergency contact</div>
+          <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(200px,1fr))' }}>
+            <div><label>Name</label><input value={f.emergencyName ?? ''} onChange={(e) => set('emergencyName', e.target.value)} /></div>
+            <div><label>Phone</label><input value={f.emergencyPhone ?? ''} onChange={(e) => set('emergencyPhone', e.target.value)} placeholder="03001234567" /></div>
+            <div><label>Relation</label><input value={f.emergencyRelation ?? ''} onChange={(e) => set('emergencyRelation', e.target.value)} placeholder="e.g. Uncle" /></div>
+          </div>
+
+          <div className="section-title">Medical</div>
+          <div>
+            <label>Conditions, allergies, special needs</label>
+            <textarea rows={2} style={{ width: '100%' }} value={f.medicalNotes ?? ''}
+              onChange={(e) => set('medicalNotes', e.target.value)}
+              placeholder="Anything a teacher must know on a trip or in an emergency" />
+          </div>
+
+          <div className="section-title">Previous school</div>
+          <p className="muted" style={{ margin: 0, fontSize: 12 }}>
+            For a transfer admission. Leave blank for a child starting their first school.
+          </p>
+          <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(200px,1fr))' }}>
+            <div><label>School name</label><input value={f.previousSchool ?? ''} onChange={(e) => set('previousSchool', e.target.value)} /></div>
+            <div><label>Last class passed</label><input value={f.lastClassPassed ?? ''} onChange={(e) => set('lastClassPassed', e.target.value)} /></div>
+            <div><label>Last result</label><input value={f.lastResult ?? ''} onChange={(e) => set('lastResult', e.target.value)} placeholder="e.g. 78% / A" /></div>
+            <div><label>Reason for leaving</label><input value={f.reasonForLeaving ?? ''} onChange={(e) => set('reasonForLeaving', e.target.value)} /></div>
+            <div><label>Leaving certificate</label>
+              <select value={f.slcReceived ?? ''} onChange={(e) => set('slcReceived', e.target.value)}>
+                <option value="">Not asked yet</option>
+                <option value="true">Received</option>
+                <option value="false">Not received</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="inline-form">
+            <button disabled={busy} onClick={save}>{busy ? 'Saving...' : 'Save record'}</button>
+            <button className="ghost" disabled={busy} onClick={() => setOpen(false)}>Cancel</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function CnicRow({ student, onSaved }: { student: StudentDetail; onSaved: () => void }) {
   const [value, setValue] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
@@ -488,6 +648,11 @@ function StudentProfile({ id, classes, sections, onBack }: { id: string; classes
               />
             </div>
           </div>
+
+          {/* The chase list, directly under the identity card - the whole point of "admit fast,
+              then complete the record" is that the outstanding items sit on the screen the office
+              already opens, not on a report nobody runs. */}
+          <RecordCard student={s} onSaved={load} />
 
           {moving && (
             <MoveStudentDialog student={s} classes={classes} sections={sections}

@@ -34,6 +34,8 @@ describe('Student registration & roll (e2e)', () => {
   const post = (p: string, b: object) =>
     request(server()).post(p).set('Host', host).set('Cookie', cookies).set('X-CSRF-Token', csrfOf(cookies)).send(b);
   const get = (p: string) => request(server()).get(p).set('Host', host).set('Cookie', cookies);
+  const patch = (p: string, b: object) =>
+    request(server()).patch(p).set('Host', host).set('Cookie', cookies).set('X-CSRF-Token', csrfOf(cookies)).send(b);
 
   const student = (name: string, roll: number, phone: string) => ({
     fullName: name, gender: 'MALE', dateOfBirth: '2013-04-01', campusId, classId, sectionId, rollNumber: roll,
@@ -188,6 +190,115 @@ describe('Student registration & roll (e2e)', () => {
       ],
     });
     expect(res.status).toBe(409);
+  });
+
+  /**
+   * "Admit fast, then complete the record" - the second half (Tier 2).
+   *
+   * WARNING: **This test exists because the first half shipped broken.** Tier 1 added the
+   * admission-record fields to `UpdateStudentDto` but never added them to the Prisma write, so
+   * `PATCH /students/:id` returned 200 and changed nothing. A write that reports success and
+   * silently discards the payload is the worst kind of bug: the caller has no reason to look
+   * again. Every field is asserted individually here for exactly that reason.
+   */
+  it('completes the record after admission, and the chase list empties', async () => {
+    const created = await admit(student('Kilo', 10, '03110000011'));
+    expect(created.status).toBe(201);
+
+    // Seated with a guardian but nothing else - so the gaps are the always-applicable ones.
+    const before = await get(`/api/v1/students/${created.body.studentId}`);
+    expect(before.body.missingFields).toEqual(
+      expect.arrayContaining(['Religion', 'Address', 'City', 'Emergency contact']),
+    );
+    expect(before.body.missingFields).not.toContain('Guardian');
+
+    const res = await patch(`/api/v1/students/${created.body.studentId}`, {
+      religion: 'Islam', addressLine: 'House 5, Block C', city: 'Karachi',
+      emergencyName: 'Aunt Sara', emergencyPhone: '03110000012', emergencyRelation: 'Aunt',
+      previousSchool: 'City School', lastClassPassed: 'Grade 5', lastResult: '82%',
+      reasonForLeaving: 'Family moved city', slcReceived: false,
+      bloodGroup: 'O+', medicalNotes: 'Peanut allergy', nationality: 'Pakistani',
+      permanentAddress: 'Village Chak 42, Okara',
+    });
+    expect(res.status).toBe(200);
+
+    const after = await get(`/api/v1/students/${created.body.studentId}`);
+    expect(after.body.missingFields).toEqual([]);
+    // Every field, because the bug this guards was "accepted and dropped".
+    expect(after.body.religion).toBe('Islam');
+    expect(after.body.addressLine).toBe('House 5, Block C');
+    expect(after.body.city).toBe('Karachi');
+    expect(after.body.emergencyName).toBe('Aunt Sara');
+    expect(after.body.emergencyPhone).toBe('03110000012');
+    expect(after.body.emergencyRelation).toBe('Aunt');
+    expect(after.body.previousSchool).toBe('City School');
+    expect(after.body.lastClassPassed).toBe('Grade 5');
+    expect(after.body.lastResult).toBe('82%');
+    expect(after.body.reasonForLeaving).toBe('Family moved city');
+    expect(after.body.bloodGroup).toBe('O+');
+    expect(after.body.medicalNotes).toBe('Peanut allergy');
+    expect(after.body.nationality).toBe('Pakistani');
+    expect(after.body.permanentAddress).toBe('Village Chak 42, Okara');
+  });
+
+  /**
+   * The leaving certificate is TRI-STATE, and the middle value is the point: a previous school
+   * withholding it over unpaid fees is routine, and "asked and not received" has to be
+   * distinguishable from "nobody has asked yet" or it surfaces at board registration months later.
+   */
+  it('distinguishes "not asked" from "asked and not received" for the leaving certificate', async () => {
+    const created = await admit(student('Lima', 11, '03110000013'));
+    const fresh = await get(`/api/v1/students/${created.body.studentId}`);
+    expect(fresh.body.slcReceived).toBeNull();
+
+    await patch(`/api/v1/students/${created.body.studentId}`, { slcReceived: false });
+    const chased = await get(`/api/v1/students/${created.body.studentId}`);
+    expect(chased.body.slcReceived).toBe(false);
+
+    await patch(`/api/v1/students/${created.body.studentId}`, { slcReceived: true });
+    const inHand = await get(`/api/v1/students/${created.body.studentId}`);
+    expect(inHand.body.slcReceived).toBe(true);
+  });
+
+  /**
+   * The directory carries the same flag, so an incomplete record is chased from the LIST rather
+   * than found one profile at a time - the same shape as `hasGuardian`.
+   */
+  it('flags an incomplete record in the directory', async () => {
+    const created = await admit(student('Mike', 12, '03110000014'));
+
+    const listed = await get('/api/v1/students?search=Mike');
+    const row = listed.body.data.find((r: { id: string }) => r.id === created.body.studentId);
+    expect(row).toBeDefined();
+    expect(row.recordComplete).toBe(false);
+
+    await patch(`/api/v1/students/${created.body.studentId}`, {
+      religion: 'Islam', addressLine: 'House 9', city: 'Lahore',
+      emergencyName: 'Uncle Bilal', emergencyPhone: '03110000015',
+    });
+
+    const relisted = await get('/api/v1/students?search=Mike');
+    const done = relisted.body.data.find((r: { id: string }) => r.id === created.body.studentId);
+    expect(done.recordComplete).toBe(true);
+  });
+
+  /**
+   * WARNING: the chase list must be able to reach ZERO, or people learn to ignore it. Previous
+   * school is excluded on purpose (a child starting in KG has none) and so are blood group and
+   * medical notes (a parent may genuinely not know the blood group, and "no known conditions" is
+   * indistinguishable from "nobody asked" in a text column).
+   */
+  it('does not hold a first-time student incomplete for having no previous school', async () => {
+    const created = await admit(student('November', 13, '03110000016'));
+    await patch(`/api/v1/students/${created.body.studentId}`, {
+      religion: 'Islam', addressLine: 'House 1', city: 'Multan',
+      emergencyName: 'Neighbour', emergencyPhone: '03110000017',
+    });
+
+    const profile = await get(`/api/v1/students/${created.body.studentId}`);
+    expect(profile.body.missingFields).toEqual([]);
+    expect(profile.body.previousSchool).toBeNull();
+    expect(profile.body.bloodGroup).toBeNull();
   });
 
   it('shows the registration number, GR, and roll on the student profile (GET :id)', async () => {

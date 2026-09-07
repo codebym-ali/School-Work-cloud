@@ -1,7 +1,7 @@
 ---
 title: Admission Form — field gaps for Pakistani private schools
 type: analysis
-status: Tier 1 SHIPPED 2026-09-07 (all but the photograph) · Tiers 2–3 open
+status: Tier 1 + Tier 2 (history/welfare) SHIPPED 2026-09-07 · documents + photo open
 updated: 2026-09-07
 ---
 
@@ -109,7 +109,37 @@ hostel *(only if it has one)* · place of birth · mother tongue.
    >
    > ⚠️ **`POST /students/:id/guardians` still has no UI** — adding a parent *after* admission remains
    > in `MISSING_UI_BACKLOG`. This slice closed the admission-time half only.
-3. **Tier 2** — previous school block, medical/blood group, documents checklist + declaration.
+3. **Tier 2** — ✅ **history + welfare SHIPPED 2026-09-07** (`20260907140000_student_record_tier2`):
+   previous school / last class passed / last result / reason for leaving / **tri-state
+   `slc_received`**, plus blood group, medical notes, nationality and permanent address.
+   > **Deliberately NOT on the admission form.** These live on the **student profile**, which is the
+   > other half of "admit fast, then complete the record" — and that only works if the gaps are
+   > visible, so `GET /students/:id` now returns **`missingFields`** (human labels) and every
+   > directory row carries **`recordComplete`**, the same derived shape as `hasGuardian`.
+   >
+   > ⚠️ **The chase list is narrow ON PURPOSE, because one that can never reach zero trains people
+   > to ignore it.** Previous school is excluded (a child starting in KG has none — flagging them
+   > forever would be flagging the truth as an error); blood group and medical notes are excluded (a
+   > parent may genuinely not know the blood group, and "no known conditions" is indistinguishable
+   > from "nobody asked" in a text column). Both are still shown and editable; they just do not make
+   > a record permanently incomplete.
+   >
+   > ⚠️ **`slc_received` is tri-state** (`null` = never asked, `false` = asked and NOT received,
+   > `true` = in hand). The middle value is the point: a previous school withholding the leaving
+   > certificate over unpaid fees is routine, and without that state it surfaces at board
+   > registration months later.
+   >
+   > ⚠️ **Fixed while building this: `PATCH /students/:id` had no caller AND silently dropped its
+   > payload.** Tier 1 added the record fields to `UpdateStudentDto` without adding them to the
+   > Prisma write, so the endpoint returned 200 and changed nothing — the worst kind of bug, because
+   > the caller has no reason to look again. The profile now has a **Complete the record** editor
+   > (the first UI ever to call that endpoint), and the integration test asserts every field.
+   >
+   > **Still open in Tier 2:** the **documents-received checklist** and the **parent declaration**.
+   > ⚠️ The existing `documents` module cannot carry them — it is **issuance only** (`LEAVING_CERT`,
+   > `CHARACTER_CERT`, `FEE_CLEARANCE`, `REPORT_CARD`, `PAYSLIP`, `RECEIPT`, every row with
+   > `issuedBy`/`issuedAt`). Documents *received from a family* are a different concept needing their
+   > own model, and storing the scans needs the same upload pipeline the photograph is waiting on.
 4. **Tier 3** — only what this school actually operates (transport/hostel), never speculatively.
 
 ## What NOT to do

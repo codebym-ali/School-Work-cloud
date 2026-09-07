@@ -212,6 +212,37 @@ export class UpdateStudentDto {
 
   @IsOptional() @IsString() @MaxLength(40)
   emergencyRelation?: string;
+
+  /** Previous academic history (Tier 2) — the transfer-admission block. */
+  @IsOptional() @IsString() @MaxLength(160)
+  previousSchool?: string;
+
+  @IsOptional() @IsString() @MaxLength(40)
+  lastClassPassed?: string;
+
+  @IsOptional() @IsString() @MaxLength(40)
+  lastResult?: string;
+
+  @IsOptional() @IsString() @MaxLength(240)
+  reasonForLeaving?: string;
+
+  /** ⚠️ Tri-state: omitted = leave as is, `false` = asked and not received (the chase list),
+   *  `true` = in hand. `null` clears it back to "never asked". */
+  @IsOptional() @IsBoolean()
+  slcReceived?: boolean | null;
+
+  @IsOptional() @IsString() @MaxLength(8)
+  bloodGroup?: string;
+
+  /** Allergies, conditions, disability, special needs. Duty of care — see the migration. */
+  @IsOptional() @IsString() @MaxLength(1000)
+  medicalNotes?: string;
+
+  @IsOptional() @IsString() @MaxLength(60)
+  nationality?: string;
+
+  @IsOptional() @IsString() @MaxLength(240)
+  permanentAddress?: string;
 }
 
 /** Status changes are events, not profile edits — hence a dedicated DTO carrying a

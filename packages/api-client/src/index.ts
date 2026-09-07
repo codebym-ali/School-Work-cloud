@@ -189,9 +189,24 @@ export interface Section { id: string; name: string; classId: string; subjectIds
 export type StudentStatus = 'ACTIVE' | 'SUSPENDED' | 'RESTRICTED' | 'STRUCK_OFF' | 'WITHDRAWN' | 'GRADUATED';
 /** `hasGuardian: false` means nobody is contactable for this child — no absence, fee-receipt
  *  or result SMS can be sent. Surfaced in the directory so the gap can be chased. */
-export interface Student { id: string; fullName: string; grNumber: string; registrationNo: string | null; gender: string; isActive: boolean; status: StudentStatus; statusReason: string | null; statusEndsOn: string | null; hasGuardian: boolean }
-export interface StudentDetail {
+/** The admission-record fields, completed after the child is seated (Admission Form Field Gaps). */
+export interface StudentRecordFields {
+  religion: string | null; addressLine: string | null; city: string | null;
+  emergencyName: string | null; emergencyPhone: string | null; emergencyRelation: string | null;
+  previousSchool: string | null; lastClassPassed: string | null; lastResult: string | null;
+  reasonForLeaving: string | null;
+  /** Tri-state: `null` = never asked, `false` = asked and NOT received, `true` = in hand. */
+  slcReceived: boolean | null;
+  bloodGroup: string | null; medicalNotes: string | null; nationality: string | null;
+  permanentAddress: string | null;
+}
+export interface Student { id: string; fullName: string; grNumber: string; registrationNo: string | null; gender: string; isActive: boolean; status: StudentStatus; statusReason: string | null; statusEndsOn: string | null; hasGuardian: boolean;
+  /** Derived, like `hasGuardian`: nothing outstanding on the admission record. */
+  recordComplete: boolean }
+export interface StudentDetail extends StudentRecordFields {
   id: string; fullName: string; grNumber: string; registrationNo: string | null; gender: string; dateOfBirth: string; isActive: boolean;
+  /** Human labels for what is still outstanding — deliberately narrow, so it can reach zero. */
+  missingFields: string[];
   status: StudentStatus; statusReason: string | null; statusEffectiveFrom: string | null; statusEndsOn: string | null;
   /** A CNIC is on record. The value is never in this payload — fetch it via `api.students.revealCnic`. */
   hasCnic: boolean;
@@ -985,6 +1000,10 @@ export const api = {
     changeStatus: (id: string, body: { status: StudentStatus; reason: string; effectiveFrom?: string; endsOn?: string }) =>
       apiPatch<StudentDetail>(`/students/${id}/status`, body),
     remove: (id: string) => apiDelete<null>(`/students/${id}`),
+    /** Complete the record after admission. ⚠️ `PATCH /students/:id` existed with **no caller** —
+     *  the profile could show a student it had no way to correct. */
+    update: (id: string, body: Partial<StudentRecordFields> & { fullName?: string; gender?: string; dateOfBirth?: string }) =>
+      apiPatch<StudentDetail>(`/students/${id}`, body),
   },
   // Read-only student portal sign-in: registration-no + CNIC (no password), §28/#34.
   studentPortal: {

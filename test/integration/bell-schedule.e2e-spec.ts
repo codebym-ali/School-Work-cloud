@@ -218,6 +218,49 @@ describe('Bell schedule (e2e)', () => {
     expect(second.body.error.message).toMatch(/already has a default/i);
   });
 
+  /**
+   * WARNING: **A soft-deleted schedule used to make every class it touched permanently undeletable.**
+   *
+   * `BellScheduleService.remove` only stamps `deletedAt`, so the `bell_schedule_classes` rows
+   * survive a deletion the user believes has happened - and that foreign key is RESTRICT. The class
+   * delete guard did not know about bell schedules at all, so the request sailed past every friendly
+   * "this class is in use" message and died on a raw constraint violation instead.
+   *
+   * It went unnoticed for months because the only thing exercising it was an e2e cleanup that
+   * swallowed the error: the demo tenant quietly reached 18 leftover test classes out of 28, and the
+   * first visible symptom was an unrelated timetable spec failing as the grid filled with debris.
+   */
+  it('names the bell schedule as a blocker instead of dying on a foreign key', async () => {
+    const own = (await post('/api/v1/classes', { campusId, name: 'BellDel Live', order: 41 })).body.id;
+    const sched = (await post('/api/v1/bell-schedules', {
+      campusId, name: 'BellDel Live Schedule', classIds: [own],
+    })).body;
+
+    const blocked = await del(`/api/v1/classes/${own}`);
+    // The point is the MESSAGE: a 409 that says why, not a 500 from the database.
+    expect(blocked.status).toBe(409);
+    expect(blocked.body.error.message).toMatch(/bell schedule/i);
+
+    // Detaching it in the only way the product offers - deleting the schedule - must actually free
+    // the class, which is precisely what was broken.
+    expect((await del(`/api/v1/bell-schedules/${sched.id}`)).status).toBe(200);
+    expect((await del(`/api/v1/classes/${own}`)).status).toBe(204);
+  });
+
+  it('lets a class be deleted once the schedule that held it is gone', async () => {
+    const own = (await post('/api/v1/classes', { campusId, name: 'BellDel Soft', order: 42 })).body.id;
+    const sched = (await post('/api/v1/bell-schedules', {
+      campusId, name: 'BellDel Soft Schedule', classIds: [own],
+    })).body;
+    await del(`/api/v1/bell-schedules/${sched.id}`);
+
+    // The schedule is soft-deleted, so it is invisible to every read - and must therefore hold no
+    // claim over the class either. Before the fix this was a 500.
+    const res = await del(`/api/v1/classes/${own}`);
+    expect(res.status).toBe(204);
+    expect((await get(`/api/v1/classes/${own}`)).status).toBe(404);
+  });
+
   it('refuses a class that already follows another schedule, and names the one it follows', async () => {
     await mkSchedule({ campusId, name: 'Regular', isDefault: true });
     await mkSchedule({ campusId, name: 'Primary Wing', classIds: [classId] });

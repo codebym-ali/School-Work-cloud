@@ -127,8 +127,11 @@ export default function TimetablePage() {
       <div className="card stack" style={{ gap: 8 }}>
         <div className="inline-form">
           <div style={{ minWidth: 240 }}>
-            <label>Section</label>
-            <select value={sectionId} onChange={(e) => { setSectionId(e.target.value); setEditing(null); }}>
+            {/* `htmlFor`/`id` so the label actually names the control for a screen reader — and so
+                anything driving this page can address it by name rather than by being the first
+                <select> on screen, which it stops being the moment a cell is opened for editing. */}
+            <label htmlFor="tt-section">Section</label>
+            <select id="tt-section" value={sectionId} onChange={(e) => { setSectionId(e.target.value); setEditing(null); }}>
               {coverage?.sections.map((s) => (
                 <option key={s.sectionId} value={s.sectionId}>
                   {s.className}-{s.sectionName}{s.slots === 0 ? ' — no timetable yet' : ` — ${s.slots} periods`}

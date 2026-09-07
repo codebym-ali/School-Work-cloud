@@ -54,6 +54,40 @@ test.describe('school timings', () => {
     { minutes: 40, teaching: true },
   ];
 
+  /**
+   * ⚠️ **Best-effort must still be LOUD.** These `catch`es used to be `/* ignore *\/`, and they hid a
+   * real leak for months: `DELETE /classes/:id` was failing on every run — a soft-deleted bell
+   * schedule left a RESTRICT foreign key behind — so the demo tenant reached **18 leftover
+   * `TmCls…` classes out of 28**, which is what finally made `timings` fail as the grid filled with
+   * debris. Silence is what let a broken cleanup look like a working one.
+   *
+   * A warning, not a throw: cleanup must never be the loudest thing in a failing test, but it must
+   * not be inaudible either.
+   */
+  /**
+   * Choose an option and make it STICK.
+   *
+   * WARNING: **`selectOption` alone is a race against the page's own data load.** It resolves as
+   * soon as it has set a value, but `/timings` and `/timetable` both fetch their options after the
+   * first paint and re-render when the answer arrives — which silently resets the select. Alone on
+   * an idle machine the fetch had usually landed first, so this passed; in a full suite run it lost
+   * the race and the test then failed further down as a *content* mismatch, reading like a product
+   * bug in the timetable rather than a selection that never happened.
+   *
+   * `toPass` retries the set-and-verify pair, so it converges once the page settles instead of
+   * depending on which finished first.
+   */
+  const selectWhenReady = async (page: import('@playwright/test').Page, selector: string, value: string) => {
+    await expect(async () => {
+      await page.selectOption(selector, value);
+      await expect(page.locator(selector)).toHaveValue(value);
+    }).toPass({ timeout: 15_000 });
+  };
+
+  const warnLeak = (kind: string, id: string) =>
+    // eslint-disable-next-line no-console
+    console.warn(`[timings cleanup] LEAKED ${kind} ${id} — it will accumulate in the demo tenant.`);
+
   test.afterEach(async ({ page }) => {
     // Best-effort: cleanup must never be the loudest thing in a failure. Order matters — a
     // schedule references its classes, and a class will not delete while it has sections.
@@ -64,10 +98,10 @@ test.describe('school timings', () => {
       }
     } catch { /* ignore */ }
     for (const id of created.sections.splice(0)) {
-      try { await apiSetupDelete(page, `/sections/${id}`); } catch { /* ignore */ }
+      try { await apiSetupDelete(page, `/sections/${id}`); } catch { warnLeak('section', id); }
     }
     for (const id of created.classes.splice(0)) {
-      try { await apiSetupDelete(page, `/classes/${id}`); } catch { /* ignore */ }
+      try { await apiSetupDelete(page, `/classes/${id}`); } catch { warnLeak('class', id); }
     }
   });
 
@@ -83,14 +117,30 @@ test.describe('school timings', () => {
     });
 
     await page.goto('/timings');
-    await page.selectOption('#tm-schedule', schedule.id);
+    /**
+     * WARNING: **The picker must take before anything is typed into the page.** If the options have
+     * not loaded, the screen is still showing a DIFFERENT schedule - and the "+ Add period" clicks
+     * below then append rows to the school's REAL schedule instead of this spec's throwaway one.
+     * That is how the day under test ended up with twelve rows: not a fixture leak, but this spec
+     * quietly editing somebody else's timings.
+     */
+    await selectWhenReady(page, '#tm-schedule', schedule.id);
 
     for (const row of MONDAY) {
       await page.getByRole('button', { name: row.teaching ? '+ Add period' : '+ Add break' }).click();
     }
     for (let i = 0; i < MONDAY.length; i++) {
-      await page.getByLabel(`Minutes, row ${i + 1}`).fill(String(MONDAY[i].minutes));
-      if (!MONDAY[i].teaching) await page.getByLabel(`Break name, row ${i + 1}`).fill(MONDAY[i].label!);
+      /**
+       * WARNING: **`exact: true` is load-bearing - `getByLabel` matches a SUBSTRING by default.**
+       * "Minutes, row 1" also matches "Minutes, row 10", "row 11", "row 12", so the moment a day has
+       * ten or more rows this line dies with a strict-mode violation naming four elements. It passed
+       * for months only because the day under test happened to be short: a locator that is correct
+       * for six rows and wrong for ten is not a passing test, it is an unexploded one.
+       */
+      await page.getByLabel(`Minutes, row ${i + 1}`, { exact: true }).fill(String(MONDAY[i].minutes));
+      if (!MONDAY[i].teaching) {
+        await page.getByLabel(`Break name, row ${i + 1}`, { exact: true }).fill(MONDAY[i].label!);
+      }
     }
 
     // What the SCREEN computed, before saving anything.
@@ -105,7 +155,9 @@ test.describe('school timings', () => {
     // that must be true is that the duplicate agrees with the original. Reload first, so what is
     // compared is genuinely the STORED day and not the state still sitting in React.
     await page.reload();
-    await page.selectOption('#tm-schedule', schedule.id);
+    // Same reason as above: comparing against the wrong schedule's day would "prove" the screen and
+    // the server disagree when in fact the test was reading someone else's timings.
+    await selectWhenReady(page, '#tm-schedule', schedule.id);
     const stored = await page.locator('tbody tr td:first-child').allInnerTexts();
     expect(stored).toEqual(previewed);
     expect(stored[0]).toContain('08:00');
@@ -133,7 +185,14 @@ test.describe('school timings', () => {
     });
 
     await page.goto('/timetable');
-    await page.selectOption('select', section.id);
+    /**
+     * WARNING: **Addressed by id, never as "the first `<select>`".** This used to be
+     * `selectOption('select', …)`, which is only correct while the section picker happens to be the
+     * first select on the page - it stops being that as soon as another one renders. The grid
+     * assertions below are positional, so picking the wrong section failed as a *content* mismatch
+     * and read like a product bug in the timetable. The control now has an id (and a real label).
+     */
+    await selectWhenReady(page, '#tt-section', section.id);
 
     // The grid says whose day it is rendering. Under the old inferred shape there was no such
     // sentence, because there was nothing to name.

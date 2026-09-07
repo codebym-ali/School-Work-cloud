@@ -854,3 +854,49 @@ apps for their bare origin, one request each, no session. It asserts **not-404 r
 each root legitimately differs (marketing paints a page, the portal a dashboard, owner/staff redirect),
 and pinning content would duplicate the specs that own those screens and break whenever a landing page
 moved — which is a decision, not a regression.
+
+## A soft-deleted bell schedule made every class it touched undeletable (2026-09-07)
+
+Chased down from an unrelated symptom: the `timings` e2e spec had been failing intermittently, and
+the demo tenant had reached **18 leftover `TmCls…` test classes out of 28** — 64% debris in a screen
+a human actually looks at.
+
+**The chain, because every link is worth knowing:**
+1. `BellScheduleService.remove` only stamps `deletedAt`. The `bell_schedule_classes` join rows
+   survive a deletion the user believes has happened.
+2. That join's class foreign key is **RESTRICT** (`confdeltype = 'r'`).
+3. `SetupService.deleteClass` blocked on sections, fee structures, exams and batches — but knew
+   nothing about bell schedules. So the request sailed past every friendly "this class is in use"
+   message and died on a raw constraint violation.
+4. The only thing exercising that path was an e2e cleanup whose `catch` was `/* ignore */`. It
+   failed on every run, silently, for months.
+
+**Fixed on the product side, not the test side**, because this is not a test problem: an operator who
+creates a bell schedule, deletes it, and then tries to delete one of its classes gets an opaque 500.
+`deleteClass` now (a) counts links to **live** schedules and names them as a blocker, and (b) deletes
+links belonging to **soft-deleted** schedules, which are unreachable anyway since every read filters
+`deletedAt: null`. Regression tests in `bell-schedule.e2e-spec.ts` cover both halves.
+
+⚠️ **The lesson is the silent `catch`.** "Cleanup must never be the loudest thing in a failure" is
+right, but inaudible is not the same as quiet — the timings cleanup now **warns** on a failed delete.
+A best-effort teardown that cannot report its own failure is indistinguishable from one that works.
+
+### The timings spec had three separate defects behind the same red
+
+Worth listing, because each failed in a way that blamed the product:
+
+- **`getByLabel('Minutes, row 1')` matches a SUBSTRING.** It also resolves "row 10", "row 11",
+  "row 12", so the spec died with a strict-mode violation the moment a day had ten or more rows. It
+  had passed for months only because the day under test happened to be short. Now `exact: true`.
+- **`selectOption` raced the page's own data load.** Both `/timings` and `/timetable` fetch their
+  options after first paint and re-render, silently resetting the select. On an idle machine the
+  fetch usually won; in a full suite run it did not, and the test then failed further down as a
+  *content* mismatch that read like a timetable bug. Now set-and-verify under `toPass`.
+- **The section picker was addressed as "the first `<select>` on the page"**, which it stops being
+  as soon as a cell is opened for editing. Given a real `id="tt-section"` (and a proper
+  `htmlFor` label, which it never had — an accessibility gap too).
+
+⚠️ **Still open:** `timings` "a short Friday…" passes in the full suite and when the first test in
+its file runs before it, but **fails when run alone** (`-g "short Friday"`) — it renders the *other*
+test's composed day (the 09:50–10:30 arithmetic matches assembly 15 + 40 + 40 + break 15 exactly). So
+it depends on state it does not create. Not chased further; the suite is green.

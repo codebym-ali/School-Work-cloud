@@ -715,21 +715,44 @@ export class SetupService {
     await this.assertClassCampus(id);
     const klass = await this.db.class.findFirst({ where: { id }, select: { name: true, campusId: true } });
     if (!klass) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'Class not found');
-    const [sections, feeStructures, exams, batches] = await Promise.all([
+    const [sections, feeStructures, exams, batches, bellSchedules] = await Promise.all([
       this.db.section.count({ where: { classId: id } }),
       this.db.feeStructure.count({ where: { classId: id } }),
       this.db.examDefinition.count({ where: { classId: id } }),
       this.db.feeInvoiceBatch.count({ where: { classId: id } }),
+      /**
+       * ⚠️ **A bell-schedule link is a RESTRICT foreign key, and this guard did not know about it.**
+       * Deleting a class attached to a schedule therefore skipped every friendly message here and
+       * died on a raw constraint violation — a 500 where the whole point of this list is to answer
+       * "why can't I delete this?" in words the office can act on.
+       *
+       * Counted against LIVE schedules only: see the `deleteMany` below for why a soft-deleted one
+       * must not block anything.
+       */
+      this.db.bellScheduleClass.count({ where: { classId: id, schedule: { deletedAt: null } } }),
     ]);
     const blockers: string[] = [];
     if (sections) blockers.push(`${sections} section(s)`);
     if (feeStructures) blockers.push(`${feeStructures} fee structure(s)`);
     if (exams) blockers.push(`${exams} exam(s)`);
     if (batches) blockers.push(`${batches} fee batch(es)`);
+    if (bellSchedules) blockers.push(`${bellSchedules} bell schedule(s)`);
     if (blockers.length) {
       throw new AppError(ErrorCodes.CONFLICT, HttpStatus.CONFLICT,
         `This class is in use — ${blockers.join(', ')} belong to it. Remove those first.`);
     }
+    /**
+     * ⚠️ **Links to a SOFT-DELETED schedule would otherwise block this class for ever.**
+     * `BellScheduleService.remove` only stamps `deletedAt`, so the join rows survive a deletion the
+     * user believes has happened — and because the class FK is RESTRICT, every class that schedule
+     * touched became permanently undeletable with an opaque database error. The links are
+     * unreachable once the schedule is gone (every read filters `deletedAt: null`), so removing
+     * them here loses nothing and un-wedges the class.
+     *
+     * Safe by construction: we only reach this line when no LIVE schedule references the class.
+     */
+    await this.db.bellScheduleClass.deleteMany({ where: { classId: id } });
+
     // Its subjects are owned by the class and now provably unused (no sections ⇒ no
     // section links; exam results require an exam, and there are none).
     const subjectNames = (await this.db.subject.findMany({ where: { classId: id }, select: { name: true } })).map((x) => x.name);

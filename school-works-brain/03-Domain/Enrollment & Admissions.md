@@ -6,6 +6,14 @@ updated: 2026-07-14
 
 # Enrollment & Admissions
 
+> [!warning] The admission form captures a **seating record, not an admission record**
+> Reviewed 2026-09-06 as a senior admission controller for Pakistani private schools: roughly 40% of a
+> real form is missing — **no address at all**, only **one** guardian (so Father *and* Mother cannot both
+> be recorded, with their CNICs), no religion, no photograph on the form (`Student.photoKey` already
+> exists), no previous-school history, no admission date, no emergency contact distinct from the
+> fee-payer. Field-by-field tiers, schema reality and phasing: [[Admission Form Field Gaps]].
+
+
 The **domain spine**. Everything (attendance, invoices, results, timetables) references an **enrollment**, never a "current section."
 
 ## Academic years & enrollment (§7)

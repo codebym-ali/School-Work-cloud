@@ -924,9 +924,26 @@ Two lessons worth keeping:
   clearing `.next` and restarting the app was needed to see any of it. Worth reaching for early
   rather than doubting the change.
 
-⚠️ **Residual, and honestly stated: `timings` still flakes occasionally under load.** A full suite run
-is green (56/0), but a repeat run can fail one of the two tests on a different assertion each time.
-The first test **composes a day through the UI** — a dozen clicks and fills — on a machine also
-running five Next dev servers, the API and the worker; the Friday test, which seeds the same data
-**through the API**, is now stable. If it needs to be bulletproof, the fix is to seed that day through
-the API too and keep the UI assertions on the *rendering*, not on the data entry.
+### Resolved — and the tempting fix was the wrong one
+
+The obvious remedy was to seed that day through the API, like the Friday test. **That would have made
+the spec stable and pointless.** The preview duplicates `composeBellDay` because the browser cannot
+import `libs/common`, so *typing the durations IS the test* — it is the only thing checking that the
+duplicate still agrees with the original. Seeding the day would have left it rendering server-stored
+times and quietly guarding nothing: precisely the "looks fine, tests nothing" failure this file keeps
+finding elsewhere.
+
+**The flake was never caused by typing. It was caused by UNVERIFIED typing.** Six clicks fired in a
+row race the re-render each one triggers, so a click can be swallowed; a `fill` that lands mid-render
+is discarded silently. Either way the only symptom was a wrong total three assertions later, reading
+as though the arithmetic were broken. Now each click waits for its row to appear, and each `fill` is
+read back — so a lost interaction fails on the row that lost it.
+
+Result: three consecutive file runs and two full-suite runs green (56/0), with the composition
+coverage intact.
+
+⚠️ **Separate observation, not chased:** under heavy load (five Next dev servers + API + worker, with
+a full run stretching from 2.5 to 3.8 minutes) other interaction-heavy specs can flake the same way —
+`classes-ux` "seats cannot be cut below…" failed once on `toBeEnabled` and passes in isolation. The
+same verify-each-interaction treatment would fix it; the deeper remedy is not running the whole dev
+stack while the suite runs.

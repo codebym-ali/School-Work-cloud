@@ -126,8 +126,21 @@ test.describe('school timings', () => {
      */
     await selectWhenReady(page, '#tm-schedule', schedule.id);
 
-    for (const row of MONDAY) {
-      await page.getByRole('button', { name: row.teaching ? '+ Add period' : '+ Add break' }).click();
+    /**
+     * WARNING: **Each click must be seen to land before the next is sent.** Firing six clicks in a
+     * row races the re-render they each trigger, so one can be swallowed — and the day then composes
+     * to the wrong total, failing later on the preview assertion as though the arithmetic were
+     * wrong. Waiting for row `i + 1` to exist makes the sequence deterministic instead of hopeful.
+     *
+     * ⚠️ **This is deliberately still driven through the UI.** Seeding the day through the API would
+     * make this spec stable and pointless: the preview duplicates `composeBellDay` (the browser
+     * cannot import `libs/common`), so typing the durations IS the test — it is the only thing
+     * checking that the duplicate still agrees with the original. The Friday test below seeds via
+     * the API precisely because it asserts RENDERING, not composition.
+     */
+    for (let i = 0; i < MONDAY.length; i++) {
+      await page.getByRole('button', { name: MONDAY[i].teaching ? '+ Add period' : '+ Add break' }).click();
+      await expect(page.getByLabel(`Minutes, row ${i + 1}`, { exact: true })).toBeVisible();
     }
     for (let i = 0; i < MONDAY.length; i++) {
       /**
@@ -137,9 +150,15 @@ test.describe('school timings', () => {
        * for months only because the day under test happened to be short: a locator that is correct
        * for six rows and wrong for ten is not a passing test, it is an unexploded one.
        */
-      await page.getByLabel(`Minutes, row ${i + 1}`, { exact: true }).fill(String(MONDAY[i].minutes));
+      const minutes = page.getByLabel(`Minutes, row ${i + 1}`, { exact: true });
+      await minutes.fill(String(MONDAY[i].minutes));
+      // A `fill` that lands mid-re-render is discarded silently, and the only symptom is a wrong
+      // total three assertions later. Read it back so the failure names the row that did not take.
+      await expect(minutes).toHaveValue(String(MONDAY[i].minutes));
       if (!MONDAY[i].teaching) {
-        await page.getByLabel(`Break name, row ${i + 1}`, { exact: true }).fill(MONDAY[i].label!);
+        const label = page.getByLabel(`Break name, row ${i + 1}`, { exact: true });
+        await label.fill(MONDAY[i].label!);
+        await expect(label).toHaveValue(MONDAY[i].label!);
       }
     }
 

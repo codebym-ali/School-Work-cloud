@@ -1,0 +1,13 @@
+# Windows checkouts convert to CRLF on checkout. That is harmless for source, and FATAL for anything
+# Linux executes: a `#!/bin/sh` line ending in \r makes the kernel look for an interpreter literally
+# named "sh\r" and the script dies with a bare "not found" that names the wrong thing.
+#
+# These files are consumed by the Linux deploy host (docker-entrypoint-initdb.d, compose, Caddy), so
+# they are pinned to LF regardless of the checkout platform.
+* text=auto
+
+*.sh        text eol=lf
+Dockerfile  text eol=lf
+*.yml       text eol=lf
+*.yaml      text eol=lf
+Caddyfile*  text eol=lf

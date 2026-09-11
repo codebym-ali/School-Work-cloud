@@ -132,14 +132,20 @@ jobs:
       - name: Build (api + worker bundles)
         run: pnpm build
 
-  # Frontend gate — the web app is a standalone package (own lockfile), so it gets its
-  # own parallel job: typecheck -> lint -> build. Without this, a broken frontend can
-  # merge green while the backend job passes.
-  web:
+  # Frontend gate. The five front-ends are WORKSPACE MEMBERS (Front-End Instance Separation Plan,
+  # Phase 3a), not standalone packages: `apps/*` is the only workspace glob, they share one hoisted
+  # install so packages/* resolve a single React copy, and their per-app lockfiles were deleted.
+  #
+  # ⚠️ This job previously did `pnpm install --frozen-lockfile` INSIDE apps/web against
+  # `apps/web/pnpm-lock.yaml`. That file stopped existing at a84d19d, so the job — and therefore all
+  # of CI — has been red on every run since, while the four front-ends added by the split were never
+  # checked at all. Install at the ROOT; run each app's gates through the workspace filter.
+  frontend:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: apps/web
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [web, superadmin-web, owner-web, staff-web, student-web]
     steps:
       - uses: actions/checkout@v4
 
@@ -151,17 +157,16 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
-          cache-dependency-path: apps/web/pnpm-lock.yaml
 
       - run: pnpm install --frozen-lockfile
 
       - name: Typecheck
-        run: pnpm typecheck
+        run: pnpm --filter ./apps/${{ matrix.app }} typecheck
 
       - name: Lint
-        run: pnpm lint
+        run: pnpm --filter ./apps/${{ matrix.app }} lint
 
       - name: Build
-        run: pnpm build
+        run: pnpm --filter ./apps/${{ matrix.app }} build
         env:
           NEXT_API_ORIGIN: http://demo.localhost:3000

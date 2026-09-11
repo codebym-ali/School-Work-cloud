@@ -50,9 +50,20 @@ services:
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?}
     restart: 'no'
 
+  # ⚠️ deploy/docker-compose.prod.yml declares `env_file: [../.env]`. Compose resolves env_file
+  # relative to the PROJECT directory (the repo root, set by the first -f file), NOT relative to the
+  # file that declares it — so `../.env` points one level ABOVE the repo and the stack refuses to
+  # start with "env file /home/<user>/.env not found". Corrected here for all three backend services.
   migrate:
+    env_file: !override [.env]
     depends_on:
       postgres: { condition: service_healthy }
+
+  api:
+    env_file: !override [.env]
+
+  worker:
+    env_file: !override [.env]
 
   caddy:
     volumes: !override

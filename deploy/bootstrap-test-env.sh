@@ -23,6 +23,15 @@ fi
 
 rnd() { openssl rand -base64 "${1:-32}" | tr -d '\n=' | tr '+/' '-_'; }
 
+# ⚠️ Computed OUT HERE, not inside the heredoc below. The heredoc is unquoted (it has to be, to
+# interpolate), so a backslash written inside it is eaten by the shell before sed sees it and the
+# dots come out unescaped — which silently turns the Caddy host_regexp into a near-miss matcher.
+# A literal backslash via its own variable. Writing the escape inline instead --- \. or a sed
+# expression --- is eaten by one shell layer or another before it lands, and the failure is silent:
+# unescaped dots still match, just too much, so the Caddy host_regexp quietly becomes a near-miss.
+BS=''
+APEX_REGEX="${APEX//./${BS}.}"
+
 PG_APP_PW="$(rnd 24)"
 PG_PLATFORM_PW="$(rnd 24)"
 PG_SUPER_PW="$(rnd 24)"
@@ -95,7 +104,7 @@ RATE_LIMIT_ENABLED=true
 
 # Consumed by deploy/Caddyfile.sslip. APEX_REGEX is the apex with dots escaped.
 APEX_DOMAIN=${APEX}
-APEX_REGEX=$(printf '%s' "$APEX" | sed 's/\./\./g')
+APEX_REGEX=${APEX_REGEX}
 EOF
 
 chmod 600 "$OUT"

@@ -31,6 +31,6 @@
       "@database": ["libs/database/src"]
     }
   },
-  "//exclude": "test/e2e runs in a browser page and needs the DOM lib, which this project deliberately does not have — it has its own tsconfig, typechecked by its own CI step.",
-  "exclude": ["node_modules", "dist", "apps/web", "packages", "test/e2e"]
+  "//exclude": "This is the BACKEND project: no JSX, no DOM lib. Every front-end app has its own tsconfig and its own CI gate, and test/e2e runs in a browser page. ⚠️ `apps/*-web` is a GLOB on purpose — it was previously the single literal `apps/web`, so the four apps added by the front-end split were silently pulled in here and produced ~1000 JSX/DOM errors that had nothing to do with the backend.",
+  "exclude": ["node_modules", "dist", "apps/web", "apps/*-web", "packages", "test/e2e"]
 }

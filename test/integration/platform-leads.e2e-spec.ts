@@ -30,9 +30,9 @@ describe('Platform leads / demo requests (e2e, §24 SA8)', () => {
   const csrfOf = (cs: string[]) => (cs.find((c) => c.startsWith('platform_csrf=')) ?? '').split(';')[0].split('=')[1];
   const login = (email: string) => request(server()).post('/api/v1/platform/auth/login').set('Host', HOST).send({ email, password });
   const get = (cs: string[], path: string) => request(server()).get(`/api/v1/platform/${path}`).set('Host', HOST).set('Cookie', cookieHeader(cs));
-  const patch = (cs: string[], path: string, body: unknown) =>
+  const patch = (cs: string[], path: string, body: object) =>
     request(server()).patch(`/api/v1/platform/${path}`).set('Host', HOST).set('Cookie', cookieHeader(cs)).set('X-CSRF-Token', csrfOf(cs)).send(body);
-  const publicPost = (body: unknown) => request(server()).post('/api/v1/platform/public/demo-request').set('Host', HOST).send(body);
+  const publicPost = (body: object) => request(server()).post('/api/v1/platform/public/demo-request').set('Host', HOST).send(body);
 
   let superC: string[], supportC: string[], billingC: string[], analystC: string[];
 

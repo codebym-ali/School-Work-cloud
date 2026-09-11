@@ -52,7 +52,12 @@ https:// {
 	}
 
 	# ── Role doors: <role>.<school>.<apex> ────────────────────────────
-	@owner host_regexp owner ^owner\.[^.]+\.{$APEX_REGEX}$
+	# ⚠️ `host_regexp` is NOT a Caddy matcher --- Caddy 2 has `host` (exact/wildcard) and
+	# `header_regexp`, and an unknown matcher is a HARD startup failure:
+	#   adapting config: getting matcher module 'host_regexp': module not registered
+	# so the proxy crash-loops and nothing is served at all. Matching the Host header directly
+	# is the supported way to express a two-label-deep role host.
+	@owner header_regexp Host ^owner\.[^.]+\.{$APEX_REGEX}$
 	handle @owner {
 		import tenant_api
 		handle {
@@ -60,7 +65,7 @@ https:// {
 		}
 	}
 
-	@staff host_regexp staff ^staff\.[^.]+\.{$APEX_REGEX}$
+	@staff header_regexp Host ^staff\.[^.]+\.{$APEX_REGEX}$
 	handle @staff {
 		import tenant_api
 		handle {
@@ -68,7 +73,7 @@ https:// {
 		}
 	}
 
-	@student host_regexp student ^student\.[^.]+\.{$APEX_REGEX}$
+	@student header_regexp Host ^student\.[^.]+\.{$APEX_REGEX}$
 	handle @student {
 		import tenant_api
 		handle {
@@ -77,7 +82,7 @@ https:// {
 	}
 
 	# ── Bare tenant host <school>.<apex> → marketing/chooser ──────────
-	@tenant host_regexp tenant ^[^.]+\.{$APEX_REGEX}$
+	@tenant header_regexp Host ^[^.]+\.{$APEX_REGEX}$
 	handle @tenant {
 		handle /api/* {
 			reverse_proxy api:4000

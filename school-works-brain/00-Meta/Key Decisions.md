@@ -947,3 +947,57 @@ a full run stretching from 2.5 to 3.8 minutes) other interaction-heavy specs can
 `classes-ux` "seats cannot be cut below…" failed once on `toBeEnabled` and passes in isolation. The
 same verify-each-interaction treatment would fix it; the deeper remedy is not running the whole dev
 stack while the suite runs.
+
+## The deploy config had never been executed, and it showed (2026-09-11)
+
+The system is live on a free Oracle Cloud box at `140-245-39-243.sslip.io`. Getting there surfaced
+**four** defects in `deploy/`, none of which any test could have caught, because nothing had ever run
+those files. Their own header said so: *"templates validated against the app layout, not run in this
+environment."* That sentence was accurate and should have read as a warning.
+
+Three of the four share one root cause worth internalising:
+
+> **Compose resolves relative paths against the PROJECT directory --- the dir of the FIRST `-f` file ---
+> not against the file that declares them.**
+
+`deploy/docker-compose.prod.yml` was written as though `..` meant "up from deploy/". Run from the repo
+root it means "up from the repo", i.e. outside it entirely.
+
+| Defect | Symptom |
+|---|---|
+| `env_file: [../.env]` | `env file /home/ubuntu/.env not found` --- stack refuses to start |
+| `context: ..` | `lstat /home/ubuntu/deploy: no such file` --- build dies instantly |
+| `NEXT_PUBLIC_*` not build args | silent: the apex chooser would ship links pointing at `localhost` |
+| `host_regexp` in both Caddyfiles | `module not registered` --- Caddy crash-loops, serves nothing |
+
+⚠️ **`host_regexp` is not a Caddy matcher and never was.** Caddy 2 has `host` and `header_regexp`; an
+unknown matcher is a hard startup failure. This was in the PRODUCTION Caddyfile too, so the real
+go-live would have failed identically --- the proxy up, every request unanswered.
+
+**The third one is the instructive one.** The other three fail loudly on the first attempt. That one
+fails *silently and later*: the app builds, deploys, serves, and only a human clicking a cross-app
+link discovers it points at `localhost`. `NEXT_PUBLIC_*` values are inlined into the client bundle at
+**build** time, so they cannot be supplied at runtime --- they must be build args or they are wrong.
+
+### On-demand TLS on a shared domain: the gate is what makes it safe
+
+`sslip.io` resolves any labels in front of an embedded IP, which satisfies the two-label-deep
+requirement (`owner.demo.<ip>.sslip.io`) with no DNS provider. Verified live: real tenant, role host
+and reserved console all 200; **unknown host 404 and no certificate issued**. Without that gate,
+on-demand TLS on a shared domain is an invitation to burn Let's Encrypt rate limits shared with every
+other sslip.io user.
+
+The label arithmetic differs from production and is the one thing that fails quietly: Caddy indexes
+host labels from the RIGHT, so an sslip apex (3 labels) rebuilds the school Host at a different offset
+than `schoolworks.com` (2 labels). Get it wrong and tenant resolution simply never finds the school.
+Verified by posting a DELIBERATELY WRONG password to the login endpoint on both host shapes: `401
+INVALID_CREDENTIALS` proves the tenant resolved and the user was found, without using a real secret.
+
+### Two firewalls, and only one of them is yours
+
+An OCI instance drops traffic at the host `iptables` (Oracle images ship a `REJECT all` rule that 80
+and 443 must be inserted ABOVE) *and* at the console-side security list. Each produces an identical
+silent timeout that reads exactly like a broken app. ⚠️ Note also that Compose writes its own DOCKER
+chain which **bypasses** INPUT --- so publishing a database port would have exposed it to the internet
+with the host firewall still looking closed. The test override stops publishing postgres/redis/minio
+entirely; verified that only Caddy binds 80/443.

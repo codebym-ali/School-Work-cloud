@@ -1,11 +1,18 @@
 ---
 title: Free live test deployment — plan
 type: plan
-status: PLANNED — not executed
-updated: 2026-09-08
+status: EXECUTED — live at 140-245-39-243.sslip.io (disposable test env)
+updated: 2026-09-11
 ---
 
 # Getting the whole system live, free, to test
+
+> **✅ EXECUTED 2026-09-11.** Live at `https://140-245-39-243.sslip.io` (apex, `demo.`, the three role
+> doors, `superadmin.`). ⚠️ **The recommended Always Free ARM shape was refused at every size** — the
+> region has one availability domain and no capacity; the Free Trial credit was used for an AMD
+> `E5.Flex` instead, which also removes the arm64 ClamAV limitation noted below. Four latent defects in
+> `deploy/` surfaced on first execution, one of which (`host_regexp`) would have broken the real
+> go-live identically. See [[Key Decisions]] and [[Progress Tracker]].
 
 **Operator ask (2026-09-08):** *"deploy this whole system on live to test, for free."*
 

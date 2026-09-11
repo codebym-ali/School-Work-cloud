@@ -12,6 +12,15 @@
 #     iptables rules that BYPASS the INPUT chain, so the host firewall would NOT save us here.
 #  3. Generated passwords replace the dev literals (postgres/postgres, app_pw, minioadmin).
 #  4. Caddy serves the sslip.io config instead of the schoolworks.com one.
+x-fe: &fe-build
+  context: .
+  dockerfile: deploy/Dockerfile
+  args:
+    NEXT_PUBLIC_OWNER_URL: https://owner.demo.${APEX_DOMAIN}
+    NEXT_PUBLIC_STAFF_URL: https://staff.demo.${APEX_DOMAIN}
+    NEXT_PUBLIC_STUDENT_URL: https://student.demo.${APEX_DOMAIN}
+    NEXT_PUBLIC_SUPERADMIN_URL: https://superadmin.${APEX_DOMAIN}
+
 services:
   postgres:
     ports: !override []
@@ -50,19 +59,32 @@ services:
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?}
     restart: 'no'
 
+  # ⚠️ Same root cause as the env_file note below, and it bites the BUILD too:
+  # deploy/docker-compose.prod.yml sets `context: ..` on every service, which Compose resolves
+  # against the PROJECT directory (the repo root) rather than against deploy/ --- so it looks for
+  # /home/<user>/deploy and dies with "lstat .../deploy: no such file or directory". From the repo
+  # root the correct context is simply `.`.
+  #
+  # The five front-ends also receive the cross-app URLs as BUILD args: they are NEXT_PUBLIC_*, so
+  # they are inlined into the client bundle at build time and cannot be supplied at runtime. Owner,
+  # staff and student are TENANT-scoped, so their URLs carry the demo school's subdomain --- the apex
+  # chooser has no tenant context of its own and would otherwise link at localhost.
   # ⚠️ deploy/docker-compose.prod.yml declares `env_file: [../.env]`. Compose resolves env_file
   # relative to the PROJECT directory (the repo root, set by the first -f file), NOT relative to the
   # file that declares it — so `../.env` points one level ABOVE the repo and the stack refuses to
   # start with "env file /home/<user>/.env not found". Corrected here for all three backend services.
   migrate:
+    build: !override { context: ., dockerfile: Dockerfile }
     env_file: !override [.env]
     depends_on:
       postgres: { condition: service_healthy }
 
   api:
+    build: !override { context: ., dockerfile: Dockerfile }
     env_file: !override [.env]
 
   worker:
+    build: !override { context: ., dockerfile: Dockerfile }
     env_file: !override [.env]
 
   caddy:
@@ -73,6 +95,52 @@ services:
     environment:
       APEX_DOMAIN: ${APEX_DOMAIN:?}
       APEX_REGEX: ${APEX_REGEX:?}
+
+  web:
+    build: !override
+      <<: *fe-build
+      args:
+        APP: web
+        NEXT_PUBLIC_OWNER_URL: https://owner.demo.${APEX_DOMAIN}
+        NEXT_PUBLIC_STAFF_URL: https://staff.demo.${APEX_DOMAIN}
+        NEXT_PUBLIC_STUDENT_URL: https://student.demo.${APEX_DOMAIN}
+        NEXT_PUBLIC_SUPERADMIN_URL: https://superadmin.${APEX_DOMAIN}
+  superadmin-web:
+    build: !override
+      <<: *fe-build
+      args:
+        APP: superadmin-web
+        NEXT_PUBLIC_OWNER_URL: https://owner.demo.${APEX_DOMAIN}
+        NEXT_PUBLIC_STAFF_URL: https://staff.demo.${APEX_DOMAIN}
+        NEXT_PUBLIC_STUDENT_URL: https://student.demo.${APEX_DOMAIN}
+        NEXT_PUBLIC_SUPERADMIN_URL: https://superadmin.${APEX_DOMAIN}
+  owner-web:
+    build: !override
+      <<: *fe-build
+      args:
+        APP: owner-web
+        NEXT_PUBLIC_OWNER_URL: https://owner.demo.${APEX_DOMAIN}
+        NEXT_PUBLIC_STAFF_URL: https://staff.demo.${APEX_DOMAIN}
+        NEXT_PUBLIC_STUDENT_URL: https://student.demo.${APEX_DOMAIN}
+        NEXT_PUBLIC_SUPERADMIN_URL: https://superadmin.${APEX_DOMAIN}
+  staff-web:
+    build: !override
+      <<: *fe-build
+      args:
+        APP: staff-web
+        NEXT_PUBLIC_OWNER_URL: https://owner.demo.${APEX_DOMAIN}
+        NEXT_PUBLIC_STAFF_URL: https://staff.demo.${APEX_DOMAIN}
+        NEXT_PUBLIC_STUDENT_URL: https://student.demo.${APEX_DOMAIN}
+        NEXT_PUBLIC_SUPERADMIN_URL: https://superadmin.${APEX_DOMAIN}
+  student-web:
+    build: !override
+      <<: *fe-build
+      args:
+        APP: student-web
+        NEXT_PUBLIC_OWNER_URL: https://owner.demo.${APEX_DOMAIN}
+        NEXT_PUBLIC_STAFF_URL: https://staff.demo.${APEX_DOMAIN}
+        NEXT_PUBLIC_STUDENT_URL: https://student.demo.${APEX_DOMAIN}
+        NEXT_PUBLIC_SUPERADMIN_URL: https://superadmin.${APEX_DOMAIN}
 
 volumes:
   pgdata:

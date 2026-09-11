@@ -58,7 +58,12 @@ https:// {
 	}
 
 	# ── Owner app: owner.<school>.schoolworks.com ─────────────────────
-	@owner host_regexp owner ^owner\.[^.]+\.schoolworks\.com$
+	# ⚠️ `host_regexp` is NOT a Caddy matcher --- Caddy 2 has `host` (exact/wildcard) and
+	# `header_regexp`, and an unknown matcher is a HARD startup failure:
+	#   adapting config: getting matcher module 'host_regexp': module not registered
+	# so the proxy crash-loops and nothing is served at all. Matching the Host header directly
+	# is the supported way to express a two-label-deep role host.
+	@owner header_regexp Host ^owner\.[^.]+\.schoolworks\.com$
 	handle @owner {
 		import tenant_api
 		handle {
@@ -67,7 +72,7 @@ https:// {
 	}
 
 	# ── Staff app: staff.<school>.schoolworks.com ─────────────────────
-	@staff host_regexp staff ^staff\.[^.]+\.schoolworks\.com$
+	@staff header_regexp Host ^staff\.[^.]+\.schoolworks\.com$
 	handle @staff {
 		import tenant_api
 		handle {
@@ -76,7 +81,7 @@ https:// {
 	}
 
 	# ── Student portal: student.<school>.schoolworks.com ──────────────
-	@student host_regexp student ^student\.[^.]+\.schoolworks\.com$
+	@student header_regexp Host ^student\.[^.]+\.schoolworks\.com$
 	handle @student {
 		import tenant_api
 		handle {
@@ -87,7 +92,7 @@ https:// {
 	# ── Bare tenant host <school>.schoolworks.com → marketing/chooser ─
 	# (Single label before the apex; a school with no role prefix lands on the chooser, branded
 	# by ?campus. Its /api resolves the tenant directly, Host untouched.)
-	@tenant host_regexp tenant ^[^.]+\.schoolworks\.com$
+	@tenant header_regexp Host ^[^.]+\.schoolworks\.com$
 	handle @tenant {
 		handle /api/* {
 			reverse_proxy api:4000

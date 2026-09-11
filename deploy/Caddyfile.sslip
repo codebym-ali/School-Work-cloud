@@ -1,0 +1,94 @@
+# SchoolWorks edge config for the FREE TEST deployment (see brain: Free Live Test Deployment Plan).
+#
+# Same routing as deploy/Caddyfile, retargeted at an sslip.io apex so no domain purchase or DNS
+# provider is needed: sslip.io resolves any labels in front of an embedded IP, at any depth.
+#
+#   apex      140-245-39-243.sslip.io
+#   tenant    demo.140-245-39-243.sslip.io
+#   role      owner.demo.140-245-39-243.sslip.io
+#
+# ⚠️ The ONE substantive difference from the production Caddyfile is label arithmetic. Caddy indexes
+# host labels from the RIGHT, so the school host is built from a different offset here:
+#   schoolworks.com          → 2 apex labels → school = {labels.2}.{labels.1}.{labels.0}
+#   140-245-39-243.sslip.io  → 3 apex labels → school = {labels.3}.{labels.2}.{labels.1}.{labels.0}
+# Getting this wrong does not fail loudly — TenantResolutionMiddleware simply never finds the school.
+#
+# APEX_DOMAIN is substituted by Caddy at parse time from the environment (compose passes it through).
+
+{
+	on_demand_tls {
+		ask http://api:4000/api/v1/platform/public/host-allowed
+	}
+}
+
+(tenant_api) {
+	handle /api/* {
+		reverse_proxy api:4000 {
+			header_up Host {labels.3}.{labels.2}.{labels.1}.{labels.0}
+		}
+	}
+}
+
+https:// {
+	tls {
+		on_demand
+	}
+
+	# ── Marketing + login chooser (apex) ──────────────────────────────
+	@apex host {$APEX_DOMAIN} www.{$APEX_DOMAIN}
+	handle @apex {
+		reverse_proxy web:3001
+	}
+
+	# ── Vendor console (reserved; platform routes are tenant-agnostic → Host untouched) ─
+	@superadmin host superadmin.{$APEX_DOMAIN} admin.{$APEX_DOMAIN}
+	handle @superadmin {
+		handle /api/* {
+			reverse_proxy api:4000
+		}
+		handle {
+			reverse_proxy superadmin-web:3004
+		}
+	}
+
+	# ── Role doors: <role>.<school>.<apex> ────────────────────────────
+	@owner host_regexp owner ^owner\.[^.]+\.{$APEX_REGEX}$
+	handle @owner {
+		import tenant_api
+		handle {
+			reverse_proxy owner-web:3005
+		}
+	}
+
+	@staff host_regexp staff ^staff\.[^.]+\.{$APEX_REGEX}$
+	handle @staff {
+		import tenant_api
+		handle {
+			reverse_proxy staff-web:3006
+		}
+	}
+
+	@student host_regexp student ^student\.[^.]+\.{$APEX_REGEX}$
+	handle @student {
+		import tenant_api
+		handle {
+			reverse_proxy student-web:3003
+		}
+	}
+
+	# ── Bare tenant host <school>.<apex> → marketing/chooser ──────────
+	@tenant host_regexp tenant ^[^.]+\.{$APEX_REGEX}$
+	handle @tenant {
+		handle /api/* {
+			reverse_proxy api:4000
+		}
+		handle {
+			reverse_proxy web:3001
+		}
+	}
+
+	# Anything else → 404 (don't leak which hosts are live).
+	handle {
+		respond "Not found" 404
+	}
+}

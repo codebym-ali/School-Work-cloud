@@ -20,6 +20,14 @@ WORKDIR /repo
 
 FROM base AS build
 ARG APP
+# Cross-app links in apps/web are NEXT_PUBLIC_*, i.e. inlined into the client bundle at BUILD time —
+# so they must arrive as build args, not runtime env. Unset is fine for the four role apps; only the
+# apex chooser reads them (apps/web/lib/app-urls.ts), and it falls back to localhost ports.
+ARG NEXT_PUBLIC_OWNER_URL
+ARG NEXT_PUBLIC_STAFF_URL
+ARG NEXT_PUBLIC_STUDENT_URL
+ARG NEXT_PUBLIC_SUPERADMIN_URL
+ENV NEXT_PUBLIC_OWNER_URL=${NEXT_PUBLIC_OWNER_URL}     NEXT_PUBLIC_STAFF_URL=${NEXT_PUBLIC_STAFF_URL}     NEXT_PUBLIC_STUDENT_URL=${NEXT_PUBLIC_STUDENT_URL}     NEXT_PUBLIC_SUPERADMIN_URL=${NEXT_PUBLIC_SUPERADMIN_URL}
 # Workspace manifests + install first (better layer caching), then the source.
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
 COPY apps ./apps

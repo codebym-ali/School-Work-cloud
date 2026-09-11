@@ -1,0 +1,68 @@
+# Override layer for the FREE TEST deployment (brain: Free Live Test Deployment Plan).
+#
+# Run from the repo root, layered over the base + split-prod files:
+#   docker compose -f docker-compose.yml -f deploy/docker-compose.prod.yml \
+#                  -f deploy/docker-compose.test.yml up -d --build
+#
+# What this layer changes, and why:
+#  1. Backing services run ON THE BOX. The split-prod file assumes managed Postgres/Redis; running
+#     them here is the whole reason this fits a free tier.
+#  2. NO host port publishing for postgres/redis/minio. The base file publishes 5433/6381/9002 for
+#     local dev; on a public box that is a database on the internet. Compose writes DOCKER-level
+#     iptables rules that BYPASS the INPUT chain, so the host firewall would NOT save us here.
+#  3. Generated passwords replace the dev literals (postgres/postgres, app_pw, minioadmin).
+#  4. Caddy serves the sslip.io config instead of the schoolworks.com one.
+services:
+  postgres:
+    ports: !override []
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set by deploy/bootstrap-test-env.sh}
+      POSTGRES_DB: school
+      APP_USER_PASSWORD: ${APP_USER_PASSWORD:?}
+      PLATFORM_USER_PASSWORD: ${PLATFORM_USER_PASSWORD:?}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./scripts/postgres-init.sql:/docker-entrypoint-initdb.d/00-init.sql:ro
+      # Runs AFTER 00-init.sql: replaces the dev-literal role passwords with the generated ones.
+      - ./scripts/postgres-init-passwords.sh:/docker-entrypoint-initdb.d/01-passwords.sh:ro
+
+  redis:
+    ports: !override []
+
+  minio:
+    ports: !override []
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?}
+    volumes:
+      - miniodata:/data
+
+  # Creates the uploads bucket once MinIO is up, then exits.
+  minio-init:
+    image: minio/mc:latest
+    depends_on: [minio]
+    entrypoint: >
+      sh -c "until mc alias set s3 http://minio:9000 $${MINIO_ROOT_USER} $${MINIO_ROOT_PASSWORD}; do sleep 2; done;
+             mc mb --ignore-existing s3/school-uploads; echo bucket ready"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?}
+    restart: 'no'
+
+  migrate:
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  caddy:
+    volumes: !override
+      - ./deploy/Caddyfile.sslip:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    environment:
+      APEX_DOMAIN: ${APEX_DOMAIN:?}
+      APEX_REGEX: ${APEX_REGEX:?}
+
+volumes:
+  pgdata:
+  miniodata:

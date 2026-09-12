@@ -2,7 +2,7 @@
 
 import { type ChangeEvent, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { api, apiGet, apiPost, ApiError, type Campus, type ImportResult, type Invoice, type Klass, type Paged, type Payment, type Section, type Student, type StudentDetail, type StudentStatus } from '@sw/api-client';
+import { api, apiGet, apiPost, ApiError, type Campus, type ImportResult, type Invoice, type Klass, type Paged, type Payment, type Section, type Student, type StudentDetail, type StudentDocumentRow, type StudentStatus } from '@sw/api-client';
 import { useCampusLens } from '@sw/session';
 import { classLabeller } from '@school/lib/labels';
 import { hasModule, useMe } from '@sw/session';
@@ -374,6 +374,7 @@ function RecordCard({ student, onSaved }: { student: StudentDetail; onSaved: () 
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [f, setF] = useState<Record<string, string>>({});
+  const [photoBusy, setPhotoBusy] = useState(false);
 
   // Its own Row: the one in StudentProfile is a closure over that component's scope.
   const Row = ({ k, v }: { k: string; v?: string | null }) =>
@@ -394,10 +395,24 @@ function RecordCard({ student, onSaved }: { student: StudentDetail; onSaved: () 
       lastResult: student.lastResult ?? '', reasonForLeaving: student.reasonForLeaving ?? '',
       slcReceived: student.slcReceived === null || student.slcReceived === undefined ? '' : String(student.slcReceived),
       bloodGroup: student.bloodGroup ?? '', medicalNotes: student.medicalNotes ?? '',
+      photoKey: student.photoKey ?? '',
+      declarationVersion: student.declarationVersion ?? '', declarationAcceptedBy: student.declarationAcceptedBy ?? '',
     });
     setMsg(null); setErr(null); setOpen(true);
   }
   const set = (k: string, v: string) => setF((prev) => ({ ...prev, [k]: v }));
+
+  async function attachPhoto(file: File) {
+    setPhotoBusy(true); setErr(null);
+    try {
+      const { fileKey } = await api.uploads.upload(file);
+      // Held in the draft, saved with the rest of the form: attaching a photo and then abandoning
+      // the editor should not silently change the record.
+      set('photoKey', fileKey);
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : 'Could not upload that photo');
+    } finally { setPhotoBusy(false); }
+  }
 
   const emergency = student.emergencyName
     ? [student.emergencyName, student.emergencyPhone, student.emergencyRelation].filter(Boolean).join(' - ')
@@ -406,9 +421,12 @@ function RecordCard({ student, onSaved }: { student: StudentDetail; onSaved: () 
   async function save() {
     setBusy(true); setErr(null); setMsg(null);
     try {
-      const { slcReceived, ...text } = f;
+      const { slcReceived, declarationVersion, declarationAcceptedBy, ...text } = f;
       await api.students.update(student.id, {
         ...text,
+        // Sent only when there is something to record. An empty version would otherwise stamp an
+        // acceptance date for a declaration nobody agreed to.
+        ...(declarationVersion ? { declarationVersion, declarationAcceptedBy: declarationAcceptedBy || undefined } : {}),
         // WARNING: tri-state, not a checkbox. "" means nobody has asked yet, which is a different
         // fact from "asked, and the old school has not handed it over".
         slcReceived: slcReceived === '' ? null : slcReceived === 'true',
@@ -459,6 +477,15 @@ function RecordCard({ student, onSaved }: { student: StudentDetail; onSaved: () 
           {student.slcReceived !== null && student.slcReceived !== undefined && (
             <Row k="Leaving certificate" v={student.slcReceived ? 'Received' : 'NOT received - chase the previous school'} />
           )}
+          <Row k="Photograph" v={student.photoKey ? 'On file' : null} />
+          {/* The VERSION is shown, not just "accepted": which wording a parent agreed to is the
+              question actually asked when a declaration is disputed. */}
+          <Row
+            k="Parent declaration"
+            v={student.declarationAcceptedAt
+              ? `${student.declarationVersion ?? 'accepted'} - ${student.declarationAcceptedBy ?? 'unnamed'} on ${new Date(student.declarationAcceptedAt).toLocaleDateString()}`
+              : null}
+          />
         </div>
       )}
 
@@ -479,6 +506,30 @@ function RecordCard({ student, onSaved }: { student: StudentDetail; onSaved: () 
             <div><label>Name</label><input value={f.emergencyName ?? ''} onChange={(e) => set('emergencyName', e.target.value)} /></div>
             <div><label>Phone</label><input value={f.emergencyPhone ?? ''} onChange={(e) => set('emergencyPhone', e.target.value)} placeholder="03001234567" /></div>
             <div><label>Relation</label><input value={f.emergencyRelation ?? ''} onChange={(e) => set('emergencyRelation', e.target.value)} placeholder="e.g. Uncle" /></div>
+          </div>
+
+          <div className="section-title">Photograph</div>
+          <div className="row" style={{ alignItems: 'center', gap: 10 }}>
+            {/* The bytes go browser → storage directly via a presigned PUT; the form only ever
+                carries the KEY. `photo_key` existed on the student from the start with nothing
+                writing to it — this is its first caller. */}
+            {f.photoKey ? <span className="badge ok">photo attached</span> : <span className="muted" style={{ fontSize: 13 }}>No photograph on file</span>}
+            <label className="ghost small" style={{ cursor: photoBusy ? 'progress' : 'pointer' }}>
+              {photoBusy ? 'Uploading…' : f.photoKey ? 'Replace photo' : '📎 Attach photo'}
+              <input type="file" hidden accept="image/*" aria-label="Student photograph"
+                onChange={(e) => { const file = e.target.files?.[0]; if (file) void attachPhoto(file); }} />
+            </label>
+          </div>
+
+          <div className="section-title">Parent declaration</div>
+          <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(200px,1fr))' }}>
+            {/* ⚠️ Version, not a tick. "The parent agreed" is close to worthless without "agreed to
+                WHAT" — the wording changes as fee policy and rules change, and the version is the
+                only thing that can answer that later. The DATE is stamped by the server. */}
+            <div><label>Declaration version</label><input value={f.declarationVersion ?? ''}
+              onChange={(e) => set('declarationVersion', e.target.value)} placeholder="e.g. admission-terms-2026" /></div>
+            <div><label>Accepted by</label><input value={f.declarationAcceptedBy ?? ''}
+              onChange={(e) => set('declarationAcceptedBy', e.target.value)} placeholder="Parent / guardian name" /></div>
           </div>
 
           <div className="section-title">Medical</div>
@@ -654,6 +705,10 @@ function StudentProfile({ id, classes, sections, onBack }: { id: string; classes
               already opens, not on a report nobody runs. */}
           <RecordCard student={s} onSaved={load} />
 
+          {/* Directly under the record card: the paperwork IS most of what an admission consists
+              of, and it belongs on the screen the office already has open. */}
+          <DocumentsCard studentId={s.id} onSaved={load} />
+
           {moving && (
             <MoveStudentDialog student={s} classes={classes} sections={sections}
               onClose={() => setMoving(false)}
@@ -800,6 +855,131 @@ function ImportReport({ result }: { result: ImportResult }) {
  * through a short-lived signed link — the object itself stays private, and the link is minted
  * only after the server has checked you may see that payment.
  */
+/**
+ * The admission checklist — what the family actually handed in.
+ *
+ * ⚠️ Attaching a file is OPTIONAL and the tick is the primary action. These documents arrive as
+ * photocopies across a counter far more often than as scans, and a checklist that demanded an upload
+ * would be worked around: the office would tick things it had not scanned, or not tick things it had
+ * received. A register that lies is worse than no register.
+ */
+function DocumentsCard({ studentId, onSaved }: { studentId: string; onSaved: () => void }) {
+  const [rows, setRows] = useState<StudentDocumentRow[] | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [noteFor, setNoteFor] = useState<string | null>(null);
+  const [noteText, setNoteText] = useState('');
+
+  const load = useCallback(async () => {
+    try {
+      setRows(await api.students.documents(studentId));
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : 'Could not load the checklist');
+    }
+  }, [studentId]);
+
+  useEffect(() => { void load(); }, [load]);
+
+  async function write(type: string, body: { received: boolean; fileKey?: string; note?: string }) {
+    setBusy(type); setErr(null);
+    try {
+      const updated = await api.students.setDocument(studentId, type, body);
+      setRows((prev) => (prev ?? []).map((r) => (r.type === type ? updated : r)));
+      // The chase list on the card above is derived from these, so it has to be refetched too.
+      onSaved();
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : 'Could not save that');
+    } finally { setBusy(null); }
+  }
+
+  async function attach(row: StudentDocumentRow, file: File) {
+    setBusy(row.type); setErr(null);
+    try {
+      const { fileKey } = await api.uploads.upload(file);
+      // Attaching a scan IS receipt — making the office tick a second box for the same fact is how
+      // a checklist drifts out of agreement with reality.
+      await write(row.type, { received: true, fileKey, note: row.note ?? undefined });
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : 'Could not attach that file');
+      setBusy(null);
+    }
+  }
+
+  const outstanding = (rows ?? []).filter((r) => r.mandatory && !r.received);
+
+  return (
+    <div className="card stack">
+      <div className="row" style={{ alignItems: 'flex-start' }}>
+        <div>
+          <h2 style={{ margin: 0, fontSize: 17 }}>Documents received</h2>
+          <p className="muted" style={{ margin: '2px 0 0', fontSize: 13 }}>
+            {rows === null
+              ? 'Loading…'
+              : outstanding.length === 0
+                ? 'All required documents are in hand.'
+                : <>Still required: <b>{outstanding.map((r) => r.label).join(' · ')}</b></>}
+          </p>
+        </div>
+      </div>
+
+      {err && <div className="toast err">{err}</div>}
+
+      {rows !== null && (
+        <div className="stack" style={{ gap: 6 }}>
+          {rows.map((r) => (
+            <div key={r.type} className="row" style={{ alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 260, cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={r.received}
+                  disabled={busy === r.type}
+                  onChange={(e) => void write(r.type, { received: e.target.checked, fileKey: r.fileKey ?? undefined, note: r.note ?? undefined })}
+                  aria-label={r.label}
+                />
+                <span>
+                  {r.label}
+                  {r.mandatory && <span className="muted" style={{ fontSize: 12 }}> · required</span>}
+                </span>
+              </label>
+
+              {r.received && r.receivedAt && (
+                <span className="muted" style={{ fontSize: 12 }}>
+                  received {new Date(r.receivedAt).toLocaleDateString()}
+                </span>
+              )}
+
+              {r.fileKey ? (
+                <span className="badge ok">scan attached</span>
+              ) : (
+                <label className="ghost small" style={{ cursor: busy === r.type ? 'progress' : 'pointer' }}>
+                  {busy === r.type ? 'Working…' : '📎 Attach scan'}
+                  <input type="file" hidden accept="image/*,application/pdf" aria-label={`Attach ${r.label}`}
+                    onChange={(e) => { const f = e.target.files?.[0]; if (f) void attach(r, f); }} />
+                </label>
+              )}
+
+              {noteFor === r.type ? (
+                <span className="row" style={{ gap: 6 }}>
+                  <input value={noteText} onChange={(e) => setNoteText(e.target.value)} placeholder="Note"
+                    aria-label={`Note for ${r.label}`} style={{ width: 200 }} />
+                  <button className="ghost small" disabled={busy === r.type}
+                    onClick={() => { void write(r.type, { received: r.received, fileKey: r.fileKey ?? undefined, note: noteText }); setNoteFor(null); }}>
+                    Save
+                  </button>
+                </span>
+              ) : (
+                <button className="ghost small" onClick={() => { setNoteFor(r.type); setNoteText(r.note ?? ''); }}>
+                  {r.note ? `Note: ${r.note}` : 'Add note'}
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function StudentFeesCard({ studentId }: { studentId: string }) {
   const [invoices, setInvoices] = useState<Invoice[] | null>(null);
   const [payments, setPayments] = useState<Payment[]>([]);

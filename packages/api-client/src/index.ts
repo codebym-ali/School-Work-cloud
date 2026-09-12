@@ -190,6 +190,19 @@ export type StudentStatus = 'ACTIVE' | 'SUSPENDED' | 'RESTRICTED' | 'STRUCK_OFF'
 /** `hasGuardian: false` means nobody is contactable for this child — no absence, fee-receipt
  *  or result SMS can be sent. Surfaced in the directory so the gap can be chased. */
 /** The admission-record fields, completed after the child is seated (Admission Form Field Gaps). */
+/** One row of the admission checklist — every type is returned, ticked or not. */
+export interface StudentDocumentRow {
+  type: string;
+  label: string;
+  /** Whether its absence makes the record incomplete. Deliberately few — see `recordGaps`. */
+  mandatory: boolean;
+  received: boolean;
+  receivedAt: string | null;
+  /** ⚠️ Optional by design: these arrive as photocopies far more often than as scans. */
+  fileKey: string | null;
+  note: string | null;
+}
+
 export interface StudentRecordFields {
   religion: string | null; addressLine: string | null; city: string | null;
   emergencyName: string | null; emergencyPhone: string | null; emergencyRelation: string | null;
@@ -199,10 +212,19 @@ export interface StudentRecordFields {
   slcReceived: boolean | null;
   bloodGroup: string | null; medicalNotes: string | null; nationality: string | null;
   permanentAddress: string | null;
+  /** Object key of the student's photograph (Tier 3). Never a URL — display goes through a
+   *  presigned GET, so the browser is handed a short-lived link, not a permanent one. */
+  photoKey: string | null;
+  /** ⚠️ Versioned: "the parent agreed" is worthless without "agreed to WHAT". */
+  declarationVersion: string | null;
+  declarationAcceptedBy: string | null;
+  declarationAcceptedAt: string | null;
 }
 export interface Student { id: string; fullName: string; grNumber: string; registrationNo: string | null; gender: string; isActive: boolean; status: StudentStatus; statusReason: string | null; statusEndsOn: string | null; hasGuardian: boolean;
   /** Derived, like `hasGuardian`: nothing outstanding on the admission record. */
-  recordComplete: boolean }
+  recordComplete: boolean;
+  /** Narrower than `recordComplete`: the mandatory admission DOCUMENTS are in hand. */
+  documentsComplete: boolean }
 export interface StudentDetail extends StudentRecordFields {
   id: string; fullName: string; grNumber: string; registrationNo: string | null; gender: string; dateOfBirth: string; isActive: boolean;
   /** Human labels for what is still outstanding — deliberately narrow, so it can reach zero. */
@@ -1004,6 +1026,13 @@ export const api = {
      *  the profile could show a student it had no way to correct. */
     update: (id: string, body: Partial<StudentRecordFields> & { fullName?: string; gender?: string; dateOfBirth?: string }) =>
       apiPatch<StudentDetail>(`/students/${id}`, body),
+    /** The admission checklist: EVERY document type, with whatever is recorded against it. A list
+     *  of only what has been ticked could not show what is outstanding. */
+    documents: (id: string) => apiGet<StudentDocumentRow[]>(`/students/${id}/documents`),
+    /** Record or clear one document. `fileKey` is optional on purpose — the counter case is a
+     *  photocopy, and demanding an upload would make the checklist lie. */
+    setDocument: (id: string, type: string, body: { received: boolean; fileKey?: string; note?: string }) =>
+      apiPut<StudentDocumentRow>(`/students/${id}/documents/${type}`, body),
   },
   // Read-only student portal sign-in: registration-no + CNIC (no password), §28/#34.
   studentPortal: {

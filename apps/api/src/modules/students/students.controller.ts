@@ -1,3 +1,4 @@
+import type { StudentDocumentType } from '@prisma/client';
 import {
   Body,
   Controller,
@@ -8,6 +9,7 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Query,
 } from '@nestjs/common';
 import { Roles } from '@common';
@@ -24,6 +26,7 @@ import {
   ImportStudentsDto,
   StudentSearchQuery,
   UpdateGuardianDto,
+  SetStudentDocumentDto,
   UpdateStudentDto,
 } from './dto/student.dto';
 
@@ -93,6 +96,31 @@ export class StudentsController {
   @Patch(':id')
   update(@Param('id') id: string, @Body() dto: UpdateStudentDto) {
     return this.students.update(id, dto);
+  }
+
+  /**
+   * The admission checklist: every document type with whatever is recorded against it.
+   *
+   * ⚠️ ADMISSION_CONTROLLER is included on both routes — they are the role that actually receives
+   * paperwork at the counter. The class-level @Roles already permits them to read students; a nav
+   * or route stricter than the job is how this codebase has silently deleted capability before
+   * (CSV import, /my-attendance, /my-leaves were each unreachable by the only role allowed to use
+   * them).
+   */
+  @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN', 'ADMISSION_CONTROLLER')
+  @Get(':id/documents')
+  listDocuments(@Param('id') id: string) {
+    return this.students.listDocuments(id);
+  }
+
+  @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN', 'ADMISSION_CONTROLLER')
+  @Put(':id/documents/:type')
+  setDocument(
+    @Param('id') id: string,
+    @Param('type') type: StudentDocumentType,
+    @Body() dto: SetStudentDocumentDto,
+  ) {
+    return this.students.setDocument(id, type, dto);
   }
 
   /** Lifecycle status change (suspend / restrict / strike off / restore). Separate from the

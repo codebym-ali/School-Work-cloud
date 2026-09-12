@@ -1,6 +1,6 @@
 import { HttpStatus, Inject, Injectable } from '@nestjs/common';
 import { createHmac } from 'node:crypto';
-import { Prisma, StudentStatus } from '@prisma/client';
+import { Prisma, StudentStatus, type StudentDocumentType } from '@prisma/client';
 import {
   AppError,
   assertCampusAccess,
@@ -23,7 +23,7 @@ import { AuditService, TenantPrismaService } from '@database';
 import { AccessService } from '../access/access.service';
 import { SetupService } from '../setup/setup.service';
 import { GuardiansService } from './guardians.service';
-import type { ChangeStudentStatusDto, CreateStudentDto, GuardianResolutionDto, StudentSearchQuery, UpdateStudentDto } from './dto/student.dto';
+import type { ChangeStudentStatusDto, CreateStudentDto, GuardianResolutionDto, SetStudentDocumentDto, StudentSearchQuery, UpdateStudentDto } from './dto/student.dto';
 
 export interface CreateStudentCoreInput {
   fullName: string;
@@ -64,6 +64,38 @@ export interface CreatedStudent {
  * ALWAYS via an enrollment scoped to the current academic year (§7) — students are
  * never linked directly to a section.
  */
+/**
+ * Human labels for the admission checklist. Rendered to an admissions officer, so they read the way
+ * the office speaks — "B-Form", not "B_FORM".
+ */
+export const DOCUMENT_LABELS: Record<StudentDocumentType, string> = {
+  B_FORM: 'B-Form',
+  BIRTH_CERTIFICATE: 'Birth certificate',
+  GUARDIAN_CNIC: "Guardian's CNIC",
+  PREV_SCHOOL_LEAVING: 'School leaving certificate',
+  PREV_REPORT_CARD: 'Previous report card',
+  PHOTOGRAPH: 'Photograph',
+  MEDICAL_RECORD: 'Medical record',
+  OTHER: 'Other document',
+};
+
+/**
+ * The documents whose absence makes a record INCOMPLETE — deliberately two, not eight.
+ *
+ * ⚠️ Same discipline as the rest of `recordGaps`: a chase list that cannot reach zero trains people
+ * to ignore it. Only documents that (a) every student has and (b) a front desk can actually obtain
+ * qualify.
+ *
+ *  - **Leaving certificate is excluded.** It applies to transfers only; a child starting in KG has
+ *    none, and flagging them forever would be flagging the truth as an error. It is still tracked on
+ *    the checklist, and `slcReceived` already surfaces the withheld-by-previous-school case.
+ *  - **Photograph is excluded.** The canonical digital photo is `students.photoKey`; the checklist
+ *    entry records a hard copy for the physical file, which not every school keeps.
+ *  - **Birth certificate is excluded** because in practice the B-Form IS the identity document; a
+ *    family that has produced one is rarely asked for the other.
+ */
+export const MANDATORY_DOCUMENTS: StudentDocumentType[] = ['B_FORM', 'GUARDIAN_CNIC'];
+
 @Injectable()
 export class StudentsService {
   constructor(
@@ -338,15 +370,19 @@ export class StudentsService {
           // Presence only — a count, not the guardian rows, so the directory payload doesn't
           // grow just to answer "is anyone contactable for this child?".
           _count: { select: { guardians: true } },
+          // Two small columns, not the whole row: enough to answer "is the paperwork in?" on the
+          // directory, without the note/fileKey a list never renders.
+          documents: { select: { type: true, received: true } },
         },
       }),
       this.db.student.count({ where }),
     ]);
     // `hasGuardian` is surfaced on every row so the UI can flag a student nobody can be
     // contacted about — without it, admitting without a guardian is an invisible dead end.
-    const data = rows.map(({ _count, ...s }) => ({
+    const data = rows.map(({ _count, documents, ...s }) => ({
       ...s,
       hasGuardian: _count.guardians > 0,
+      documentsComplete: MANDATORY_DOCUMENTS.every((t) => documents.some((d) => d.type === t && d.received)),
       // Same shape as `hasGuardian`: a derived flag the directory can badge, so an incomplete
       // record is chased from the list rather than found one profile at a time.
       recordComplete: StudentsService.recordGaps(s, _count.guardians).length === 0,
@@ -360,6 +396,7 @@ export class StudentsService {
       include: {
         guardians: { include: { parent: { select: { id: true, fullName: true, phone: true } } } },
         enrollments: { orderBy: { startedAt: 'desc' } },
+        documents: { orderBy: { type: 'asc' } },
       },
     });
     if (!student) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'Student not found');
@@ -517,7 +554,71 @@ export class StudentsService {
    *    can be contacted about is the most consequential gap of all.
    *
    * Returns human labels, not field names: this list is rendered to an admissions officer.
+   *
+   * ⚠️ **Documents are deliberately NOT in here.** Folding the checklist into `recordComplete` was
+   * tried and reverted: it silently redefines what "complete" has always meant (the three existing
+   * specs assert the list empties once the TEXT fields are filled), and on a live school it would
+   * mark every already-admitted student incomplete overnight — a list nobody can empty, which is
+   * exactly the failure this comment block warns about. Documents get their own signal,
+   * `documentsComplete` on the directory row, and their own card on the profile.
    */
+  /**
+   * The admission checklist for one student: EVERY document type, with whatever has been recorded
+   * against it.
+   *
+   * ⚠️ Returns the full list rather than only stored rows. A checklist that shows just what has been
+   * ticked cannot show what is outstanding, which is the only question it exists to answer.
+   */
+  async listDocuments(studentId: string) {
+    await this.getOne(studentId); // campus scoping + existence, in the service (§22.8)
+    const rows = await this.db.studentDocument.findMany({ where: { studentId } });
+    const byType = new Map(rows.map((r) => [r.type, r]));
+    return (Object.keys(DOCUMENT_LABELS) as StudentDocumentType[]).map((type) => {
+      const row = byType.get(type);
+      return {
+        type,
+        label: DOCUMENT_LABELS[type],
+        mandatory: MANDATORY_DOCUMENTS.includes(type),
+        received: row?.received ?? false,
+        receivedAt: row?.receivedAt ?? null,
+        fileKey: row?.fileKey ?? null,
+        note: row?.note ?? null,
+      };
+    });
+  }
+
+  /**
+   * Record (or clear) one document against a student.
+   *
+   * ⚠️ find-then-write, NOT `upsert`. The tenant Prisma extension merges `schoolId` into the where
+   * clause, which breaks a unique selector — a documented trap in this codebase (CLAUDE.md).
+   */
+  async setDocument(studentId: string, type: StudentDocumentType, dto: SetStudentDocumentDto) {
+    await this.getOne(studentId);
+    const existing = await this.db.studentDocument.findFirst({ where: { studentId, type } });
+    // Stamped only on the transition into "received": re-saving a note must not rewrite the date on
+    // which the school actually took delivery.
+    const receivedAt = dto.received ? (existing?.received ? existing.receivedAt : new Date()) : null;
+    const data = {
+      received: dto.received,
+      receivedAt,
+      receivedById: dto.received ? (this.ctx.user?.userId ?? null) : null,
+      fileKey: dto.fileKey ?? null,
+      note: dto.note ?? null,
+    };
+    const row = existing
+      ? await this.db.studentDocument.update({ where: { id: existing.id }, data })
+      : await this.db.studentDocument.create({ data: { ...data, schoolId: this.ctx.schoolId!, studentId, type } });
+    await this.audit.record({
+      action: AuditActions.STUDENT_UPDATED,
+      entityType: 'StudentDocument',
+      entityId: row.id,
+      oldValue: { type, received: existing?.received ?? false },
+      newValue: { type, received: row.received },
+    });
+    return { type, label: DOCUMENT_LABELS[type], mandatory: MANDATORY_DOCUMENTS.includes(type), received: row.received, receivedAt: row.receivedAt, fileKey: row.fileKey, note: row.note };
+  }
+
   static recordGaps(
     s: { religion: string | null; addressLine: string | null; city: string | null;
          emergencyName: string | null; emergencyPhone: string | null },
@@ -566,6 +667,13 @@ export class StudentsService {
         medicalNotes: dto.medicalNotes,
         nationality: dto.nationality,
         permanentAddress: dto.permanentAddress,
+        /** The student's photograph: the object key from the presigned upload (Tier 3). The column
+         *  existed from the start with nothing ever writing to it. */
+        photoKey: dto.photoKey,
+        /** Parent declaration (Tier 3). Version and acceptor travel together — see the DTO. */
+        declarationVersion: dto.declarationVersion,
+        declarationAcceptedBy: dto.declarationAcceptedBy,
+        declarationAcceptedAt: dto.declarationVersion === undefined ? undefined : new Date(),
       },
     });
     await this.audit.record({

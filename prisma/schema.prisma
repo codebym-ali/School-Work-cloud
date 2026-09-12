@@ -210,6 +210,19 @@ enum DocumentType {
   RECEIPT
 }
 
+/// What a school actually asks a family to bring. Mirrors the admission form used across
+/// Pakistani private schools rather than a generic "attachment" list.
+enum StudentDocumentType {
+  B_FORM // NADRA child registration certificate — the identity document
+  BIRTH_CERTIFICATE
+  GUARDIAN_CNIC
+  PREV_SCHOOL_LEAVING // the SLC; `slcReceived` on the student is the same fact, surfaced earlier
+  PREV_REPORT_CARD
+  PHOTOGRAPH
+  MEDICAL_RECORD
+  OTHER
+}
+
 enum UserStatus {
   INVITED
   ACTIVE
@@ -306,6 +319,7 @@ model School {
   classTests          ClassTest[]
   classTestScores     ClassTestScore[]
   platformInvoices    PlatformInvoice[] // SA6 vendor billing — the vendor's invoices for THIS school (non-tenant)
+  StudentDocument     StudentDocument[]
 
   @@map("schools")
 }
@@ -757,6 +771,7 @@ model User {
   auditLogs              AuditLog[]
   createdClassTests      ClassTest[]
   mfaRecoveryCodes       MfaRecoveryCode[]
+  StudentDocument        StudentDocument[]
 
   @@unique([id, schoolId])
   // Partial unique in 02_partial_uniques.sql: (school_id, email) WHERE deleted_at IS NULL.
@@ -834,72 +849,83 @@ model ParentProfile {
 }
 
 model Student {
-  id                  String        @id @default(uuid()) @db.Uuid
-  schoolId            String        @map("school_id") @db.Uuid
-  school              School        @relation(fields: [schoolId], references: [id])
-  userId              String?       @unique @map("user_id") @db.Uuid // student portal login (audit C-8)
-  user                User?         @relation("StudentLogin", fields: [userId, schoolId], references: [id, schoolId])
-  grNumber            String        @map("gr_number")
-  registrationNo      String?       @map("registration_no") // admission-form reg. no (auto, per-school)
-  cnicHash            String?       @map("cnic_hash") // HMAC of the student's CNIC/B-Form — 2nd factor for the CNIC+regNo portal login (§28)
+  id                    String        @id @default(uuid()) @db.Uuid
+  schoolId              String        @map("school_id") @db.Uuid
+  school                School        @relation(fields: [schoolId], references: [id])
+  userId                String?       @unique @map("user_id") @db.Uuid // student portal login (audit C-8)
+  user                  User?         @relation("StudentLogin", fields: [userId, schoolId], references: [id, schoolId])
+  grNumber              String        @map("gr_number")
+  registrationNo        String?       @map("registration_no") // admission-form reg. no (auto, per-school)
+  cnicHash              String?       @map("cnic_hash") // HMAC of the student's CNIC/B-Form — 2nd factor for the CNIC+regNo portal login (§28)
   /// AES-256-GCM ciphertext of the same CNIC. The hash above can only ever ANSWER "does this
   /// match?"; a school also has to READ a B-Form number back for board forms and certificates,
   /// which a one-way digest can never provide. Decrypted only by the audited reveal endpoint
   /// (OWNER/CAMPUS_ADMIN) — never included in a profile payload. Departs from the teacher-CNIC
   /// write-only rule deliberately; see Key Decisions.
-  cnicEnc             String?       @map("cnic_enc")
-  fullName            String        @map("full_name")
-  gender              Gender
-  dateOfBirth         DateTime      @map("date_of_birth") @db.Date
-  photoKey            String?       @map("photo_key")
+  cnicEnc               String?       @map("cnic_enc")
+  fullName              String        @map("full_name")
+  gender                Gender
+  dateOfBirth           DateTime      @map("date_of_birth") @db.Date
+  photoKey              String?       @map("photo_key")
   /// Admission-record fields (Admission Form Field Gaps, Tier 1). All nullable: every student
   /// admitted before this migration has none, and a walk-in is still seated in under a minute.
   ///
   /// A plain string, NOT an enum: a school may legitimately need "Parsi", "Ahmadi" or a spelling
   /// its board uses, and an enum would mean a migration per addition. The form offers the common
   /// set and allows anything.
-  religion            String?
+  religion              String?
   /// The home. Absent entirely until now, which blocked transport routing, leaving certificates
   /// and any legal correspondence.
-  addressLine         String?       @map("address_line")
-  city                String?
+  addressLine           String?       @map("address_line")
+  city                  String?
   /// ⚠️ The person you ring when a child is hurt — DELIBERATELY not the fee-paying guardian, and
   /// deliberately not a `ParentProfile`: it is often a neighbour or an uncle with no custodial
   /// relationship to model. Three plain columns say exactly that and nothing more.
-  emergencyName       String?       @map("emergency_name")
-  emergencyPhone      String?       @map("emergency_phone")
-  emergencyRelation   String?       @map("emergency_relation")
+  emergencyName         String?       @map("emergency_name")
+  emergencyPhone        String?       @map("emergency_phone")
+  emergencyRelation     String?       @map("emergency_relation")
   /// Previous academic history (Tier 2) — needed for any TRANSFER admission, which above KG is
   /// most of them. Collected after the child is seated, not at the counter.
-  previousSchool      String?       @map("previous_school")
-  lastClassPassed     String?       @map("last_class_passed")
-  lastResult          String?       @map("last_result")
-  reasonForLeaving    String?       @map("reason_for_leaving")
+  previousSchool        String?       @map("previous_school")
+  lastClassPassed       String?       @map("last_class_passed")
+  lastResult            String?       @map("last_result")
+  reasonForLeaving      String?       @map("reason_for_leaving")
   /// ⚠️ Tri-state on purpose: `null` = never asked, `false` = asked and NOT received, `true` = in
   /// hand. A plain boolean cannot tell "we have not chased this yet" from "the old school is
   /// withholding it over unpaid fees" — and that second case is the one that surfaces at board
   /// registration months later, when it is far too late to fix.
-  slcReceived         Boolean?      @map("slc_received")
+  slcReceived           Boolean?      @map("slc_received")
   /// Welfare (Tier 2). `medicalNotes` is duty-of-care: the teacher on a trip needs to know about
   /// the asthma or the nut allergy, and "nobody wrote it down" is not a defence.
-  bloodGroup          String?       @map("blood_group")
-  medicalNotes        String?       @map("medical_notes")
-  nationality         String?
+  bloodGroup            String?       @map("blood_group")
+  medicalNotes          String?       @map("medical_notes")
+  nationality           String?
   /// Not redundant with `addressLine`: families commonly keep a city residence and a village
   /// hometown, and during long holidays the hometown is the only address that reaches them.
-  permanentAddress    String?       @map("permanent_address")
+  permanentAddress      String?       @map("permanent_address")
   /// Derived mirror of `status == ACTIVE`, kept in sync on every status write. Many reads
   /// still filter on it; retire once those move to `status`.
-  isActive            Boolean       @default(true) @map("is_active")
-  status              StudentStatus @default(ACTIVE)
-  statusReason        String?       @map("status_reason")
-  statusEffectiveFrom DateTime?     @map("status_effective_from") @db.Date
-  statusEndsOn        DateTime?     @map("status_ends_on") @db.Date // SUSPENDED only — auto-restore date
-  deletedAt           DateTime?     @map("deleted_at")
-  createdById         String?       @map("created_by_id") @db.Uuid
-  createdBy           User?         @relation("StudentCreatedBy", fields: [createdById, schoolId], references: [id, schoolId])
-  createdAt           DateTime      @default(now()) @map("created_at")
-  updatedAt           DateTime      @updatedAt @map("updated_at")
+  isActive              Boolean       @default(true) @map("is_active")
+  status                StudentStatus @default(ACTIVE)
+  /// Parent/guardian declaration accepted at admission (Tier 3).
+  ///
+  /// ⚠️ VERSIONED on purpose. The declaration is a legal artifact — "the parent agreed" is close to
+  /// worthless without "agreed to WHAT", and the wording changes as fee policy and rules change. A
+  /// bare boolean would leave the school unable to say which text was in front of the parent, which
+  /// is exactly the question asked when it is disputed.
+  declarationVersion    String?       @map("declaration_version")
+  declarationAcceptedAt DateTime?     @map("declaration_accepted_at")
+  /// WHO accepted, in their own words — the parent's name as given, not a user id: the person
+  /// signing an admission declaration usually has no login at that moment.
+  declarationAcceptedBy String?       @map("declaration_accepted_by")
+  statusReason          String?       @map("status_reason")
+  statusEffectiveFrom   DateTime?     @map("status_effective_from") @db.Date
+  statusEndsOn          DateTime?     @map("status_ends_on") @db.Date // SUSPENDED only — auto-restore date
+  deletedAt             DateTime?     @map("deleted_at")
+  createdById           String?       @map("created_by_id") @db.Uuid
+  createdBy             User?         @relation("StudentCreatedBy", fields: [createdById, schoolId], references: [id, schoolId])
+  createdAt             DateTime      @default(now()) @map("created_at")
+  updatedAt             DateTime      @updatedAt @map("updated_at")
 
   guardians   StudentGuardian[]
   feeClaims   FeePaymentClaim[]
@@ -908,6 +934,7 @@ model Student {
   invoices    FeeInvoice[]
   discounts   Discount[]
   leaves      StudentLeave[]
+  documents   StudentDocument[]
 
   @@unique([id, schoolId])
   // Partial uniques in 02_partial_uniques.sql: (school_id, gr_number) and
@@ -1968,6 +1995,40 @@ model Document {
   @@index([schoolId, studentId])
   @@index([issuedById, schoolId])
   @@map("documents")
+}
+
+/// Documents RECEIVED from a family at admission — the counter-side checklist.
+///
+/// ⚠️ Deliberately NOT the `Document` model above. That one records what the school ISSUES
+/// (leaving certificate, report card, payslip): it carries `issuedById`/`issuedAt` and every
+/// `DocumentType` is a school-produced artifact. Receipt is the opposite direction, with a
+/// different actor and a different question ("did we get it?"), and forcing both through one table
+/// would make either side lie.
+model StudentDocument {
+  id           String              @id @default(uuid()) @db.Uuid
+  schoolId     String              @map("school_id") @db.Uuid
+  school       School              @relation(fields: [schoolId], references: [id])
+  studentId    String              @map("student_id") @db.Uuid
+  student      Student             @relation(fields: [studentId, schoolId], references: [id, schoolId], onDelete: Cascade)
+  type         StudentDocumentType
+  /// Tri-state via the row's existence + this flag: no row = never asked, false = asked and not
+  /// received, true = in hand. Same reasoning as `slcReceived` on the student.
+  received     Boolean             @default(false)
+  receivedAt   DateTime?           @map("received_at")
+  receivedById String?             @map("received_by_id") @db.Uuid
+  receivedBy   User?               @relation(fields: [receivedById, schoolId], references: [id, schoolId])
+  /// ⚠️ OPTIONAL, and it must stay optional. In a Pakistani school these arrive as photocopies
+  /// across a counter far more often than as scans. Requiring an upload to tick the box would make
+  /// the checklist unusable and push the office into ticking things that are not true — a register
+  /// that lies is worse than no register.
+  fileKey      String?             @map("file_key")
+  note         String?
+  createdAt    DateTime            @default(now()) @map("created_at")
+  updatedAt    DateTime            @updatedAt @map("updated_at")
+
+  @@unique([studentId, type])
+  @@index([schoolId, studentId])
+  @@map("student_documents")
 }
 
 // ── Platform / cross-cutting ─────────────────────────────────────────────────

@@ -184,6 +184,31 @@ export class UpdateStudentDto {
   @IsOptional() @IsString() @MinLength(1) @MaxLength(120)
   fullName?: string;
 
+  /**
+   * The student's photograph — the object KEY returned by the presigned upload, never the file and
+   * never a URL. The bytes went browser → storage directly; the API only ever learns where they
+   * landed. `photo_key` existed from the start with nothing writing to it.
+   */
+  @IsOptional() @IsString() @MaxLength(300)
+  photoKey?: string;
+
+  /**
+   * Parent/guardian declaration (Tier 3).
+   *
+   * ⚠️ The VERSION is the point. "The parent agreed" is close to worthless without "agreed to
+   * WHAT" — the wording changes as fee policy and school rules change, and the version is the only
+   * thing that can answer the question actually asked when a declaration is disputed. The accepted
+   * timestamp is set by the SERVER when a version is supplied, never by the client: a
+   * client-supplied date on a legal record is a date the client can choose.
+   */
+  @IsOptional() @IsString() @MaxLength(40)
+  declarationVersion?: string;
+
+  /** The accepting person's name as given — not a user id: whoever signs at the counter rarely
+   *  has a login at that moment. */
+  @IsOptional() @IsString() @MaxLength(120)
+  declarationAcceptedBy?: string;
+
   @IsOptional() @IsEnum(Gender)
   gender?: Gender;
 
@@ -307,4 +332,23 @@ export class UpdateGuardianDto {
 
   @IsOptional()
   isPrimary?: boolean;
+}
+
+/**
+ * One row of the admission checklist.
+ *
+ * ⚠️ `fileKey` is OPTIONAL and must stay so. These documents arrive as photocopies across a counter
+ * far more often than as scans; requiring an upload to tick the box would make the checklist
+ * unusable and push the office into ticking things that are not true. A register that lies is worse
+ * than no register.
+ */
+export class SetStudentDocumentDto {
+  @IsBoolean()
+  received!: boolean;
+
+  @IsOptional() @IsString() @MaxLength(300)
+  fileKey?: string;
+
+  @IsOptional() @IsString() @MaxLength(500)
+  note?: string;
 }

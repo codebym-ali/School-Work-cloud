@@ -1001,3 +1001,62 @@ silent timeout that reads exactly like a broken app. ⚠️ Note also that Compo
 chain which **bypasses** INPUT --- so publishing a database port would have exposed it to the internet
 with the host firewall still looking closed. The test override stops publishing postgres/redis/minio
 entirely; verified that only Caddy binds 80/443.
+
+## Presigned storage needs TWO endpoints, not one (2026-09-12)
+
+Uploads failed on the live box with nothing in any log explaining why. The cause is structural, not
+a typo, and it will recur on every self-hosted deployment.
+
+`StorageService` had ONE `S3_ENDPOINT` serving two callers with incompatible needs:
+
+| Caller | Needs |
+|---|---|
+| API → storage (generated PDFs) | internal, fast, no public hop — `http://minio:9000` |
+| **Browser** → storage (presigned PUT/GET) | publicly resolvable, HTTPS |
+
+Uploads are presigned and go **browser → storage directly**, never through the API — the right
+design, since a 20 MB upload should not occupy a Node process. But it means the browser must reach
+the storage host itself, and `minio` resolves only inside the docker network (and `http://` would be
+blocked as mixed content from an HTTPS page besides).
+
+⚠️ **The URL cannot be rewritten after signing.** A SigV4 signature covers the host, so it must be
+SIGNED for the host the browser will call. Hence `S3_PUBLIC_ENDPOINT` and a second S3 client used
+only for presigning. It defaults to `S3_ENDPOINT`, so managed storage (R2/S3), local dev and CI —
+where one host serves both callers — need no configuration and behave exactly as before.
+
+### The gate refuses hosts you forgot to tell it about
+
+Adding `s3.<apex>` was not just a Caddy route. On-demand TLS asks
+`GET /platform/public/host-allowed` before minting, and that allow-list is **hardcoded**
+(`superadmin, admin, www`). An unknown label → 404 → Caddy **silently declines to issue a
+certificate**, so the host is unreachable over HTTPS with no error anywhere saying why.
+
+⚠️ **It is deliberately NOT derived from `RESERVED_SUBDOMAINS`**, which answers a different question:
+that list is "labels that must never resolve to a school" and includes the ROLE labels, which are
+only valid two-deep. Deriving would mint certificates for `owner.<apex>`, a host that routes nowhere.
+The two lists are separate by design, so a test pins the invariant that binds them: **anything the
+platform serves at `<label>.<apex>` must also be reserved**, or a school could register `s3` and take
+over the host every presigned URL points at.
+
+### ⚠️ A bind-mounted FILE does not follow `tar -x`
+
+The config was correct on the host and stale inside the container, and Caddy had been up 23 hours.
+Docker bind-mounts a single file **by inode**; `tar -x` writes a NEW file, so the container keeps
+serving the old inode's content. The symptom was maximally confusing: `s3.<host>` returned a Next.js
+404 page, i.e. the storage host being proxied to the marketing app by a config that no longer existed
+on disk. `--force-recreate` on that one service is the fix. **Editing a bind-mounted file in place
+(`sed -i` without `--follow-symlinks`, or a heredoc) preserves the inode; extracting over it does
+not.** Worth knowing for every future deploy that ships config by archive.
+
+### Verified end to end, not by status code
+
+Login → presigned PUT (signed host asserted to be the public one) → 128 bytes uploaded **from outside
+the network** → confirm (`quarantine/` → `uploads/`, tenant-scoped) → object listed at exactly 128 B
+with the quarantine copy gone. Then the negative half: an unsigned GET **403**, a bucket listing
+**403**, and a CORS preflight from the owner origin returning `Access-Control-Allow-Origin` for that
+exact origin (MinIO answers it correctly by default — no configuration was needed). Test object
+deleted afterwards.
+
+**Public storage is not a weakening.** Access rests on the SIGNATURE, not on network position — which
+is how S3 works everywhere. The bucket is private and the MinIO console (9001) is not exposed; only
+the S3 API (9000) is routed.

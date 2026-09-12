@@ -43,7 +43,7 @@ NODE_ENV=production
 API_PORT=4000
 APP_APEX_DOMAIN=${APEX}
 # Role labels must never resolve as a school (blueprint 21.1).
-RESERVED_SUBDOMAINS=www,api,admin,app,superadmin,owner,staff,student
+RESERVED_SUBDOMAINS=www,api,admin,app,superadmin,owner,staff,student,s3
 
 # ── Database: three roles, three privilege levels ─────────────
 # app_user carries the request path and MUST NOT have BYPASSRLS.
@@ -68,7 +68,12 @@ COOKIE_DOMAIN=${APEX}
 ENCRYPTION_MASTER_KEY=$(openssl rand -base64 32)
 
 # ── Object storage: in-cluster MinIO (no R2 signup needed for a test) ──
+# S3_ENDPOINT is how the API reaches storage; S3_PUBLIC_ENDPOINT is how the BROWSER does.
+# ⚠️ They must differ when storage is self-hosted: uploads/downloads are presigned and go
+# browser → storage directly, and a URL signed for the container name `minio` resolves nowhere
+# outside docker (and would be blocked as mixed content from an HTTPS page besides).
 S3_ENDPOINT=http://minio:9000
+S3_PUBLIC_ENDPOINT=https://s3.${APEX}
 S3_REGION=us-east-1
 S3_BUCKET=school-uploads
 S3_ACCESS_KEY_ID=schoolworks

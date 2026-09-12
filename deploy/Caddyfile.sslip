@@ -51,6 +51,23 @@ https:// {
 		}
 	}
 
+	# ── Object storage (MinIO) ────────────────────────────────────────
+	# Uploads and downloads are PRESIGNED and go browser → storage directly, never through the API,
+	# so storage needs a publicly resolvable host with real TLS of its own. The signature covers the
+	# host, so the API must SIGN for this name (S3_PUBLIC_ENDPOINT) — a URL signed for the internal
+	# `http://minio:9000` cannot be rewritten here without invalidating it.
+	#
+	# ⚠️ Must be matched BEFORE @tenant below: `s3.<apex>` is a single label before the apex and would
+	# otherwise be proxied to the marketing app as if it were a school.
+	#
+	# ⚠️ Port 9000 (the S3 API) only — the MinIO CONSOLE on 9001 is deliberately not exposed.
+	# Safety here rests on the SIGNATURE, not on the network: unsigned requests are rejected and the
+	# bucket is private, which is how S3 works everywhere.
+	@storage host s3.{$APEX_DOMAIN}
+	handle @storage {
+		reverse_proxy minio:9000
+	}
+
 	# ── Role doors: <role>.<school>.<apex> ────────────────────────────
 	# ⚠️ `host_regexp` is NOT a Caddy matcher --- Caddy 2 has `host` (exact/wildcard) and
 	# `header_regexp`, and an unknown matcher is a HARD startup failure:

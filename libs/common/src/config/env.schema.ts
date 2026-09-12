@@ -11,7 +11,9 @@ export const envSchema = z.object({
   APP_APEX_DOMAIN: z.string().min(1),
   RESERVED_SUBDOMAINS: z
     .string()
-    .default('www,api,admin,app')
+    // ⚠️ `s3` included: object storage is served at `s3.<apex>`, so a school registering that
+    // subdomain would take over the host every presigned upload URL points at.
+    .default('www,api,admin,app,s3')
     .transform((s) => s.split(',').map((x) => x.trim().toLowerCase()).filter(Boolean)),
 
   DATABASE_URL: z.string().url(),
@@ -51,7 +53,23 @@ export const envSchema = z.object({
       message: 'ENCRYPTION_MASTER_KEY must decode to exactly 32 bytes (openssl rand -base64 32)',
     }),
 
+  /**
+   * Where the API itself reaches object storage. On a single-box deploy this is the container
+   * hostname (`http://minio:9000`), which is fast and never leaves the docker network.
+   */
   S3_ENDPOINT: z.string().url(),
+  /**
+   * Where the BROWSER reaches object storage — the host presigned URLs are signed for.
+   *
+   * ⚠️ These cannot be one value when storage is self-hosted. A presigned URL's signature covers
+   * the host, so a URL signed for `http://minio:9000` is not merely awkward for a browser, it is
+   * unusable: the name does not resolve outside the docker network, and `http://` would be blocked
+   * as mixed content by an HTTPS page anyway. Rewriting the URL afterwards breaks the signature.
+   *
+   * Defaults to S3_ENDPOINT, so managed storage (R2, S3), local dev and CI — where one host serves
+   * both callers — need no new configuration and behave exactly as before.
+   */
+  S3_PUBLIC_ENDPOINT: z.string().url().optional(),
   S3_REGION: z.string().default('auto'),
   S3_BUCKET: z.string().min(1),
   S3_ACCESS_KEY_ID: z.string().min(1),

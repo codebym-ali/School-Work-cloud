@@ -6,6 +6,12 @@ import { PlatformLeadsService } from './platform-leads.service';
 import { DemoRequestDto } from './dto/platform.dto';
 
 /**
+ * Labels the platform serves on its own behalf at `<label>.<apex>`. Exported so the invariant
+ * "anything we serve here can never be claimed by a school" is testable in one place.
+ */
+export const PLATFORM_HOSTS = ['superadmin', 'admin', 'www', 's3'] as const;
+
+/**
  * Public, UNAUTHENTICATED vendor endpoints (SA6d / SA8) — the marketing landing page reads the list
  * price here and submits demo requests here. `@Public()` skips the tenant guard chain and there is no
  * PlatformAuthGuard, so these are open to anyone on any host (the apex marketing site included). Only
@@ -67,7 +73,19 @@ export class PlatformPublicController {
     const host = rawHost.split(':')[0].toLowerCase();
     if (!host) return false;
     const apex = this.env.APP_APEX_DOMAIN.split(':')[0].toLowerCase();
-    const reservedConsole = new Set(['superadmin', 'admin', 'www']);
+    // Single-label hosts the platform itself serves, as opposed to a school's subdomain. A
+    // certificate is minted for these even though no tenant exists behind them.
+    //
+    // ⚠️ NOT derivable from RESERVED_SUBDOMAINS, which answers a different question: that list is
+    // "labels that must never resolve to a school" and includes the ROLE labels (owner/staff/
+    // student), which are only ever valid two-deep. Deriving this from it would mint certificates
+    // for `owner.<apex>`, a host that routes nowhere.
+    //
+    // `s3` serves object storage. The browser uploads and downloads directly via presigned URLs,
+    // so it needs a publicly resolvable HTTPS host of its own — and without an entry here the gate
+    // returns 404, Caddy silently declines to issue a certificate, and every upload fails with
+    // nothing in any log explaining why.
+    const platformHosts = new Set<string>(PLATFORM_HOSTS);
     const roleLabels = new Set(['owner', 'staff', 'student']);
     const exists = async (where: { subdomain: string } | { customDomain: string }) =>
       !!(await this.prisma.school.findFirst({ where, select: { id: true } }));
@@ -77,7 +95,7 @@ export class PlatformPublicController {
 
     const labels = host.slice(0, host.length - apex.length - 1).split('.'); // labels before the apex
     if (labels.length === 1) {
-      return reservedConsole.has(labels[0]) || exists({ subdomain: labels[0] });
+      return platformHosts.has(labels[0]) || exists({ subdomain: labels[0] });
     }
     if (labels.length === 2 && roleLabels.has(labels[0])) {
       return exists({ subdomain: labels[1] }); // <role>.<school>.<apex>

@@ -1,0 +1,31 @@
+{
+  // Lint-only TS project for the shared packages.
+  //
+  // ⚠️ These 74 files — @sw/roles, @sw/school-ui and friends — were linted by NOTHING. The root
+  // config globs {apps,libs,test} and each app's `next lint` only walks that app's own directory,
+  // so the code every front-end depends on had no lint gate at all. They were type-checked, but
+  // only transitively, via whichever app imported them.
+  //
+  // A separate project rather than widening the backend's: these are React/JSX files needing the
+  // DOM lib, and the backend project deliberately has neither. Type-aware linting refuses to parse
+  // a file that belongs to no project, so the parser needs a project that actually describes them.
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "jsx": "preserve",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "allowJs": false,
+    "baseUrl": "..",
+    "paths": {
+      "@sw/*": ["packages/*/src"],
+      "@school/*": ["packages/school-ui/src/*"]
+    }
+  },
+  "include": ["*/src/**/*.ts", "*/src/**/*.tsx"]
+}

@@ -273,7 +273,6 @@ function FeeSetupPanel({ heads, structures, classes, years, classLabel, onMsg, r
 }) {
   const [headName, setHeadName] = useState('');
   const [busy, setBusy] = useState(false);
-  const currentYear = years.find((y) => y.isCurrent) ?? years[0] ?? null;
 
   async function run(fn: () => Promise<unknown>, ok: string) {
     setBusy(true);

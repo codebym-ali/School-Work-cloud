@@ -56,6 +56,26 @@ module.exports = {
       files: ['*.spec.ts', '*.e2e-spec.ts', 'test/**/*.ts'],
       rules: { 'boundaries/element-types': 'off' },
     },
+    {
+      // The shared packages: React/JSX needing the DOM lib, which the backend project lacks.
+      // Their own project (packages/tsconfig.lint.json) describes them, so type-aware rules work.
+      // `boundaries` is off here — its element map covers apps/ and libs/, and packages/ is a flat
+      // set of leaves with no import-direction rule to enforce.
+      files: ['packages/**/*.ts', 'packages/**/*.tsx'],
+      parserOptions: { project: ['packages/tsconfig.lint.json'] },
+      plugins: ['react-hooks'],
+      rules: {
+        'boundaries/element-types': 'off',
+        // ⚠️ These files already carried `eslint-disable-next-line react-hooks/exhaustive-deps`
+        // comments while NO config defined the rule — suppressions against a rule nothing enforced.
+        // It is worth having for real: the /timetable stale-closure bug (a mount effect capturing
+        // `sectionId` as '' forever, so a late response overwrote the user's choice) is precisely
+        // the class of defect this rule flags. Warn, not error, so the existing suppressions can be
+        // revisited deliberately rather than blocking this gate landing.
+        'react-hooks/rules-of-hooks': 'error',
+        'react-hooks/exhaustive-deps': 'warn',
+      },
+    },
   ],
   /**
    * ⚠️ `apps/*-web` is a GLOB, matching tsconfig.json's exclude. This config is the BACKEND's, and

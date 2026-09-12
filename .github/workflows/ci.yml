@@ -112,6 +112,13 @@ jobs:
       - name: Lint
         run: pnpm lint
 
+      # ⚠️ The shared packages (@sw/roles, @sw/school-ui — 74 files every front-end depends on) were
+      # linted by NOTHING: the root glob covers {apps,libs,test}, and each app's `next lint` walks
+      # only its own directory. They have their own TS project because they are React/JSX needing the
+      # DOM lib, which the backend project deliberately lacks.
+      - name: Lint shared packages
+        run: pnpm lint:packages
+
       - name: Typecheck
         run: npx tsc -p tsconfig.json --noEmit
 

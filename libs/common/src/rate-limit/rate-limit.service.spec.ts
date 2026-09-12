@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import Redis from 'ioredis';
 import { randomUUID } from 'node:crypto';
 import { RateLimitService } from './rate-limit.service';
@@ -6,12 +7,60 @@ import { RateLimitService } from './rate-limit.service';
  * Exercises the sliding-window Lua script against a real Redis (§29). Each test
  * uses a unique key so runs are isolated and repeatable.
  */
-describe('RateLimitService (sliding window)', () => {
+const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6381';
+
+/**
+ * Is a real Redis actually there? Probed SYNCHRONOUSLY, because whether to skip must be decided at
+ * collection time — `describe.skip` cannot be chosen from inside an async hook, and this project's
+ * Jest runs CommonJS, so top-level await is unavailable. A short child process is the honest way to
+ * get a synchronous answer; it costs ~100ms once per file.
+ *
+ * ⚠️ In CI this must NEVER skip. CI provides a `redis` service, so an unreachable one there is a
+ * broken pipeline, not a missing convenience — skipping would turn a red build green and hide
+ * exactly what these tests exist to check.
+ *
+ * Locally the alternative was worse than skipping: three tests each burning a 5-second connect
+ * timeout and failing with a stack pointing at `afterAll`, which reads as a CODE defect and teaches
+ * people to ignore `pnpm verify` output.
+ */
+function redisReachable(): boolean {
+  const { host, port } = (() => {
+    try {
+      const u = new URL(REDIS_URL);
+      return { host: u.hostname, port: Number(u.port || 6379) };
+    } catch {
+      return { host: '127.0.0.1', port: 6379 };
+    }
+  })();
+  const probe = `const net=require('net');const s=net.connect(${port},${JSON.stringify(host)});` +
+    `s.setTimeout(1500);s.on('connect',()=>{s.destroy();process.exit(0)});` +
+    `s.on('error',()=>process.exit(1));s.on('timeout',()=>{s.destroy();process.exit(1)});`;
+  try {
+    execFileSync(process.execPath, ['-e', probe], { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const available = redisReachable();
+if (!available && process.env.CI === 'true') {
+  throw new Error(`CI requires a real Redis at ${REDIS_URL}; the rate-limit suite must not be skipped there.`);
+}
+if (!available) {
+  // eslint-disable-next-line no-console
+  console.warn(`
+  SKIPPED rate-limit suite: no Redis at ${REDIS_URL}. Start one with: docker compose up -d redis
+`);
+}
+const describeWithRedis = available ? describe : describe.skip;
+
+describeWithRedis('RateLimitService (sliding window)', () => {
   let redis: Redis;
   let service: RateLimitService;
 
   beforeAll(() => {
-    redis = new Redis(process.env.REDIS_URL ?? 'redis://localhost:6381', { maxRetriesPerRequest: null });
+    redis = new Redis(REDIS_URL, { maxRetriesPerRequest: null });
     service = new RateLimitService(redis);
   });
 

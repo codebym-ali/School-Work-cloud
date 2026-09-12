@@ -7,7 +7,7 @@ import {
   type AcademicYear, type Campus, type Exam, type ExamResult, type GradeBand,
   type Klass, type Paged, type Section, type Student, type Subject, type Term, type ReportCard,
 } from '@sw/api-client';
-import { classLabeller, sectionLabeller } from '@school/lib/labels';
+import { classLabeller } from '@school/lib/labels';
 import { useMe } from '@sw/session';
 import { hasAnyRole } from '@sw/roles';
 import TeacherExams from './TeacherExams';

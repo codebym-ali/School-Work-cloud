@@ -48,7 +48,12 @@ export default function CampusesPage() {
   useEffect(() => { load().catch(() => {}); }, []);
 
   const toggleSelected = (id: string) =>
-    setSelected((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+    setSelected((prev) => {
+      const n = new Set(prev);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
 
   async function bulkDelete() {
     if (!window.confirm(`Remove ${selected.size} selected user(s)? They'll be taken off their campus and can no longer sign in.`)) return;

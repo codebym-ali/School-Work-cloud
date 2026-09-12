@@ -168,6 +168,56 @@ export const NAV: NavItem[] = [
   { href: '/profile', label: 'Profile', icon: 'profile', group: 'My Portal', hidden: true },
 ];
 
+/**
+ * Which audience each front-end door serves (Front-End Instance Separation Plan, Phase 4).
+ *
+ * The split gave each audience its own origin, but the shared shell never learned which app it was
+ * rendering in — it built the sidebar from the user's roles alone. So owner-web and staff-web mounted
+ * the same 33 screens and rendered identically for anyone holding admin roles, and the separation was
+ * cosmetic. These are the audiences the apps' own layouts already declare in prose; stating them as
+ * data lets the mount list be DERIVED rather than hand-kept.
+ *
+ * ⚠️ This is an information-architecture boundary, NOT an authorization one. Authorization is enforced
+ * per request in the API regardless of host; narrowing a door cannot grant anything, and widening one
+ * cannot leak anything. Never rely on this for access control.
+ */
+export type AppName = 'owner-web' | 'staff-web';
+
+export const APP_AUDIENCE: Record<AppName, readonly Role[]> = {
+  // The owner alone. ⚠️ NOT the OPERATIONS_ADMIN deputy: staff-web's layout declares it serves
+  // "ops/campus-admin/...", and including it here would silently widen this door to everything —
+  // the deputy expands to six covered roles, which is exactly what made a first attempt at this
+  // prune a no-op.
+  'owner-web': ['OWNER_ADMIN'],
+  // Everyone else who works at the school — as staff-web's own layout puts it, it
+  // "serves ops/campus-admin/accountant/HR/admission/teacher/staff".
+  'staff-web': ['OPERATIONS_ADMIN', 'CAMPUS_ADMIN', 'ADMISSION_CONTROLLER', 'HR_MANAGER', 'ACCOUNTANT', 'TEACHER', 'STAFF'],
+};
+
+/**
+ * The routes an app should mount: every NAV href reachable by at least one role in its audience.
+ *
+ * Hidden entries with no `roles` (`/security`, `/profile`) are every user's own business and are
+ * reachable by everyone, so they mount everywhere — which is what `canReach` already says about them.
+ */
+export function appMounts(app: AppName, admissionsMode?: AdmissionsMode): string[] {
+  const audience = APP_AUDIENCE[app];
+  return NAV.filter((n) => audience.some((role) => canReach([role], n.href, admissionsMode))).map((n) => n.href);
+}
+
+/**
+ * True when `href` belongs on this door at all. Used to intersect the role-derived nav with the
+ * app's mounts, so a multi-role user never sees a sidebar link to a screen this app does not serve.
+ *
+ * ⚠️ Without this intersection, pruning mounts would CREATE 404s: the sidebar is built from the
+ * user's roles, so an owner who also teaches would still be offered `/my-classes` on the owner door
+ * after that route stopped existing there.
+ */
+export function servesRoute(app: AppName | undefined, href: string, admissionsMode?: AdmissionsMode): boolean {
+  if (!app) return true; // unknown app (e.g. the marketing shell) keeps today's behaviour
+  return appMounts(app, admissionsMode).includes(href);
+}
+
 /** Roles the API mandates MFA for (mirrors MANDATORY_MFA_ROLES in auth.service). */
 export const MFA_REQUIRED_ROLES = ['OWNER_ADMIN', 'OPERATIONS_ADMIN', 'ACCOUNTANT'] as const;
 

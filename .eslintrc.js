@@ -57,5 +57,12 @@ module.exports = {
       rules: { 'boundaries/element-types': 'off' },
     },
   ],
-  ignorePatterns: ['dist/', 'node_modules/', '**/generated/**', '*.js', 'apps/web/'],
+  /**
+   * ⚠️ `apps/*-web` is a GLOB, matching tsconfig.json's exclude. This config is the BACKEND's, and
+   * type-aware linting needs every file it touches to belong to the backend TS project — so once the
+   * front-ends were excluded there, linting them here failed with "file was not found in any of the
+   * provided project(s)" rather than with anything about the code. Each front-end has its own
+   * `next lint` gate; they are not unlinted, they are linted by the config that understands them.
+   */
+  ignorePatterns: ['dist/', 'node_modules/', '**/generated/**', '*.js', 'apps/web/', 'apps/*-web/'],
 };

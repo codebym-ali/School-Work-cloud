@@ -9,10 +9,20 @@ import { MeContext } from '@sw/session';
 import { CampusLensContext, CAMPUS_LENS_KEY } from '@sw/session';
 import type { Campus } from '@sw/api-client';
 import { NotificationBell } from '@school/components/notification-bell';
-import { groupedNav, hasAnyRole, isSchoolWideAdmin, navItemFor, needsHomeLink, panelLabel, roleLabels, usesPersonalShell, MFA_REQUIRED_ROLES } from '@sw/roles';
+import { groupedNav, hasAnyRole, isSchoolWideAdmin, navItemFor, needsHomeLink, panelLabel, roleLabels, servesRoute, usesPersonalShell, MFA_REQUIRED_ROLES, type AppName } from '@sw/roles';
 import { TeacherSidebarNav, TeacherTabs } from '@school/components/teacher-tabs';
 
-export default function AppLayout({ children }: { children: React.ReactNode }) {
+/**
+ * `app` names the door this shell is rendering in (Front-End Instance Separation Plan, Phase 4).
+ *
+ * ⚠️ It exists to keep the sidebar HONEST about what this app actually mounts. The nav is built from
+ * the user's roles, and the apps mount different route sets — so without this, an owner who also
+ * teaches would be offered `/my-classes` on the owner door, where that route no longer exists, and
+ * the link would 404. Omitting it keeps the pre-split behaviour (every reachable screen listed).
+ *
+ * It is NOT an access control. Authorization is enforced per request by the API regardless of host.
+ */
+export default function AppLayout({ children, app }: { children: React.ReactNode; app?: AppName }) {
   const router = useRouter();
   const pathname = usePathname();
   const [me, setMe] = useState<Me | null>(null);
@@ -92,7 +102,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   // Show only the screens this role can use, grouped into sidebar categories;
   // gate the routed page centrally.
-  const nav = groupedNav(me.roles, me.admissionsMode);
+  const nav = groupedNav(me.roles, me.admissionsMode)
+    .map((g) => ({ ...g, items: g.items.filter((i) => servesRoute(app, i.href, me.admissionsMode)) }))
+    .filter((g) => g.items.length > 0);
   const current = navItemFor(pathname);
   const authorized = !current || hasAnyRole(me.roles, current.roles);
   const needsMfa = !me.mfaEnabled && me.roles.some((r) => (MFA_REQUIRED_ROLES as readonly string[]).includes(r));
@@ -159,7 +171,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 * back to it. Shown only to people who have no dashboard of their own, so an owner
                 * or accountant is never handed a second, competing front door.
                 */}
-              {needsHomeLink(me.roles) && (
+              {needsHomeLink(me.roles) && servesRoute(app, '/home') && (
                 <div className="nav-group">
                   <Link href="/home" className={pathname === '/home' ? 'active' : ''} aria-current={pathname === '/home' ? 'page' : undefined}>
                     <span className="nav-icon"><Icon name="home" size={18} /></span>

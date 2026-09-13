@@ -68,8 +68,20 @@ step "Install (frozen lockfile)"
 pnpm install --frozen-lockfile
 
 step "Bootstrap DB roles + extensions"
+# ⚠️ Invoked through the URL, exactly as CI does — NOT `psql -U postgres -d school`.
+#
+# This is the step that taught the lesson. The first version of this script used the -U/-d form,
+# which passed while CI failed on the identical SQL, because CI passes MIGRATION_DATABASE_URL and
+# `?schema=public` is a PRISMA parameter that libpq rejects outright. A reproduction that takes a
+# different route to the same place is not a reproduction; it manufactures a false pass at exactly
+# the step you are trying to test.
+#
+# The same `%%\?*` strip as the workflow: remove the query string before libpq sees it.
 docker cp scripts/postgres-init.sql "${PREFIX}-pg:/tmp/init.sql" >/dev/null
-docker exec "${PREFIX}-pg" psql -U postgres -d school -v ON_ERROR_STOP=1 -f /tmp/init.sql >/dev/null
+# The URL form is what matters here; the PORT differs because psql runs INSIDE the container,
+# where postgres listens on 5432 rather than the published host port.
+CONTAINER_DB_URL="postgresql://postgres:postgres@localhost:5432/school?schema=public"
+docker exec "${PREFIX}-pg" psql "${CONTAINER_DB_URL%%\?*}" -v ON_ERROR_STOP=1 -f /tmp/init.sql >/dev/null
 echo "roles + extensions created"
 
 step "Prisma generate";                 pnpm prisma:generate

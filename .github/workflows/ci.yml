@@ -106,8 +106,15 @@ jobs:
       - name: Install (frozen lockfile)
         run: pnpm install --frozen-lockfile
 
+      # ⚠️ The URL is stripped of its query string before psql sees it. `?schema=public` is a
+      # PRISMA parameter; libpq rejects the whole URI with `invalid URI query parameter: "schema"`
+      # and exits 2.
+      #
+      # This step has failed since the first commit, which means every gate after it — lint,
+      # typecheck, unit, integration, the merge-blocking isolation suite, the build — has NEVER run
+      # in CI. The job was decorative. `${VAR%%\?*}` removes from the first `?` onward.
       - name: Bootstrap DB roles + extensions
-        run: psql "$MIGRATION_DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/postgres-init.sql
+        run: psql "${MIGRATION_DATABASE_URL%%\?*}" -v ON_ERROR_STOP=1 -f scripts/postgres-init.sql
 
       - name: Prisma generate
         run: pnpm prisma:generate

@@ -21,6 +21,7 @@
     "typecheck:fe": "pnpm -r --filter \"./apps/*\" typecheck",
     "lint:packages": "eslint \"packages/**/*.{ts,tsx}\" --quiet",
     "verify": "pnpm lint && pnpm lint:packages && pnpm typecheck && pnpm typecheck:e2e && pnpm typecheck:fe && pnpm lint:fe && pnpm test:unit",
+    "ci:local": "bash scripts/ci-local.sh",
     "format": "prettier --write \"{apps,libs,test}/**/*.ts\"",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",

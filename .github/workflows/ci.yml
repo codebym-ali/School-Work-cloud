@@ -64,12 +64,27 @@ jobs:
       # MinIO is the S3 backend for the storage/PDF integration tests (report-card,
       # certificate, upload pipeline). It can't be a `services:` entry because that block
       # can't set the required `server /data` command, so start it here and wait for health.
+      # MinIO is the S3 backend for the storage/PDF integration tests (report-card, certificate,
+      # upload pipeline). It cannot be a `services:` entry because that block cannot set the
+      # required `server /data` command, so it is started here.
+      #
+      # ⚠️ Pulled from quay.io, MinIO's own registry, NOT Docker Hub. An anonymous Docker Hub pull
+      # from a GitHub runner is rate-limited by shared IP and fails with `toomanyrequests` — a
+      # failure that depends on what other people pulled today, never reproduces locally, and kills
+      # the job in the first thirty seconds with nothing about this repository in the log.
+      #
+      # The pull is retried because a transient registry error should not fail a build, and the
+      # readiness probe prints the container log on failure so the reason is in the step that failed.
       - name: Start MinIO (S3-compatible object storage)
         run: |
-          docker pull -q minio/minio:latest
-          docker run -d --name minio -p 9000:9000 \
-            -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin \
-            minio/minio:latest server /data
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            if docker pull -q quay.io/minio/minio:latest; then break; fi
+            echo "pull attempt $attempt failed; retrying in $((attempt * 5))s" >&2
+            sleep $((attempt * 5))
+            [ "$attempt" = 3 ] && { echo "could not pull the MinIO image" >&2; exit 1; }
+          done
+          docker run -d --name minio -p 9000:9000             -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin             quay.io/minio/minio:latest server /data
           echo "waiting for MinIO to be ready…"
           for i in $(seq 1 60); do
             if curl -fs http://localhost:9000/minio/health/ready > /dev/null; then
@@ -81,11 +96,6 @@ jobs:
           docker logs minio || true
           exit 1
 
-      # ⚠️ No `version:` input on purpose. package.json declares `packageManager: pnpm@9.14.4`, and
-      # pnpm/action-setup@v4 treats specifying BOTH as an error ("Multiple versions of pnpm
-      # specified") — which fails the job at setup, before a single gate runs, so the log says
-      # nothing about the code. Letting the action read packageManager keeps ONE source of truth
-      # for the pnpm version, so a bump cannot leave the workflow disagreeing with the repo.
       - uses: pnpm/action-setup@v4
 
       - uses: actions/setup-node@v4
@@ -93,7 +103,8 @@ jobs:
           node-version: 22
           cache: pnpm
 
-      - run: pnpm install --frozen-lockfile
+      - name: Install (frozen lockfile)
+        run: pnpm install --frozen-lockfile
 
       - name: Bootstrap DB roles + extensions
         run: psql "$MIGRATION_DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/postgres-init.sql
@@ -106,11 +117,18 @@ jobs:
       - name: Migration safety gate (no companion-owned DROPs)
         run: pnpm db:check-migrations
 
-      - name: Migrate + SQL companions + RLS coverage gate
-        run: |
-          pnpm prisma:deploy
-          pnpm db:sql
-          pnpm db:check-rls
+      # ⚠️ Three separate steps, not one `run:` block with three commands. When they were combined,
+      # a red X said only "Migrate + SQL companions + RLS coverage gate" and the reason had to be
+      # read out of the log. Named steps make the job list itself the diagnosis — which matters most
+      # to whoever is looking at a failure they cannot reproduce.
+      - name: Migrate (prisma migrate deploy)
+        run: pnpm prisma:deploy
+
+      - name: SQL companions (extensions, partial uniques, checks, trigram, RLS, grants)
+        run: pnpm db:sql
+
+      - name: RLS coverage gate (merge-blocking, §21.6)
+        run: pnpm db:check-rls
 
       - name: Lint
         run: pnpm lint
@@ -171,7 +189,8 @@ jobs:
           node-version: 22
           cache: pnpm
 
-      - run: pnpm install --frozen-lockfile
+      - name: Install (frozen lockfile)
+        run: pnpm install --frozen-lockfile
 
       - name: Typecheck
         run: pnpm --filter ./apps/${{ matrix.app }} typecheck

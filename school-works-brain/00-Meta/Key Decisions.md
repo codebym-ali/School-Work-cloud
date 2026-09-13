@@ -1115,3 +1115,62 @@ merge-blocking coverage gate would have failed the build otherwise.
 ⚠️ **Deployment gotcha, again:** killing local SSH processes also kills an in-flight remote deploy
 started through that connection. `setsid` detaches it properly. Related to the bind-mount inode trap
 from the storage work — shipping by archive and driving by SSH has sharp edges worth knowing.
+
+## CI went green for the first time in this project's life (2026-09-13)
+
+Not a regression fixed — a gate that had **never once worked**. Five defects, each hiding the next.
+
+| # | Defect | Age |
+|---|---|---|
+| 1 | `frontend` job installed `--frozen-lockfile` inside apps/web against a lockfile deleted by the workspace split | since a84d19d |
+| 2 | Root tsconfig compiled four Next apps (1011 errors, ~1005 meaningless) | since the split |
+| 3 | **`psql "$MIGRATION_DATABASE_URL"` with `?schema=public`** | **since commit one** |
+| 4 | Worker guard matched its own `pgrep` shell | latent forever (POSIX-only) |
+| 5 | `maintenance.e2e-spec` providers drifted from `worker.module.ts` | since PlatformBillingService landed |
+
+⚠️ **#3 is the one that matters.** `?schema=public` is a PRISMA parameter; libpq rejects the URI and
+exits 2. It sat at step 6, so **lint, typecheck, unit, integration, the merge-blocking tenant-isolation
+suite and the build had never run in CI at all.** The job was decorative for the life of the project,
+and #4 and #5 were free to rot behind it — which is precisely what they did.
+
+### What actually found it
+
+Not the clever hypotheses. I spent two pushes on a Docker Hub rate-limit theory for MinIO that was
+**wrong**. What found it was boring: **naming every step and splitting the three-command database
+step**, so the job list itself said where it broke. One screenshot then answered in seconds what
+inference had failed at twice.
+
+> A compound step is a diagnosis you have to earn. A named step is one you are handed.
+
+### ⚠️ The expensive lesson: rule out your own tooling before believing a red
+
+Five times a failure turned out to be my environment, not the code:
+
+1. a database I had **already migrated**, so the fresh-DB path was never exercised
+2. `ci-local.sh` calling `psql -U postgres -d school`, bypassing the URL — it passed while CI failed
+   on identical SQL, hiding #3 at exactly the step under test
+3. `node:22-slim` without `openssl` → Prisma loaded a `debian-openssl-1.1.x` engine → **all 51 suites
+   failed identically**, pure noise
+4. `pnpm test:integration -- --testPathPattern x` → jest took `--` as a pattern, ran 0 tests
+5. `cat > file` combined with a backgrounded `docker run` in one SSH call → the background job ate
+   stdin, the file landed **empty**, and the suite "contained no tests"
+
+**The rule:** before believing a failure, confirm the thing under test actually RAN. A 0.2-second
+suite and a 0-line file both said plainly that it had not. Every layer between you and the assertion
+— pnpm, jest args, docker, ssh, stdin — can manufacture its own red.
+
+**And the corollary:** a reproduction that takes a different route to the same place is not a
+reproduction. Item 2 above is the whole lesson in one line.
+
+### Nine of ten failures were a cascade
+
+`maintenance.e2e-spec` reported `Cannot read properties of undefined (reading 'school')` nine times —
+because `platform` was never assigned when the module failed to compile. The real error, the missing
+provider, appeared **once**, second in the list. Reading the first failure would have sent someone
+hunting a null-safety bug that does not exist.
+
+### What is now protected that was not
+
+`pnpm verify` (the static gates, runnable locally), `pnpm ci:local` (the whole workflow against
+throwaway services), `packages/` linted at all for the first time (74 files), every CI step named,
+and the worker guard covered by a test of its own.

@@ -1060,3 +1060,58 @@ deleted afterwards.
 **Public storage is not a weakening.** Access rests on the SIGNATURE, not on network position — which
 is how S3 works everywhere. The bucket is private and the MinIO console (9001) is not exposed; only
 the S3 API (9000) is routed.
+
+## Admission Tier 3, and the part of the plan I threw away (2026-09-12)
+
+The documents checklist, the student photograph and the parent declaration — the last real gap
+between this system and a school actually using it. An admission in a Pakistani private school IS
+largely a document process, and until now none of it could be recorded.
+
+### The reversal is the interesting part
+
+The plan said missing documents should join `recordGaps`, so the chase list would surface them.
+**Built it, and three existing specs failed — correctly.** Folding documents into `recordComplete`
+silently redefines what "complete" has always meant (those specs assert the list empties once the
+TEXT fields are filled), and on a live school it would mark **every already-admitted student
+incomplete overnight**. That is precisely the "a list nobody can empty is a list nobody reads"
+failure the original chase-list design warns about, reintroduced by the person who wrote the warning.
+
+⚠️ **A failing older test is evidence about the design, not an obstacle to it.** The tempting move —
+update the three specs to tick documents first — would have buried a product decision inside a test
+edit. Documents got their own signal instead: `documentsComplete` on the directory row, and their own
+card on the profile. Verified live: a student with both mandatory documents in hand but no address
+reads `recordComplete=false, documentsComplete=true` — the distinction is the point.
+
+### Why a new table, not `Document`
+
+`Document` records what the school **ISSUES**: `issuedById`/`issuedAt`, and every `DocumentType` is a
+school-produced artifact (leaving certificate, report card, payslip). Receipt runs the other way,
+with a different actor and a different question. Folding both through one table would make either
+side lie.
+
+### Decisions that will look arbitrary later, and are not
+
+- **`fileKey` is nullable and must stay so.** These arrive as photocopies across a counter far more
+  often than as scans. Requiring an upload to tick the box would push the office into ticking things
+  that are not true.
+- **Only B-Form and Guardian CNIC are mandatory.** The leaving certificate applies to TRANSFERS only
+  — a child starting in KG has none, and flagging them forever flags the truth as an error. The
+  photograph's canonical home is `students.photoKey`.
+- **`receivedAt` is stamped on the transition into received, never rewritten.** The date the school
+  took delivery is a fact about the past; editing a note must not move it.
+- **The declaration is VERSIONED and server-stamped.** "The parent agreed" is close to worthless
+  without "agreed to WHAT", and a client-supplied date on a legal record is a date the client can
+  choose.
+- **ADMISSION_CONTROLLER reaches both checklist routes.** A route stricter than the job has silently
+  DELETED capability three times in this codebase (CSV import, `/my-attendance`, `/my-leaves`).
+
+### RLS came free, and that is the system working
+
+No hand-written policy: `05_rls.sql` loops over every table carrying `school_id`, and `06_grants.sql`
+grants DML to the runtime roles. Both re-run on every `db:setup`. Verified on a real database —
+`relrowsecurity` and `relforcerowsecurity` both true, `tenant_isolation` present — and the
+merge-blocking coverage gate would have failed the build otherwise.
+
+⚠️ **Deployment gotcha, again:** killing local SSH processes also kills an in-flight remote deploy
+started through that connection. `setsid` detaches it properly. Related to the bind-mount inode trap
+from the storage work — shipping by archive and driving by SSH has sharp edges worth knowing.

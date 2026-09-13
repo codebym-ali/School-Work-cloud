@@ -6,6 +6,8 @@ import { CommonModule } from '@common';
 import { DatabaseModule, PlatformPrismaService } from '@database';
 import { FeeJobsService } from '../../apps/api/src/modules/fees/fee-jobs.service';
 import { MaintenanceService } from '../../apps/worker/src/maintenance/maintenance.service';
+import { PlatformBillingService } from '../../apps/api/src/modules/platform/platform-billing.service';
+import { PlatformAuditService } from '../../apps/api/src/modules/platform/platform-audit.service';
 import { destroyTenant } from './support/tenant';
 
 /**
@@ -26,7 +28,19 @@ describe('Maintenance runner (e2e, §27)', () => {
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({
       imports: [ClsModule.forRoot({ global: true }), CommonModule, DatabaseModule],
-      providers: [MaintenanceService, FeeJobsService],
+      /**
+       * ⚠️ Mirrors `apps/worker/src/worker.module.ts` — that file is the source of truth for what
+       * MaintenanceService needs, and this list drifted from it.
+       *
+       * `PlatformBillingService` (and the `PlatformAuditService` it depends on) were added to
+       * MaintenanceService and never added here, so this module failed to compile and all ten tests
+       * in the file died — nine of them with `Cannot read properties of undefined`, a cascade from
+       * the real error rather than the error itself.
+       *
+       * It went unnoticed because the integration suite had never run in CI: the psql bootstrap
+       * failed three steps earlier, for the life of the project.
+       */
+      providers: [MaintenanceService, FeeJobsService, PlatformBillingService, PlatformAuditService],
     }).compile();
     app = moduleRef.createNestApplication();
     await app.init();

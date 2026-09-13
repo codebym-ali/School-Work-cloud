@@ -22,7 +22,19 @@ function findWorkerPids() {
             'powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \\"Name=\'node.exe\'\\" | Where-Object { $_.CommandLine -like \'*apps?worker*\' -or $_.CommandLine -like \'*apps/worker*\' -or $_.CommandLine -like \'*apps\\\\worker*\' } | Select-Object -ExpandProperty ProcessId"',
             { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] },
           )
-        : execSync("pgrep -f 'apps/worker/main' || true", { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+        : // ⚠️ `[a]pps` is NOT a typo — it is the fix for a self-match that made this guard block
+          // every CI run of the integration suite.
+          //
+          // `execSync` runs the command through `sh -c`, and `pgrep -f` matches against FULL command
+          // lines — including that shell's own, which literally contains the pattern. So the guard
+          // found itself, reported a phantom worker PID, and aborted globalSetup. It never showed up
+          // locally because Windows takes the PowerShell branch above; this branch only ever ran in
+          // CI, where the integration step had never got this far.
+          //
+          // The bracket makes the REGEX still match "apps/worker/main" while the literal text on the
+          // shell's command line reads "[a]pps/...", which the regex does not match. A real worker is
+          // still found; the guard no longer finds itself.
+          execSync("pgrep -f '[a]pps/worker/main' || true", { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
   } catch {
     return []; // process listing unavailable — don't block the run over it
   }

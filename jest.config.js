@@ -26,7 +26,17 @@ module.exports = {
       displayName: 'unit',
       // Two explicit patterns rather than a `{apps,libs}` brace — brace expansion in
       // testMatch is unreliable across OS path separators (matches 0 tests on Windows).
-      testMatch: ['<rootDir>/apps/**/*.spec.ts', '<rootDir>/libs/**/*.spec.ts', '<rootDir>/packages/**/*.spec.ts'],
+      // ⚠️ `test/integration/support/*.spec.ts` is deliberately NARROW, not `test/**/*.spec.ts`:
+      // the 29 Playwright specs under test/e2e also end in `.spec.ts` and must never be run by
+      // Jest. The support helpers (the worker guard) are plain units that need no database, and
+      // they had no home before — which is how a self-matching pgrep blocked every CI run of the
+      // integration suite without a single test noticing.
+      testMatch: [
+        '<rootDir>/apps/**/*.spec.ts',
+        '<rootDir>/libs/**/*.spec.ts',
+        '<rootDir>/packages/**/*.spec.ts',
+        '<rootDir>/test/integration/support/*.spec.ts',
+      ],
     },
     {
       ...base,

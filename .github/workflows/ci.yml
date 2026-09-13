@@ -81,9 +81,12 @@ jobs:
           docker logs minio || true
           exit 1
 
+      # ⚠️ No `version:` input on purpose. package.json declares `packageManager: pnpm@9.14.4`, and
+      # pnpm/action-setup@v4 treats specifying BOTH as an error ("Multiple versions of pnpm
+      # specified") — which fails the job at setup, before a single gate runs, so the log says
+      # nothing about the code. Letting the action read packageManager keeps ONE source of truth
+      # for the pnpm version, so a bump cannot leave the workflow disagreeing with the repo.
       - uses: pnpm/action-setup@v4
-        with:
-          version: 9.14.4
 
       - uses: actions/setup-node@v4
         with:
@@ -156,9 +159,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # ⚠️ No `version:` input on purpose. package.json declares `packageManager: pnpm@9.14.4`, and
+      # pnpm/action-setup@v4 treats specifying BOTH as an error ("Multiple versions of pnpm
+      # specified") — which fails the job at setup, before a single gate runs, so the log says
+      # nothing about the code. Letting the action read packageManager keeps ONE source of truth
+      # for the pnpm version, so a bump cannot leave the workflow disagreeing with the repo.
       - uses: pnpm/action-setup@v4
-        with:
-          version: 9.14.4
 
       - uses: actions/setup-node@v4
         with:

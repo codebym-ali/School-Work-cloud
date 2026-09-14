@@ -53,7 +53,7 @@ test.describe('teacher shell', () => {
         // `!startsWith('/login')`) so it only clears once the form has submitted and redirected away.
         await teacher.goto('/login');
         await teacher.getByLabel('Email').fill(email);
-        await teacher.getByLabel('Password').fill(password);
+        await teacher.getByLabel('Password', { exact: true }).fill(password);
         await teacher.getByRole('button', { name: /sign in/i }).click();
         await teacher.waitForURL((u) => !u.pathname.endsWith('-login') && u.pathname !== '/login');
         await expect(teacher).toHaveURL(/\/home$/);
@@ -158,7 +158,7 @@ test.describe('teacher shell', () => {
       try {
         await dual.goto('/login');
         await dual.getByLabel('Email').fill(email);
-        await dual.getByLabel('Password').fill(password);
+        await dual.getByLabel('Password', { exact: true }).fill(password);
         await dual.getByRole('button', { name: /sign in/i }).click();
 
         // Lands on the teacher home, not the accountant's dashboard — they are being handed the

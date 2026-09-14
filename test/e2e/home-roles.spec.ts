@@ -40,7 +40,7 @@ test.describe('home — divided by role', () => {
       try {
         await her.goto('/login');
         await her.getByLabel('Email').fill(email);
-        await her.getByLabel('Password').fill(password);
+        await her.getByLabel('Password', { exact: true }).fill(password);
         await her.getByRole('button', { name: /sign in/i }).click();
         await her.waitForURL((u) => !u.pathname.endsWith('-login') && u.pathname !== '/login');
         await expect(her).toHaveURL(/\/home$/);
@@ -94,7 +94,7 @@ test.describe('home — divided by role', () => {
       try {
         await her.goto('/login');
         await her.getByLabel('Email').fill(email);
-        await her.getByLabel('Password').fill(password);
+        await her.getByLabel('Password', { exact: true }).fill(password);
         await her.getByRole('button', { name: /sign in/i }).click();
         await her.waitForURL((u) => !u.pathname.endsWith('-login') && u.pathname !== '/login');
         await expect(her).toHaveURL(/\/home$/);
@@ -149,7 +149,7 @@ test.describe('home — divided by role', () => {
       try {
         await him.goto('/login');
         await him.getByLabel('Email').fill(email);
-        await him.getByLabel('Password').fill(password);
+        await him.getByLabel('Password', { exact: true }).fill(password);
         await him.getByRole('button', { name: /sign in/i }).click();
         await him.waitForURL((u) => !u.pathname.endsWith('-login') && u.pathname !== '/login');
 

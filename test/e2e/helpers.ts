@@ -27,7 +27,11 @@ export async function login(
   void door;
   await page.goto('/login');
   await page.getByLabel('Email').fill(email);
-  await page.getByLabel('Password').fill(password);
+  // ⚠️ `exact: true`. getByLabel is a SUBSTRING match, and the password field now sits beside a
+  // show/hide toggle whose accessible name is "Show password" — so a loose 'Password' resolves
+  // BOTH and fails strict mode. Same trap as `getByLabel('Minutes, row 1')` matching row 10/11/12
+  // (Key Decisions): the locator was always loose; a second control merely exposed it.
+  await page.getByLabel('Password', { exact: true }).fill(password);
   await page.getByRole('button', { name: /sign in/i }).click();
   await page.waitForURL(landing);
   await expect(page.locator('.sidebar')).toBeVisible();
@@ -44,7 +48,7 @@ export const CONSOLE_ORIGIN = 'http://localhost:3004';
 export async function platformLogin(page: Page, email = 'admin@platform.pk', password = 'Admin!Secret12'): Promise<void> {
   await page.goto(`${CONSOLE_ORIGIN}/login`);
   await page.getByLabel('Email').fill(email);
-  await page.getByLabel('Password').fill(password);
+  await page.getByLabel('Password', { exact: true }).fill(password);
   await page.getByRole('button', { name: /sign in/i }).click();
   await expect(page.getByRole('heading', { name: 'Tenants' })).toBeVisible();
 }

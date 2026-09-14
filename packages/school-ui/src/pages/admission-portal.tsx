@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { api, ApiError } from '@sw/api-client';
 import { landingPath } from '@sw/roles';
+import { PasswordInput } from '@sw/ui';
 
 /**
  * Dedicated, branded Admission Portal login for one campus. The campus admin generates the
@@ -51,7 +52,7 @@ export default function AdmissionPortalLogin() {
         </div>
         <div>
           <label htmlFor="password">Password</label>
-          <input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required />
+          <PasswordInput id="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required />
         </div>
         {error && <p className="error">{error}</p>}
         <button type="submit" disabled={busy}>{busy ? 'Signing in…' : 'Sign in to Admissions'}</button>

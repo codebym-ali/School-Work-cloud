@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ApiError } from '@sw/http';
+import { PasswordInput } from '@sw/ui';
 import { platformApi, isPlatformMfaRequired } from '@/lib/platform-api';
 
 // The seed platform-admin email is pre-filled ONLY in `next dev`; prod ships empty.
@@ -91,7 +92,7 @@ export default function PlatformLoginPage() {
         </div>
         <div>
           <label htmlFor="password">Password</label>
-          <input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required />
+          <PasswordInput id="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required />
         </div>
         {error && <p className="error">{error}</p>}
         <button type="submit" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}</button>

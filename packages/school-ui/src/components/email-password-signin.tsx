@@ -4,6 +4,7 @@ import { useState, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import { api, ApiError, isMfaRequired, type LoginResult } from '@sw/api-client';
 import { landingPath } from '@sw/roles';
+import { PasswordInput } from '@sw/ui';
 
 /**
  * The email + password sign-in form, shared by the staff door (`/login`) and the owner's own
@@ -118,7 +119,7 @@ export function EmailPasswordSignIn({
         </div>
         <div>
           <label htmlFor="password">Password</label>
-          <input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)}
+          <PasswordInput id="password" value={password} onChange={(e) => setPassword(e.target.value)}
             autoComplete="current-password" required />
         </div>
         {error && <p className="error">{error}</p>}

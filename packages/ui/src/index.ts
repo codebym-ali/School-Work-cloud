@@ -8,3 +8,4 @@ export * from './student-status';
 export * from './timetable';
 export * from './icon';
 export * from './metric';
+export * from './password-input';

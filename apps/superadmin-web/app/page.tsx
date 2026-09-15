@@ -54,8 +54,15 @@ export default function TenantsPage() {
     if (!reason || !reason.trim()) return;
     try {
       const res = await platformApi.breakGlass(t.id, reason.trim());
-      const apex = window.location.host.replace(/^admin\./, '');
-      window.open(`${window.location.protocol}//${res.subdomain}.${apex}/break-glass#token=${encodeURIComponent(res.token)}`, '_blank', 'noopener,noreferrer');
+      // ⚠️ The OWNER door, not the school's bare host. Two reasons, and the first was a live bug:
+      // `/break-glass` is mounted only on owner-web and staff-web, so the old link — which pointed
+      // at `<school>.<apex>` — landed on the marketing app, which does not serve that route at all.
+      // It has been broken since the front-end split. Second, the token is minted with
+      // `roles: ['OWNER_ADMIN']` (token.service.ts), so the owner door is where that session belongs.
+      // It also matters now that sessions are HOST-ONLY: the cookie is set by the page that opens
+      // here, so it has to be set on the host the operator will actually be working on.
+      const apex = window.location.host.replace(/^(admin|superadmin)\./, '');
+      window.open(`${window.location.protocol}//owner.${res.subdomain}.${apex}/break-glass#token=${encodeURIComponent(res.token)}`, '_blank', 'noopener,noreferrer');
       setMsg({ ok: true, text: `Read-only session into ${t.subdomain} opened — expires ${new Date(res.expiresAt).toLocaleTimeString()}.` });
     } catch (e) {
       setMsg({ ok: false, text: e instanceof ApiError ? e.message : 'Break-glass failed' });

@@ -4,7 +4,7 @@ import { setAccessCookie } from '../auth/auth.cookies';
 import { setPlatformAccessCookie, setPlatformCsrfCookie, setPlatformRefreshCookie } from './platform.cookies';
 
 /**
- * The scope of the vendor console's session, pinned.
+ * The scope of EVERY session cookie in the system, pinned.
  *
  * ⚠️ **This is a unit test on purpose, and the integration suite could not replace it.** Every
  * integration spec runs with `COOKIE_DOMAIN=localhost`, a single-label domain that browsers reject
@@ -12,7 +12,7 @@ import { setPlatformAccessCookie, setPlatformCsrfCookie, setPlatformRefreshCooki
  * assertion made against that environment would have passed before this change as loudly as after.
  * A real apex is the only configuration in which the two cookie families differ at all.
  */
-describe('platform session cookies — host-only', () => {
+describe('session cookies — every door keeps its own', () => {
   const env = { COOKIE_DOMAIN: 'schoolworks.com', COOKIE_SECURE: true } as Env;
 
   /** A `res.cookie` recorder — nothing here needs a real Express response. */
@@ -31,11 +31,25 @@ describe('platform session cookies — host-only', () => {
     for (const c of calls) expect(c.options.domain).toBeUndefined();
   });
 
-  it('still shares the TENANT session across subdomains — the two are not the same decision', () => {
-    // The contrast is the point. A staff session must survive demo.<apex> → owner.demo.<apex>;
-    // making both families host-only would break that and would look like a "consistency" fix.
+  it('sends no Domain on the TENANT session either, so the three doors coexist', () => {
+    // ⚠️ This assertion was the exact opposite a commit ago, and the reversal is the feature.
+    //
+    // With `Domain=<apex>` all three tenant doors shared one `access_token`, so signing into the
+    // student portal silently evicted the staff session in the same browser — an office computer
+    // could not hold the fee screen and a parent's portal view at once. Each door has its own login
+    // page on its own origin, so nothing needed the sharing.
     const { res, calls } = spyRes();
     setAccessCookie(res, env, 'tok', 60_000);
-    expect(calls[0].options.domain).toBe('schoolworks.com');
+    expect(calls[0].options.domain).toBeUndefined();
+  });
+
+  it('keeps the two families under DIFFERENT names, which is what lets superadmin coexist', () => {
+    // Host-only alone would not be enough if the names collided: superadmin and an owner session
+    // both live at hosts under the apex, and it is the distinct NAME that keeps the tenant guards
+    // from ever seeing a platform token.
+    const { res, calls } = spyRes();
+    setAccessCookie(res, env, 'tok', 60_000);
+    setPlatformAccessCookie(res, env, 'tok', 60_000);
+    expect(calls[0].name).not.toBe(calls[1].name);
   });
 });

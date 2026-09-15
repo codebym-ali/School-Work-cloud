@@ -23,14 +23,28 @@ function base(env: Env): CookieOptions {
 }
 
 /**
- * A single-label domain (e.g. `localhost`) is rejected by browsers as a cookie `Domain`
- * attribute, so the session cookie is silently dropped and the app bounces back to login.
- * Emit a HOST-ONLY cookie there (no Domain) — it then works at `localhost` AND any
- * `*.localhost` tenant host in dev. A real apex (`school.com`) keeps its Domain so the
- * cookie is shared across tenant subdomains in production (blueprint §22.2).
+ * ⚠️ **Host-only at every tier — the session belongs to the DOOR, not to the apex.**
+ *
+ * This cookie used to carry `Domain=<apex>` so one session was shared across every tenant
+ * subdomain. That made sense when the doors were paths inside one app. After the front-end split
+ * each door is its own origin with **its own login page** (`staff-web/app/login`,
+ * `owner-web/app/login`, `student-web/app/login`), so a session is always issued on, and read back
+ * from, the same host — nothing needed the sharing any more.
+ *
+ * What the sharing DID do was make the three doors mutually exclusive in one browser: same cookie
+ * name, same domain, so signing into the student portal silently evicted the staff session. An
+ * office computer where the clerk cannot have the fee screen and a parent's portal view open at
+ * once is a worse outcome than a re-login that no longer happens.
+ *
+ * ⚠️ **Signing out is therefore per-door too.** Logging out of staff does not end a student session
+ * in the same browser. That is the honest consequence of separate sessions, and the logout copy
+ * says so rather than leaving someone to assume otherwise.
+ *
+ * (A single-label domain such as `localhost` was always emitted host-only anyway — browsers reject
+ * it as a `Domain` attribute and the cookie is silently dropped, which is how this first came up.)
  */
-function cookieDomain(configured: string): string | undefined {
-  return configured.includes('.') ? configured : undefined;
+function cookieDomain(_configured: string): string | undefined {
+  return undefined;
 }
 
 export function setAccessCookie(res: Response, env: Env, token: string, maxAgeMs: number): void {

@@ -2,9 +2,6 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { api } from '@/lib/api';
-import { landingPath } from '@/lib/roles';
 import { APP_URLS } from '@/lib/app-urls';
 import styles from './page.module.css';
 
@@ -22,13 +19,13 @@ const CONTACT_EMAIL = 'mutaharaslam@gmail.com';
  * "book a demo" CTA is a mailto and sign-in is delegated to the real auth doors.
  */
 export default function Home() {
-  const router = useRouter();
   const [students, setStudents] = useState(500);
   const [rate, setRate] = useState(DEFAULT_RATE);
-  useEffect(() => {
-    // Already signed in? Send them into the product. Logged out (401 / no tenant) → stay on the page.
-    api.me().then((me) => router.replace(landingPath(me.roles))).catch(() => {});
-  }, [router]);
+  // ⚠️ The "already signed in? bounce them into the app" effect that used to live here is GONE, and
+  // it had been broken since the front-end split regardless. It called `router.replace('/dashboard')`
+  // — a path this marketing app does not serve, so a signed-in visitor got a 404 instead of their
+  // dashboard. Sessions are now host-only as well, so `api.me()` here would never see one anyway.
+  // The apex is a public marketing page and the door chooser at /login is how you get in.
   useEffect(() => {
     // The operator-set public list price (SA6d) — a public, unauthenticated read. Falls back to DEFAULT_RATE.
     fetch('/api/v1/platform/public/pricing')

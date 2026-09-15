@@ -1231,3 +1231,47 @@ still shares, so a future "consistency" fix cannot quietly break staff navigatio
 Superadmin and a tenant role **can** be signed in simultaneously in one browser profile — the
 distinct cookie names were designed for exactly that. What cannot coexist is **two tenant roles**
 (staff and student): same cookie names, same domain, so the second login evicts the first.
+
+## The session belongs to the door, not to the apex (2026-09-15)
+
+Operator need: sign in as staff, student and owner **at the same time in one browser**. They could
+not — all three go through `issueSession()` and got the same cookie names under `Domain=<apex>`, so
+the second login silently evicted the first. An office computer could not hold the fee screen and a
+parent's portal view open at once.
+
+Fixed by dropping `Domain` from the tenant cookies, making them host-only like the platform ones.
+
+⚠️ **What made this safe is a fact about the front-end split, and it was worth checking rather than
+assuming:** every door now has its **own login page on its own origin** (`staff-web/app/login`,
+`owner-web/app/login`, `student-web/app/login`), and the apex `/login` is only a *chooser* reached
+while signed out. So a session is always issued on, and read back from, the same host. Nothing
+depended on the sharing any more — it was a leftover from when the doors were paths in one app.
+
+### Two things that were ALREADY broken, found by looking
+
+1. **The apex landing page** redirected a signed-in visitor with `router.replace(landingPath(roles))`
+   — a path the marketing app does not serve. Since the split that was a 404, not a dashboard. The
+   effect is now removed rather than repaired: with host-only cookies `api.me()` there can never see
+   a session, and the apex is a public page whose way in is the door chooser.
+2. **Break-glass opened `<school>.<apex>/break-glass`**, but that route is mounted only on owner-web
+   and staff-web — so the vendor operator landed on the marketing app, which has no such page. Now
+   points at the **owner** door, which is also where the token belongs: it is minted with
+   `roles: ['OWNER_ADMIN']`.
+
+### ⚠️ The integration test I planned and deliberately did NOT write
+
+The plan called for "a session issued on one door host is not accepted on another". **That test
+would have been a lie.** Supertest sends whatever cookie you hand it regardless of the `Host`
+header, and the server is right to accept it — which host presented a cookie is a *browser*
+concern, enforced by the browser. The assertion would have failed, and "fixing" it would have meant
+teaching the server to distrust its own valid tokens.
+
+Scope is pinned where it is actually decided, in `platform.cookies.spec.ts`, as a unit test — and it
+has to be a unit test, because every integration spec runs `COOKIE_DOMAIN=localhost`, a single-label
+domain browsers reject as a `Domain` attribute, so cookies are host-only there whatever the code
+says.
+
+### Consequence to remember
+
+**Signing out is now per-door.** Logging out of staff does not end a student session in the same
+browser. That is the honest price of separate sessions.

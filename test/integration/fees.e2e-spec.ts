@@ -345,6 +345,132 @@ describe('Fees end-to-end (e2e, §12)', () => {
    * Payment claims. The property under test throughout is the one the whole design exists for:
    * **a claim is not a payment** until a human says the money arrived.
    */
+  /**
+   * Corrections and the defaulter list — the three paths the test plan flagged as untested
+   * (FEE-6.2, FEE-6.3, FEE-7.1). Each one either moves money or decides whether a child sits an
+   * exam, and none of them had a test at any layer.
+   */
+  describe('corrections and defaulters', () => {
+    const invoiceFor = async (month: number, year = 2028) => {
+      await post('/api/v1/fees/invoice-batches', { classId, month, year });
+      const inv = (await get(`/api/v1/fees/invoices?studentId=${studentId}&month=${month}&year=${year}`)).body.data[0];
+      expect(inv).toBeDefined();
+      return inv;
+    };
+
+    it('FEE-6.3 · waives an invoice through a WAIVER line, never by editing a total', async () => {
+      const inv = await invoiceFor(2);
+      const before = Number(inv.totalAmount);
+
+      const res = await post(`/api/v1/fees/invoices/${inv.id}/waive`, { reason: 'Hardship — approved by the principal' });
+      expect(res.status).toBe(201);
+
+      const after = (await get(`/api/v1/fees/invoices/${inv.id}`)).body;
+      expect(after.status).toBe('WAIVED');
+      // ⚠️ The ORIGINAL charge is still there. A waiver that edited `totalAmount` would erase what
+      // the family was billed, and the school could no longer say what it forgave.
+      const waiverLine = after.items.find((i: { type: string }) => i.type === 'WAIVER');
+      // A waiver must be a LINE ITEM, not an edit to the total.
+      expect(waiverLine).toBeDefined();
+      expect(Number(waiverLine.amount)).toBeLessThan(0);
+      expect(after.items.filter((i: { type: string }) => i.type !== 'WAIVER')
+        .reduce((t: number, i: { amount: string }) => t + Number(i.amount), 0)).toBe(before);
+    });
+
+    it('FEE-6.3 · a waived invoice refuses further payment', async () => {
+      const inv = await invoiceFor(3);
+      await post(`/api/v1/fees/invoices/${inv.id}/waive`, { reason: 'Scholarship' });
+      const paid = await post(`/api/v1/fees/invoices/${inv.id}/payments`, { amountPaid: 50, method: 'CASH' }, idem());
+      expect(paid.status).toBe(409);
+    });
+
+    it('FEE-6.3 · a waiver without a reason is refused', async () => {
+      // The reason lands in the audit log. A waiver is the school choosing not to collect money it
+      // is owed, and "why" is the only thing that makes that reviewable later.
+      const inv = await invoiceFor(4);
+      const res = await post(`/api/v1/fees/invoices/${inv.id}/waive`, {});
+      expect(res.status).toBeGreaterThanOrEqual(400);
+      expect((await get(`/api/v1/fees/invoices/${inv.id}`)).body.status).not.toBe('WAIVED');
+    });
+
+    it('FEE-6.2 · an ACCOUNTANT may collect but may NOT reverse', async () => {
+      // ⚠️ The boundary that makes payments immutable mean something. A cashier who can reverse
+      // their own payment can unmake a receipt they issued — which is the whole reason reversal is
+      // owner-only, and nothing proved it until now.
+      const acct = { email: `acct-${randomUUID().slice(0, 8)}@fee.pk`, password: 'Acct!Secret12' };
+      const created = await post('/api/v1/users', {
+        email: acct.email, password: acct.password, roles: ['ACCOUNTANT'], campusId,
+      });
+      expect(created.status).toBe(201);
+      const acctCookies = (await loginRequest(server(), host, acct.email, acct.password, 'staff'))
+        .headers['set-cookie'] as unknown as string[];
+      const acctCsrf = csrfOf(acctCookies);
+      const asAcct = (path: string, body: object = {}, headers: Record<string, string> = {}) => {
+        let r = request(server()).post(path).set('Host', host).set('Cookie', acctCookies).set('X-CSRF-Token', acctCsrf);
+        for (const [k, v] of Object.entries(headers)) r = r.set(k, v);
+        return r.send(body);
+      };
+
+      const inv = await invoiceFor(5);
+      // Collecting is their job, and must still work.
+      const paid = await asAcct(`/api/v1/fees/invoices/${inv.id}/payments`, { amountPaid: 100, method: 'CASH' }, idem());
+      // Collecting is the accountant's job and must still work.
+      expect(paid.status).toBe(201);
+
+      // Reversing is not.
+      const reversal = await asAcct(`/api/v1/fees/payments/${paid.body.paymentId}/reversals`, { reason: 'mistake' });
+      // Reversing is not theirs: a cashier who can reverse can unmake their own receipt.
+      expect(reversal.status).toBe(403);
+
+      // And the owner still can — the rule is about ROLE, not about the payment being special.
+      const byOwner = await post(`/api/v1/fees/payments/${paid.body.paymentId}/reversals`, { reason: 'Collected in error' });
+      expect(byOwner.status).toBe(201);
+    });
+
+    it('FEE-7.1 · a defaulter appears while unpaid and leaves once paid', async () => {
+      // ⚠️ This list is what stops a child at an exam hall, and it had no test. A student who has
+      // paid and is still listed is a child turned away over money the school already holds.
+      //
+      // ⚠️ Billed into the PAST, and inside the academic year. Two fixture traps here, both of which
+      // present as "the endpoint is broken":
+      //  - `defaulters` filters on `dueDate < now`, so a future-dated invoice can never appear
+      //    however unpaid it is (billing 2028 returned an empty list);
+      //  - a month OUTSIDE the academic year generates no invoice at all (the year opens 2026-04-01,
+      //    so billing February produced nothing to be a defaulter about).
+      // April 2026 is past, inside the year, and billed by no other case in this file.
+      await invoiceFor(4, 2026);
+      await post('/api/v1/fees/jobs/mark-overdue');
+
+      // ⚠️ Rows are grouped BY STUDENT: `{ student, outstanding, invoices }`. There is no
+      // top-level `studentId` — asserting on one silently matches nothing and reads as "the student
+      // is not a defaulter" when in fact the shape was misread.
+      const onList = async () => {
+        const body = (await get('/api/v1/fees/defaulters')).body;
+        const rows = (Array.isArray(body) ? body : body.data) as { student: { id: string } }[];
+        return rows.some((d) => d.student.id === studentId);
+      };
+      expect(await onList()).toBe(true);
+
+      // Settle everything PAST DUE for this child — the same set the list is drawn from. Scoped to
+      // past-due deliberately: paying off other tests' future invoices would be a side effect
+      // reaching outside this case.
+      const now = Date.now();
+      const open = ((await get(`/api/v1/fees/invoices?studentId=${studentId}&pageSize=100`)).body.data as {
+        id: string; status: string; totalAmount: string; paidAmount: string; dueDate: string;
+      }[]).filter((i) => ['PENDING', 'PARTIAL', 'OVERDUE'].includes(i.status) && new Date(i.dueDate).getTime() < now);
+
+      for (const i of open) {
+        const remaining = Number(i.totalAmount) - Number(i.paidAmount);
+        if (remaining > 0) {
+          await post(`/api/v1/fees/invoices/${i.id}/payments`, { amountPaid: remaining, method: 'CASH' }, idem());
+        }
+      }
+
+      // And a child who has paid must LEAVE the list.
+      expect(await onList()).toBe(false);
+    });
+  });
+
   describe('payment claims', () => {
     const today = () => new Date().toISOString().slice(0, 10);
     const claimFor = (invoiceId: string, extra: object = {}) =>

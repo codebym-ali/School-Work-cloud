@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ApiError } from '@sw/http';
 import { platformApi } from '@/lib/platform-api';
+import { PasswordInput } from '@sw/ui';
 
 /**
  * Public operator set-password page (SA4b) — the destination of the one-time invite link a Super Admin
@@ -72,14 +73,13 @@ export default function PlatformSetPasswordPage() {
               <>
                 <div>
                   <label htmlFor="pw">New password</label>
-                  <input id="pw" type="password" value={pw} onChange={(e) => setPw(e.target.value)} autoFocus />
+                  <PasswordInput id="pw" value={pw} onChange={(e) => setPw(e.target.value)} autoFocus />
                   {tooShort && <p style={{ color: 'var(--danger-ink)', fontSize: 12, margin: '4px 0 0' }}>Use at least 10 characters.</p>}
                 </div>
                 <div>
                   <label htmlFor="confirm">Confirm password</label>
-                  <input
+                  <PasswordInput
                     id="confirm"
-                    type="password"
                     value={confirm}
                     onChange={(e) => setConfirm(e.target.value)}
                     onKeyDown={(e) => { if (e.key === 'Enter' && canSubmit) submit(); }}

@@ -94,13 +94,38 @@ test.describe('classes — first run, responsive, keyboard', () => {
     test.skip(!occupied, 'no section on this tenant has enrolled students');
 
     await page.goto(`/classes/${occupied!.classId}?section=${occupied!.id}`);
-    await page.getByRole('button', { name: 'Edit name & seats' }).click();
 
+    const editor = page.getByRole('button', { name: 'Edit name & seats' });
     const seats = page.locator('label:text-is("Seats") + input');
     const save = page.getByRole('button', { name: 'Save', exact: true });
+
+    /**
+     * ⚠️ Verify each interaction instead of firing and hoping.
+     *
+     * This case failed intermittently under load (five dev servers + API + worker + the suite) on
+     * `toBeEnabled`, and passed in isolation — the classic signature of a click racing the page's
+     * own data load. The section fetch re-renders this panel, so a click that lands mid-render is
+     * swallowed and the editor never opens; the failure then surfaces three assertions later,
+     * reading as "the seats guard is broken".
+     *
+     * `toPass` re-clicks until the editor is actually open. Same treatment that stabilised
+     * `timings` — the fix there was never fewer interactions, it was VERIFIED ones.
+     */
+    await expect(async () => {
+      if (await seats.count() === 0) await editor.click();
+      await expect(seats).toBeVisible({ timeout: 1000 });
+    }).toPass({ timeout: 15_000 });
+
     await expect(save).toBeEnabled();
 
-    await seats.fill(String(occupied!.enrolled! - 1));
+    // And the fill is read back: a value written mid-render is discarded silently, which would
+    // leave Save enabled and look like a missing guard rather than a lost keystroke.
+    const below = String(occupied!.enrolled! - 1);
+    await expect(async () => {
+      await seats.fill(below);
+      await expect(seats).toHaveValue(below, { timeout: 1000 });
+    }).toPass({ timeout: 10_000 });
+
     await expect(save).toBeDisabled();
     // ...and it says why, next to the field, rather than failing silently.
     await expect(page.getByText(/already enrolled — seats cannot be below/)).toBeVisible();

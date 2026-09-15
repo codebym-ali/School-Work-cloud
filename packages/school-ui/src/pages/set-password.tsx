@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { api, ApiError } from '@sw/api-client';
+import { PasswordInput } from '@sw/ui';
 
 /**
  * Public set-password page (SA2). The destination of the one-time onboarding link the vendor console
@@ -73,14 +74,13 @@ export default function SetPasswordPage() {
               <>
                 <div>
                   <label htmlFor="pw">New password</label>
-                  <input id="pw" type="password" value={pw} onChange={(e) => setPw(e.target.value)} autoFocus />
+                  <PasswordInput id="pw" value={pw} onChange={(e) => setPw(e.target.value)} autoFocus />
                   {tooShort && <p style={{ color: 'var(--danger-ink)', fontSize: 12, margin: '4px 0 0' }}>Use at least 10 characters.</p>}
                 </div>
                 <div>
                   <label htmlFor="confirm">Confirm password</label>
-                  <input
+                  <PasswordInput
                     id="confirm"
-                    type="password"
                     value={confirm}
                     onChange={(e) => setConfirm(e.target.value)}
                     onKeyDown={(e) => { if (e.key === 'Enter' && canSubmit) submit(); }}

@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { api, ApiError } from '@sw/api-client';
+import { PasswordInput } from '@sw/ui';
 
 /**
  * Read-only student portal sign-in (#34/#35). Students have no password — they authenticate
@@ -46,7 +47,12 @@ export default function StudentLoginPage() {
         </div>
         <div>
           <label htmlFor="cnic">CNIC / B-Form</label>
-          <input id="cnic" value={cnic} onChange={(e) => setCnic(e.target.value)}
+          {/* ⚠️ Masked, like a password, because on THIS door it is one. The student portal
+              authenticates on registration number + CNIC, so the CNIC is the secret half — and a
+              child signing in from a shared school computer should not leave their family's
+              identity number on screen. `inputMode` stays numeric so the phone keypad is right.
+              The toggle is there because a mistyped CNIC is the likeliest reason a sign-in fails. */}
+          <PasswordInput id="cnic" value={cnic} onChange={(e) => setCnic(e.target.value)}
             inputMode="numeric" placeholder="12345-1234567-1" autoComplete="off" required />
         </div>
         {error && <p className="error">{error}</p>}

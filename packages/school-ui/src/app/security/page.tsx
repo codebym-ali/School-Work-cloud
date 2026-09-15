@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { api, ApiError } from '@sw/api-client';
 import { useMe } from '@sw/session';
 import { MFA_REQUIRED_ROLES } from '@sw/roles';
+import { PasswordInput } from '@sw/ui';
 
 type Msg = { ok: boolean; text: string } | null;
 
@@ -174,7 +175,7 @@ export default function SecurityPage() {
             <div className="stack">
               <p className="muted" style={{ margin: 0, fontSize: 13 }}>Confirm with your password and a current code.</p>
               <div className="inline-form">
-                <div><label>Password</label><input type="password" value={pwd} onChange={(e) => setPwd(e.target.value)} /></div>
+                <div><label>Password</label><PasswordInput value={pwd} onChange={(e) => setPwd(e.target.value)} /></div>
                 <div style={{ maxWidth: 140 }}><label>Code</label>
                   <input inputMode="numeric" maxLength={6} value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))} placeholder="123456" />
                 </div>

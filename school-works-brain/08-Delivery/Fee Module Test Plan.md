@@ -111,8 +111,8 @@ in the UI: a display gate over an open endpoint is not a rule.
 | ID | Case | Expected | Covered by |
 |---|---|---|---|
 | FEE-6.1 | Reverse a payment (owner) | `RV-` receipt; invoice recomputed; original row still there | `fees.e2e-spec` |
-| FEE-6.2 | Accountant attempts a reversal | Refused — owner only | gap, see below |
-| FEE-6.3 | Waive an invoice with a reason | WAIVED via a WAIVER **line item**, totals never edited | gap, see below |
+| FEE-6.2 | Accountant attempts a reversal | Refused — owner only (403); the owner still can | ✅ `fees.e2e-spec` |
+| FEE-6.3 | Waive an invoice with a reason | WAIVED via a WAIVER **line item**, totals never edited; no reason → refused; a waived invoice refuses payment | ✅ `fees.e2e-spec` |
 | FEE-6.4 | Pay a WAIVED or PAID invoice | 409 | `fees.e2e-spec` |
 | FEE-6.5 | Receipt for a reversed payment | Refused | `fees.e2e-spec` |
 
@@ -120,7 +120,7 @@ in the UI: a display gate over an open endpoint is not a rule.
 
 | ID | Case | Expected | Covered by |
 |---|---|---|---|
-| FEE-7.1 | Defaulters list | Unpaid past due; a paid child leaves it | gap |
+| FEE-7.1 | Defaulters list | Unpaid past due; a paid child leaves it | ✅ `fees.e2e-spec` |
 | FEE-7.2 | Nightly mark-overdue | OVERDUE + **one** FINE line, per policy | `maintenance.e2e-spec` |
 | FEE-7.3 | Integrity check | `total = Σ items`, `paid = Σ payments − Σ reversals` | `fees.e2e-spec` |
 | FEE-7.4 | Receipt SMS | Queued on payment | `fees.e2e-spec` |
@@ -139,8 +139,14 @@ in the UI: a display gate over an open endpoint is not a rule.
 ## Known gaps this plan surfaces
 
 1. ~~Cheque clears instantly~~ — **fixed 2026-09-15** (D3). See FEE-3.8.
-2. **Waiver has no browser test** (FEE-6.3) — an owner-only, audited, irreversible action.
-3. **Defaulters list is untested** (FEE-7.1) — it is what stops a child at an exam hall.
-4. **Reversal role boundary untested at the UI** (FEE-6.2).
+2. ~~Waiver has no test~~ — **closed 2026-09-15**: three cases, including that a waiver without a
+   reason is refused and that a waived invoice refuses payment.
+3. ~~Defaulters list untested~~ — **closed 2026-09-15**. ⚠️ Two fixture traps found writing it, both
+   of which present as "the endpoint is broken": a future-dated invoice can never be a defaulter
+   (`dueDate < now`), and a month outside the academic year generates no invoice at all.
+4. ~~Reversal role boundary untested~~ — **closed 2026-09-15**: an accountant collects (201) and is
+   refused a reversal (403), while the owner still can.
 
-None are regressions; all are places the tests are thinner than the feature.
+⚠️ **Remaining:** the reconciliation matcher's thresholds are uncalibrated — it shipped without
+any real bank export. Structurally sound and unit-tested, but the ±2-day window and the 4-character
+minimum reference are reasoning, not observation. One real HBL or Meezan CSV would settle it.

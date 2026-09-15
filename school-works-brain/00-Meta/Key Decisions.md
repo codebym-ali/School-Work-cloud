@@ -1200,3 +1200,34 @@ fans out one message per enrolled student: 400 students × 2 segments of Urdu = 
 A checkbox that remembers "yes" spends the next school's credits without being asked. And the
 failure mode is not only money: a school that texts every half-day teaches families to ignore the
 messages just as surely as silence does.
+
+## The vendor console's session is host-only; the tenant session is not (2026-09-15)
+
+Two cookie families, two different answers, and the difference is not an inconsistency to tidy up.
+
+**Tenant** (`access_token` / `refresh_token` / `csrf`) carries `Domain=<apex>` because a staff
+session must survive the move between `demo.<apex>` and `owner.demo.<apex>`. Sharing is the feature.
+
+**Platform** (`platform_access_token` / …) now sends **no `Domain`**. The console lives at exactly
+one host and `@sw/api-client` calls `/api/v1` relative to the page, so the cookie was never needed
+elsewhere — but with a Domain the browser attached it to **every request to every tenant
+subdomain**, including hosts whose content a school controls. Nothing could spend it there (the
+tenant guards read different names, which is why the two families have distinct names at all), yet
+the account that provisions and suspends tenants should not hold the widest transmission scope in
+the system. Least exposure, not least effort.
+
+⚠️ **Consequence to remember:** `admin.<apex>` is an alias for the console, and a session opened at
+`superadmin.<apex>` does not carry over to it. Pick one host.
+
+⚠️ **The test for this had to be a UNIT test.** Every integration spec runs with
+`COOKIE_DOMAIN=localhost` — a single-label domain browsers reject as a `Domain` attribute — so the
+cookie is host-only there whatever the code says, and an assertion made in that environment would
+have passed identically before the change. A real apex is the only configuration where the two
+families differ. `platform.cookies.spec.ts` pins both halves, including that the tenant cookie
+still shares, so a future "consistency" fix cannot quietly break staff navigation.
+
+### Correction to something recorded earlier in conversation
+
+Superadmin and a tenant role **can** be signed in simultaneously in one browser profile — the
+distinct cookie names were designed for exactly that. What cannot coexist is **two tenant roles**
+(staff and student): same cookie names, same domain, so the second login evicts the first.

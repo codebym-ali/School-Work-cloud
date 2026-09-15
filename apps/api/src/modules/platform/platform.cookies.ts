@@ -2,11 +2,24 @@ import type { CookieOptions, Response } from 'express';
 import type { Env } from '@common';
 
 /**
- * Vendor-console session cookies (blueprint §24). Distinct names from the tenant
- * cookies (`access_token`/`csrf`) so that — since both share COOKIE_DOMAIN — a platform
- * session and a tenant session can coexist in one browser without the tenant guards
- * ever seeing a platform token (or vice-versa). httpOnly + SameSite=Strict; `csrf` is
- * the only JS-readable one (double-submit CSRF).
+ * Vendor-console session cookies (blueprint §24). Distinct names from the tenant cookies
+ * (`access_token`/`csrf`) so a platform session and a tenant session can coexist in one browser
+ * without the tenant guards ever seeing a platform token (or vice-versa). httpOnly +
+ * SameSite=Strict; `csrf` is the only JS-readable one (double-submit CSRF).
+ *
+ * ⚠️ **HOST-ONLY, unlike the tenant cookies, and deliberately so.** The tenant cookies carry
+ * `Domain=<apex>` because a staff session must survive the move between `demo.<apex>` and
+ * `owner.demo.<apex>` — sharing is the feature there. The vendor console has no such need: it
+ * lives at exactly one host, and `@sw/api-client` calls `/api/v1` relative to the page, so the
+ * cookie is never needed anywhere else.
+ *
+ * With a Domain the browser attached this cookie to **every request to every tenant subdomain** —
+ * including hosts a school controls the content of. Nothing could spend it there (the tenant
+ * guards read different names), but the account that can provision and suspend tenants should not
+ * have the widest transmission scope in the system. Least exposure, not least effort.
+ *
+ * ⚠️ One visible consequence: `admin.<apex>` is an alias for the console, and a session opened at
+ * `superadmin.<apex>` does NOT carry over to it. Pick one host and stay on it.
  */
 export const PLATFORM_ACCESS_COOKIE = 'platform_access_token';
 export const PLATFORM_REFRESH_COOKIE = 'platform_refresh_token';
@@ -15,10 +28,9 @@ export const PLATFORM_CSRF_COOKIE = 'platform_csrf';
 export const PLATFORM_REFRESH_PATH = '/api/v1/platform/auth/refresh';
 
 function base(env: Env): CookieOptions {
-  // Host-only when COOKIE_DOMAIN is a single-label domain (e.g. `localhost`) — browsers
-  // reject it as a Domain attribute; see auth.cookies.ts. Real apex keeps its Domain.
-  const domain = env.COOKIE_DOMAIN.includes('.') ? env.COOKIE_DOMAIN : undefined;
-  return { httpOnly: true, secure: env.COOKIE_SECURE, sameSite: 'strict', domain, path: '/' };
+  // No `domain` at any tier — see the note above. Omitting it makes the cookie host-only, which is
+  // also what `localhost` needed anyway (browsers reject a single-label Domain attribute).
+  return { httpOnly: true, secure: env.COOKIE_SECURE, sameSite: 'strict', path: '/' };
 }
 
 export function setPlatformAccessCookie(res: Response, env: Env, token: string, maxAgeMs: number): void {

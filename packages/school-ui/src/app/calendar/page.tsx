@@ -45,6 +45,9 @@ export default function CalendarPage() {
   const [copied, setCopied] = useState<string | null>(null);
 
   const [one, setOne] = useState({ date: today(), name: '', campusId: '' });
+  // ⚠️ Deliberately NOT sticky and NOT defaulted on: every tick is a decision to spend credits,
+  // and a checkbox that remembers "yes" would spend them on the next closure without being asked.
+  const [notify, setNotify] = useState(false);
   const [range, setRange] = useState({ fromDate: '', toDate: '', name: '', campusId: '' });
   const [showRange, setShowRange] = useState(false);
 
@@ -116,10 +119,11 @@ export default function CalendarPage() {
           A head who declares Eid and assumes parents were informed is the failure this prevents. */}
       {canEdit && (
       <div className="card stack" style={{ borderLeft: '4px solid #d97706' }}>
-        <strong style={{ fontSize: 14 }}>Declaring a closure does not message anyone</strong>
+        <strong style={{ fontSize: 14 }}>Declaring a closure does not message anyone, unless you ask it to</strong>
         <p className="muted" style={{ margin: 0, fontSize: 13 }}>
-          Staff and students see it in the app. To tell families, use <b>Copy message</b> on the
-          closure and paste it into your WhatsApp group.
+          Staff and students see it in the app straight away. Guardians are only texted if you tick
+          <b> Text guardians</b> below — otherwise use <b>Copy message</b> on the closure and paste it
+          into your WhatsApp group, which costs nothing.
         </p>
       </div>
       )}
@@ -175,6 +179,23 @@ export default function CalendarPage() {
             </div>
           )}
 
+          {/* ⚠️ Single closures only. A fortnight of winter break would otherwise fan out to
+              students × 14, which is how a school burns a month of credits in one click. */}
+          {!showRange && (
+            <div style={{ minWidth: 200 }}>
+              <label htmlFor="notify-guardians" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <input
+                  id="notify-guardians"
+                  type="checkbox"
+                  checked={notify}
+                  onChange={(e) => setNotify(e.target.checked)}
+                  style={{ width: 'auto' }}
+                />
+                Text guardians
+              </label>
+            </div>
+          )}
+
           <button
             disabled={busy || (showRange
               ? !range.fromDate || !range.toDate || range.name.trim().length < 2
@@ -199,9 +220,11 @@ export default function CalendarPage() {
                   await api.holidays.create({
                     date: one.date, name: one.name.trim(),
                     ...(one.campusId ? { campusId: one.campusId } : {}),
+                    ...(notify ? { notifyGuardians: true } : {}),
                   });
                   setOne({ date: today(), name: '', campusId: '' });
-                }, 'Closure added'))}
+                  setNotify(false);
+                }, notify ? 'Closure added — guardians are being texted' : 'Closure added'))}
           >
             {busy ? 'Saving…' : showRange ? 'Add these days' : 'Add closure'}
           </button>
@@ -213,6 +236,12 @@ export default function CalendarPage() {
         <div className="field-hint">
           No attendance is taken that day, staff are not marked absent, and payroll counts one
           fewer working day.
+          {!showRange && notify && (
+            <>
+              {' '}<b>One SMS per enrolled student</b> will be sent from your credits — a guardian with
+              two children here receives two.
+            </>
+          )}
         </div>
       </div>
       )}

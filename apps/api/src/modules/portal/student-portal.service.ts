@@ -54,6 +54,117 @@ export class StudentPortalService {
     return this.db.studentEnrollment.findMany({ where: { studentId }, select: { id: true } });
   }
 
+  /**
+   * "What changed for me" — the student's own notification list.
+   *
+   * ⚠️ **A SEPARATE implementation from the staff `/notifications`, and that is the design.** The
+   * staff service resolves the caller's STAFF PROFILE and carries a hand-copied `NEEDS` map whose
+   * own comment warns that "getting one wrong hands a teacher the whole school's figures". A
+   * student is not a role with fewer items — they are a different audience entirely, and putting
+   * them through that service would leave a child one mistaken gate away from the school's
+   * finances. Here, `self()` makes cross-student access structurally impossible.
+   *
+   * ⚠️ **Derived, never stored** — the same rule as the staff bell. Each item is computed from the
+   * record it describes, so when the cause disappears the notice does too, with nothing to clean up.
+   *
+   * ⚠️ **Fees are deliberately absent.** A child is not the person who pays, and "Rs 12,000
+   * overdue" in front of a fourteen-year-old is pressure applied to the wrong human. The invoice is
+   * on their Fees page if they look; it is not pushed at them.
+   */
+  async notifications() {
+    const student = await this.self();
+    const today = startOfUtcDay(new Date());
+    const tomorrow = new Date(today.getTime() + 86_400_000);
+
+    const enrollment = await this.db.studentEnrollment.findFirst({
+      where: { studentId: student.id, status: 'ACTIVE' },
+      select: { id: true, campusId: true },
+    });
+
+    // `knownAt` — see the note on the staff service's NotificationItem: a closure's `at` is the
+    // day being described, which is in the FUTURE for "shut tomorrow", and newness has to be
+    // judged on when the school declared it or the badge can never be cleared.
+    const items: { id: string; kind: string; severity: 'info' | 'warn'; at: string; knownAt?: string; text: string; href: string }[] = [];
+
+    // ── The school is shut ────────────────────────────────────────────────────
+    // ⚠️ Campus-scoped: `campusId: null` is the whole school, and a closure at one campus must not
+    // tell a child at the other one to stay home.
+    const closures = await this.db.holiday.findMany({
+      where: {
+        date: { in: [today, tomorrow] },
+        ...(enrollment?.campusId ? { OR: [{ campusId: null }, { campusId: enrollment.campusId }] } : {}),
+      },
+      orderBy: { date: 'asc' },
+    });
+    for (const c of closures) {
+      const when = c.date.getTime() === today.getTime() ? 'today' : 'tomorrow';
+      items.push({
+        id: `closed:${c.id}`, kind: 'SCHOOL_CLOSED', severity: 'info',
+        at: c.date.toISOString(), knownAt: c.createdAt.toISOString(),
+        text: `School is closed ${when} — ${c.name}.`, href: '/',
+      });
+    }
+
+    // ── You were marked absent ────────────────────────────────────────────────
+    // ⚠️ Recent only. This exists so a WRONG mark gets challenged while the register can still be
+    // corrected; a month-old absence is history, and listing it just makes the bell noisy.
+    if (enrollment) {
+      const since = new Date(today.getTime() - 7 * 86_400_000);
+      const absences = await this.db.attendanceRecord.findMany({
+        where: { enrollmentId: enrollment.id, status: 'ABSENT', date: { gte: since } },
+        orderBy: { date: 'desc' },
+        take: 5,
+      });
+      for (const a of absences) {
+        items.push({
+          id: `absent:${a.id}`, kind: 'MARKED_ABSENT', severity: 'warn',
+          at: a.date.toISOString(),
+          text: `You were marked absent on ${dayMonth(a.date)}. Tell the office if that is wrong.`,
+          href: '/attendance',
+        });
+      }
+    }
+
+    // ── Your leave was decided ────────────────────────────────────────────────
+    const leaves = await this.db.studentLeave.findMany({
+      where: { studentId: student.id, status: { in: ['APPROVED', 'REJECTED'] }, decidedAt: { gte: new Date(today.getTime() - 14 * 86_400_000) } },
+      orderBy: { decidedAt: 'desc' },
+      take: 5,
+    });
+    for (const l of leaves) {
+      items.push({
+        id: `leave:${l.id}:${l.status}`, kind: 'LEAVE_DECIDED',
+        severity: l.status === 'APPROVED' ? 'info' : 'warn',
+        at: (l.decidedAt ?? new Date()).toISOString(),
+        text: `Your leave request was ${l.status.toLowerCase()}.`,
+        href: '/attendance',
+      });
+    }
+
+    const seenAt = (await this.db.user.findFirst({
+      where: { id: this.ctx.user!.userId }, select: { notificationsSeenAt: true },
+    }))?.notificationsSeenAt;
+
+    items.sort((a, b) => (a.at < b.at ? 1 : -1));
+    // Everything counts as new until they have looked — the same rule as the staff bell, so the
+    // number on the badge and the list behind it can never disagree.
+    const withNew = items.map(({ knownAt, ...i }) => ({
+      ...i,
+      isNew: seenAt ? new Date(knownAt ?? i.at) > seenAt : true,
+    }));
+    return { items: withNew, unread: withNew.filter((i) => i.isNew).length };
+  }
+
+  /** "I have looked." Records the visit against the caller and nobody else — no id is accepted. */
+  async markNotificationsSeen() {
+    await this.self();
+    await this.db.user.update({
+      where: { id: this.ctx.user!.userId },
+      data: { notificationsSeenAt: new Date() },
+    });
+    return { ok: true };
+  }
+
   async overview() {
     const student = await this.self();
     const [enrollment, guardians, invoices, enrolls] = await Promise.all([
@@ -263,3 +374,11 @@ export class StudentPortalService {
     }));
   }
 }
+
+/** Midnight UTC, matching how `@db.Date` columns compare. */
+function startOfUtcDay(d: Date): Date {
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+}
+
+const dayMonth = (d: Date): string =>
+  new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });

@@ -701,6 +701,10 @@ model Holiday {
   name     String
   campusId String?  @map("campus_id") @db.Uuid // null = all campuses
   campus   Campus?  @relation(fields: [campusId, schoolId], references: [id, schoolId])
+  // ⚠️ WHEN it was declared, which is not the same as the day it describes. The notification bell
+  // judges "new" on this: a closure declared tonight for tomorrow has a `date` in the future, and
+  // marking it read against that date could never succeed — the badge would never clear.
+  createdAt DateTime @default(now()) @map("created_at")
 
   @@unique([schoolId, date, campusId])
   @@index([campusId, schoolId])

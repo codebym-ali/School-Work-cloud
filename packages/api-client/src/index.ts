@@ -104,7 +104,8 @@ export interface NotificationItem {
     | 'DEFAULTERS' | 'LEAVES_PENDING' | 'SMS_FAILED' | 'CLAIMS_PENDING'
     | 'REGISTERS_UNMARKED' | 'STAFF_UNMARKED' | 'STAFF_ABSENT'
     | 'READY_TO_ADMIT' | 'TESTS_TODAY'
-    | 'COVERING_TODAY' | 'COVERED_TODAY';
+    | 'COVERING_TODAY' | 'COVERED_TODAY'
+    | 'SCHOOL_CLOSED';
   severity: 'info' | 'warn';
   text: string;
   href: string;
@@ -846,7 +847,8 @@ export const api = {
       const qs = new URLSearchParams({ ...(from ? { from } : {}), ...(to ? { to } : {}) }).toString();
       return apiGet<Holiday[]>(`/holidays${qs ? `?${qs}` : ''}`);
     },
-    create: (body: { date: string; name: string; campusId?: string }) => apiPost<Holiday>('/holidays', body),
+    create: (body: { date: string; name: string; campusId?: string; notifyGuardians?: boolean }) =>
+      apiPost<Holiday>('/holidays', body),
     createRange: (body: { fromDate: string; toDate: string; name: string; campusId?: string }) =>
       apiPost<{ created: number; skipped: string[]; dates: string[] }>('/holidays/range', body),
     remove: (id: string) => apiDelete<null>(`/holidays/${id}`),
@@ -1140,5 +1142,12 @@ export const api = {
     fees: () => apiGet<PortalFee[]>('/portal/fees'),
     /** A short-lived presigned link to the student's OWN receipt; the server checks ownership. */
     receipt: (paymentId: string) => apiGet<{ url: string }>(`/portal/fees/payments/${paymentId}/receipt`),
+    /**
+     * ⚠️ A separate endpoint from `notifications.list()`, not a filtered view of it. A student is a
+     * different audience, not a staff member with fewer rows — nothing about unpaid fees belongs
+     * here, because a child is not the person who pays.
+     */
+    notifications: () => apiGet<Notifications>('/portal/notifications'),
+    notificationsSeen: () => apiPost<{ ok: true }>('/portal/notifications/seen', {}),
   },
 };

@@ -143,6 +143,19 @@ export class CreateHolidayDto {
   @IsString() @MinLength(2) @MaxLength(120)
   name!: string;
 
+  /**
+   * Text the guardians about this closure.
+   *
+   * ⚠️ **Opt-IN, defaulting to false, and that is a cost decision as much as a product one.** One
+   * closure fans out one SMS per student: a 400-student school sending a two-segment Urdu notice
+   * spends 800 segments from a single click, against a BASIC plan that includes 1,000 a month. A
+   * school that texted every half-day would exhaust its allowance and blame the system. The office
+   * decides when a closure is worth the spend — and a flood teaches people to ignore the messages
+   * just as surely as silence does.
+   */
+  @IsOptional() @IsBoolean()
+  notifyGuardians?: boolean;
+
   /** Omitted ⇒ the whole school. Only an owner may omit it; a campus admin is forced to theirs. */
   @IsOptional() @IsUUID()
   campusId?: string;

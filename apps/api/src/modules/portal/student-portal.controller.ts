@@ -1,4 +1,4 @@
-import { Controller, Get, Param } from '@nestjs/common';
+import { Controller, Get, HttpCode, HttpStatus, Param, Post } from '@nestjs/common';
 import { Roles } from '@common';
 import { StudentPortalService } from './student-portal.service';
 import { PaymentsService } from '../fees/payments.service';
@@ -19,6 +19,25 @@ export class StudentPortalController {
   @Get('overview')
   overview() {
     return this.portal.overview();
+  }
+
+  /**
+   * The student's own notification list.
+   *
+   * ⚠️ Separate from the staff `/notifications` on purpose — see the service. That one resolves a
+   * STAFF profile and returns an empty list for a student, so a shared endpoint would have looked
+   * like a working bell that never said anything.
+   */
+  @Get('notifications')
+  notifications() {
+    return this.portal.notifications();
+  }
+
+  /** "I have looked." A POST because it writes, which also means it carries the CSRF token. */
+  @Post('notifications/seen')
+  @HttpCode(HttpStatus.OK)
+  markSeen() {
+    return this.portal.markNotificationsSeen();
   }
 
   @Get('attendance')

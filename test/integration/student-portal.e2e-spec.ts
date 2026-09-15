@@ -273,4 +273,49 @@ describe('Student portal (e2e, §28)', () => {
   it('denies a non-student (owner) the portal (403)', async () => {
     expect((await get('/api/v1/portal/overview', ownerCookies)).status).toBe(403);
   });
+  /**
+   * The student's own bell. ⚠️ **A separate endpoint from the staff `/notifications`, and these
+   * cases exist to keep it that way**: a student is a different audience, not a staff member with
+   * fewer rows. The last case is the one that matters — nothing about money reaches a child.
+   */
+  describe('notifications', () => {
+    const iso = (d: Date) => d.toISOString().slice(0, 10);
+    const kinds = async () => {
+      const res = await get('/api/v1/portal/notifications', studentCookies);
+      expect(res.status).toBe(200);
+      return (res.body.items as Array<{ kind: string; text: string }>);
+    };
+
+    it('tells the student the school is shut tomorrow', async () => {
+      const date = iso(new Date(Date.now() + 86_400_000));
+      await ownerPost('/api/v1/holidays', { date, name: 'Eid ul Adha' }).expect(201);
+      const closed = (await kinds()).find((i) => i.kind === 'SCHOOL_CLOSED');
+      expect(closed).toBeDefined();
+      expect(closed!.text).toContain('Eid ul Adha');
+    });
+
+    it('never mentions fees, however much is owed', async () => {
+      // A child is not the person who pays. The portal shows them a fee page they can look at on
+      // purpose; pushing a debt at them unprompted is a different thing entirely.
+      const items = await kinds();
+      for (const i of items) expect(i.text.toLowerCase()).not.toContain('fee');
+      expect(items.map((i) => i.kind)).not.toContain('DEFAULTERS');
+    });
+
+    it('counts everything as new until they have looked, then stops', async () => {
+      const before = await get('/api/v1/portal/notifications', studentCookies);
+      expect(before.body.unread).toBe(before.body.items.length);
+      expect(before.body.unread).toBeGreaterThan(0);
+      await request(server()).post('/api/v1/portal/notifications/seen')
+        .set('Host', host).set('Cookie', studentCookies).set('X-CSRF-Token', csrfOf(studentCookies))
+        .send({}).expect(200);
+      const after = await get('/api/v1/portal/notifications', studentCookies);
+      expect(after.body.unread).toBe(0);
+      expect(after.body.items.length).toBe(before.body.items.length);
+    });
+
+    it('is not reachable by staff', async () => {
+      expect((await get('/api/v1/portal/notifications', ownerCookies)).status).toBe(403);
+    });
+  });
 });

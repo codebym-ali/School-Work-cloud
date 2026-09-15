@@ -12,6 +12,7 @@ import {
   TenantContext,
 } from '@common';
 import { AuditService, TenantPrismaService } from '@database';
+import { SmsProducer } from '../comms/sms/sms-producer.service';
 import type {
   CreateAcademicYearDto,
   CreateCampusDto,
@@ -44,6 +45,7 @@ export class SetupService {
     private readonly tenantPrisma: TenantPrismaService,
     private readonly audit: AuditService,
     private readonly ctx: TenantContext,
+    private readonly sms: SmsProducer,
   ) {}
 
   private get db() {
@@ -258,7 +260,53 @@ export class SetupService {
       entityId: holiday.id,
       newValue: { date: dto.date.slice(0, 10), name, campusId },
     });
+    if (dto.notifyGuardians) await this.notifyGuardiansOfClosure(holiday.id, date, name, campusId);
     return holiday;
+  }
+
+  /**
+   * Fan a closure out to one SMS per enrolled student, when the office asked for it.
+   *
+   * ⚠️ **Per student, not per guardian, and that is the right unit** — two siblings share one
+   * father, and the dispatcher's dedupe key is `SCHOOL_CLOSED:{holidayId}:{studentId}`, so he is
+   * texted about each child. That is deliberate: collapsing to one message per phone number would
+   * be cheaper, but a guardian with children at two campuses would then be told about a closure
+   * that applies to only one of them, and a wrong closure notice is worse than a duplicate one.
+   *
+   * ⚠️ **Only ACTIVE enrolments in the current year.** A student who left in March must not be
+   * texted about December, and a school still pays for every segment sent to them.
+   *
+   * ⚠️ **Never throws.** The closure is already recorded and audited by the time this runs. If the
+   * SMS queue is unreachable, the school is still shut — failing the request here would make the
+   * office think the closure did not save and declare it a second time.
+   */
+  private async notifyGuardiansOfClosure(
+    holidayId: string,
+    date: Date,
+    reason: string,
+    campusId: string | null,
+  ): Promise<void> {
+    try {
+      const yearId = await this.requireCurrentYearId();
+      const enrolments = await this.db.studentEnrollment.findMany({
+        // A null campusId on the holiday means the whole school, so it contributes no filter.
+        where: { academicYearId: yearId, status: 'ACTIVE', ...(campusId ? { campusId } : {}) },
+        select: { studentId: true },
+      });
+      const iso = date.toISOString().slice(0, 10);
+      for (const e of enrolments) {
+        await this.sms.enqueueSchoolClosed({
+          type: 'SCHOOL_CLOSED',
+          schoolId: this.sid,
+          studentId: e.studentId,
+          holidayId,
+          date: iso,
+          reason,
+        });
+      }
+    } catch {
+      // Swallowed by design — see the note above.
+    }
   }
 
   /**

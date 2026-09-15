@@ -8,6 +8,7 @@ export const SMS_TRIGGER_KEYS = [
   'ABSENCE',
   'RESULT_READY',
   'LEAVE_STATUS',
+  'SCHOOL_CLOSED',
   'ACCOUNT_INVITE',
   'MANUAL',
 ] as const;
@@ -17,6 +18,10 @@ export type SmsTriggerKey = (typeof SMS_TRIGGER_KEYS)[number];
 export const DEFAULT_TEMPLATES: Record<SmsTriggerKey, string> = {
   ABSENCE:
     'Dear Parent, your child {studentName} was marked ABSENT on {date}. - {schoolName}',
+  // ⚠️ Deliberately short. This goes to every guardian at once, and every 160 characters is another
+  // segment billed per family — a wordier default would quietly double the cost of a closure.
+  SCHOOL_CLOSED:
+    'School will be CLOSED on {date} ({reason}). - {schoolName}',
   FEE_RECEIPT:
     'Payment of Rs {amount} received for {studentName}. Receipt #{receiptNo}. - {schoolName}',
   FEE_REMINDER:

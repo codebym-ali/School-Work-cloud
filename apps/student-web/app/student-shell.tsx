@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { api, ApiError, type Me } from '@sw/api-client';
+import { StudentBell } from './student-bell';
 
 /**
  * The student portal's client shell — auth gate + a small top nav across the five read-only pages.
@@ -47,6 +48,7 @@ export function StudentShell({ children }: { children: React.ReactNode }) {
               {n.label}
             </Link>
           ))}
+          <StudentBell />
           <button className="ghost small" onClick={async () => { await api.logout().catch(() => {}); router.replace('/login'); }}>
             Sign out
           </button>

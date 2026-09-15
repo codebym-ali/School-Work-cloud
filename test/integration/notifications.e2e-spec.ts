@@ -330,4 +330,65 @@ describe('Notifications — derived, self-scoped (e2e, N0)', () => {
       expect(res.body.items.map((i: { kind: string }) => i.kind)).not.toContain(kind);
     }
   });
+  // ── Closures ───────────────────────────────────────────────────────────────
+  /**
+   * A closure is the one notice with **no role gate at all**: whether the school is open tomorrow
+   * is public information inside the school, and a teacher who is told and a cleaner who is not is
+   * not a security boundary — it is a person turning up to a locked gate.
+   */
+  describe('school closed', () => {
+    const iso = (d: Date) => d.toISOString().slice(0, 10);
+    const cleanup = async (date: string) => {
+      const list = await request(server()).get('/api/v1/holidays').set('Host', host).set('Cookie', ownerCookies);
+      for (const h of list.body as Array<{ id: string; date: string }>) {
+        if (h.date.slice(0, 10) === date) {
+          await request(server()).delete(`/api/v1/holidays/${h.id}`)
+            .set('Host', host).set('Cookie', ownerCookies).set('X-CSRF-Token', ownerCsrf);
+        }
+      }
+    };
+
+    it('tells a teacher the school is shut tomorrow', async () => {
+      const date = iso(new Date(Date.now() + 86_400_000));
+      await post('/api/v1/holidays', { date, name: 'Eid ul Adha' }).expect(201);
+      const items = await notify(teacherCookies);
+      const closed = items.find((i) => i.kind === 'SCHOOL_CLOSED');
+      expect(closed).toBeDefined();
+      expect(closed!.text).toContain('Eid ul Adha');
+      await cleanup(date);
+    });
+
+    it('says nothing about a closure next month', async () => {
+      // ⚠️ Today and tomorrow only. A bell listing every holiday in the calendar is a calendar,
+      // and it trains people to stop reading the bell.
+      const date = iso(new Date(Date.now() + 30 * 86_400_000));
+      await post('/api/v1/holidays', { date, name: 'Quaid Day' }).expect(201);
+      expect(await kinds(teacherCookies)).not.toContain('SCHOOL_CLOSED');
+      await cleanup(date);
+    });
+
+    it('stops saying it once the closure is deleted', async () => {
+      // The derived property again: a cancelled closure must disappear, not linger as a stored row.
+      const date = iso(new Date(Date.now() + 86_400_000));
+      await post('/api/v1/holidays', { date, name: 'Rain day' }).expect(201);
+      expect(await kinds(teacherCookies)).toContain('SCHOOL_CLOSED');
+      await cleanup(date);
+      expect(await kinds(teacherCookies)).not.toContain('SCHOOL_CLOSED');
+    });
+
+    it('defaults to texting nobody', async () => {
+      // ⚠️ The cost assertion. `notifyGuardians` omitted must mean no SMS: a closure that silently
+      // fanned out to every family would spend a school's month of credits on a half-day.
+      const date = iso(new Date(Date.now() + 86_400_000));
+      const before = await platform.$queryRawUnsafe<Array<{ n: bigint }>>(
+        `select count(*)::bigint as n from sms_logs where school_id = $1::uuid`, schoolId,
+      );
+      await post('/api/v1/holidays', { date, name: 'Staff training' }).expect(201);
+      const after = await platform.$queryRawUnsafe<Array<{ n: bigint }>>(
+        `select count(*)::bigint as n from sms_logs where school_id = $1::uuid`, schoolId,
+      );
+      expect(Number(after[0].n)).toBe(Number(before[0].n));
+      await cleanup(date);
+    });
+  });
 });

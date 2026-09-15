@@ -1,8 +1,8 @@
 ---
 title: Notifications Plan
 type: plan
-status: N0–N2 shipped — N3 deferred by design
-updated: 2026-08-08
+status: N0–N3 shipped (N3 as opt-in closure SMS) — student bell shipped
+updated: 2026-09-15
 ---
 
 # 🔔 Notifications Plan
@@ -195,3 +195,60 @@ places that answer "what needs me" and they will eventually disagree.
   The count and the list must come from one call, not two.
 - **Two answers to "what needs me".** Only avoided by doing N2 — until then, the dashboard strip
   and the bell are separate derivations and *will* drift.
+
+---
+
+## 9. N3 — closures reach everyone (shipped 2026-09-15)
+
+The question that started it: *"the school wants tomorrow off — do the teachers and students get a
+school-off notification?"* They did not. The closure banner covered staff on staff pages; students
+had no bell at all, and guardians had nothing but a copy-paste WhatsApp message.
+
+### What shipped
+
+| Audience | How | Cost |
+|---|---|---|
+| **Staff** | `SCHOOL_CLOSED` in the bell, today/tomorrow, campus-scoped | free |
+| **Students** | their own `/portal/notifications` endpoint + a bell in the student shell | free |
+| **Guardians** | one SMS per enrolled student, **only if the office ticks "Text guardians"** | credits |
+
+### Decisions worth keeping
+
+1. **No role gate on a closure.** Whether the school is open tomorrow is public information inside
+   the school. A teacher who is told and a cleaner who is not is not a security boundary — it is a
+   person turning up to a locked gate.
+2. **The student feed is a separate implementation, not a filtered staff feed.** A student is a
+   different audience, not a staff member with fewer rows. ⚠️ **Fees are deliberately excluded**: a
+   child is not the person who pays, and pushing a debt at them is a thing a school should not do.
+3. **Guardian SMS is opt-in, per closure, defaulting to off, and never remembered.** A 400-student
+   school sending a two-segment Urdu notice spends 800 of a BASIC plan's 1,000 monthly segments in
+   one click. Every tick is a decision to spend. It is offered on single closures only — a
+   fortnight of winter break would otherwise fan out to students × 14.
+4. **Per student, not per guardian.** A father with two children here is texted twice. Collapsing
+   by phone number would be cheaper, but a guardian with children at two campuses would then be
+   told about a closure applying to only one of them, and a *wrong* closure notice is worse than a
+   duplicate one.
+5. **The fan-out never throws.** The closure is recorded and audited before the SMS is queued. If
+   the queue is unreachable the school is still shut, and failing the request would make the office
+   think it did not save and declare it twice.
+
+### ⚠️ The bug this uncovered — a badge that could never be cleared
+
+The unread count compared each item's `at` against `User.notificationsSeenAt`. A closure's `at` is
+**the day it describes**, which for "shut tomorrow" is in the future — so `at > seenAt` stayed true
+however many times the person opened the bell, and the badge sat there forever.
+
+The fix names the distinction the model was missing: `holidays.created_at` (new column,
+`20260915160000_holiday_created_at`) records when the closure was **declared**, and items may carry
+an internal `knownAt` that newness is judged on while `at` stays what is displayed. *Newness is
+about when the school found out, not about the day being described.*
+
+This is the same shape as the recurring lesson in [[Key Decisions]]: it presented as a UI annoyance
+and was a missing fact in the data model.
+
+### Tested by
+
+`notifications.e2e-spec.ts` — a closure reaches a teacher, a closure next month does not, deleting
+it removes the notice, and **declaring one texts nobody by default** (the cost assertion).
+`student-portal.e2e-spec.ts` — the student is told, fees are never mentioned, the badge clears and
+stays cleared, and staff get 403.

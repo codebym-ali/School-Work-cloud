@@ -28,6 +28,17 @@ export class SmsProducer {
     await this.queue.add('RESULT_READY', job);
   }
 
+  /**
+   * key closed:{holidayId}:{studentId} — the second line of defence against double-billing.
+   *
+   * ⚠️ A closure fans out one job per student, so a re-save or a redelivery without this key would
+   * text every family twice and charge the school twice. The dispatcher dedupes on the same key at
+   * send time; this stops the job ever reaching it.
+   */
+  async enqueueSchoolClosed(job: Extract<SmsJob, { type: 'SCHOOL_CLOSED' }>): Promise<void> {
+    await this.queue.add('SCHOOL_CLOSED', job, { jobId: `closed:${job.holidayId}:${job.studentId}` });
+  }
+
   async enqueueManual(job: Extract<SmsJob, { type: 'MANUAL' }>): Promise<void> {
     await this.queue.add('MANUAL', job);
   }

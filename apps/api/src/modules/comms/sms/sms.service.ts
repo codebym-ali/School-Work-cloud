@@ -43,6 +43,8 @@ export class SmsService {
         return this.dispatchReceipt(job);
       case 'RESULT_READY':
         return this.dispatchResultReady(job);
+      case 'SCHOOL_CLOSED':
+        return this.dispatchSchoolClosed(job);
       case 'MANUAL':
         // No dedupe key — a school may deliberately send the same broadcast twice.
         for (const to of job.recipients) await this.sendOne(to, job.body, 'MANUAL', {}, false);
@@ -68,6 +70,38 @@ export class SmsService {
     // Transactional send: opt-out is ignored; overdraft buffer applies.
     // One absence notice per student per day, however many times the job is delivered.
     await this.sendOne(guardian.phone, body, 'ABSENCE', { studentId: job.studentId }, true, `ABSENCE:${job.studentId}:${job.date}`);
+  }
+
+  /**
+   * "School will be closed on …" to one student's guardian.
+   *
+   * ⚠️ **NOT transactional.** Unlike an absence notice, this is an announcement, so opt-out is
+   * respected and it does not spend the overdraft buffer. A family that asked to stop receiving
+   * texts must not be overridden by a broadcast — that is what an opt-out means.
+   *
+   * ⚠️ The dedupe key is `(holiday, student)`. Editing a closure, re-saving it, or a redelivered
+   * job must not text 400 families twice; the queue's dedupe is the only thing standing between a
+   * double-click and a duplicated bill.
+   */
+  private async dispatchSchoolClosed(job: Extract<SmsJob, { type: 'SCHOOL_CLOSED' }>): Promise<void> {
+    const student = await this.db.student.findFirst({ where: { id: job.studentId } });
+    const guardian = await this.primaryGuardian(job.studentId);
+    if (!student || !guardian) return;
+
+    if (!guardian.phoneVerifiedAt) {
+      await this.logUnverified(guardian.phone, 'SCHOOL_CLOSED', { studentId: job.studentId });
+      return;
+    }
+    const body = renderTemplate(await this.templateBody('SCHOOL_CLOSED'), {
+      date: job.date,
+      reason: job.reason,
+      studentName: student.fullName,
+      schoolName: await this.schoolName(),
+    });
+    await this.sendOne(
+      guardian.phone, body, 'SCHOOL_CLOSED', { studentId: job.studentId }, false,
+      `SCHOOL_CLOSED:${job.holidayId}:${job.studentId}`,
+    );
   }
 
   private async dispatchLeaveStatus(job: Extract<SmsJob, { type: 'LEAVE_STATUS' }>): Promise<void> {

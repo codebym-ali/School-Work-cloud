@@ -1174,3 +1174,29 @@ hunting a null-safety bug that does not exist.
 `pnpm verify` (the static gates, runnable locally), `pnpm ci:local` (the whole workflow against
 throwaway services), `packages/` linted at all for the first time (74 files), every CI step named,
 and the worker guard covered by a test of its own.
+
+## Newness is about when you found out, not about the day being described (2026-09-15)
+
+Shipping closure notifications (N3, [[Notifications Plan]]) exposed a badge that could never be
+cleared. The unread count compared each item's `at` to `User.notificationsSeenAt`; a closure's `at`
+is **the day it describes**, so "shut tomorrow" is a future timestamp and `at > seenAt` stayed true
+no matter how often the bell was opened.
+
+The fix was a column, not a condition: `holidays.created_at` records when a closure was *declared*,
+and a notification item may carry an internal `knownAt` that newness is judged on while `at` remains
+what is displayed.
+
+⚠️ **The shape, again:** it presented as a UI annoyance and was a missing fact in the data model.
+Any derived "unread" needs two timestamps whenever the thing described is not the thing that
+happened — and every feed item about the future has that property.
+
+## Opt-in is a cost control, and a default-on checkbox is not opt-in (2026-09-15)
+
+Closure SMS had been deferred on the grounds that there is no SMS budget. It shipped as an explicit
+per-closure tick, defaulting to off and **never remembered between closures**, because one click
+fans out one message per enrolled student: 400 students × 2 segments of Urdu = 800 of a BASIC plan's
+1,000 monthly segments.
+
+A checkbox that remembers "yes" spends the next school's credits without being asked. And the
+failure mode is not only money: a school that texts every half-day teaches families to ignore the
+messages just as surely as silence does.

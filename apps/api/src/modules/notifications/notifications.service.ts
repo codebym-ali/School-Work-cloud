@@ -42,11 +42,23 @@ export type NotificationItem = {
     | 'REGISTERS_UNMARKED' | 'STAFF_UNMARKED' | 'STAFF_ABSENT'
     | 'READY_TO_ADMIT' | 'TESTS_TODAY'
     // Cover (C2): one for the person taking the class, one for the person whose class it is.
-    | 'COVERING_TODAY' | 'COVERED_TODAY';
+    | 'COVERING_TODAY' | 'COVERED_TODAY'
+    // The school is shut today or tomorrow. Everyone's business, not a role's.
+    | 'SCHOOL_CLOSED';
   severity: 'info' | 'warn';
   text: string;
   href: string;
   at: string;
+  /**
+   * When this became KNOWABLE, when that differs from the timestamp shown.
+   *
+   * ⚠️ **Only a closure needs it, and without it the badge could never be cleared.** A closure
+   * declared tonight for tomorrow carries `at` = tomorrow's date, which is in the future — so
+   * `at > seenAt` stayed true no matter how many times the person opened the bell, and the count
+   * sat there forever. Newness is about when the school found out, not about the day being
+   * described. Everything else leaves it unset and `at` answers both questions.
+   */
+  knownAt?: string;
 };
 
 /**
@@ -130,7 +142,7 @@ export class NotificationsService {
     const items = raw
       .sort((a, b) => b.at.localeCompare(a.at))
       // Null `seenAt` means never opened, which correctly makes everything new the first time.
-      .map((i) => ({ ...i, isNew: !seenAt || new Date(i.at) > seenAt }));
+      .map(({ knownAt, ...i }) => ({ ...i, isNew: !seenAt || new Date(knownAt ?? i.at) > seenAt }));
 
     // Counted from the SAME list that is returned, never queried separately. A bell reading "3"
     // that opens onto two items is worse than no bell, and two round trips is exactly how the
@@ -158,8 +170,16 @@ export class NotificationsService {
     const at = new Date().toISOString();
     const out: NotificationItem[] = [];
     const plural = (n: number, one: string, many: string) => (n === 1 ? one : many);
-    const attempt = async (allowed: readonly string[], fn: () => Promise<void>) => {
-      if (!can(allowed)) return;
+    /**
+     * Run one contributor if this caller is allowed it.
+     *
+     * ⚠️ `allowed: null` means EVERY signed-in user, and is spelled `null` rather than an empty
+     * array on purpose: an empty array reads as "nobody" at a glance, and a contributor that
+     * silently reached everyone because someone typed `[]` is exactly the mistake the NEEDS map
+     * exists to prevent. Only genuinely public facts — a school closure — may use it.
+     */
+    const attempt = async (allowed: readonly string[] | null, fn: () => Promise<void>) => {
+      if (allowed !== null && !can(allowed)) return;
       try { await fn(); } catch { /* denied or unavailable — say nothing */ }
     };
 
@@ -205,6 +225,46 @@ export class NotificationsService {
         if (s.unmarked > 0) {
           out.push({ id: `staff-unmarked:${s.date}:${s.unmarked}`, kind: 'STAFF_UNMARKED', severity: 'warn', at,
             text: `${s.unmarked} staff not marked today.`, href: `/staff-attendance?date=${s.date}&status=UNMARKED` });
+        }
+      }),
+
+      /**
+       * The school is closed today or tomorrow.
+       *
+       * ⚠️ **No NEEDS gate, on purpose.** Every other item here is role-gated because it exposes
+       * school-wide figures — money, attendance, admissions. A closure is the opposite: it is
+       * public information inside the school, and the people most affected are the ones with the
+       * fewest permissions. Gating it would be the mistake, not the safeguard.
+       *
+       * ⚠️ **Today and tomorrow only.** Beyond that it is a calendar, not news — the same rule the
+       * closure banner already follows. A bell that lists next term's holidays is a bell nobody
+       * opens.
+       *
+       * ⚠️ **Campus-scoped.** `campusId: null` means the whole school; a closure at one campus must
+       * not tell the other campus to stay home.
+       */
+      attempt(null, async () => {
+        const today = startOfUtcDay(new Date());
+        const tomorrow = new Date(today.getTime() + 86_400_000);
+        const campusId = this.ctx.user?.campusId ?? null;
+        const closures = await this.tenantPrisma.client.holiday.findMany({
+          where: {
+            date: { in: [today, tomorrow] },
+            ...(campusId ? { OR: [{ campusId: null }, { campusId }] } : {}),
+          },
+          orderBy: { date: 'asc' },
+        });
+        for (const c of closures) {
+          const when = c.date.getTime() === today.getTime() ? 'today' : 'tomorrow';
+          out.push({
+            id: `closed:${c.id}`,
+            kind: 'SCHOOL_CLOSED',
+            severity: 'info',
+            at: c.date.toISOString(),
+            knownAt: c.createdAt.toISOString(),
+            text: `School is closed ${when} — ${c.name}.`,
+            href: '/calendar',
+          });
         }
       }),
 
@@ -402,4 +462,9 @@ export class NotificationsService {
       at: new Date(`${today}T${markByTime}:00.000Z`).toISOString(),
     }];
   }
+}
+
+/** Midnight UTC for a date, matching how `@db.Date` columns compare. */
+function startOfUtcDay(d: Date): Date {
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
 }

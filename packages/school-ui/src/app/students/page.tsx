@@ -368,6 +368,55 @@ function DeleteStudentDialog({ student, onClose, onDone, onError }: {
  *
  * Collapsed by default: most visits to a profile are to look something up, not to edit.
  */
+/**
+ * The student's photograph, top-right of the profile.
+ *
+ * ⚠️ **The key is not a URL and cannot be used as one.** The bucket is private, so the component
+ * exchanges `photoKey` for a ten-minute presigned link at render time. That is also why the link is
+ * fetched here rather than carried on the profile payload: a URL minted with every profile read
+ * would expire in the background of a page left open, and the image would quietly vanish.
+ *
+ * ⚠️ **Renders nothing at all when there is no photo** — no grey silhouette placeholder. Most
+ * records on a real intake have no photograph for weeks, and a permanent empty frame on every one
+ * of them is noise that teaches people to stop looking at that corner. The "Photograph" row in the
+ * record card below is where its absence is already reported, next to everything else outstanding.
+ */
+function StudentPhoto({ studentId, photoKey, name }: { studentId: string; photoKey: string | null; name: string }) {
+  const [url, setUrl] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    if (!photoKey) { setUrl(null); return; }
+    let live = true;
+    api.students
+      .photoUrl(studentId)
+      // `live` guards against a response arriving after the office clicked through to another
+      // student — otherwise one child's face lands on another child's profile.
+      .then((r) => { if (live) setUrl(r.url); })
+      .catch(() => { if (live) setFailed(true); });
+    return () => { live = false; };
+  }, [studentId, photoKey]);
+
+  if (!photoKey) return null;
+
+  const frame: React.CSSProperties = {
+    width: 108, height: 132, borderRadius: 8, border: '1px solid var(--border)',
+    objectFit: 'cover', background: 'var(--bg-muted, #f1f5f9)', flexShrink: 0,
+  };
+
+  // A broken image is reported rather than left as a torn-icon box: the usual cause is an expired
+  // or refused link, which is a fixable condition and not the same as "no photo was ever taken".
+  if (failed) {
+    return (
+      <div style={{ ...frame, display: 'grid', placeItems: 'center', padding: 8, textAlign: 'center' }}>
+        <span className="muted" style={{ fontSize: 12 }}>Photo could not be loaded</span>
+      </div>
+    );
+  }
+  if (!url) return <div style={frame} aria-hidden />;
+  return <img src={url} alt={`Photograph of ${name}`} style={frame} />;
+}
+
 function RecordCard({ student, onSaved }: { student: StudentDetail; onSaved: () => void }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -680,23 +729,32 @@ function StudentProfile({ id, classes, sections, onBack }: { id: string; classes
         <div className="card"><p className="muted">Loading…</p></div>
       ) : (
         <>
-          <div className="card stack">
-            <h2 style={{ margin: 0 }}>{s.fullName} {s.isActive ? <span className="badge ok">active</span> : <span className="badge bad">inactive</span>}</h2>
-            {/* The two permanent IDs, shown as submitted */}
-            <div className="row" style={{ gap: 16, flexWrap: 'wrap' }}>
-              <span className="badge" style={{ fontSize: 13 }}>Registration No: {s.registrationNo ?? '—'}</span>
-              <span className="badge" style={{ fontSize: 13 }}>GR: {s.grNumber}</span>
-            </div>
-            <div className="stack" style={{ gap: 4 }}>
-              <Row k="Gender" v={s.gender} />
-              <Row k="Date of birth" v={s.dateOfBirth?.slice(0, 10)} />
-              <CnicRow student={s} onSaved={load} />
-              <Row
-                k="Portal login"
-                v={s.portalLoginEnabled
-                  ? `Enabled — signs in with Reg No ${s.registrationNo ?? '—'} + CNIC`
-                  : 'Not set up (no CNIC was recorded at admission)'}
-              />
+          <div className="card">
+            {/* The photograph sits top-right of the identity card, where a school record has always
+                put it. `flex-start` so the portrait does not stretch to the card's height, and the
+                text column takes the remaining width via min-width:0 — without that, a long name
+                pushes the photo off the card instead of wrapping. */}
+            <div className="row" style={{ alignItems: 'flex-start', gap: 16 }}>
+              <div className="stack" style={{ gap: 10, minWidth: 0, flex: 1 }}>
+                <h2 style={{ margin: 0 }}>{s.fullName} {s.isActive ? <span className="badge ok">active</span> : <span className="badge bad">inactive</span>}</h2>
+                {/* The two permanent IDs, shown as submitted */}
+                <div className="row" style={{ gap: 16, flexWrap: 'wrap' }}>
+                  <span className="badge" style={{ fontSize: 13 }}>Registration No: {s.registrationNo ?? '—'}</span>
+                  <span className="badge" style={{ fontSize: 13 }}>GR: {s.grNumber}</span>
+                </div>
+                <div className="stack" style={{ gap: 4 }}>
+                  <Row k="Gender" v={s.gender} />
+                  <Row k="Date of birth" v={s.dateOfBirth?.slice(0, 10)} />
+                  <CnicRow student={s} onSaved={load} />
+                  <Row
+                    k="Portal login"
+                    v={s.portalLoginEnabled
+                      ? `Enabled — signs in with Reg No ${s.registrationNo ?? '—'} + CNIC`
+                      : 'Not set up (no CNIC was recorded at admission)'}
+                  />
+                </div>
+              </div>
+              <StudentPhoto studentId={s.id} photoKey={s.photoKey} name={s.fullName} />
             </div>
           </div>
 

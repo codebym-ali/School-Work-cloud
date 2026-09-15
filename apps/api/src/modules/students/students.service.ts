@@ -14,6 +14,7 @@ import {
   normalizePkPhone,
   paginate,
   restrictedCampusId,
+  StorageService,
   TenantContext,
   toSkipTake,
   type Env,
@@ -41,6 +42,10 @@ export interface CreateStudentCoreInput {
   emergencyName?: string;
   emergencyPhone?: string;
   emergencyRelation?: string;
+  /** Object key of the photograph, from the presigned upload. Optional at admission by design —
+   *  seating a walk-in in under a minute is the form's whole virtue, and a camera is not always to
+   *  hand. It can be attached later from the profile. */
+  photoKey?: string;
   grNumber?: string;
   rollNumber?: number; // manual, optional; unique per (section, year)
   /** Office-set joining date (YYYY-MM-DD). Omitted ⇒ today, so CSV import and the pipeline
@@ -107,7 +112,28 @@ export class StudentsService {
     private readonly access: AccessService,
     @Inject(ENV) private readonly env: Env,
     @Inject(FIELD_ENCRYPTION) private readonly crypto: FieldEncryption,
+    private readonly storage: StorageService,
   ) {}
+
+  /**
+   * A short-lived link to the student's photograph, for display.
+   *
+   * ⚠️ **No `filename` argument, and that is the whole difference between working and not.**
+   * `presignGet`'s third parameter sets `Content-Disposition: attachment`, which tells the browser
+   * to DOWNLOAD the object — correct for a payment proof, fatal for an `<img src>`, where it
+   * renders nothing and reports no error. Every other caller in the codebase passes it.
+   *
+   * ⚠️ Routed through `getOne` so the campus check is the SAME one that guards the profile. A photo
+   * endpoint with its own weaker check would be a way to read across campuses one child at a time.
+   */
+  async photoUrl(id: string): Promise<{ url: string; expiresInSeconds: number }> {
+    const student = await this.getOne(id);
+    if (!student.photoKey) {
+      throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'No photograph on file for this student');
+    }
+    const expiresInSeconds = 600;
+    return { url: await this.storage.presignGet(student.photoKey, expiresInSeconds), expiresInSeconds };
+  }
 
   private get db() {
     return this.tenantPrisma.client;
@@ -198,6 +224,7 @@ export class StudentsService {
           emergencyName: input.emergencyName ?? null,
           emergencyPhone: input.emergencyPhone ?? null,
           emergencyRelation: input.emergencyRelation ?? null,
+          photoKey: input.photoKey ?? null,
           createdById: this.ctx.user?.userId,
         },
       });

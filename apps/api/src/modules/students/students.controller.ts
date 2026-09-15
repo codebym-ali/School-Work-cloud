@@ -75,6 +75,18 @@ export class StudentsController {
   }
 
   /**
+   * A short-lived link to the student's photograph.
+   *
+   * ⚠️ The key itself is never returned as something fetchable — the profile payload carries
+   * `photoKey` as an identifier, and only this route turns it into a URL, for ten minutes. The
+   * bucket is private; a permanent link would outlive the reason it was handed out.
+   */
+  @Get(':id/photo')
+  photo(@Param('id') id: string) {
+    return this.students.photoUrl(id);
+  }
+
+  /**
    * Record or replace the CNIC after admission — the route the admission screen was already
    * telling officers existed. Also provisions the portal login when the student has none.
    * Admin-only: it changes a live sign-in credential.

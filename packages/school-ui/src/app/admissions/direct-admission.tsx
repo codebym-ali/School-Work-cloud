@@ -25,6 +25,10 @@ export function DirectAdmission({
   const today = new Date().toISOString().slice(0, 10);
   const blankForm = () => ({ gender: 'MALE', admissionDate: today });
   const [f, setF] = useState<Record<string, string>>(blankForm);
+  const [photoBusy, setPhotoBusy] = useState(false);
+  /** A local object URL, so the clerk sees the face they just chose without a round trip to
+   *  storage — the uploaded object is private and would need a presigned GET to read back. */
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
 
   /**
    * The session the student is being admitted INTO (Tier 1). Shown, not chosen: the server always
@@ -40,6 +44,25 @@ export function DirectAdmission({
       .catch(() => {});
   }, []);
   const set = (k: string, v: string) => setF((prev) => ({ ...prev, [k]: v }));
+
+  /**
+   * Upload now, hold the KEY, save it with the form.
+   *
+   * ⚠️ The bytes go browser → storage directly via a presigned PUT; the API only ever learns where
+   * they landed. The key sits in the draft rather than being written to anything, so abandoning a
+   * half-filled admission leaves an orphaned object in the bucket and nothing else — the opposite
+   * arrangement would create a student row the clerk never confirmed.
+   */
+  async function attachPhoto(file: File) {
+    setPhotoBusy(true);
+    try {
+      const { fileKey } = await api.uploads.upload(file);
+      set('photoKey', fileKey);
+      setPhotoPreview((prev) => { if (prev) URL.revokeObjectURL(prev); return URL.createObjectURL(file); });
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'Could not upload that photo');
+    } finally { setPhotoBusy(false); }
+  }
 
   /**
    * Guardians — **Father and Mother by default**, because that is the normal case in a Pakistani
@@ -102,6 +125,7 @@ export function DirectAdmission({
         emergencyName: f.emergencyName || undefined,
         emergencyPhone: f.emergencyPhone || undefined,
         emergencyRelation: f.emergencyRelation || undefined,
+        photoKey: f.photoKey || undefined,
         // Omitted entirely when nothing was entered — the student is admitted with no guardian
         // and shows a "no guardian" flag in the directory until one is added. Order is preserved
         // because the server takes the FIRST as primary.
@@ -162,7 +186,12 @@ export function DirectAdmission({
             student&apos;s profile in <b>Students</b> — that creates the login too.
           </p>
         )}
-        <div><button onClick={() => { setDone(null); setF(blankForm()); setGuardians(blankGuardians()); }}>Admit another</button></div>
+        <div><button onClick={() => {
+          setDone(null); setF(blankForm()); setGuardians(blankGuardians());
+          // ⚠️ Without this the PREVIOUS child's photograph sits on the next blank form, and the
+          // clerk admits a second student carrying the first one's face.
+          setPhotoPreview((prev) => { if (prev) URL.revokeObjectURL(prev); return null; });
+        }}>Admit another</button></div>
       </div>
     );
   }
@@ -263,6 +292,39 @@ export function DirectAdmission({
           <div><label>Name</label><input value={f.emergencyName ?? ''} onChange={(e) => set('emergencyName', e.target.value)} /></div>
           <div><label>Phone</label><input value={f.emergencyPhone ?? ''} onChange={(e) => set('emergencyPhone', e.target.value)} placeholder="03001234567" /></div>
           <div><label>Relation</label><input value={f.emergencyRelation ?? ''} onChange={(e) => set('emergencyRelation', e.target.value)} placeholder="e.g. Uncle" /></div>
+        </div>
+      </div>
+
+      {/* ⚠️ Optional, and last on the form on purpose. The virtue of this screen is seating a
+          walk-in in under a minute — it is why even the guardian is optional — and a photograph is
+          the field most likely to be missing at the counter. Putting it early, or making it
+          required, would break the fast path for the one thing that can always be added later from
+          the profile. */}
+      <div className="card stack" style={{ gap: 10 }}>
+        <div>
+          <h3 style={{ margin: 0, fontSize: 15 }}>
+            Photograph <span className="muted" style={{ fontWeight: 400, fontSize: 13 }}>— optional</span>
+          </h3>
+          <p className="muted" style={{ margin: '2px 0 0', fontSize: 12 }}>
+            Shown on the student&apos;s profile. Can be added later if you don&apos;t have one now.
+          </p>
+        </div>
+        <div className="row" style={{ alignItems: 'center', gap: 14 }}>
+          {photoPreview
+            ? <img src={photoPreview} alt="Selected photograph" style={{ width: 84, height: 102, objectFit: 'cover', borderRadius: 8, border: '1px solid var(--border)' }} />
+            : <div style={{ width: 84, height: 102, borderRadius: 8, border: '1px dashed var(--border)', display: 'grid', placeItems: 'center' }}>
+                <span className="muted" style={{ fontSize: 11 }}>No photo</span>
+              </div>}
+          <div className="stack" style={{ gap: 6 }}>
+            <label className="ghost small" htmlFor="admit-photo" style={{ cursor: 'pointer', display: 'inline-block' }}>
+              {photoBusy ? 'Uploading…' : f.photoKey ? 'Choose a different photo' : '📷 Choose a photo'}
+            </label>
+            <input
+              id="admit-photo" type="file" accept="image/*" style={{ display: 'none' }} disabled={photoBusy}
+              onChange={(e) => { const file = e.target.files?.[0]; if (file) void attachPhoto(file); }}
+            />
+            {f.photoKey && <span className="badge ok" style={{ alignSelf: 'flex-start' }}>photo attached</span>}
+          </div>
         </div>
       </div>
 

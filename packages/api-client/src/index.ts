@@ -332,6 +332,8 @@ export interface DirectAdmissionBody {
   cnic?: string; ageOverride?: boolean; grNumber?: string; rollNumber?: number;
   /** Office-set joining date (YYYY-MM-DD); defaults to today. Drives fee proration + seniority. */
   admissionDate?: string;
+  /** Object key of the photograph from the presigned upload. Optional — a walk-in is seated first. */
+  photoKey?: string;
 }
 export interface AdmissionResult { studentId: string; grNumber: string; registrationNo: string | null; loginProvisioned: boolean }
 export interface EntryTest { id: string; inquiryId: string; scheduledAt: string; score: string | null; remarks: string | null }
@@ -1046,6 +1048,9 @@ export const api = {
       apiPatch<{ loginProvisioned: boolean; replacedExisting: boolean; registrationNo: string | null }>(`/students/${id}/cnic`, { cnic }),
     /** Audited: every reveal writes a STUDENT_CNIC_REVEALED row. Owner / campus admin only. */
     revealCnic: (id: string) => apiGet<{ cnic: string }>(`/students/${id}/cnic`),
+    /** A ten-minute link to the student's photograph, for display. The profile payload carries the
+     *  KEY; only this turns it into a URL, because the bucket is private. */
+    photoUrl: (id: string) => apiGet<{ url: string; expiresInSeconds: number }>(`/students/${id}/photo`),
     // Existing-parent lookup by phone for the guardian match→link step.
     findParents: (phone: string) => apiGet<ParentMatch[]>(`/students/parents/search?phone=${encodeURIComponent(phone)}`),
     // Lifecycle change (suspend / restrict / strike off / restore). Reason is mandatory — it

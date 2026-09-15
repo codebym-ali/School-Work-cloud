@@ -159,6 +159,17 @@ export class CreateStudentDto {
   @IsOptional() @IsDateString()
   admissionDate?: string;
 
+  /**
+   * The student's photograph — the object KEY from the presigned upload, never the file and never
+   * a URL. The bytes go browser → storage directly; the API only learns where they landed.
+   *
+   * ⚠️ Optional, and it must stay optional. The admission form's virtue is seating a walk-in in
+   * under a minute, which is why even the guardian is optional here. A required photo would make
+   * the fast path impossible exactly when it is most needed.
+   */
+  @IsOptional() @IsString() @MaxLength(300)
+  photoKey?: string;
+
   /** Manual roll number — optional; unique within the section for the academic year. */
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(1000)
   rollNumber?: number;

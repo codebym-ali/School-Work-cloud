@@ -309,4 +309,35 @@ describe('Student registration & roll (e2e)', () => {
     expect(profile.body.grNumber).toBe(created.body.grNumber);
     expect(profile.body.enrollments[0].rollNumber).toBe(3);
   });
+  /**
+   * The photograph at admission.
+   *
+   * ⚠️ These cases pin the OPTIONALITY as hard as the feature. The admission form exists to seat a
+   * walk-in in under a minute — it is why even the guardian is optional — and a photo is the field
+   * most likely to be missing at the counter. A required one breaks the fast path for the single
+   * thing that can always be added later from the profile.
+   */
+  describe('photograph', () => {
+    it('stores the key when one is supplied at admission', async () => {
+      const created = await admit({ ...student('Photo', 21, '03110000021'), photoKey: 'uploads/test/photo-1.jpg' });
+      expect(created.status).toBe(201);
+      const profile = await get(`/api/v1/students/${created.body.studentId}`);
+      expect(profile.body.photoKey).toBe('uploads/test/photo-1.jpg');
+    });
+
+    it('admits perfectly well without one', async () => {
+      const created = await admit(student('NoPhoto', 22, '03110000022'));
+      expect(created.status).toBe(201);
+      const profile = await get(`/api/v1/students/${created.body.studentId}`);
+      expect(profile.body.photoKey).toBeNull();
+    });
+
+    it('refuses to mint a link for a student who has no photograph', async () => {
+      // 404 rather than an empty 200: "there is no photo" and "here is a link to nothing" are
+      // different answers, and the second one renders as a broken image with no explanation.
+      const created = await admit(student('NoLink', 23, '03110000023'));
+      const res = await get(`/api/v1/students/${created.body.studentId}/photo`);
+      expect(res.status).toBe(404);
+    });
+  });
 });

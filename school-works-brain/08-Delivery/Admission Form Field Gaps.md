@@ -153,3 +153,51 @@ shape already used for the missing guardian, extended to a completeness indicato
 profile.
 
 Related: [[Enrollment & Admissions]] · the missing-UI backlog in `test/integration/route-coverage.e2e-spec.ts`.
+
+---
+
+## The photograph, finished (2026-09-15)
+
+Tier 1 dropped the photograph because `Student.photoKey` was a dead column and wiring it needed the
+whole upload pipeline. Tier 3 built that pipeline and added an uploader to **Complete the record**.
+Two gaps were left, and an operator found both by looking at a real profile:
+
+1. **The admission form still could not take a photo.** `photoKey` was on `UpdateStudentDto` only —
+   never on `CreateStudentDto` — so it could be attached after admission but not during it.
+2. **The profile never SHOWED the photograph.** It printed the words "On file". The type comment
+   claimed display "goes through a presigned GET"; that endpoint had never been written.
+
+### What shipped
+
+- `GET /students/:id/photo` → a 600-second presigned link. ⚠️ **Deliberately no `filename`
+  argument**: `presignGet`'s third parameter sets `Content-Disposition: attachment`, which makes the
+  browser DOWNLOAD the object — right for a payment proof, fatal for an `<img src>`, where it
+  renders nothing and reports no error. Every other caller passes it, so this is the odd one out on
+  purpose.
+- Routed through `getOne`, so the campus check is the *same* one guarding the profile. A photo
+  endpoint with its own weaker check would be a way to read across campuses one child at a time.
+- `photoKey` on `CreateStudentDto` + `createStudentCore`, and a photo field on the admission form.
+- `StudentPhoto` top-right of the identity card.
+
+### Decisions
+
+- **Optional at admission, and it must stay optional.** The form's virtue is seating a walk-in in
+  under a minute — it is why even the guardian is optional. A required photo breaks the fast path
+  for the one field most likely to be missing at the counter and always addable later.
+- **The field sits LAST on the form**, for the same reason.
+- **No placeholder silhouette when there is no photo.** Most records on a real intake have none for
+  weeks; a permanent empty frame on every one of them teaches people to stop looking at that corner.
+  Its absence is already reported in the record card's chase list.
+- **A broken image says so.** The usual cause is an expired or refused link — a fixable condition,
+  and not the same fact as "no photograph was ever taken".
+- The link is fetched **per render, not carried on the profile payload**: one minted with every
+  profile read would expire in the background of a page left open, and the image would vanish.
+
+⚠️ **Two bugs avoided by writing it carefully rather than found later:** a stale-response guard, so
+a fast click-through to another student cannot land one child's face on another child's profile;
+and clearing the preview on **Admit another**, without which the previous child's photograph sits on
+the next blank form.
+
+**Verified:** `student-registration` 16/16 (the key persists from admission, admission without a
+photo still succeeds, and the link endpoint 404s rather than handing back a link to nothing);
+route-coverage + matrix-conformance + admissions 627; unit 134; all five front-ends typecheck clean.

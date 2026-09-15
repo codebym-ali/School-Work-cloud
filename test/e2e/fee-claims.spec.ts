@@ -28,7 +28,10 @@ test.describe('payment submissions', () => {
     await expect(page.getByRole('button', { name: /Awaiting check/ })).toBeVisible();
     for (const label of ['Verified', 'Rejected', 'Awaiting check']) {
       await page.getByRole('button', { name: new RegExp(label) }).click();
-      await expect(page.locator('.card')).toBeVisible();
+      // ⚠️ `.card` alone stopped being unique when reconciliation added its own card to this page.
+      // A bare class selector asserts "some card exists", which was never the intent — the point is
+      // that switching a filter leaves the QUEUE rendered, so name the queue.
+      await expect(page.locator('.card').filter({ hasNot: page.getByText('Reconcile against a bank') }).first()).toBeVisible();
     }
 
     // An empty queue says so plainly rather than showing a bare table.

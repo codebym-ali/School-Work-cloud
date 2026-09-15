@@ -28,6 +28,7 @@ decisions there. The authoritative spec is the root `school-management-master-bl
 ```bash
 docker compose up -d                 # pg (5433) · redis (6381) · minio · clamav
 pnpm db:setup                        # prisma migrate + SQL companions + RLS-coverage check
+pnpm db:regen                        # regenerate the Prisma client when the dev servers hold it open
 pnpm db:seed                         # demo tenant → demo.localhost:4000 / owner@demo.pk / Owner!Secret12
 pnpm start:api:dev                   # API on :4000 (prefix /api/v1)
 pnpm start:worker:dev                # BullMQ worker
@@ -35,6 +36,12 @@ pnpm test:isolation                  # merge-blocking tenant-isolation suite
 pnpm test && pnpm lint && pnpm build # full green check
 # Frontend: cd apps/web && pnpm install && pnpm dev   → http://localhost:3001
 ```
+⚠️ **After a schema change on Windows, use `pnpm db:regen`, not `prisma generate`.** The API and
+worker keep the query engine open, so generate fails with `EPERM … rename query_engine-windows.dll`
+— and the misleading part is what follows: the OLD client stays loaded, so the first request
+touching a new column returns a **500 at runtime** with nothing pointing at generation. `db:regen`
+tries first, stops the holders only if the lock actually bites, and tells you to restart them.
+
 Local dev ports are shifted off the user's other project "Goex" (which uses :3000 / :5432 /
 :6379-6380 / :9000-9001): our **API :4000**, web **:3001**, Postgres **5433**, Redis **6381**,
 MinIO **9002/9003**. ClamAV is opt-in (`docker compose --profile scan up -d`; no arm64 image).

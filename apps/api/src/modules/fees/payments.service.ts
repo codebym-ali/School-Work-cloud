@@ -49,8 +49,23 @@ export class PaymentsService {
     return this.ctx.requireSchoolId();
   }
 
-  async pay(invoiceId: string, dto: PayInvoiceDto, idempotencyKey: string) {
+  async pay(invoiceId: string, dto: PayInvoiceDto, idempotencyKey: string, opts: { viaClaim?: boolean } = {}) {
     await this.access.assert('fees.payments');
+    /**
+     * ⚠️ D3 — a cheque cannot be collected straight into a receipt.
+     *
+     * It is recorded as a submission and clears on the school's own holding period; verifying that
+     * submission is what mints the receipt, and it arrives back here with `viaClaim`. Without this
+     * guard the rule would live only in the UI, and "a display gate over an open endpoint is not a
+     * rule" — the same reasoning as `assertMethodAccepted` below.
+     */
+    if (dto.method === PaymentMethod.CHEQUE && !opts.viaClaim) {
+      throw new AppError(
+        ErrorCodes.VALIDATION_FAILED,
+        HttpStatus.UNPROCESSABLE_ENTITY,
+        'A cheque is recorded as a submission and clears before it becomes a receipt. Record it under Payment submissions.',
+      );
+    }
     if (!idempotencyKey) {
       throw new AppError(ErrorCodes.VALIDATION_FAILED, HttpStatus.BAD_REQUEST, 'Idempotency-Key header is required');
     }

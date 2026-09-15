@@ -24,6 +24,15 @@ const AMOUNT = 6000;
 /** Every method the school will be configured to accept for these cases. */
 const METHODS = ['CASH', 'BANK_TRANSFER', 'EASYPAISA', 'JAZZCASH', 'CARD', 'CHEQUE'] as const;
 
+/**
+ * The methods that become a receipt at the counter.
+ *
+ * ⚠️ CHEQUE is deliberately absent (D3). It is not money until it clears, so it is recorded as a
+ * submission and mints a receipt only when someone verifies it after the clearing date. This test
+ * previously asserted a cheque reached PAID — which documented the bug rather than the rule.
+ */
+const IMMEDIATE = METHODS.filter((m) => m !== 'CHEQUE');
+
 const monthKey = (year: number, month: number) => year * 12 + (month - 1);
 
 /**
@@ -193,9 +202,9 @@ test.describe('fee lifecycle — browser', () => {
     // Rs 6,000 in six parts: one per method, so each is exercised against a real invoice rather
     // than asserted from the dropdown. The last one takes the invoice to PAID.
     await gotoApp(page, '/fees');
-    const each = AMOUNT / METHODS.length; // 1000
+    const each = AMOUNT / IMMEDIATE.length; // 1200
 
-    for (const [i, method] of METHODS.entries()) {
+    for (const [i, method] of IMMEDIATE.entries()) {
       const row = invoiceRow(page);
       await row.getByRole('button', { name: 'Collect' }).click();
       await row.locator('input[placeholder="Amount"]').fill(String(each));
@@ -217,13 +226,46 @@ test.describe('fee lifecycle — browser', () => {
 
       await expect(page.locator('.toast.ok')).toContainText('Payment recorded');
       const after = page.locator('tbody tr', { hasText: studentName });
-      await expect(after.locator('.badge')).toContainText(i === METHODS.length - 1 ? 'PAID' : 'PARTIAL');
+      await expect(after.locator('.badge')).toContainText(i === IMMEDIATE.length - 1 ? 'PAID' : 'PARTIAL');
     }
+  });
+
+  test('FEE-LC-12 · a cheque is recorded as a submission, not a receipt', async ({ page }) => {
+    // ⚠️ D3 — the case this whole change exists for. A cheque handed over at the counter must not
+    // hand back a receipt: if it bounces, the family already holds proof of a payment the school
+    // never received, and the school holds a reversal to unwind.
+    await gotoApp(page, '/fees');
+    // ⚠️ Bill a FRESH month. The method loop above takes the previous invoice to PAID, so this case
+    // skipped itself — a test that quietly does not run is worse than one that fails, because the
+    // suite still reads green.
+    const { month, year } = await nextUnbilledMonth(page);
+    expect(await generateBatch(page, className, month, year)).toBe(1);
+
+    const row = invoiceRow(page).first();
+    await row.getByRole('button', { name: 'Collect' }).click();
+    await row.locator('input[placeholder="Amount"]').fill('500');
+    await row.locator('select').selectOption('CHEQUE');
+    const ref = row.locator('input[placeholder*="Reference" i], input[placeholder*="Transaction" i]').first();
+    await ref.fill(`E2E-CHQ-${Date.now()}`);
+
+    // It goes to the CLAIMS endpoint, not to payments — that routing is the fix.
+    const posted = page.waitForResponse((r) => r.url().includes('/fees/claims') && r.request().method() === 'POST');
+    await row.getByRole('button', { name: 'Save' }).click();
+    const res = await posted;
+    expect(res.status()).toBe(201);
+    const claim = (await res.json()) as { clearsOn: string | null };
+    expect(claim.clearsOn, 'a cheque must carry a clearing date').toBeTruthy();
+
+    // And the clerk is TOLD when it becomes money, rather than left guessing.
+    await expect(page.locator('.toast.ok', { hasText: /clears on/i })).toBeVisible();
   });
 
   test('FEE-LC-11 · a PAID invoice cannot be collected against again', async ({ page }) => {
     await gotoApp(page, '/fees');
-    const row = invoiceRow(page);
+    // ⚠️ Scoped to the PAID row, not just "this student's row". The cheque case above bills a second
+    // invoice for the same child, so a name-only locator now finds two — and would assert PAID
+    // against the fresh, deliberately unpaid one.
+    const row = invoiceRow(page).filter({ has: page.locator('.badge', { hasText: 'PAID' }) }).first();
     await expect(row.locator('.badge')).toContainText('PAID');
     // Either the button is gone, or the server refuses with 409. Both are correct; silently
     // accepting a seventh payment is not.
@@ -255,6 +297,13 @@ test.describe('bank statement reconciliation — browser', () => {
 
   async function openImport(page: Page) {
     await gotoApp(page, '/fee-claims');
+    // ⚠️ Wait for the QUEUE to settle first. The claims fetch re-renders the page, which detaches
+    // the import card's button mid-click ("element was detached from the DOM, retrying") — the same
+    // race as a `selectOption` firing before a page's own data load, already in Key Decisions.
+    // Settling on the outcome, not on a spinner: either rows arrived or the empty state did.
+    await expect(
+      page.locator('tbody tr').first().or(page.getByText(/No .*submissions|Nothing is waiting/i).first()),
+    ).toBeVisible();
     await page.getByRole('button', { name: 'Upload statement' }).click();
     await page.getByLabel('Bank').fill('E2E Test Bank');
     await page.getByLabel('Statement file (CSV)').setInputFiles({

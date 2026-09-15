@@ -7,6 +7,19 @@ import { hasAnyRole } from '@sw/roles';
 import { StatementImport } from './statement-import';
 
 const STATUSES = ['PENDING', 'VERIFIED', 'REJECTED'] as const;
+
+/**
+ * A cheque still inside its clearing period.
+ *
+ * ⚠️ Compared as DATES, not timestamps: `clearsOn` is a date column, and a cheque clearing today
+ * has cleared — treating it as "midnight UTC, therefore still in the future" would hold every
+ * cheque an extra day for no reason anyone could explain.
+ */
+function notYetCleared(c: { clearsOn: string | null; status: string }): boolean {
+  if (!c.clearsOn || c.status !== 'PENDING') return false;
+  const today = new Date().toISOString().slice(0, 10);
+  return c.clearsOn.slice(0, 10) > today;
+}
 const rs = (n: string | number) => `Rs ${Number(n).toLocaleString()}`;
 const METHOD: Record<string, string> = {
   CASH: 'Cash', BANK_TRANSFER: 'Bank transfer', EASYPAISA: 'EasyPaisa',
@@ -152,7 +165,11 @@ export default function FeeClaimsPage() {
                           </span>
                         ) : (
                           <span className="row" style={{ gap: 6, justifyContent: 'flex-end' }}>
-                            <button className="small" disabled={busy === c.id}
+                            {/* ⚠️ A cheque cannot be verified before it clears (D3) — the server
+                                refuses it. Showing the date instead of a button that will be
+                                rejected is the difference between a rule and a trap. */}
+                            <button className="small" disabled={busy === c.id || notYetCleared(c)}
+                              title={notYetCleared(c) ? `Clears on ${new Date(c.clearsOn!).toLocaleDateString()}` : undefined}
                               onClick={() => run(c.id, async () => {
                                 const res = await api.feeSetup.verifyClaim(c.id);
                                 setMsg({ ok: true, text: `Verified — receipt #${res.receiptNo} issued` });

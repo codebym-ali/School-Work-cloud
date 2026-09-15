@@ -296,6 +296,12 @@ export interface FeeClaim {
   id: string; studentId: string; invoiceId: string;
   amount: string; method: string; transactionRef: string | null;
   paidOn: string; note: string | null;
+  /**
+   * When a cheque becomes money (D3). Null for every other method — they are money on arrival.
+   * A claim carrying one cannot be verified before it, so the queue shows the date rather than a
+   * button that will be refused.
+   */
+  clearsOn: string | null;
   status: 'PENDING' | 'VERIFIED' | 'REJECTED';
   source: 'OFFICE' | 'STUDENT_PORTAL' | 'GUARDIAN_LINK';
   rejectionReason: string | null; paymentId: string | null; createdAt: string;

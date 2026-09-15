@@ -94,7 +94,38 @@ export default function FeesPage() {
     } catch (e) { setMsg({ ok: false, text: e instanceof ApiError ? e.message : 'Failed' }); }
   }
 
+  /**
+   * A cheque is not money until it clears (D3), so it is recorded as a SUBMISSION rather than
+   * collected into a receipt. The clerk still does one thing at the counter; what changes is that
+   * the family is told when it becomes a payment, instead of being handed a receipt for money the
+   * school does not have yet.
+   */
+  async function recordCheque(id: string) {
+    try {
+      const claim = await api.feeSetup.submitClaim({
+        invoiceId: id,
+        amount: Number(pay.amountPaid),
+        method: 'CHEQUE',
+        ...(pay.transactionRef.trim() ? { transactionRef: pay.transactionRef.trim() } : {}),
+        paidOn: new Date().toISOString().slice(0, 10),
+        ...(pay.proofFileKey ? { proofFileKey: pay.proofFileKey } : {}),
+      });
+      const clears = claim.clearsOn ? new Date(claim.clearsOn).toLocaleDateString() : null;
+      setMsg({
+        ok: true,
+        text: clears
+          ? `Cheque recorded. It clears on ${clears} — verify it under Payment submissions then, or reject it if it bounces.`
+          : 'Cheque recorded as a submission.',
+      });
+      setPaying(null); setPay({ amountPaid: '', method: acceptedMethods[0], transactionRef: '', proofFileKey: '' });
+      await loadInvoices();
+    } catch (e) { setMsg({ ok: false, text: e instanceof ApiError ? e.message : 'Could not record that cheque' }); }
+  }
+
   async function collect(id: string) {
+    // The server refuses a direct cheque payment; routing here keeps the clerk from meeting that
+    // refusal as an error when what they did was perfectly reasonable.
+    if (pay.method === 'CHEQUE') return recordCheque(id);
     try {
       const res = await apiPost<{ paymentId: string; receiptNo: number }>(`/fees/invoices/${id}/payments`, {
         amountPaid: Number(pay.amountPaid),

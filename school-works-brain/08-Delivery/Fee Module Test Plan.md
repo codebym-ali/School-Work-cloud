@@ -67,17 +67,18 @@ but rejected is a trap, and a method accepted but hidden is a capability deleted
 | FEE-3.5 | EASYPAISA | Collect with reference | PAID | **FEE-LC-3** |
 | FEE-3.6 | JAZZCASH | Collect with reference | PAID | **FEE-LC-3** |
 | FEE-3.7 | CARD | Collect with reference | PAID | **FEE-LC-3** |
-| FEE-3.8 | CHEQUE | Collect with reference | PAID ⚠️ see note below | **FEE-LC-3** |
+| FEE-3.8 | CHEQUE | Record at the counter | ✅ **A submission, not a receipt** — clears first | **FEE-LC-12** + `fees.e2e-spec` |
 | FEE-3.9 | any | Method the school does **not** accept | 422, naming what it does accept | `fees.e2e-spec` |
 | FEE-3.10 | any | Amount above remaining | 422 `OVERPAYMENT_USE_ADVANCE` | `fees.e2e-spec` |
 | FEE-3.11 | any | Same `Idempotency-Key` replayed | One receipt, not two | `fees.e2e-spec` |
 | FEE-3.12 | ADVANCE | Guardian credit auto-applied at generation | `FeePayment` with method ADVANCE + negative credit | `fees.e2e-spec` |
 | FEE-3.13 | any | Proof REQUIRED, non-cash without proof | Refused — but cash is not | `fees.e2e-spec` |
 
-⚠️ **FEE-3.8 records a known product gap, not a passing case.** `chequeClearingDays` (default 3)
-exists in settings, but a cheque payment marks the invoice PAID immediately — the same as cash. A
-cheque is not money until it clears. Logged in the gaps register; the test asserts current behaviour
-so the day it changes is deliberate.
+✅ **FEE-3.8 was a gap and is now fixed (2026-09-15).** A cheque is recorded as a *submission* that
+clears after the school's own holding period; verifying it then mints the receipt. This implements
+**D3**, which the Fee Submission Plan recorded as a decision to confirm and which was never built —
+`chequeClearingDays` sat in settings, read by nothing. ⚠️ `pay()` refuses CHEQUE at the API, not just
+in the UI: a display gate over an open endpoint is not a rule.
 
 ## FEE-4 · Claims — money someone *says* arrived
 
@@ -137,7 +138,7 @@ so the day it changes is deliberate.
 
 ## Known gaps this plan surfaces
 
-1. ⚠️ **Cheque clears instantly** (FEE-3.8) — `chequeClearingDays` is configured and unused.
+1. ~~Cheque clears instantly~~ — **fixed 2026-09-15** (D3). See FEE-3.8.
 2. **Waiver has no browser test** (FEE-6.3) — an owner-only, audited, irreversible action.
 3. **Defaulters list is untested** (FEE-7.1) — it is what stops a child at an exam hall.
 4. **Reversal role boundary untested at the UI** (FEE-6.2).

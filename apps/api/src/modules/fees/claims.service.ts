@@ -6,6 +6,7 @@ import {
   AuditActions,
   ErrorCodes,
   paginate,
+  parseSchoolSettings,
   restrictedCampusId,
   StorageService,
   TenantContext,
@@ -65,6 +66,9 @@ export class ClaimsService {
     // fee_payments is the backstop, this is the early, human-readable one.
     await this.assertRefUnused(dto.transactionRef, dto.method);
 
+    const paidOn = new Date(dto.paidOn);
+    const clearsOn = dto.method === PaymentMethod.CHEQUE ? await this.chequeClearsOn(paidOn) : null;
+
     const claim = await this.db.feePaymentClaim.create({
       data: {
         schoolId: this.sid,
@@ -73,7 +77,8 @@ export class ClaimsService {
         amount: dto.amount,
         method: dto.method,
         transactionRef: dto.transactionRef,
-        paidOn: new Date(dto.paidOn),
+        paidOn,
+        clearsOn,
         proofFileKey: dto.proofFileKey,
         note: dto.note,
         source,
@@ -87,7 +92,10 @@ export class ClaimsService {
       newValue: { invoiceId: invoice.id, amount: dto.amount, method: dto.method, source },
     });
 
-    return autoVerify ? this.verify(claim.id) : claim;
+    // ⚠️ A cheque can never verify itself, whatever the caller asked for. `autoVerify` exists for
+    // the counter case — a clerk recording money already in the drawer — and a cheque is precisely
+    // the case where the money is NOT in the drawer yet.
+    return autoVerify && !clearsOn ? this.verify(claim.id) : claim;
   }
 
   /**
@@ -179,6 +187,17 @@ export class ClaimsService {
       );
     }
 
+    // ⚠️ D3 — a cheque is not money until it clears, so it cannot mint a receipt before then.
+    // Verifying early is how a bounced cheque ends up with a receipt already issued, a family
+    // holding proof of a payment the school never received, and a reversal to unwind it.
+    if (claim.clearsOn && claim.clearsOn > startOfToday()) {
+      throw new AppError(
+        ErrorCodes.CONFLICT,
+        HttpStatus.CONFLICT,
+        `This cheque clears on ${claim.clearsOn.toISOString().slice(0, 10)}. Verify it on or after that date — or reject it if it has bounced.`,
+      );
+    }
+
     const result = await this.payments.pay(
       claim.invoiceId,
       {
@@ -188,6 +207,8 @@ export class ClaimsService {
         proofFileKey: claim.proofFileKey ?? undefined,
       },
       `claim:${claim.id}`,
+      // The one door a cheque may come through: its clearing date has passed and a human verified it.
+      { viaClaim: true },
     );
 
     const updated = await this.db.feePaymentClaim.update({
@@ -266,6 +287,19 @@ export class ClaimsService {
     });
   }
 
+  /**
+   * The date this cheque becomes money: the day it was taken plus the school's own holding period.
+   *
+   * Read from settings ONCE, at submission, and then stored on the claim — see the column comment.
+   */
+  private async chequeClearsOn(paidOn: Date): Promise<Date> {
+    const school = await this.db.school.findFirst({ where: { id: this.sid }, select: { settings: true } });
+    const { chequeClearingDays } = parseSchoolSettings(school?.settings ?? {}).feeSubmission;
+    const d = new Date(paidOn);
+    d.setUTCDate(d.getUTCDate() + chequeClearingDays);
+    return d;
+  }
+
   /** Short-lived link to the submitted evidence — keyed on the claim, never on the file key. */
   async proofUrl(claimId: string) {
     const claim = await this.claimOr404(claimId);
@@ -286,4 +320,10 @@ export class ClaimsService {
     assertCampusAccess(this.ctx.user, claim.invoice.enrollment.campusId);
     return claim;
   }
+}
+
+/** Midnight today, UTC — the boundary a `@db.Date` column is compared against. */
+function startOfToday(): Date {
+  const now = new Date();
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
 }

@@ -231,22 +231,27 @@ describe('Fees end-to-end (e2e, §12)', () => {
     it('leaves payments already taken by a since-disabled method alone', async () => {
       // Switching a method off governs NEW payments only — money already collected stays
       // readable and reversible, the same rule as deactivating a fee structure.
+      //
+      // ⚠️ The example method is BANK_TRANSFER, not CHEQUE. This case is about DISABLING a method,
+      // and it used a cheque only incidentally — but a cheque can no longer be collected directly
+      // (D3: it is recorded as a submission and clears first), so using one here would have made
+      // this test fail for a reason that has nothing to do with what it is testing.
       const batch = await post('/api/v1/fees/invoice-batches', { classId, month: 12, year: 2026 });
       expect(batch.body.generated).toBe(1);
       const inv = (await get(`/api/v1/fees/invoices?studentId=${studentId}&month=12&year=2026`)).body.data[0];
       const paid = await post(`/api/v1/fees/invoices/${inv.id}/payments`,
-        { amountPaid: 100, method: 'CHEQUE', transactionRef: 'CHQ-9911' }, idem());
+        { amountPaid: 100, method: 'BANK_TRANSFER', transactionRef: 'IBFT-9911' }, idem());
       expect(paid.status).toBe(201);
 
       await setMethods(['CASH']);
       // Filtered by method, which the payments list does support — the point is that the
-      // cheque payment is still THERE and readable after cheques were switched off.
-      const after = await get('/api/v1/fees/payments?method=CHEQUE');
+      // payment is still THERE and readable after that method was switched off.
+      const after = await get('/api/v1/fees/payments?method=BANK_TRANSFER');
       expect(after.status).toBe(200);
       expect(after.body.data.some((p: { id: string }) => p.id === paid.body.paymentId)).toBe(true);
 
       // And it is still reversible — a disabled method must not strand real money.
-      const reversed = await post(`/api/v1/fees/payments/${paid.body.paymentId}/reversals`, { reason: 'Cheque bounced' });
+      const reversed = await post(`/api/v1/fees/payments/${paid.body.paymentId}/reversals`, { reason: 'Transfer recalled' });
       expect(reversed.status).toBe(201);
     });
   });
@@ -354,6 +359,71 @@ describe('Fees end-to-end (e2e, §12)', () => {
       expect(inv).toBeDefined();
       return inv;
     };
+
+    /**
+     * D3 — a cheque is not money until it clears.
+     *
+     * ⚠️ These pin the rule at the API, not the UI. "A display gate over an open endpoint is not a
+     * rule" is already why `assertMethodAccepted` lives in the service; the same applies here, and
+     * a cheque that can still be collected directly would make the whole clearing period cosmetic.
+     */
+    describe('cheques', () => {
+      it('cannot be collected straight into a receipt', async () => {
+        const inv = await invoiceFor(9, 2029);
+        const res = await post(`/api/v1/fees/invoices/${inv.id}/payments`, { amountPaid: 100, method: 'CHEQUE', transactionRef: 'CHQ-001' })
+          .set('Idempotency-Key', randomUUID());
+        expect(res.status).toBe(422);
+        expect(res.body.error.message).toMatch(/submission/i);
+      });
+
+      it('records a clearing date from the school settings', async () => {
+        const inv = await invoiceFor(10, 2029);
+        const claim = await claimFor(inv.id, { method: 'CHEQUE', transactionRef: `CHQ-${randomUUID().slice(0, 8)}` });
+        expect(claim.status).toBe(201);
+        expect(claim.body.clearsOn).toBeTruthy();
+        // Default holding period is 3 days; the date is stored so a later settings change cannot
+        // silently re-date a cheque already taken.
+        const days = Math.round((new Date(claim.body.clearsOn).getTime() - new Date(claim.body.paidOn).getTime()) / 86_400_000);
+        expect(days).toBe(3);
+      });
+
+      it('⚠️ cannot be verified before it clears — the bounced-cheque case', async () => {
+        // Verifying early is how a family ends up holding a receipt for money the school never
+        // received, and the school holding a reversal to unwind.
+        const inv = await invoiceFor(11, 2029);
+        const claim = await claimFor(inv.id, { method: 'CHEQUE', transactionRef: `CHQ-${randomUUID().slice(0, 8)}` });
+        const res = await post(`/api/v1/fees/claims/${claim.body.id}/verify`);
+        expect(res.status).toBe(409);
+        expect(res.body.error.message).toMatch(/clears on/i);
+
+        // The invoice is untouched, and no receipt was consumed.
+        const after = (await get(`/api/v1/fees/invoices/${inv.id}`)).body;
+        expect(Number(after.paidAmount)).toBe(0);
+      });
+
+      it('clears, and then verifies through the ordinary payment path', async () => {
+        const inv = await invoiceFor(12, 2029);
+        const claim = await claimFor(inv.id, { method: 'CHEQUE', transactionRef: `CHQ-${randomUUID().slice(0, 8)}` });
+        // Reach past the holding period the way time would.
+        await platform.feePaymentClaim.update({
+          where: { id: claim.body.id },
+          data: { clearsOn: new Date(Date.now() - 86_400_000) },
+        });
+        const res = await post(`/api/v1/fees/claims/${claim.body.id}/verify`);
+        expect(res.status).toBe(201);
+        // The receipt is minted by the SAME path every other method uses — not a second one.
+        expect(res.body.receiptNo).toBeTruthy();
+      });
+
+      it('a bounced cheque is rejected, and nothing financial has to be unwound', async () => {
+        const inv = await invoiceFor(1, 2030);
+        const claim = await claimFor(inv.id, { method: 'CHEQUE', transactionRef: `CHQ-${randomUUID().slice(0, 8)}` });
+        const res = await post(`/api/v1/fees/claims/${claim.body.id}/reject`, { reason: 'Cheque returned unpaid' });
+        expect(res.status).toBe(201);
+        const after = (await get(`/api/v1/fees/invoices/${inv.id}`)).body;
+        expect(Number(after.paidAmount)).toBe(0);
+      });
+    });
 
     it('a pending claim moves NO money — the invoice is untouched', async () => {
       const inv = await invoiceFor(3, 2027);

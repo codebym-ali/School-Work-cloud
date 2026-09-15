@@ -1273,6 +1273,12 @@ model FeePaymentClaim {
   paidOn         DateTime      @map("paid_on") @db.Date
   proofFileKey   String?       @map("proof_file_key")
   note           String?       @db.VarChar(300)
+  /// When a cheque becomes money (D3). Null for every other method — they are money on arrival.
+  ///
+  /// ⚠️ STORED, not derived from `paidOn + chequeClearingDays` at read time. A cheque accepted when
+  /// the school held them 3 days must not silently re-date itself because someone later changed the
+  /// setting to 7 — the clearing date is a fact about THIS cheque, agreed when it was taken.
+  clearsOn       DateTime?     @map("clears_on") @db.Date
 
   /// The statement line that corroborates this claim, once one has been matched to it.
   /// ⚠️ EVIDENCE, not a decision: a matched line never verifies anything by itself.

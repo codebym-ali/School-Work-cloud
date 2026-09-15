@@ -20,6 +20,7 @@ import { InvoicingService } from './invoicing.service';
 import { PaymentsService } from './payments.service';
 import { FeeJobsService } from './fee-jobs.service';
 import { FeeLinkService } from './fee-link.service';
+import { ReconciliationService } from './reconciliation.service';
 import {
   CopyFeePlanDto,
   CreateAdvanceDto,
@@ -38,6 +39,7 @@ import {
   PaymentListQuery,
   ReasonDto,
   UpsertLateFeePolicyDto,
+  ImportStatementDto,
 } from './dto/fees.dto';
 
 @Controller('fee-heads')
@@ -158,6 +160,7 @@ export class FeesController {
     private readonly payments: PaymentsService,
     private readonly jobs: FeeJobsService,
     private readonly feeLink: FeeLinkService,
+    private readonly reconciliation: ReconciliationService,
   ) {}
 
   @Roles('OWNER_ADMIN', 'ACCOUNTANT')
@@ -275,6 +278,37 @@ export class FeesController {
   @HttpCode(HttpStatus.OK)
   markOverdue() {
     return this.jobs.markOverdue();
+  }
+
+  /**
+   * Bank statement reconciliation (Fees Gaps Register).
+   *
+   * ⚠️ Accountant and owner only — the same two roles that may collect money. A campus admin can
+   * read claims but must not see another campus's bank statement, and the service scopes matching
+   * to their campus in any case.
+   *
+   * ⚠️ None of these verify anything. `preview` writes nothing at all; `import` stores lines and
+   * records which claim each corroborates. Turning a match into a receipt remains a human click on
+   * the ordinary verify path.
+   */
+  @Roles('OWNER_ADMIN', 'ACCOUNTANT')
+  @Post('statements/preview')
+  @HttpCode(HttpStatus.OK)
+  previewStatement(@Body() dto: ImportStatementDto) {
+    return this.reconciliation.preview(dto);
+  }
+
+  @Roles('OWNER_ADMIN', 'ACCOUNTANT')
+  @Post('statements')
+  importStatement(@Body() dto: ImportStatementDto) {
+    return this.reconciliation.commit(dto);
+  }
+
+  /** Money in the bank that no claim explains — see the service for why this matters most. */
+  @Roles('OWNER_ADMIN', 'ACCOUNTANT')
+  @Get('statements/unexplained')
+  unexplained(@Query('days') days?: string) {
+    return this.reconciliation.unexplained(days ? Number(days) : undefined);
   }
 
   @Roles('OWNER_ADMIN')

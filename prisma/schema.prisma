@@ -302,6 +302,8 @@ model School {
   feeInvoices         FeeInvoice[]
   feePayments         FeePayment[]
   feePaymentClaims    FeePaymentClaim[]
+  bankStatements      BankStatement[]
+  bankStatementLines  BankStatementLine[]
   discounts           Discount[]
   lateFeePolicy       LateFeePolicy?
   attendanceRecords   AttendanceRecord[]
@@ -747,6 +749,7 @@ model User {
   markedStaffAttendance StaffAttendance[]  @relation("StaffAttendanceMarkedBy")
   arrangedCovers        CoverAssignment[]  @relation("CoverArrangedBy")
   submittedFeeClaims    FeePaymentClaim[]  @relation("ClaimSubmittedBy")
+  uploadedStatements    BankStatement[]    @relation("StatementUploadedBy")
   reviewedFeeClaims     FeePaymentClaim[]  @relation("ClaimReviewedBy")
   moduleAccess          ModuleAccess[]
 
@@ -1271,6 +1274,10 @@ model FeePaymentClaim {
   proofFileKey   String?       @map("proof_file_key")
   note           String?       @db.VarChar(300)
 
+  /// The statement line that corroborates this claim, once one has been matched to it.
+  /// ⚠️ EVIDENCE, not a decision: a matched line never verifies anything by itself.
+  statementLine BankStatementLine?
+
   status          ClaimStatus @default(PENDING)
   source          ClaimSource
   submittedById   String?     @map("submitted_by_id") @db.Uuid
@@ -1288,6 +1295,8 @@ model FeePaymentClaim {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
+  /// Composite target for the tenant-safe relation from BankStatementLine.
+  @@unique([id, schoolId])
   @@unique([paymentId, schoolId])
   @@index([schoolId, status])
   @@index([studentId, schoolId])
@@ -2029,6 +2038,79 @@ model StudentDocument {
   @@unique([studentId, type])
   @@index([schoolId, studentId])
   @@map("student_documents")
+}
+
+/// One uploaded bank statement (Fees Gaps Register — reconciliation).
+///
+/// The school's accountant downloads the day's statement from their bank and uploads it here. This
+/// row is the upload itself; the money lives in `BankStatementLine`.
+model BankStatement {
+  id       String @id @default(uuid()) @db.Uuid
+  schoolId String @map("school_id") @db.Uuid
+  school   School @relation(fields: [schoolId], references: [id])
+
+  /// Which bank this came from — also the key the column mapping is remembered against, so the
+  /// second upload from the same bank needs no mapping.
+  bankLabel  String    @map("bank_label")
+  /// The original filename, purely so a human can recognise their own upload in a list.
+  fileName   String?   @map("file_name")
+  periodFrom DateTime? @map("period_from") @db.Date
+  periodTo   DateTime? @map("period_to") @db.Date
+  lineCount  Int       @default(0) @map("line_count")
+
+  uploadedById String?  @map("uploaded_by_id") @db.Uuid
+  uploadedBy   User?    @relation("StatementUploadedBy", fields: [uploadedById, schoolId], references: [id, schoolId])
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  lines BankStatementLine[]
+
+  @@index([schoolId, createdAt])
+  @@map("bank_statements")
+}
+
+/// One credit line from a bank statement.
+///
+/// ⚠️ **Lines PERSIST whether or not they match.** A credit with no claim today may acquire one on
+/// Thursday, when the parent finally gets round to submitting. Match-and-discard would lose that —
+/// and the unmatched set is the most valuable output of the whole feature: money the school has
+/// received and cannot explain, often belonging to a child sitting on a defaulter list.
+model BankStatementLine {
+  id          String        @id @default(uuid()) @db.Uuid
+  schoolId    String        @map("school_id") @db.Uuid
+  school      School        @relation(fields: [schoolId], references: [id])
+  statementId String        @map("statement_id") @db.Uuid
+  statement   BankStatement @relation(fields: [statementId], references: [id], onDelete: Cascade)
+
+  /// The bank's value date — the day the money moved, which is what a claim's `paidOn` is compared
+  /// against. Not the upload date.
+  valueDate    DateTime @map("value_date") @db.Date
+  amount       Decimal  @db.Decimal(12, 2)
+  /// The bank's free-text narration. Kept whole: references are routinely buried inside it
+  /// (`IBFT/TX88231/AYESHA`), and the tier-2 matcher reads it.
+  narration    String   @db.VarChar(500)
+  /// A reference the bank exposed as its own column, when it did.
+  reference    String?
+  counterparty String?  @db.VarChar(200)
+
+  /// ⚠️ Hash of (valueDate, amount, reference, narration). UNIQUE per school, so re-uploading the
+  /// same statement — or an overlapping date range, which is what people actually do — writes
+  /// nothing. The same discipline as `Idempotency-Key` on payments.
+  fingerprint String
+
+  /// The claim this line corroborates. One line may settle SEVERAL claims (a parent paying for two
+  /// siblings in one transfer), which is why the link lives on the claim side too.
+  matchedClaimId String?          @map("matched_claim_id") @db.Uuid
+  matchedClaim   FeePaymentClaim? @relation(fields: [matchedClaimId, schoolId], references: [id, schoolId])
+  matchedAt      DateTime?        @map("matched_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  /// One line corroborates at most one claim; the composite keeps the relation tenant-safe.
+  @@unique([matchedClaimId, schoolId])
+  @@unique([schoolId, fingerprint])
+  @@index([schoolId, valueDate])
+  @@index([schoolId, matchedClaimId])
+  @@map("bank_statement_lines")
 }
 
 // ── Platform / cross-cutting ─────────────────────────────────────────────────

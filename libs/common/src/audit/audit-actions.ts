@@ -97,6 +97,9 @@ export const AuditActions = {
    *  for money the school did not watch arrive — VERIFIED records the receipt it produced. */
   FEE_CLAIM_SUBMITTED: 'FEE_CLAIM_SUBMITTED',
   FEE_CLAIM_VERIFIED: 'FEE_CLAIM_VERIFIED',
+  /** A bank statement was uploaded for reconciliation. Records what was parsed vs stored —
+   *  the gap between them is the duplicate lines a re-upload correctly skipped. */
+  FEE_STATEMENT_IMPORTED: 'FEE_STATEMENT_IMPORTED',
   FEE_CLAIM_REJECTED: 'FEE_CLAIM_REJECTED',
   /** A chargeable item was removed from the school's list. Only ever possible while nothing
    *  references it, so the name is all that needs preserving. */

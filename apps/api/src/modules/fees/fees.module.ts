@@ -11,6 +11,7 @@ import { FeeJobsService } from './fee-jobs.service';
 import { FeeLinkService } from './fee-link.service';
 import { FeeLinkController } from './fee-link.controller';
 import { AggregatorService } from './aggregator.service';
+import { ReconciliationService } from './reconciliation.service';
 import { AggregatorWebhookController } from './aggregator.controller';
 import {
   DiscountsController,
@@ -34,7 +35,7 @@ import {
     AggregatorWebhookController,
     FeesController,
   ],
-  providers: [FeeSetupService, ClaimsService, InvoicingService, PaymentsService, FeeJobsService, FeeLinkService, AggregatorService],
-  exports: [FeeSetupService, ClaimsService, InvoicingService, PaymentsService, FeeJobsService, FeeLinkService, AggregatorService],
+  providers: [FeeSetupService, ClaimsService, InvoicingService, PaymentsService, FeeJobsService, FeeLinkService, AggregatorService, ReconciliationService],
+  exports: [FeeSetupService, ClaimsService, InvoicingService, PaymentsService, FeeJobsService, FeeLinkService, AggregatorService, ReconciliationService],
 })
 export class FeesModule {}

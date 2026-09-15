@@ -190,6 +190,29 @@ export type StudentStatus = 'ACTIVE' | 'SUSPENDED' | 'RESTRICTED' | 'STRUCK_OFF'
 /** `hasGuardian: false` means nobody is contactable for this child — no absence, fee-receipt
  *  or result SMS can be sent. Surfaced in the directory so the gap can be chased. */
 /** The admission-record fields, completed after the child is seated (Admission Form Field Gaps). */
+/** How a bank's own column headers map onto the fields reconciliation needs. */
+export interface StatementColumnMap {
+  valueDate: string; credit: string;
+  narration?: string; reference?: string; counterparty?: string;
+}
+/** Why the statement corroborates a claim — or, for WEAK, why it deliberately does not. */
+export type MatchConfidence = 'EXACT' | 'STRONG' | 'PROBABLE' | 'WEAK';
+export interface StatementRow {
+  valueDate: string; amount: number; narration: string;
+  reference: string | null; counterparty: string | null;
+  match: { claimId: string; confidence: MatchConfidence; reason: string } | null;
+}
+export interface StatementImportResult {
+  committed: boolean; statementId?: string; stored?: number;
+  parsed: number; matched: number; unexplained: number;
+  rows: StatementRow[];
+}
+/** A credit the school has received and cannot explain — see the reconciliation service. */
+export interface UnexplainedCredit {
+  id: string; valueDate: string; amount: string; narration: string;
+  reference: string | null; counterparty: string | null; bankLabel: string;
+}
+
 /** One row of the admission checklist — every type is returned, ticked or not. */
 export interface StudentDocumentRow {
   type: string;
@@ -1067,6 +1090,14 @@ export const api = {
     verifyClaim: (id: string) => apiPost<FeeClaim & { receiptNo: number }>(`/fees/claims/${id}/verify`, {}),
     rejectClaim: (id: string, reason: string) => apiPost<FeeClaim>(`/fees/claims/${id}/reject`, { reason }),
     claimProof: (id: string) => apiGet<{ url: string }>(`/fees/claims/${id}/proof`),
+    /** Parse and match a bank statement WITHOUT storing anything — the dry run. */
+    previewStatement: (body: { bankLabel: string; fileName?: string; csv: string; columns: StatementColumnMap }) =>
+      apiPost<StatementImportResult>('/fees/statements/preview', body),
+    /** Store the statement. Idempotent by line fingerprint, so a re-upload writes nothing. */
+    importStatement: (body: { bankLabel: string; fileName?: string; csv: string; columns: StatementColumnMap }) =>
+      apiPost<StatementImportResult>('/fees/statements', body),
+    unexplainedCredits: (days?: number) =>
+      apiGet<UnexplainedCredit[]>(`/fees/statements/unexplained${days ? `?days=${days}` : ''}`),
     /** Short-lived signed link to the proof attached to a payment. */
     paymentProof: (paymentId: string) =>
       apiGet<{ url: string; expiresInSeconds: number }>(`/fees/payments/${paymentId}/proof`),

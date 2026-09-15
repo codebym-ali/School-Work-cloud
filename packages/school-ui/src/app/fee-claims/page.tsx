@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { api, ApiError, type FeeClaim } from '@sw/api-client';
 import { useMe } from '@sw/session';
 import { hasAnyRole } from '@sw/roles';
+import { StatementImport } from './statement-import';
 
 const STATUSES = ['PENDING', 'VERIFIED', 'REJECTED'] as const;
 const rs = (n: string | number) => `Rs ${Number(n).toLocaleString()}`;
@@ -76,6 +77,11 @@ export default function FeeClaimsPage() {
       </div>
 
       {msg && <div className={`toast ${msg.ok ? 'ok' : 'err'}`}>{msg.text}</div>}
+
+      {/* Reconciliation sits under the queue, not above it: the queue is the work, and the statement
+          is the evidence you reach for while doing it. Only the roles that may verify see it —
+          matching is useless to someone who cannot act on it. */}
+      {canDecide && <StatementImport onImported={load} />}
 
       <div className="chips">
         {STATUSES.map((s) => (

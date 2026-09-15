@@ -16,6 +16,7 @@ import {
   MaxLength,
   Min,
   MinLength,
+  ValidateNested,
 } from 'class-validator';
 import { DiscountType, FeeFrequency, PaymentMethod } from '@prisma/client';
 import { PaginationQuery } from '@common';
@@ -278,4 +279,32 @@ export class RejectClaimDto {
 export class ClaimListQuery extends PaginationQuery {
   @IsOptional() @IsIn(['PENDING', 'VERIFIED', 'REJECTED']) status?: string;
   @IsOptional() @IsUUID() studentId?: string;
+}
+
+/**
+ * Which column in THIS bank's export holds what.
+ *
+ * ⚠️ The whole point of the feature working against a bank nobody has seen. HBL, Meezan, UBL and
+ * Alfalah each export different headers; hard-coding any one of them would make reconciliation work
+ * for exactly one school. `valueDate` and `credit` are required because a statement line without a
+ * date or an amount is not a line.
+ */
+export class StatementColumnMap {
+  @IsString() @MaxLength(80) valueDate!: string;
+  @IsString() @MaxLength(80) credit!: string;
+  @IsOptional() @IsString() @MaxLength(80) narration?: string;
+  @IsOptional() @IsString() @MaxLength(80) reference?: string;
+  @IsOptional() @IsString() @MaxLength(80) counterparty?: string;
+}
+
+export class ImportStatementDto {
+  /** The bank, as the school calls it. Also the key the column mapping is remembered against. */
+  @IsString() @MinLength(1) @MaxLength(60) bankLabel!: string;
+
+  @IsOptional() @IsString() @MaxLength(200) fileName?: string;
+
+  /** The file itself. Statements are small — a month of one account is measured in kilobytes. */
+  @IsString() @MinLength(1) @MaxLength(2_000_000) csv!: string;
+
+  @ValidateNested() @Type(() => StatementColumnMap) columns!: StatementColumnMap;
 }

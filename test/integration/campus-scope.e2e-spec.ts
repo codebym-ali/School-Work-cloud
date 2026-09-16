@@ -435,6 +435,30 @@ describe('Campus scoping (e2e, §22.8 / P1.7)', () => {
     expect(acct.body.enrollmentCount).toBe(1);
   });
   /**
+   * ⚠️ A payslip is salary data. `payslipPdf` treated ANY campus admin as an admin, with no campus check,
+   * so a campus-A admin could download a campus-B teacher's salary slip. Found sweeping every presigned-URL
+   * route after the documents hole (2026-09-16).
+   */
+  it("confines a campus admin to their own campus's payslips", async () => {
+    const staffB = await ownerPost('/api/v1/staff', {
+      email: `payb-${randomUUID().slice(0, 8)}@cs.pk`, staffType: 'TEACHER', employeeCode: `PB-${randomUUID().slice(0, 4)}`,
+      designation: 'Teacher', joinedAt: '2026-04-01', campusId: campusB,
+    });
+    expect(staffB.status).toBe(201);
+    await ownerPost(`/api/v1/staff/${staffB.body.staffId}/salary-structures`, { basic: 40000, effectiveFrom: '2026-04-01' });
+    const run = await ownerPost('/api/v1/payroll-runs', { campusId: campusB, month: 6, year: 2026 });
+    expect(run.status).toBe(201);
+    const detail = await authed('get', `/api/v1/payroll-runs/${run.body.runId}`, ownerCookies);
+    const payslipId = detail.body.payslips[0].id;
+
+    const asAdminA = await authed('get', `/api/v1/payslips/${payslipId}/pdf`, adminCookies);
+    expect(asAdminA.status).toBe(403);
+    expect(asAdminA.body.url).toBeUndefined();
+
+    expect((await authed('get', `/api/v1/payslips/${payslipId}/pdf`, ownerCookies)).status).toBe(200);
+  });
+
+  /**
    * Issued documents — leaving certificates, character certificates, fee clearances.
    *
    * ⚠️ Until 2026-09-16 the READ routes had no `@Roles` and no ownership check, although `getUrl` was

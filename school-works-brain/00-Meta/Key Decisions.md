@@ -1469,3 +1469,20 @@ first. Running new tests against the old code is what exposed it.
 UI: `WithdrawalCard` computes owed / after-leaving with the server's own period rule so the outcome is
 visible before confirming; only the owner sees "let them leave owing it". `IssuedDocumentsCard` offers a
 leaving certificate only for a student who has left.
+
+## Sweep, don't spot-fix: a cross-campus salary leak found by looking for the class (2026-09-16)
+
+After the documents hole I swept the API for the two defect classes found that day instead of trusting
+the plan's list:
+
+- **Override flags honoured without a role check** — clean. Every other override is either enforced
+  (student attendance checks `isAdmin`), sits on an admin-only route (staff attendance), is a documented
+  soft-warn for the one role that performs the action (`ageOverride`), or is derived rather than sent
+  (`overrideAdmit`).
+- **Routes that mint presigned download URLs** — six call sites. Claims proof, payment proof, the receipt
+  PDF and the student photo were already scoped. **`payslipPdf` was not**: it treated ANY campus admin as
+  an admin, so a campus-A admin downloaded a campus-B teacher's salary slip (**200**, shown before the
+  fix). Now campus-checked against the run's campus; a staff member's own payslip is always theirs.
+
+⚠️ The shape to remember: `caller.roles.some(r => r === 'CAMPUS_ADMIN')` answers "is this an admin", never
+"is this THEIR admin". Any hand-rolled admin check needs `assertCampusAccess` beside it.

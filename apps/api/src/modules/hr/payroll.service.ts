@@ -1,6 +1,6 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { AttendanceStatus, LeaveStatus, PayrollRunStatus, Prisma } from '@prisma/client';
-import { AppError, ErrorCodes, parseSchoolSettings, PdfService, StorageService, TenantContext, workingDaysBetween } from '@common';
+import { AppError, assertCampusAccess, ErrorCodes, parseSchoolSettings, PdfService, StorageService, TenantContext, workingDaysBetween } from '@common';
 import { TenantPrismaService } from '@database';
 import type { MarkPaidDto, RunPayrollDto } from './dto/hr.dto';
 
@@ -162,6 +162,10 @@ export class PayrollService {
     if (!isAdmin && payslip.staff.userId !== caller.userId) {
       throw new AppError(ErrorCodes.FORBIDDEN, HttpStatus.FORBIDDEN, 'Not your payslip');
     }
+    // ⚠️ "An admin" is not "any admin": a payslip is salary data, and a campus admin reads their own
+    // campus's payroll, not another's. Without this a campus-A admin could download a campus-B teacher's
+    // salary slip. A staff member's OWN payslip is always theirs, whichever campus holds the run.
+    if (isAdmin && payslip.staff.userId !== caller.userId) assertCampusAccess(caller, payslip.run.campusId);
 
     const schoolName = (await this.db.school.findFirst({ where: { id: this.sid } }))?.name ?? 'School';
     const period = `${MONTHS[payslip.run.month - 1]} ${payslip.run.year}`;

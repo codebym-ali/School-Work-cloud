@@ -418,4 +418,55 @@ describe('Campus scoping (e2e, §22.8 / P1.7)', () => {
     // Financial metrics are campus-scoped to A (their one student).
     expect(acct.body.enrollmentCount).toBe(1);
   });
+  /**
+   * ⚠️ Precondition overrides are owner-only, and until 2026-09-16 that was true only in comments.
+   *
+   * Promotion and withdrawal each take an override flag in the request BODY, on routes a CAMPUS_ADMIN
+   * may call. `@Roles` admits the route and cannot see the flag, and neither service checked it — so a
+   * campus admin could bypass fee clearance. Both also found their target by id alone, which RLS
+   * scopes to the school but not the campus.
+   *
+   * Placed last: the owner cases below really do withdraw and promote, and must not disturb the
+   * fixtures every earlier case relies on. Both students carry an unpaid July invoice, so fee
+   * clearance genuinely fails here — an override that "succeeds" is actually bypassing something.
+   */
+  describe('precondition overrides and lifecycle campus scope', () => {
+    const adminPost = (p: string, b: object) => authed('post', p, adminCookies, csrfOf(adminCookies)).send(b);
+    const stillActive = async (studentId: string) =>
+      (await platform.student.findUniqueOrThrow({ where: { id: studentId } })).isActive;
+
+    it('refuses a CAMPUS_ADMIN the withdrawal fee override, and withdraws nobody', async () => {
+      const res = await adminPost(`/api/v1/students/${studentA}/withdraw`, { reason: 'Family relocated', overrideFeeClearance: true });
+      expect(res.status).toBe(403);
+      expect(res.body.error.message).toMatch(/owner/i);
+      expect(await stillActive(studentA)).toBe(true);
+    });
+
+    it("refuses a CAMPUS_ADMIN withdrawing another campus's student", async () => {
+      // No override requested, so this is the campus rule alone — not the owner rule.
+      const res = await adminPost(`/api/v1/students/${studentB}/withdraw`, { reason: 'Left' });
+      expect(res.status).toBe(403);
+      expect(await stillActive(studentB)).toBe(true);
+    });
+
+    it('refuses a CAMPUS_ADMIN the promotion override', async () => {
+      const res = await adminPost('/api/v1/promotions', { sectionId: sectionA, targetYearId: randomUUID(), overridePreconditions: true, reason: 'x' });
+      expect(res.status).toBe(403);
+      expect(res.body.error.message).toMatch(/owner/i);
+    });
+
+    it("refuses a CAMPUS_ADMIN promoting another campus's section", async () => {
+      // The campus check runs before the target year is read, so a random year id isolates it.
+      const res = await adminPost('/api/v1/promotions', { sectionId: sectionB, targetYearId: randomUUID() });
+      expect(res.status).toBe(403);
+    });
+
+    it('lets the OWNER override fee clearance at withdrawal, and audits it', async () => {
+      const res = await ownerPost(`/api/v1/students/${studentB}/withdraw`, { reason: 'Owner write-off', overrideFeeClearance: true });
+      expect(res.status).toBe(201);
+      expect(await stillActive(studentB)).toBe(false);
+      const audit = await platform.auditLog.findFirst({ where: { schoolId, entityId: studentB, action: 'WITHDRAWAL_FEE_OVERRIDE' } });
+      expect(audit?.reason).toBe('Owner write-off');
+    });
+  });
 });

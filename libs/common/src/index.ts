@@ -18,6 +18,7 @@ export * from './config/env.schema';
 export * from './config/school-settings.schema';
 export * from './context/tenant-context';
 export * from './authz/campus-scope';
+export * from './authz/owner-override';
 export * from './authz/ownership';
 export * from './authz/modules';
 export * from './authz/role-hierarchy';

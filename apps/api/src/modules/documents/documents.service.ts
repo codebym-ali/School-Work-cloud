@@ -1,6 +1,6 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { DocumentType, EnrollmentStatus, FeeInvoiceStatus } from '@prisma/client';
-import { AppError, AuditActions, ErrorCodes, PdfService, StorageService, TenantContext } from '@common';
+import { AppError, assertCampusAccess, assertOwnerOverride, AuditActions, ErrorCodes, PdfService, StorageService, TenantContext } from '@common';
 import { AuditService, TenantPrismaService } from '@database';
 
 export interface IssueCertInput {
@@ -64,8 +64,19 @@ export class DocumentsService {
 
   /** Student withdrawal workflow (§15). */
   async withdraw(studentId: string, input: WithdrawInput) {
-    const student = await this.db.student.findFirst({ where: { id: studentId } });
+    assertOwnerOverride(this.ctx.user, input.overrideFeeClearance, 'fee clearance at withdrawal');
+
+    const student = await this.db.student.findFirst({
+      where: { id: studentId },
+      include: { enrollments: { where: { status: EnrollmentStatus.ACTIVE }, select: { campusId: true } } },
+    });
     if (!student) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'Student not found');
+    // ⚠️ Found by id alone — RLS scopes that to the school, not the campus. A campus admin could
+    // otherwise withdraw another campus's student, disable their login and issue their leaving
+    // certificate. A student with no ACTIVE enrolment has no campus to check against, and is
+    // refused to a campus-bound caller for the same reason `getOne` refuses them.
+    const campusId = student.enrollments[0]?.campusId ?? null;
+    assertCampusAccess(this.ctx.user, campusId);
     if (!input.overrideFeeClearance && !(await this.feeCleared(studentId))) {
       throw new AppError(ErrorCodes.CONFLICT, HttpStatus.CONFLICT, 'Unpaid invoices exist; clear fees or override');
     }

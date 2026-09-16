@@ -1299,3 +1299,26 @@ named `staff` gets `owner.staff.<apex>`; pinned by a test.
 
 Guarded by `packages/school-ui/src/cross-door-links.spec.ts`, which fails on any
 `window.location.origin` in that package (comments stripped, so explaining the rule cannot trip it).
+
+## An override flag in a request body needs its own role check (2026-09-16)
+
+`PromoteDto.overridePreconditions` was documented *"OWNER_ADMIN: bypass fee-clearance"*, and
+`WithdrawDto.overrideFeeClearance` carried the same intent. **Neither was enforced.** Both routes
+admit CAMPUS_ADMIN, and `@Roles` gates the ROUTE — it cannot see a flag inside the body. So a campus
+admin could promote or withdraw a student past the school's own fee-clearance rule.
+
+Both services also found their target **by id alone**, which RLS scopes to the school but not the
+campus: a campus admin could promote another campus's section, or withdraw another campus's
+student — disabling their login and issuing their leaving certificate.
+
+**Fixed:** `assertOwnerOverride(user, flag, what)` in `libs/common/src/authz/owner-override.ts`, called
+first in both services, plus `assertCampusAccess` on the section's / student's campus.
+
+⚠️ **OPERATIONS_ADMIN cannot override, deliberately.** `user.roles` holds granted roles, and the only
+hierarchy (`rolesSatisfying`) never adds OWNER_ADMIN. An override bypasses a financial control, and
+the deputy is exactly the role that control is meant to hold.
+
+⚠️ **Proven, not assumed:** with the service changes stashed, all four refusal tests FAIL (the owner
+case passes either way, as it should) — so the tests detect the defect rather than merely agreeing
+with the fix. Found while verifying a permission matrix row against the service instead of the
+comment above the DTO field; comments describing an authorization rule are not the rule.

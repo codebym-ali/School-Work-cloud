@@ -1,6 +1,6 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { EnrollmentStatus, FeeInvoiceStatus } from '@prisma/client';
-import { AppError, AuditActions, ErrorCodes, parseSchoolSettings, TenantContext } from '@common';
+import { AppError, assertCampusAccess, assertOwnerOverride, AuditActions, ErrorCodes, parseSchoolSettings, TenantContext } from '@common';
 import { AuditService, TenantPrismaService } from '@database';
 import type { PromoteDto } from './dto/promotion.dto';
 
@@ -35,8 +35,15 @@ export class PromotionService {
   }
 
   async promote(dto: PromoteDto): Promise<PromotionResult> {
+    // ⚠️ Checked before anything is read or written: an override is a bypass of a financial control,
+    // and "documented owner-only" was enforced for nobody. See assertOwnerOverride.
+    assertOwnerOverride(this.ctx.user, dto.overridePreconditions, 'promotion preconditions');
+
     const section = await this.db.section.findFirst({ where: { id: dto.sectionId }, include: { class: true } });
     if (!section) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'Section not found');
+    // ⚠️ The section was found by id alone, which RLS scopes to the SCHOOL but not the campus. A
+    // campus admin could otherwise promote — and close the enrolments of — another campus's class.
+    assertCampusAccess(this.ctx.user, section.class.campusId);
     const targetYear = await this.db.academicYear.findFirst({ where: { id: dto.targetYearId } });
     if (!targetYear) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'Target year not found');
 

@@ -643,3 +643,11 @@ export { doorOrigin, DEV_DOOR_PORTS, type Door, type LocationLike } from './door
 export const FEE_REVERSE_WAIVE_ROLES: Role[] = ['OWNER_ADMIN', 'OPERATIONS_ADMIN'];
 export const FEE_ADVANCE_ROLES: Role[] = ['OWNER_ADMIN', 'ACCOUNTANT'];
 
+/**
+ * Guardians after admission — mirrored from `students.controller.ts`. ADD also admits the admission
+ * controller, because the guardian is optional at admission and whoever admitted the student must be able
+ * to finish the record. Editing, making primary, removing and verifying a phone stay with the admins.
+ */
+export const GUARDIAN_ADD_ROLES: Role[] = ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ADMISSION_CONTROLLER'];
+export const GUARDIAN_EDIT_ROLES: Role[] = ['OWNER_ADMIN', 'CAMPUS_ADMIN'];
+

@@ -10,6 +10,7 @@ import { STATUS_TRANSITIONS, STUDENT_STATUS, statusStyle } from '@sw/ui';
 import { MoveStudentDialog } from '@school/components/move-student-dialog';
 import { DirectAdmission } from '../admissions/direct-admission';
 import { StudentFeesCard } from './student-fees-card';
+import { GuardiansCard } from './guardians-card';
 
 export default function StudentsPage() {
   return (
@@ -796,18 +797,7 @@ function StudentProfile({ id, classes, sections, onBack }: { id: string; classes
 
           <StudentFeesCard student={s} />
 
-          <div className="card stack">
-            <h3 style={{ margin: 0, fontSize: 15 }}>Guardians</h3>
-            {s.guardians.length === 0 ? <p className="muted" style={{ margin: 0, fontSize: 13 }}>None.</p> :
-              s.guardians.map((g) => (
-                <div key={g.id} className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
-                  <strong>{g.parent.fullName}</strong>
-                  <span className="muted">{g.relation}</span>
-                  <span className="muted">{g.parent.phone}</span>
-                  {g.isPrimary && <span className="badge ok">primary</span>}
-                </div>
-              ))}
-          </div>
+          <GuardiansCard student={s} onChanged={load} />
         </>
       )}
     </div>

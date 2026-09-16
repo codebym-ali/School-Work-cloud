@@ -1,6 +1,6 @@
 import { HttpStatus, Inject, Injectable } from '@nestjs/common';
 import { createHmac } from 'node:crypto';
-import { Prisma, StudentStatus, type StudentDocumentType } from '@prisma/client';
+import { Prisma, StudentStatus, type GuardianRelation, type StudentDocumentType } from '@prisma/client';
 import {
   AppError,
   assertCampusAccess,
@@ -24,7 +24,7 @@ import { AuditService, TenantPrismaService } from '@database';
 import { AccessService } from '../access/access.service';
 import { SetupService } from '../setup/setup.service';
 import { GuardiansService } from './guardians.service';
-import type { ChangeStudentStatusDto, CreateStudentDto, GuardianResolutionDto, SetStudentDocumentDto, StudentSearchQuery, UpdateStudentDto } from './dto/student.dto';
+import type { ChangeStudentStatusDto, CreateStudentDto, GuardianResolutionDto, SetStudentDocumentDto, StudentSearchQuery, UpdateGuardianContactDto, UpdateStudentDto } from './dto/student.dto';
 
 export interface CreateStudentCoreInput {
   fullName: string;
@@ -421,7 +421,19 @@ export class StudentsService {
     const student = await this.db.student.findFirst({
       where: { id, deletedAt: null },
       include: {
-        guardians: { include: { parent: { select: { id: true, fullName: true, phone: true } } } },
+        guardians: {
+          // Primary first: it is the one every receipt and SMS resolves, so it leads the card.
+          orderBy: [{ isPrimary: 'desc' }, { id: 'asc' }],
+          include: {
+            parent: {
+              select: {
+                id: true, fullName: true, phone: true, email: true, occupation: true, phoneVerifiedAt: true,
+                // How many children this guardian covers, so an edit can say who else it changes.
+                _count: { select: { guardianLinks: true } },
+              },
+            },
+          },
+        },
         enrollments: { orderBy: { startedAt: 'desc' } },
         documents: { orderBy: { type: 'asc' } },
       },
@@ -876,5 +888,15 @@ export class StudentsService {
   async removeGuardian(studentId: string, linkId: string): Promise<void> {
     await this.getOne(studentId);
     await this.guardians.remove(studentId, linkId);
+  }
+
+  async setGuardianRelation(studentId: string, linkId: string, relation: GuardianRelation): Promise<void> {
+    await this.getOne(studentId);
+    await this.guardians.setRelation(studentId, linkId, relation);
+  }
+
+  async updateGuardianContact(studentId: string, linkId: string, dto: UpdateGuardianContactDto) {
+    await this.getOne(studentId);
+    return this.guardians.updateContact(studentId, linkId, dto);
   }
 }

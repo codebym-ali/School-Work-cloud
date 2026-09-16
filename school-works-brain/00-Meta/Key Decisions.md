@@ -1389,3 +1389,38 @@ the integrity check. Read the method, not the docstring.
 The UI role sets are exported from `@sw/roles` (`FEE_REVERSE_WAIVE_ROLES`, `FEE_ADVANCE_ROLES`) and
 `fee-permissions.spec.ts` pins them for every role against values copied from the API's `@Roles`,
 including the deputy reaching advances through the hierarchy.
+
+## Guardians are editable after admission, and "primary" is treated as routing (2026-09-16, GAP-07)
+
+The many-guardian model existed from the start and was write-once through the admission form. The
+student profile now carries a guardians card: add, edit contact, change relation, make primary,
+remove, and verify a phone inline.
+
+**Three defects found building it, each proven by a test that fails with the fix reverted:**
+
+1. **`PATCH /students/:id/guardians/:gid` accepted `relation` and ignored it** — 204, nothing changed.
+   Same shape as the earlier `PATCH /students/:id` that accepted record fields and wrote none of them.
+2. **A student's only guardian could be non-primary**, because `link()` took `isPrimary` literally.
+   Every receipt and SMS resolves the primary, so that family was contacted by nobody while the profile
+   showed a guardian on record. The first guardian is now primary regardless.
+3. **A concurrent primary change surfaced as a 500.** The partial UNIQUE index
+   `student_guardians_one_primary_per_student` correctly refuses a second primary; the refusal is now a
+   409. ⚠️ The test accepts either serialised outcome (both 204, later wins) or a collision (204 + 409):
+   the invariant is "never a 500, exactly one primary", not a particular winner.
+
+**New: `PATCH …/guardians/:gid/contact`** (name, phone, email, occupation). Nothing could edit a
+guardian's own record before — the register's exact case, "a father's number changes".
+
+⚠️ **It edits the PARENT, so it applies to every child they are guardian of.** The response returns
+`childCount` and the form warns before saving when that is more than one.
+
+⚠️ **A changed number is unverified again, which stops SMS to it.** Verification proves control of a
+number and does not carry to a different one; every dispatcher skips unverified phones. The screen says
+so on save and offers "Verify now", rather than letting the next absence notice go nowhere.
+
+⚠️ **A number another guardian already holds is refused**, exactly as on CREATE, with that record's id,
+so the office links them instead. Two records sharing a phone would text a household twice.
+
+CNIC deliberately stays out of the contact edit: it is encrypted and read back only through the
+audited reveal. OTP routes were checked for campus scope before building on them — `loadScopedParent`
+already enforces it.

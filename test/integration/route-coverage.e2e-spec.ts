@@ -67,11 +67,8 @@ describe('Route coverage — every route has a UI or a listed exception (Law 3)'
     /^\/api\/v1\/staff\/[^/]+\/salary-structures$/, // set/read a staff salary structure
 
     // ── Student record actions the profile screen does not expose ────────────
-    /^\/api\/v1\/students\/[^/]+\/guardians$/,                  // add a guardian post-admission
-    /^\/api\/v1\/students\/[^/]+\/guardians\/[^/]+$/,           // edit/remove a guardian
     /^\/api\/v1\/students\/[^/]+\/report-cards$/,               // a student's report cards
     /^\/api\/v1\/students\/[^/]+\/withdraw$/,                   // the withdrawal process
-    /^\/api\/v1\/students\/guardians\/[^/]+\/verify-phone/,     // guardian phone OTP (+ confirm)
 
     // ── Misc ─────────────────────────────────────────────────────────────────
     /^\/api\/v1\/audit-logs$/,                      // no audit-log viewer

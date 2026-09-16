@@ -346,6 +346,32 @@ export class UpdateGuardianDto {
 }
 
 /**
+ * Correct a guardian's own contact record — name, phone, email, occupation.
+ *
+ * ⚠️ **This edits the PARENT, not the link**, so it changes the record for every child they are
+ * guardian of. A father with two children here has one record; fixing his number from one child's
+ * profile fixes it for both, which is the point — and why the response says how many children it
+ * touched.
+ *
+ * CNIC is deliberately not editable here: it is encrypted, read back only through an audited reveal,
+ * and belongs in that flow rather than in a contact form.
+ */
+export class UpdateGuardianContactDto {
+  @IsOptional() @IsString() @MinLength(1) @MaxLength(120)
+  fullName?: string;
+
+  @IsOptional() @IsString()
+  phone?: string;
+
+  /** Empty string clears it. */
+  @IsOptional() @ValidateIf((o: UpdateGuardianContactDto) => o.email !== '') @IsEmail()
+  email?: string;
+
+  @IsOptional() @IsString() @MaxLength(120)
+  occupation?: string;
+}
+
+/**
  * One row of the admission checklist.
  *
  * ⚠️ `fileKey` is OPTIONAL and must stay so. These documents arrive as photocopies across a counter

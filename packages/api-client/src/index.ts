@@ -261,7 +261,9 @@ export interface StudentDetail extends StudentRecordFields {
   cnicRevealable: boolean;
   /** The student can sign in to the read-only portal with their registration number + CNIC. */
   portalLoginEnabled: boolean;
-  guardians: { id: string; relation: string; isPrimary: boolean; parent: { id: string; fullName: string; phone: string } }[];
+  /** Primary first. `parent._count.guardianLinks` is how many children this guardian covers, so an edit
+   *  to their record can say who else it changes. */
+  guardians: StudentGuardianRow[];
   enrollments: { id: string; classId: string; sectionId: string; campusId: string; academicYearId: string; rollNumber: number | null; status: string; startedAt: string }[];
 }
 export interface ImportRowError { row: number; field?: string; message: string }
@@ -337,6 +339,18 @@ export interface DirectAdmissionBody {
   admissionDate?: string;
   /** Object key of the photograph from the presigned upload. Optional — a walk-in is seated first. */
   photoKey?: string;
+}
+export type GuardianRelation = 'FATHER' | 'MOTHER' | 'GUARDIAN';
+export interface StudentGuardianRow {
+  id: string;
+  relation: GuardianRelation;
+  isPrimary: boolean;
+  parent: {
+    id: string; fullName: string; phone: string; email: string | null; occupation: string | null;
+    /** Null means SMS does not reach this number — every dispatcher skips an unverified phone. */
+    phoneVerifiedAt: string | null;
+    _count: { guardianLinks: number };
+  };
 }
 export interface AdmissionResult { studentId: string; grNumber: string; registrationNo: string | null; loginProvisioned: boolean }
 export interface EntryTest { id: string; inquiryId: string; scheduledAt: string; score: string | null; remarks: string | null }
@@ -1049,6 +1063,26 @@ export const api = {
      *  Replacing one RETIRES the old number as a sign-in credential. */
     setCnic: (id: string, cnic: string) =>
       apiPatch<{ loginProvisioned: boolean; replacedExisting: boolean; registrationNo: string | null }>(`/students/${id}/cnic`, { cnic }),
+    /**
+     * Guardians after admission (GAP-07). Every route is student-scoped, so the campus check is the one
+     * that guards the profile. Editing CONTACT edits the parent record — it applies to every child they
+     * are guardian of — and a changed phone is unverified again, so SMS stops until it is re-verified.
+     */
+    addGuardian: (id: string, body: {
+      mode: 'LINK' | 'CREATE'; parentId?: string; fullName?: string; phone?: string;
+      relation: GuardianRelation; email?: string; occupation?: string; isPrimary?: boolean;
+    }) => apiPost<null>(`/students/${id}/guardians`, body),
+    setGuardianRelation: (id: string, guardianId: string, relation: GuardianRelation) =>
+      apiPatch<null>(`/students/${id}/guardians/${guardianId}`, { relation }),
+    setPrimaryGuardian: (id: string, guardianId: string) =>
+      apiPatch<null>(`/students/${id}/guardians/${guardianId}`, { isPrimary: true }),
+    removeGuardian: (id: string, guardianId: string) => apiDelete<null>(`/students/${id}/guardians/${guardianId}`),
+    updateGuardianContact: (id: string, guardianId: string, body: { fullName?: string; phone?: string; email?: string; occupation?: string }) =>
+      apiPatch<{ phoneChanged: boolean; phoneVerified: boolean; childCount: number }>(`/students/${id}/guardians/${guardianId}/contact`, body),
+    sendGuardianOtp: (parentId: string) =>
+      apiPost<{ sentTo: string; expiresInSeconds: number }>(`/students/guardians/${parentId}/verify-phone`, {}),
+    confirmGuardianOtp: (parentId: string, code: string) =>
+      apiPost<{ verified: true }>(`/students/guardians/${parentId}/verify-phone/confirm`, { code }),
     /** Audited: every reveal writes a STUDENT_CNIC_REVEALED row. Owner / campus admin only. */
     revealCnic: (id: string) => apiGet<{ cnic: string }>(`/students/${id}/cnic`),
     /** A ten-minute link to the student's photograph, for display. The profile payload carries the

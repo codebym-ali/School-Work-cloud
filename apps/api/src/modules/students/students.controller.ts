@@ -25,6 +25,7 @@ import {
   CreateStudentDto,
   ImportStudentsDto,
   StudentSearchQuery,
+  UpdateGuardianContactDto,
   UpdateGuardianDto,
   SetStudentDocumentDto,
   UpdateStudentDto,
@@ -189,7 +190,24 @@ export class StudentsController {
     @Param('guardianId') guardianId: string,
     @Body() dto: UpdateGuardianDto,
   ) {
+    // ⚠️ `relation` was accepted here and ignored — a 204 with nothing changed. Both fields now apply.
+    if (dto.relation) await this.students.setGuardianRelation(id, guardianId, dto.relation);
     if (dto.isPrimary) await this.students.setPrimaryGuardian(id, guardianId);
+  }
+
+  /**
+   * Correct a guardian's name, phone, email or occupation. Edits the PARENT record, so it applies to
+   * every child they are guardian of; a changed phone is unverified again and receives no SMS until
+   * verified. Routed through the student so the campus check is the one that guards the profile.
+   */
+  @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
+  @Patch(':id/guardians/:guardianId/contact')
+  updateGuardianContact(
+    @Param('id') id: string,
+    @Param('guardianId') guardianId: string,
+    @Body() dto: UpdateGuardianContactDto,
+  ) {
+    return this.students.updateGuardianContact(id, guardianId, dto);
   }
 
   @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')

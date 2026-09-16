@@ -1,4 +1,4 @@
-import { FEE_ADVANCE_ROLES, FEE_REVERSE_WAIVE_ROLES, hasAnyRole } from './index';
+import { FEE_ADVANCE_ROLES, FEE_REVERSE_WAIVE_ROLES, GUARDIAN_ADD_ROLES, GUARDIAN_EDIT_ROLES, hasAnyRole } from './index';
 
 /**
  * The fee-correction buttons must render for exactly the roles the API accepts (GAP-01).
@@ -27,5 +27,25 @@ describe('fee correction permissions mirror the API', () => {
   it('shows nothing to a session with no roles', () => {
     expect(hasAnyRole([], FEE_REVERSE_WAIVE_ROLES)).toBe(false);
     expect(hasAnyRole(undefined, FEE_ADVANCE_ROLES)).toBe(false);
+  });
+});
+
+describe('guardian permissions mirror the API', () => {
+  // From students.controller.ts: add = OWNER_ADMIN, CAMPUS_ADMIN, ADMISSION_CONTROLLER;
+  // edit / primary / remove / verify = OWNER_ADMIN, CAMPUS_ADMIN. The deputy satisfies both by hierarchy.
+  const cases: Array<[role: string, add: boolean, edit: boolean]> = [
+    ['OWNER_ADMIN', true, true],
+    ['OPERATIONS_ADMIN', true, true],
+    ['CAMPUS_ADMIN', true, true],
+    ['ADMISSION_CONTROLLER', true, false], // may finish a record it started; may not rewrite a guardian
+    ['ACCOUNTANT', false, false],
+    ['HR_MANAGER', false, false],
+    ['TEACHER', false, false],
+    ['STAFF', false, false],
+  ];
+
+  it.each(cases)('%s: add=%s, edit=%s', (role, add, edit) => {
+    expect(hasAnyRole([role], GUARDIAN_ADD_ROLES)).toBe(add);
+    expect(hasAnyRole([role], GUARDIAN_EDIT_ROLES)).toBe(edit);
   });
 });

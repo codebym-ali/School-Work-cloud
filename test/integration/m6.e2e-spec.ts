@@ -11,6 +11,7 @@ import { admissionController } from './support/admission';
 import { SMS_QUEUE } from '../../apps/api/src/modules/comms/sms/sms.types';
 import { destroyTenant } from './support/tenant';
 import { loginRequest } from './support/login';
+import { enrolMfa } from './support/mfa';
 
 /**
  * M6 gate (roadmap M6): promotion E2E + all seven reports export.
@@ -55,7 +56,8 @@ describe('M6 — HR, payroll, documents, reports, promotion (e2e)', () => {
     schoolId = prov.schoolId;
     campusId = prov.campusId;
     const login = await loginRequest(server(), host, email, password);
-    cookies = login.headers['set-cookie'] as unknown as string[];
+    // Enrolled: this spec does two-factor-gated work as the owner (see support/mfa.ts).
+    cookies = await enrolMfa(server(), host, login.headers['set-cookie'] as unknown as string[]);
     csrf = csrfOf(cookies);
 
     await post('/api/v1/academic-years', { name: '2026-27', startDate: '2026-04-01', endDate: '2027-03-31', isCurrent: true });

@@ -1322,3 +1322,37 @@ the deputy is exactly the role that control is meant to hold.
 case passes either way, as it should) — so the tests detect the defect rather than merely agreeing
 with the fix. Found while verifying a permission matrix row against the service instead of the
 comment above the DTO field; comments describing an authorization rule are not the rule.
+
+## Two-factor is enforced on corrections and disclosures, not on routine work (2026-09-16, D1)
+
+"Two-factor authentication is required for your role" had been a red banner with **no enforcement
+anywhere**. Decision D1: enforce it, on sensitive actions only, for the mandatory roles
+(OWNER_ADMIN, OPERATIONS_ADMIN, ACCOUNTANT).
+
+**The line is "undoes or discloses", not "touches money".** Gated (`@RequiresMfa`, 11 routes):
+reverse a payment, waive an invoice, reveal a CNIC, approve payroll, mark a payslip paid, and every
+change to who holds what access — update, access grant, module toggle, delete, bulk delete, and
+resetting another user's password (an account-takeover vector). **Not gated:** collecting a fee,
+recording an advance (a deposit, not a correction), creating a user. Gating the counter would stop an
+unenrolled accountant taking money the morning this ships.
+
+⚠️ **The flag rides on the access token (`mfa` claim), not a DB read in the guard**, because guards
+run before the tenant transaction and RLS returns nothing there. The cost is staleness, so **setup,
+verify and disable each re-sign the access cookie** — otherwise an owner who has just enrolled is told
+to enrol for up to 15 minutes, and one who disabled it keeps a token vouching for a factor that is gone.
+A pre-existing token has no claim and is treated as unenrolled; it self-heals at the next refresh.
+
+⚠️ **A trap found while repairing the suites:** `ops-admin-authz` asserts 403 from the deputy's grant
+CEILING. An unenrolled deputy gets 403 from the two-factor guard first — same status — so those cases
+would have kept passing while no longer testing the ceiling. The deputy is now enrolled before them.
+Any test asserting a bare 403 on a gated route has this hazard; the guard runs after `RolesGuard`, so
+role refusals still win, but a service-level refusal does not.
+
+`test/integration/support/login.ts` now completes the MFA challenge for accounts enrolled via
+`support/mfa.ts`, so specs signing an enrolled owner in repeatedly need no per-call change.
+
+Proven: with the guard unregistered, the two enforcement cases in `mfa-enforcement.e2e-spec.ts` fail
+and the three "must not over-block" cases pass. Full integration 52/52 (1177), isolation 7/7.
+
+⚠️ **Noticed, not fixed (out of scope):** TOTP codes are not single-use — only recovery codes are. A
+code seen alongside a stolen password can be replayed inside its ~30s window.

@@ -12,6 +12,7 @@ import { SMS_QUEUE } from '../../apps/api/src/modules/comms/sms/sms.types';
 import { destroyTenant } from './support/tenant';
 import { drainSmsFor } from './support/sms';
 import { loginRequest } from './support/login';
+import { enrolMfa } from './support/mfa';
 
 /**
  * M4 gate (roadmap M4): collect-fee E2E + fee-integrity-check clean.
@@ -66,7 +67,8 @@ describe('Fees end-to-end (e2e, §12)', () => {
     schoolId = prov.schoolId;
 
     const login = await loginRequest(server(), host, email, password);
-    cookies = login.headers['set-cookie'] as unknown as string[];
+    // Enrolled: this spec reverses and waives as the owner, and those are two-factor gated.
+    cookies = await enrolMfa(server(), host, login.headers['set-cookie'] as unknown as string[]);
     csrf = csrfOf(cookies);
 
     const year = await post('/api/v1/academic-years', { name: '2026-27', startDate: '2026-04-01', endDate: '2027-03-31', isCurrent: true });

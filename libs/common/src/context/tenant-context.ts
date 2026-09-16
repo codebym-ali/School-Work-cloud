@@ -12,6 +12,8 @@ export interface RequestUser {
   breakGlass?: boolean;
   /** SA5: the platform operator behind a break-glass session, for attribution. */
   vendorOperatorId?: string;
+  /** Two-factor enrolled, as stamped on the access token. See `AccessClaims.mfa`. */
+  mfaEnrolled?: boolean;
 }
 
 /** CLS keys — one place so producers and consumers never drift. */

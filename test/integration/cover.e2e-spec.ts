@@ -10,6 +10,7 @@ import { ProvisioningService } from '../../apps/api/src/modules/platform/provisi
 import { destroyTenant } from './support/tenant';
 import { admissionController } from './support/admission';
 import { loginRequest } from './support/login';
+import { enrolMfa } from './support/mfa';
 
 /**
  * Cover (Cover Plan, C0) — the substitute can mark the register.
@@ -98,7 +99,8 @@ describe('Cover (e2e) — who may mark when the teacher is away', () => {
     schoolId = prov.schoolId;
     campusId = prov.campusId;
 
-    ownerCookies = await login(owner.email, owner.password);
+    // Enrolled: this spec does two-factor-gated work as the owner (see support/mfa.ts).
+    ownerCookies = await enrolMfa(server(), host, await login(owner.email, owner.password));
     ownerCsrf = csrfOf(ownerCookies);
     const yearId = (await post('/api/v1/academic-years', { name: '2026-27', startDate: '2026-04-01', endDate: '2027-03-31', isCurrent: true })).body.id;
     // Every day is a working day, so the cases do not depend on which day the suite runs.

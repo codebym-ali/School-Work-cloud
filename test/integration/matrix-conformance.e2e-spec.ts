@@ -10,6 +10,7 @@ import { ProvisioningService } from '../../apps/api/src/modules/platform/provisi
 import { MATRIX_ROLES, PERMISSION_MATRIX, type MatrixRole } from '../matrix/permission-matrix';
 import { destroyTenant } from './support/tenant';
 import { loginRequest } from './support/login';
+import { enrolMfa } from './support/mfa';
 
 /**
  * Matrix-conformance harness (blueprint §23, playbook P1.14). Seeds one user per role,
@@ -66,7 +67,9 @@ describe('Matrix conformance (e2e, §23 / P1.14)', () => {
     await seed('TEACHER', campusId);
     await seed('PARENT', null);
 
-    cookies.OWNER_ADMIN = await login(ownerEmail, ownerPassword);
+    // Enrolled so this suite keeps testing ROLE conformance, not two-factor: a gated route must still
+    // admit its roles once the caller is enrolled. Two-factor itself is asserted in mfa-enforcement.
+    cookies.OWNER_ADMIN = await enrolMfa(server(), host, await login(ownerEmail, ownerPassword));
     for (const role of MATRIX_ROLES) {
       if (role !== 'OWNER_ADMIN') cookies[role] = await login(`${role.toLowerCase()}@mx.pk`, staffPassword);
       csrf[role] = csrfOf(cookies[role]);

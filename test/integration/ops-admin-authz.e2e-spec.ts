@@ -8,6 +8,7 @@ import { AppModule } from '../../apps/api/src/app.module';
 import { ProvisioningService } from '../../apps/api/src/modules/platform/provisioning.service';
 import { destroyTenant } from './support/tenant';
 import { loginRequest } from './support/login';
+import { enrolMfa } from './support/mfa';
 
 /**
  * Operations Admin (RBAC) — the owner's school-wide operational deputy (Operations Admin Role Plan).
@@ -66,7 +67,8 @@ describe('Operations Admin deputy (e2e, RBAC)', () => {
     schoolId = prov.schoolId;
     campusId = prov.campusId;
 
-    ownerCookies = (await login(owner.email, owner.password)).cookies;
+    // Enrolled: granting access and resetting passwords are two-factor gated (see support/mfa.ts).
+    ownerCookies = await enrolMfa(server(), host, (await login(owner.email, owner.password)).cookies);
     ownerUserId = (await get('/api/v1/auth/me', ownerCookies)).body.id;
 
     // Three ordinary teachers on the one campus. Two will be promoted to deputy; one stays lower.
@@ -93,6 +95,13 @@ describe('Operations Admin deputy (e2e, RBAC)', () => {
     // After: a fresh session for the same person now carries the deputy's reach.
     const after = (await login(deputy.email, deputy.password)).cookies;
     expect((await get('/api/v1/users', after)).status).toBe(200);
+
+    // ⚠️ Enrol the deputy NOW, before the OP-1/OP-2 cases below. They expect 403 from the grant
+    // CEILING. An unenrolled deputy would be refused by the two-factor guard first — same status, so
+    // those cases would keep passing while no longer testing the ceiling at all. Every later deputy
+    // sign-in in this file completes the challenge through support/login.ts.
+    const enrolled = await enrolMfa(server(), host, after);
+    expect((await get('/api/v1/auth/me', enrolled)).body.mfaEnabled).toBe(true);
   });
 
   it('the deputy does a campus-admin operational job: creates lower staff and grants lower access', async () => {

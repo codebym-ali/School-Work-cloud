@@ -1,5 +1,5 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
-import { Roles } from '@common';
+import { RequiresMfa, Roles } from '@common';
 import { StaffService } from './staff.service';
 import { PayrollService } from './payroll.service';
 import {
@@ -58,7 +58,7 @@ export class PayrollController {
 
   @Roles('OWNER_ADMIN') @Post() run(@Body() dto: RunPayrollDto) { return this.payroll.run(dto); }
   @Roles('OWNER_ADMIN') @Get(':id') getRun(@Param('id') id: string) { return this.payroll.getRun(id); }
-  @Roles('OWNER_ADMIN') @Post(':id/approve') approve(@Param('id') id: string) { return this.payroll.approve(id); }
+  @Roles('OWNER_ADMIN') @RequiresMfa() @Post(':id/approve') approve(@Param('id') id: string) { return this.payroll.approve(id); }
 }
 
 @Controller('payslips')
@@ -71,6 +71,7 @@ export class PayslipsController {
   @Get(':id/pdf') pdf(@Param('id') id: string) { return this.payroll.payslipPdf(id); }
 
   @Roles('OWNER_ADMIN')
+  @RequiresMfa()
   @Patch(':id/mark-paid')
   markPaid(@Param('id') id: string, @Body() dto: MarkPaidDto) { return this.payroll.markPaid(id, dto); }
 }

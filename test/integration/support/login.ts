@@ -1,6 +1,8 @@
 import request from 'supertest';
 import type { Response } from 'supertest';
 import type { Server } from 'node:http';
+import { authenticator } from 'otplib';
+import { mfaSecretFor } from './mfa';
 
 /**
  * Sign in through the right door (Owner Login Plan, O2).
@@ -42,15 +44,34 @@ async function loginAuto(server: Server, host: string, email: string, password: 
 }
 
 /** The raw response, for tests asserting on status/body (a refused door, a locked account). */
-export function loginRequest(
+export async function loginRequest(
   server: Server,
   host: string,
   email: string,
   password: string,
   door: LoginDoor = 'auto',
 ): Promise<Response> {
-  if (door === 'auto') return loginAuto(server, host, email, password);
-  return request(server).post(PATHS[door]).set('Host', host).send({ email, password });
+  const res = door === 'auto'
+    ? await loginAuto(server, host, email, password)
+    : await request(server).post(PATHS[door]).set('Host', host).send({ email, password });
+  return completeMfa(server, host, email, res);
+}
+
+/**
+ * Finish the second step for an account `enrolMfa` enrolled this run; otherwise return as-is.
+ *
+ * Specs that enrol an owner so it can reach two-factor-gated routes would otherwise break the first
+ * time they sign that owner in again. A challenge for an account enrolled some OTHER way is passed
+ * straight through, so a spec testing the challenge itself still sees it.
+ */
+async function completeMfa(server: Server, host: string, email: string, res: Response): Promise<Response> {
+  if (res.status !== 200 || !res.body?.mfaRequired) return res;
+  const secret = mfaSecretFor(host, email);
+  if (!secret) return res;
+  return request(server)
+    .post('/api/v1/auth/mfa/challenge')
+    .set('Host', host)
+    .send({ mfaToken: res.body.mfaToken, code: authenticator.generate(secret) });
 }
 
 /**

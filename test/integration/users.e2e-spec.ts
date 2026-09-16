@@ -8,6 +8,7 @@ import { AppModule } from '../../apps/api/src/app.module';
 import { ProvisioningService } from '../../apps/api/src/modules/platform/provisioning.service';
 import { destroyTenant } from './support/tenant';
 import { loginRequest } from './support/login';
+import { enrolMfa } from './support/mfa';
 
 /**
  * Users & roles (§23, §22.8): the owner provisions a campus-admin login bound to a campus,
@@ -53,7 +54,8 @@ describe('Users & roles (e2e, §23)', () => {
     schoolId = prov.schoolId;
     campusAId = prov.campusId;
 
-    ownerCookies = (await login(owner.email, owner.password)).cookies;
+    // Enrolled: this spec does two-factor-gated work as the owner (see support/mfa.ts).
+    ownerCookies = await enrolMfa(server(), host, (await login(owner.email, owner.password)).cookies);
     const campusB = await post('/api/v1/campuses', { name: 'Second Campus' }, ownerCookies);
     campusBId = campusB.body.id;
   });

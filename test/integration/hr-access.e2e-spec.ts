@@ -8,6 +8,7 @@ import { AppModule } from '../../apps/api/src/app.module';
 import { ProvisioningService } from '../../apps/api/src/modules/platform/provisioning.service';
 import { destroyTenant } from './support/tenant';
 import { loginRequest } from './support/login';
+import { enrolMfa } from './support/mfa';
 
 /**
  * HR access (RBAC): only OWNER_ADMIN may grant the HR_MANAGER role on an EXISTING employee,
@@ -54,7 +55,8 @@ describe('HR access grant (e2e, RBAC)', () => {
     schoolId = prov.schoolId;
     campusAId = prov.campusId;
 
-    ownerCookies = (await login(owner.email, owner.password)).cookies;
+    // Enrolled: this spec does two-factor-gated work as the owner (see support/mfa.ts).
+    ownerCookies = await enrolMfa(server(), host, (await login(owner.email, owner.password)).cookies);
     campusBId = (await send('post', '/api/v1/campuses', { name: 'Second Campus' }, ownerCookies)).body.id;
     await send('post', '/api/v1/users', { email: campusAdmin.email, roles: ['CAMPUS_ADMIN'], campusId: campusAId, password: campusAdmin.password }, ownerCookies);
     const t = await send('post', '/api/v1/users', { email: teacher.email, roles: ['TEACHER'], campusId: campusBId, password: teacher.password }, ownerCookies);

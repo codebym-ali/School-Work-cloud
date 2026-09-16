@@ -8,6 +8,7 @@ import { AppModule } from '../../apps/api/src/app.module';
 import { ProvisioningService } from '../../apps/api/src/modules/platform/provisioning.service';
 import { destroyTenant } from './support/tenant';
 import { loginRequest } from './support/login';
+import { enrolMfa } from './support/mfa';
 
 /**
  * Module (functionality) access (§23 extension). A granted role unlocks all of its modules by
@@ -55,7 +56,8 @@ describe('Module access (e2e, §23)', () => {
     schoolId = prov.schoolId;
     campusAId = prov.campusId;
 
-    ownerCookies = await login(owner.email, owner.password);
+    // Enrolled: this spec does two-factor-gated work as the owner (see support/mfa.ts).
+    ownerCookies = await enrolMfa(server(), host, await login(owner.email, owner.password));
     const t = await send('post', '/api/v1/users', { email: teacher.email, roles: ['TEACHER'], campusId: campusAId, password: teacher.password }, ownerCookies);
     teacherUserId = t.body.id;
     await send('patch', `/api/v1/users/${teacherUserId}/access`, { role: 'HR_MANAGER', grant: true }, ownerCookies);

@@ -243,10 +243,16 @@ export default function AppLayout({ children, app }: { children: React.ReactNode
               No classes, and no attendance is taken.
             </div>
           )}
+          {/* ⚠️ Until 2026-09-16 this said "required" while nothing enforced it. It is enforced now
+              (MfaEnrolledGuard), so the banner names what is actually locked — a warning that states
+              a real consequence is read; one that could be ignored forever teaches people to ignore
+              red. Routine work is deliberately NOT in the list, because it is not locked. */}
           {needsMfa && pathname !== '/security' && (
             <div className="toast err">
-              Two-factor authentication is required for your role and isn&apos;t set up yet.{' '}
-              <Link href="/security" style={{ fontWeight: 600 }}>Set it up →</Link>
+              <strong>Set up two-factor authentication to unlock sensitive actions.</strong>{' '}
+              Until you do, you can&apos;t reverse payments, waive fees, reveal a CNIC, approve payroll or
+              change staff access. Everything else works as normal.{' '}
+              <Link href="/security" style={{ fontWeight: 600 }}>Set it up — about a minute →</Link>
             </div>
           )}
           {authorized ? children : (

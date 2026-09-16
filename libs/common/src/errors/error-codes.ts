@@ -14,6 +14,9 @@ export const ErrorCodes = {
   ACCOUNT_LOCKED: 'ACCOUNT_LOCKED',
   MFA_REQUIRED: 'MFA_REQUIRED',
   MFA_INVALID: 'MFA_INVALID',
+  /** A mandatory-MFA role reached a sensitive route without enrolling. Distinct from FORBIDDEN so the
+   *  client can send the person to Security instead of saying they lack permission. */
+  MFA_ENROLMENT_REQUIRED: 'MFA_ENROLMENT_REQUIRED',
   REFRESH_INVALID: 'REFRESH_INVALID',
   CSRF_INVALID: 'CSRF_INVALID',
 

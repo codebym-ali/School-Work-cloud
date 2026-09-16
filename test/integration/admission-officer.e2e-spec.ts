@@ -8,6 +8,7 @@ import { AppModule } from '../../apps/api/src/app.module';
 import { ProvisioningService } from '../../apps/api/src/modules/platform/provisioning.service';
 import { destroyTenant } from './support/tenant';
 import { loginRequest } from './support/login';
+import { enrolMfa } from './support/mfa';
 
 /**
  * The per-campus admission seat (§8/§23).
@@ -68,7 +69,8 @@ describe('Admission officer — the per-campus seat (e2e)', () => {
     schoolId = prov.schoolId;
     campusA = prov.campusId;
 
-    ownerCookies = (await login(owner.email, owner.password)).cookies;
+    // Enrolled: this spec does two-factor-gated work as the owner (see support/mfa.ts).
+    ownerCookies = await enrolMfa(server(), host, (await login(owner.email, owner.password)).cookies);
     campusB = (await send('post', '/api/v1/campuses', { name: 'Campus B' }, ownerCookies)).body.id;
 
     teacherA1 = await makeUser('a1@aof.pk', campusA);

@@ -10,6 +10,7 @@ import {
   ErrorCodes,
   FIELD_ENCRYPTION,
   FieldEncryption,
+  MANDATORY_MFA_ROLES,
   parseSchoolSettings,
   type Env,
   type RequestUser,
@@ -39,7 +40,8 @@ import type {
 
 const MAX_FAILED = 10;
 const LOCK_MS = 15 * 60 * 1000;
-const MANDATORY_MFA_ROLES: Role[] = ['OWNER_ADMIN', 'OPERATIONS_ADMIN', 'ACCOUNTANT'];
+// MANDATORY_MFA_ROLES now lives in @common, shared with MfaEnrolledGuard so login's report and the
+// guard's enforcement cannot drift apart.
 
 export interface SessionResult {
   user: { id: string; email: string; roles: Role[]; campusId: string | null };
@@ -274,7 +276,7 @@ export class AuthService {
 
   // ── Session issuance ────────────────────────────────────────────────────────
   private async issueSession(user: User, res: Response): Promise<SessionResult> {
-    const claims = { sub: user.id, sid: user.schoolId, roles: user.roles, cid: user.campusId };
+    const claims = { sub: user.id, sid: user.schoolId, roles: user.roles, cid: user.campusId, mfa: user.mfaEnabled };
     const access = this.tokens.signAccess(claims);
 
     const { raw, hash } = this.tokens.generateRefreshToken();
@@ -348,6 +350,7 @@ export class AuthService {
       sid: user.schoolId,
       roles: user.roles,
       cid: user.campusId,
+      mfa: user.mfaEnabled,
     });
     const csrf = randomBytes(24).toString('base64url');
     setAccessCookie(res, this.env, access, this.tokens.accessTtlMs);
@@ -450,8 +453,23 @@ export class AuthService {
     setAccessCookie(res, this.env, token, maxAgeMs);
   }
 
+  /**
+   * Re-sign the ACCESS cookie so its `mfa` claim matches the database right now.
+   *
+   * ⚠️ Without this, enrolment would not take effect for up to JWT_ACCESS_TTL: an owner who has
+   * just set up two-factor tries to reverse a payment and is told to set up two-factor. Disabling
+   * has the mirror problem — the token would keep vouching for a second factor that no longer
+   * exists. Refresh token and CSRF are untouched; only the claim changed.
+   */
+  private async resignAccess(userId: string, res: Response): Promise<void> {
+    const user = await this.db.user.findFirst({ where: { id: userId } });
+    if (!user) return;
+    const access = this.tokens.signAccess({ sub: user.id, sid: user.schoolId, roles: user.roles, cid: user.campusId, mfa: user.mfaEnabled });
+    setAccessCookie(res, this.env, access, this.tokens.accessTtlMs);
+  }
+
   // ── MFA enrolment (§22.5) ───────────────────────────────────────────────────
-  async mfaSetup(principal: RequestUser): Promise<{ otpauthUrl: string }> {
+  async mfaSetup(principal: RequestUser, res: Response): Promise<{ otpauthUrl: string }> {
     const user = await this.db.user.findFirst({ where: { id: principal.userId } });
     if (!user) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'User not found');
     const secret = authenticator.generateSecret();
@@ -459,11 +477,14 @@ export class AuthService {
       where: { id: user.id },
       data: { mfaSecretEnc: this.crypto.encrypt(secret), mfaEnabled: false },
     });
+    // Restarting setup turns MFA OFF until the new secret is verified, so the token must stop
+    // vouching for enrolment now, not in fifteen minutes.
+    await this.resignAccess(user.id, res);
     const otpauthUrl = authenticator.keyuri(user.email, 'SchoolMS', secret);
     return { otpauthUrl };
   }
 
-  async mfaVerify(principal: RequestUser, dto: MfaVerifyDto): Promise<{ recoveryCodes: string[] }> {
+  async mfaVerify(principal: RequestUser, dto: MfaVerifyDto, res: Response): Promise<{ recoveryCodes: string[] }> {
     const user = await this.db.user.findFirst({ where: { id: principal.userId } });
     if (!user?.mfaSecretEnc) {
       throw new AppError(ErrorCodes.MFA_INVALID, HttpStatus.UNPROCESSABLE_ENTITY, 'Start MFA setup first');
@@ -473,6 +494,7 @@ export class AuthService {
       throw new AppError(ErrorCodes.MFA_INVALID, HttpStatus.UNPROCESSABLE_ENTITY, 'Invalid MFA code');
     }
     await this.db.user.update({ where: { id: user.id }, data: { mfaEnabled: true } });
+    await this.resignAccess(user.id, res);
     // Recovery codes are issued WITH enrolment, never as a later opt-in: the moment MFA is on,
     // a lost authenticator is a lockout, and a user who has to remember to generate codes is a
     // user who will not have them when they need them.
@@ -546,7 +568,7 @@ export class AuthService {
     return false;
   }
 
-  async disableMfa(principal: RequestUser, dto: DisableMfaDto): Promise<void> {
+  async disableMfa(principal: RequestUser, dto: DisableMfaDto, res: Response): Promise<void> {
     const user = await this.db.user.findFirst({ where: { id: principal.userId } });
     if (!user?.passwordHash || !user.mfaSecretEnc || !(await this.passwords.verify(user.passwordHash, dto.password))) {
       throw new AppError(ErrorCodes.INVALID_CREDENTIALS, HttpStatus.UNAUTHORIZED, 'Password or code invalid');
@@ -562,6 +584,7 @@ export class AuthService {
     // The codes exist only to recover THIS second factor; leaving them behind would keep a
     // credential alive for an authenticator that no longer exists.
     await this.db.mfaRecoveryCode.deleteMany({ where: { userId: user.id } });
+    await this.resignAccess(user.id, res);
   }
 
   async me(principal: RequestUser): Promise<{ id: string; email: string; roles: Role[]; campusId: string | null; modules: string[]; mfaEnabled: boolean; admissionsMode: SchoolSettings['admissionsMode'] }> {

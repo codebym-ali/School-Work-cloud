@@ -108,8 +108,8 @@ export class AuthController {
   }
 
   @Post('mfa/setup')
-  mfaSetup(@CurrentUser() user: RequestUser) {
-    return this.auth.mfaSetup(user);
+  mfaSetup(@CurrentUser() user: RequestUser, @Res({ passthrough: true }) res: Response) {
+    return this.auth.mfaSetup(user, res);
   }
 
   /**
@@ -120,14 +120,14 @@ export class AuthController {
    */
   @Post('mfa/verify')
   @HttpCode(HttpStatus.OK)
-  mfaVerify(@CurrentUser() user: RequestUser, @Body() dto: MfaVerifyDto) {
-    return this.auth.mfaVerify(user, dto);
+  mfaVerify(@CurrentUser() user: RequestUser, @Body() dto: MfaVerifyDto, @Res({ passthrough: true }) res: Response) {
+    return this.auth.mfaVerify(user, dto, res);
   }
 
   @Delete('mfa')
   @HttpCode(HttpStatus.NO_CONTENT)
-  async disableMfa(@CurrentUser() user: RequestUser, @Body() dto: DisableMfaDto) {
-    await this.auth.disableMfa(user, dto);
+  async disableMfa(@CurrentUser() user: RequestUser, @Body() dto: DisableMfaDto, @Res({ passthrough: true }) res: Response) {
+    await this.auth.disableMfa(user, dto, res);
   }
 
   /**

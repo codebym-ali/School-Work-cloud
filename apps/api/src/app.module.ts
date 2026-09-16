@@ -10,6 +10,7 @@ import {
   ENV,
   MetricsMiddleware,
   MetricsModule,
+  MfaEnrolledGuard,
   pinoConfig,
   RateLimitGuard,
   RateLimitModule,
@@ -114,6 +115,9 @@ import { UploadsModule } from './modules/uploads/uploads.module';
     { provide: APP_GUARD, useClass: RateLimitGuard },
     { provide: APP_GUARD, useClass: TenantScopeGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
+    // After RolesGuard: a caller refused a role should hear "insufficient role", not be told to set up
+    // two-factor for a route they could never use anyway.
+    { provide: APP_GUARD, useClass: MfaEnrolledGuard },
     // ⚠️ Bound HERE and not in `main.ts`: every integration spec builds its app from AppModule
     // and re-declares only the ValidationPipe, so a pipe registered in the bootstrap file would
     // be absent from all 38 suites — present in production, untested everywhere.

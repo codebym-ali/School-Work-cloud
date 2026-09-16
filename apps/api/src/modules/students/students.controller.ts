@@ -12,7 +12,7 @@ import {
   Put,
   Query,
 } from '@nestjs/common';
-import { Roles } from '@common';
+import { RequiresMfa, Roles } from '@common';
 import { StudentsService } from './students.service';
 import { GuardiansService } from './guardians.service';
 import { StudentsImportService } from './students-import.service';
@@ -99,6 +99,7 @@ export class StudentsController {
 
   /** Audited reveal of a student's national ID — see `StudentsService.revealCnic`. */
   @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
+  @RequiresMfa()
   @Get(':id/cnic')
   revealCnic(@Param('id') id: string) {
     return this.students.revealCnic(id);

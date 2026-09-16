@@ -12,7 +12,7 @@ import {
   Put,
   Query,
 } from '@nestjs/common';
-import { Roles } from '@common';
+import { RequiresMfa, Roles } from '@common';
 import { ClaimSource } from '@prisma/client';
 import { ClaimsService } from './claims.service';
 import { FeeSetupService } from './fee-setup.service';
@@ -213,6 +213,7 @@ export class FeesController {
   // Ops Admin included (Operations Admin Role Plan, decision D-B: waivers allowed + audited). The
   // deputy runs finance on the owner's behalf; the write is recorded under their own id.
   @Roles('OWNER_ADMIN', 'OPERATIONS_ADMIN')
+  @RequiresMfa()
   @Post('invoices/:id/waive')
   waive(@Param('id') id: string, @Body() dto: ReasonDto) {
     return this.invoicing.waive(id, dto);
@@ -248,6 +249,7 @@ export class FeesController {
 
   // Ops Admin included (Operations Admin Role Plan, decision D-B: reversals allowed + audited).
   @Roles('OWNER_ADMIN', 'OPERATIONS_ADMIN')
+  @RequiresMfa()
   @Post('payments/:id/reversals')
   reverse(@Param('id') id: string, @Body() dto: ReasonDto) {
     return this.payments.reverse(id, dto);

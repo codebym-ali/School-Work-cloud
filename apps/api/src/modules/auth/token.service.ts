@@ -14,6 +14,16 @@ export interface AccessClaims {
   bg?: boolean;
   /** SA5: the platform operator behind a break-glass session, for attribution. */
   vop?: string;
+  /**
+   * Two-factor ENROLMENT at the moment this token was signed.
+   *
+   * ⚠️ On the token rather than read in a guard, because guards run BEFORE the `withTenant`
+   * transaction and RLS returns no rows there (CLAUDE.md §22.8). The cost is staleness, which is
+   * why every state change — setup, verify, disable — re-signs the access cookie immediately.
+   * Absent on tokens issued before this field existed; treated as NOT enrolled, which self-heals at
+   * the next refresh (≤ JWT_ACCESS_TTL).
+   */
+  mfa?: boolean;
 }
 
 export interface DecodedAccess extends AccessClaims {

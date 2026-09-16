@@ -9,6 +9,7 @@ import { ProvisioningService } from '../../apps/api/src/modules/platform/provisi
 import { admissionController } from './support/admission';
 import { destroyTenant } from './support/tenant';
 import { loginRequest } from './support/login';
+import { enrolMfa } from './support/mfa';
 
 /**
  * Student portal sign-in by registration number + CNIC (§28). The direct-admission flow
@@ -54,7 +55,9 @@ describe('Student login: reg-no + CNIC (e2e, §28)', () => {
     campusId = prov.campusId;
 
     const login = await loginRequest(server(), host, owner.email, owner.password);
-    const cookies = login.headers['set-cookie'] as unknown as string[];
+    // Enrolled once, here: revealing a CNIC is two-factor gated. The later owner sign-ins in this file
+    // complete the challenge through support/login.ts, so they need no change.
+    const cookies = await enrolMfa(server(), host, login.headers['set-cookie'] as unknown as string[]);
     await post('/api/v1/academic-years', { name: '2026-27', startDate: '2026-04-01', endDate: '2027-03-31', isCurrent: true }, cookies);
     const klass = await post('/api/v1/classes', { campusId, name: 'Grade 9', order: 9 }, cookies);
     classId = klass.body.id;

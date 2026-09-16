@@ -185,6 +185,46 @@ describe('Fees end-to-end (e2e, §12)', () => {
     const receipt = await get(`/api/v1/fees/payments/${firstPaymentId}/receipt`);
     expect(receipt.status).toBe(409);
     expect(receipt.body.error.message).toMatch(/reversed/i);
+
+    // GAP-01: the list reports the reversal ON the payment, rather than hiding the row. The student
+    // profile draws the struck-through receipt and its RV- link from exactly this.
+    const listed = await get(`/api/v1/fees/payments?studentId=${studentId}&pageSize=100`);
+    const reversedRow = listed.body.data.find((p: { id: string }) => p.id === firstPaymentId);
+    expect(reversedRow.reversal).toMatchObject({ receiptNo: rev.body.receiptNo, reason: 'Bounced cheque' });
+  });
+
+  it("lists one STUDENT's payments, not the school's latest page", async () => {
+    // ⚠️ The profile used to fetch the school's latest 100 payments and filter in the browser, so a
+    // student's older receipts vanished once a school passed that many. Filtered server-side now.
+    const listed = await get(`/api/v1/fees/payments?studentId=${studentId}&pageSize=100`);
+    expect(listed.status).toBe(200);
+    expect(listed.body.data.length).toBeGreaterThan(0);
+    const invoices = await get(`/api/v1/fees/invoices?studentId=${studentId}&pageSize=100`);
+    const ours = new Set(invoices.body.data.map((i: { id: string }) => i.id));
+    for (const p of listed.body.data as Array<{ invoiceId: string }>) expect(ours.has(p.invoiceId)).toBe(true);
+
+    // And a student with no payments gets none — not the school's.
+    const none = await get(`/api/v1/fees/payments?studentId=${randomUUID()}&pageSize=100`);
+    expect(none.body.data).toEqual([]);
+  });
+
+  it('answers a double-clicked reversal with one reversal and a clean 409', async () => {
+    // A fresh Rs 100 so the race has its own payment; reversing it returns the invoice to where it was.
+    const paid = await post(`/api/v1/fees/invoices/${invoiceId}/payments`, { amountPaid: 100, method: 'CASH' }, idem());
+    expect(paid.status).toBe(201);
+
+    // ⚠️ Fired together: the service's "already reversed?" read cannot see a reversal committed by the
+    // other request. The UNIQUE on payment_id refuses the second — and that must surface as 409, not 500.
+    const [a, b] = await Promise.all([
+      post(`/api/v1/fees/payments/${paid.body.paymentId}/reversals`, { reason: 'Double click' }),
+      post(`/api/v1/fees/payments/${paid.body.paymentId}/reversals`, { reason: 'Double click' }),
+    ]);
+    expect([a.status, b.status].sort()).toEqual([201, 409]);
+    expect(await platform.paymentReversal.count({ where: { paymentId: paid.body.paymentId } })).toBe(1);
+
+    const inv = await get(`/api/v1/fees/invoices/${invoiceId}`);
+    expect(Number(inv.body.paidAmount)).toBe(400);
+    expect((await get('/api/v1/fees/integrity-check')).body.ok).toBe(true);
   });
 
   /**

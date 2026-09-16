@@ -291,6 +291,9 @@ export interface Payment {
   transactionRef: string | null; paidAt: string;
   /** Presence only — the storage key never leaves the server. */
   hasProof: boolean;
+  /** Set when the payment has been reversed. The payment itself is never deleted or edited — the
+   *  reversal is a separate, receipted record — so a corrected mistake stays visible as one. */
+  reversal: { receiptNo: string; reason: string; at: string } | null;
 }
 /** A claim is NOT a payment: `paymentId` is null until someone verifies it. */
 export interface FeeClaim {
@@ -1073,6 +1076,29 @@ export const api = {
   // Read-only student portal sign-in: registration-no + CNIC (no password), §28/#34.
   studentPortal: {
     login: (registrationNo: string, cnic: string) => apiPost<{ user: Me }>('/portal/auth/login', { registrationNo, cnic }),
+  },
+  /**
+   * Corrections to money already recorded (GAP-01). Each was built, tested and restricted to the
+   * owner — and had no screen, so the only person allowed to correct a mis-posted payment could not.
+   *
+   * ⚠️ Reverse and waive are two-factor gated for mandatory roles; an unenrolled caller gets
+   * `MFA_ENROLMENT_REQUIRED`, which `ReasonedActionDialog` turns into a link to Security.
+   */
+  feeCorrections: {
+    reverse: (paymentId: string, reason: string) =>
+      apiPost<{ reversalId: string; receiptNo: string }>(`/fees/payments/${paymentId}/reversals`, { reason }),
+    waive: (invoiceId: string, reason: string) => apiPost<Invoice>(`/fees/invoices/${invoiceId}/waive`, { reason }),
+    /**
+     * A guardian's deposit held as credit.
+     *
+     * ⚠️ The caller supplies the Idempotency-Key and must create it ONCE per intent (when the form
+     * opens), then reuse it on every retry. `idemKey()` mints a fresh key per call, so using it here
+     * would make a double click two different requests — and record the deposit twice.
+     */
+    recordAdvance: (body: { parentId: string; amount: number; transactionRef?: string }, idempotencyKey: string) =>
+      apiPost<unknown>('/fees/advances', body, { 'Idempotency-Key': idempotencyKey }),
+    studentPayments: (studentId: string) =>
+      apiGet<Paged<Payment>>(`/fees/payments?studentId=${studentId}&pageSize=100`),
   },
   feeSetup: {
     heads: () => apiGet<FeeHead[]>('/fee-heads'),

@@ -630,3 +630,16 @@ export function teacherSidebarNav(
 }
 
 export { doorOrigin, DEV_DOOR_PORTS, type Door, type LocationLike } from './door-url';
+
+/**
+ * Who may correct money already recorded — mirrored from the API's `@Roles`, so the fee screens show
+ * exactly the buttons the server will accept.
+ *
+ * ⚠️ These are the API's own lists, not "who ought to". Change one here only alongside the matching
+ * `@Roles` in `apps/api/src/modules/fees/fees.controller.ts`; `fee-permissions.spec.ts` pins the result
+ * for every role, including the deputy, who reaches ADVANCES through the role hierarchy but reaches
+ * reverse and waive because OPERATIONS_ADMIN is named outright.
+ */
+export const FEE_REVERSE_WAIVE_ROLES: Role[] = ['OWNER_ADMIN', 'OPERATIONS_ADMIN'];
+export const FEE_ADVANCE_ROLES: Role[] = ['OWNER_ADMIN', 'ACCOUNTANT'];
+

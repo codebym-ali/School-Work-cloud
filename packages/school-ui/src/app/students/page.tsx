@@ -2,13 +2,14 @@
 
 import { type ChangeEvent, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { api, apiGet, apiPost, ApiError, type Campus, type ImportResult, type Invoice, type Klass, type Paged, type Payment, type Section, type Student, type StudentDetail, type StudentDocumentRow, type StudentStatus } from '@sw/api-client';
+import { api, apiGet, apiPost, ApiError, type Campus, type ImportResult, type Klass, type Paged, type Section, type Student, type StudentDetail, type StudentDocumentRow, type StudentStatus } from '@sw/api-client';
 import { useCampusLens } from '@sw/session';
 import { classLabeller } from '@school/lib/labels';
 import { hasModule, useMe } from '@sw/session';
 import { STATUS_TRANSITIONS, STUDENT_STATUS, statusStyle } from '@sw/ui';
 import { MoveStudentDialog } from '@school/components/move-student-dialog';
 import { DirectAdmission } from '../admissions/direct-admission';
+import { StudentFeesCard } from './student-fees-card';
 
 export default function StudentsPage() {
   return (
@@ -793,7 +794,7 @@ function StudentProfile({ id, classes, sections, onBack }: { id: string; classes
             ) : <p className="muted" style={{ margin: 0, fontSize: 13 }}>No enrollment.</p>}
           </div>
 
-          <StudentFeesCard studentId={s.id} />
+          <StudentFeesCard student={s} />
 
           <div className="card stack">
             <h3 style={{ margin: 0, fontSize: 15 }}>Guardians</h3>
@@ -1038,78 +1039,3 @@ function DocumentsCard({ studentId, onSaved }: { studentId: string; onSaved: () 
   );
 }
 
-function StudentFeesCard({ studentId }: { studentId: string }) {
-  const [invoices, setInvoices] = useState<Invoice[] | null>(null);
-  const [payments, setPayments] = useState<Payment[]>([]);
-  const [denied, setDenied] = useState(false);
-
-  useEffect(() => {
-    apiGet<Paged<Invoice>>(`/fees/invoices?studentId=${studentId}&pageSize=100`)
-      .then((r) => setInvoices(r.data))
-      // A role without fee access simply doesn't get this card — not an error on their screen.
-      .catch(() => { setDenied(true); setInvoices([]); });
-    apiGet<Paged<Payment>>('/fees/payments?pageSize=100').then((r) => setPayments(r.data)).catch(() => {});
-  }, [studentId]);
-
-  async function openProof(paymentId: string) {
-    try {
-      const { url } = await api.feeSetup.paymentProof(paymentId);
-      window.open(url, '_blank', 'noopener');
-    } catch { /* the button only shows when proof exists; a failure here is transient */ }
-  }
-
-  if (denied || invoices === null) return null;
-  if (invoices.length === 0) {
-    return (
-      <div className="card stack">
-        <h3 style={{ margin: 0, fontSize: 15 }}>Fees</h3>
-        <p className="muted" style={{ margin: 0, fontSize: 13 }}>No invoices have been generated for this student yet.</p>
-      </div>
-    );
-  }
-
-  const outstanding = invoices.reduce((n, i) => n + Math.max(Number(i.totalAmount) - Number(i.paidAmount), 0), 0);
-  const forInvoice = (id: string) => payments.filter((p) => p.invoiceId === id);
-
-  return (
-    <div className="card stack">
-      <div className="row">
-        <h3 style={{ margin: 0, fontSize: 15 }}>Fees</h3>
-        <span className={outstanding > 0 ? 'badge warn' : 'badge ok'}>
-          {outstanding > 0 ? `Rs ${outstanding.toLocaleString()} outstanding` : 'Nothing outstanding'}
-        </span>
-      </div>
-      <div style={{ overflowX: 'auto' }}>
-        <table>
-          <thead><tr><th>Period</th><th>Total</th><th>Paid</th><th>Status</th><th>Receipts</th></tr></thead>
-          <tbody>
-            {invoices.map((i) => (
-              <tr key={i.id}>
-                <td>{i.month ? `${i.month}/${i.year}` : i.year}</td>
-                <td>Rs {Number(i.totalAmount).toLocaleString()}</td>
-                <td>Rs {Number(i.paidAmount).toLocaleString()}</td>
-                <td><span className={`badge ${i.status === 'PAID' ? 'ok' : i.status === 'OVERDUE' ? 'bad' : 'warn'}`}>{i.status}</span></td>
-                <td>
-                  {forInvoice(i.id).length === 0 ? <span className="muted">—</span> : (
-                    <span className="chips">
-                      {forInvoice(i.id).map((p) => (
-                        <span key={p.id} className="badge" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                          #{p.receiptNo} · Rs {Number(p.amountPaid).toLocaleString()}
-                          <span className="muted" style={{ fontSize: 11 }}>{p.method.replace('_', ' ').toLowerCase()}</span>
-                          {p.hasProof && (
-                            <button type="button" className="ghost small" style={{ padding: '2px 6px', minHeight: 24 }}
-                              onClick={() => openProof(p.id)}>View proof</button>
-                          )}
-                        </span>
-                      ))}
-                    </span>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}

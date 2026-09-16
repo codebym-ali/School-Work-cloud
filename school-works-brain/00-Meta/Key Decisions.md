@@ -1356,3 +1356,36 @@ and the three "must not over-block" cases pass. Full integration 52/52 (1177), i
 
 ⚠️ **Noticed, not fixed (out of scope):** TOTP codes are not single-use — only recovery codes are. A
 code seen alongside a stolen password can be replayed inside its ~30s window.
+
+## The owner's money corrections live on the rows where the money is (2026-09-16, GAP-01)
+
+Reverse, waive and record-advance were built, tested and role-restricted — and had no screen, so the
+only person allowed to correct a mis-posted payment could not. They now sit on the student profile's
+fee card: **Reverse** on each receipt, **Waive** on each invoice still owing, **Record advance** beside
+the balance. Built on `ReasonedActionDialog` (plan foundation F1), which the later corrections reuse.
+
+**Three defects found on the way, each on the path the buttons use:**
+
+1. **The fee card fetched the SCHOOL's latest 100 payments and filtered in the browser.** Once a school
+   passed a page of payments, a student's older receipts vanished from their own profile with no error.
+   `GET /fees/payments` now takes `studentId`. ⚠️ Student and campus both constrain the payment's
+   invoice, so they are built as ONE `invoice` filter — two assignments to `where.invoice` would let the
+   second discard the first and lift the campus restriction; pinned in campus-scope.
+2. **A double-clicked reversal returned 500.** The "already reversed?" read cannot see a concurrent
+   request's insert; the UNIQUE on `payment_id` refused the second as a raw P2002. Now a clean 409.
+   The receipt counter is a row update inside the request transaction, so the rollback returns the
+   number — and the row lock serialises the two requests. Proven: without the mapping, `[201, 500]`.
+3. **`idemKey()` mints a fresh key per call**, so using it for the advance would make a double click two
+   deposits. The key is created once when the advance dialog opens and reused on retry.
+
+⚠️ **A reversed payment stays visible**, struck through and linked to its `RV-` receipt. The list now
+returns the reversal on the payment instead of the row being hidden: hiding it would make a corrected
+mistake look as though it never happened.
+
+⚠️ **I nearly shipped wrong copy.** The waiver dialog said "the totals are never edited". `waive()` adds
+a negative WAIVER line AND sets `totalAmount` to match, which is what keeps `total = Σ items` true for
+the integrity check. Read the method, not the docstring.
+
+The UI role sets are exported from `@sw/roles` (`FEE_REVERSE_WAIVE_ROLES`, `FEE_ADVANCE_ROLES`) and
+`fee-permissions.spec.ts` pins them for every role against values copied from the API's `@Roles`,
+including the deputy reaching advances through the hierarchy.

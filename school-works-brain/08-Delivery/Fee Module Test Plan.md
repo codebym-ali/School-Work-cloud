@@ -110,11 +110,13 @@ in the UI: a display gate over an open endpoint is not a rule.
 
 | ID | Case | Expected | Covered by |
 |---|---|---|---|
-| FEE-6.1 | Reverse a payment (owner) | `RV-` receipt; invoice recomputed; original row still there | `fees.e2e-spec` |
+| FEE-6.1 | Reverse a payment (owner) | `RV-` receipt; invoice recomputed; original row still there — and shown struck through on the profile | `fees.e2e-spec` · UI on the student fee card (2026-09-16) |
 | FEE-6.2 | Accountant attempts a reversal | Refused — owner only (403); the owner still can | ✅ `fees.e2e-spec` |
 | FEE-6.3 | Waive an invoice with a reason | WAIVED via a WAIVER **line item**, totals never edited; no reason → refused; a waived invoice refuses payment | ✅ `fees.e2e-spec` |
 | FEE-6.4 | Pay a WAIVED or PAID invoice | 409 | `fees.e2e-spec` |
 | FEE-6.5 | Receipt for a reversed payment | Refused | `fees.e2e-spec` |
+| FEE-6.6 | Reversal double-clicked | One reversal; the second is a clean 409, never a 500 | ✅ `fees.e2e-spec` |
+| FEE-6.7 | A student's payments | Only that student's, however many the school has; campus scope still applies | ✅ `fees.e2e-spec` + `campus-scope` |
 
 ## FEE-7 · Downstream
 

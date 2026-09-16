@@ -140,9 +140,21 @@ export class PaymentsService {
     if (dupe) throw new AppError(ErrorCodes.CONFLICT, HttpStatus.CONFLICT, 'Payment already reversed');
 
     const receiptNo = await this.nextReceiptNo();
-    const reversal = await this.db.paymentReversal.create({
-      data: { schoolId: this.sid, paymentId, receiptNo, reason: dto.reason, approvedById: this.ctx.user!.userId },
-    });
+    let reversal;
+    try {
+      reversal = await this.db.paymentReversal.create({
+        data: { schoolId: this.sid, paymentId, receiptNo, reason: dto.reason, approvedById: this.ctx.user!.userId },
+      });
+    } catch (e) {
+      // ⚠️ The `dupe` check above cannot see a reversal committed by a concurrent request — a double
+      // click. `payment_id` is UNIQUE, so the database refuses the second; this turns that refusal into
+      // the same 409 the sequential case gets instead of a 500. The request transaction rolls back,
+      // so the receipt number drawn above is not consumed.
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        throw new AppError(ErrorCodes.CONFLICT, HttpStatus.CONFLICT, 'Payment already reversed');
+      }
+      throw e;
+    }
     await this.recomputeInvoice(payment.invoiceId);
     await this.audit.record({
       action: AuditActions.PAYMENT_REVERSED,
@@ -216,17 +228,34 @@ export class PaymentsService {
     if (q.collectedById) where.collectedById = q.collectedById;
     if (q.from || q.to) where.paidAt = { ...(q.from ? { gte: q.from } : {}), ...(q.to ? { lte: q.to } : {}) };
     // Campus scoping (§22.8, P1.7): confine a campus-bound cashier to their campus's payments.
+    // ⚠️ Built as ONE `invoice` filter. Assigning `where.invoice` twice — once for the student, once
+    // for the campus — would let the second assignment silently discard the first, and a campus
+    // cashier filtering by student would see that student's payments from every campus.
     const restricted = restrictedCampusId(this.ctx.user);
-    if (restricted !== null) where.invoice = { enrollment: { campusId: restricted } };
+    const invoice: Prisma.FeeInvoiceWhereInput = {};
+    if (q.studentId) invoice.studentId = q.studentId;
+    if (restricted !== null) invoice.enrollment = { campusId: restricted };
+    if (Object.keys(invoice).length) where.invoice = invoice;
     const { skip, take } = toSkipTake(q);
     const [rows, total] = await Promise.all([
-      this.db.feePayment.findMany({ where, skip, take, orderBy: { paidAt: 'desc' } }),
+      this.db.feePayment.findMany({
+        where, skip, take, orderBy: { paidAt: 'desc' },
+        include: { reversal: { select: { receiptNo: true, reason: true, createdAt: true } } },
+      }),
       this.db.feePayment.count({ where }),
     ]);
     // Report only that proof EXISTS, never the storage key. The key is how a file is addressed;
     // broadcasting it in a list invites someone to try it somewhere the ownership check is
     // weaker. Reading the file goes through `proofUrl`, which authorises the payment first.
-    const safe = rows.map(({ proofFileKey, ...p }) => ({ ...p, hasProof: proofFileKey !== null }));
+    //
+    // A reversed payment is still RETURNED — payments are immutable and the reversal is a separate
+    // record — so the row carries its reversal rather than being hidden. Hiding it would make a
+    // corrected mistake look as if it never happened, which is the opposite of an audit trail.
+    const safe = rows.map(({ proofFileKey, reversal, ...p }) => ({
+      ...p,
+      hasProof: proofFileKey !== null,
+      reversal: reversal ? { receiptNo: `RV-${reversal.receiptNo}`, reason: reversal.reason, at: reversal.createdAt } : null,
+    }));
     return paginate(safe, total, q);
   }
 

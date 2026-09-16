@@ -234,6 +234,22 @@ describe('Campus scoping (e2e, §22.8 / P1.7)', () => {
     expect(cross.body.error.code).toBe('FORBIDDEN');
   });
 
+  it('a campus-A accountant filtering payments by a campus-B student sees nothing', async () => {
+    // ⚠️ `studentId` and campus scoping both constrain the payment's invoice. Built as two separate
+    // assignments to `where.invoice`, the second would silently discard the first — and filtering by
+    // a student would lift the campus restriction. So there must be a campus-B payment to leak.
+    const paidB = await ownerPost(`/api/v1/fees/invoices/${invoiceB}/payments`, { amountPaid: 100, method: 'CASH' },
+      { 'Idempotency-Key': randomUUID() });
+    expect(paidB.status).toBe(201);
+
+    const asOwner = await authed('get', `/api/v1/fees/payments?studentId=${studentB}`, ownerCookies);
+    expect(asOwner.body.data.map((p: { id: string }) => p.id)).toContain(paidB.body.paymentId);
+
+    const asAcctA = await authed('get', `/api/v1/fees/payments?studentId=${studentB}`, acctCookies);
+    expect(asAcctA.status).toBe(200);
+    expect(asAcctA.body.data).toEqual([]);
+  });
+
   it('ACCOUNTANT bound to A cannot pay a campus-B invoice or bill class B (403), but can pay A', async () => {
     const idem = () => ({ 'Idempotency-Key': randomUUID() });
 

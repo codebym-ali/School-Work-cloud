@@ -177,6 +177,12 @@ export class PaymentListQuery extends PaginationQuery {
   @IsOptional() @Type(() => Date) to?: Date;
   @IsOptional() @IsEnum(PaymentMethod) method?: PaymentMethod;
   @IsOptional() @IsUUID() collectedById?: string;
+  /**
+   * One student's payments. ⚠️ Without this the student profile fetched the SCHOOL's latest page of
+   * payments and filtered in the browser — so once a school passed a page of payments, a student's
+   * older receipts silently disappeared from their own profile.
+   */
+  @IsOptional() @IsUUID() studentId?: string;
 }
 
 export class DefaultersQuery {

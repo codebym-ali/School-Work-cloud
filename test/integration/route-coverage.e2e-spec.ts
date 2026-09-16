@@ -58,11 +58,8 @@ describe('Route coverage — every route has a UI or a listed exception (Law 3)'
     /^\/api\/v1\/auth\/change-password$/,           // belongs on /security (operator: known deferral)
 
     // ── Finance admin (audited money actions, reachable only by API) ──────────
-    /^\/api\/v1\/fees\/advances$/,                  // record/list a fee advance
     /^\/api\/v1\/fees\/defaulters$/,                // the defaulter list (director's daily question)
     /^\/api\/v1\/fees\/integrity-check$/,           // ledger reconciliation
-    /^\/api\/v1\/fees\/invoices\/[^/]+\/waive$/,    // waiving a fee — audited, no UI
-    /^\/api\/v1\/fees\/payments\/[^/]+\/reversals$/,// reversing a payment — audited, no UI
 
     // ── Payroll (no admin surface at all) ────────────────────────────────────
     /^\/api\/v1\/payroll-runs(\/|$)/,               // create/list/approve a payroll run

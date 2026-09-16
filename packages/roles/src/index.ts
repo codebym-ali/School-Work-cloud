@@ -628,3 +628,5 @@ export function teacherSidebarNav(
     .filter((n) => n.href !== '/home');
   return [...(home ? [home] : []), ...rest].map((n) => ({ href: n.href, label: n.label, icon: n.icon }));
 }
+
+export { doorOrigin, DEV_DOOR_PORTS, type Door, type LocationLike } from './door-url';

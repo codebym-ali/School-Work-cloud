@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { api, apiGet, apiPost, apiDelete, ApiError, type Campus, type ManagedUser } from '@sw/api-client';
 import { useMe } from '@sw/session';
-import { roleLabels } from '@sw/roles';
+import { doorOrigin, roleLabels } from '@sw/roles';
 
 type Msg = { ok: boolean; text: string } | null;
 
@@ -111,8 +111,12 @@ export default function CampusesPage() {
     return held;
   };
   const schoolWide = users.filter((u) => u.campusId == null);
+  // ⚠️ The STAFF door, never "this origin". Campus Hub is owner-only, so this origin is always the
+  // owner door — which admits OWNER_ADMIN alone, and refuses anyone else with the same "invalid
+  // credentials" a wrong password gets. A campus admin handed the old link could not sign in, and
+  // had no way to learn why. Only the staff door honours `?campus=`.
   const loginLink = (name: string) =>
-    typeof window === 'undefined' ? '' : `${window.location.origin}/login?campus=${encodeURIComponent(name)}`;
+    typeof window === 'undefined' ? '' : `${doorOrigin('staff', window.location)}/login?campus=${encodeURIComponent(name)}`;
 
   return (
     <div className="stack">

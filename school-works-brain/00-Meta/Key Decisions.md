@@ -1275,3 +1275,27 @@ says.
 
 **Signing out is now per-door.** Logging out of staff does not end a student session in the same
 browser. That is the honest price of separate sessions.
+
+## Cross-door links are derived from the host, never built from "this origin" (2026-09-16)
+
+Two links handed out from the owner door were broken, both silently, both since the front-end split:
+Campus Hub's **campus login** pointed campus admins at the owner door (which refuses anyone but
+OWNER_ADMIN with the same "invalid credentials" as a wrong password), and the **Admission Portal**
+link pointed at `/admission-portal`, which only staff-web serves — a 404. Each was
+`${window.location.origin}/…`, correct when every door was a path in one app, wrong once
+`packages/school-ui` rendered on more than one door.
+
+**Fixed with `doorOrigin(door, location)` in `@sw/roles`**: swap the leading door label in prod
+(`owner.<school>.<apex>` → `staff.<school>.<apex>`), swap the port in dev (`demo.localhost:3005` →
+`:3006`).
+
+⚠️ **The `NEXT_PUBLIC_*_URL` build variables were rejected on purpose.** The test deploy sets them to
+`staff.demo.<apex>` — the DEMO school — and one image serves every tenant, so a build-time URL sends
+the second school's owner to the first school's door. The school is knowable only from the host.
+
+⚠️ **`owner`/`staff`/`student` are NOT reserved subdomains** — I first assumed they were. The helper
+is correct anyway because door hosts are always two-deep with the door label first, so a school
+named `staff` gets `owner.staff.<apex>`; pinned by a test.
+
+Guarded by `packages/school-ui/src/cross-door-links.spec.ts`, which fails on any
+`window.location.origin` in that package (comments stripped, so explaining the rule cannot trip it).

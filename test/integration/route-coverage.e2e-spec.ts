@@ -54,7 +54,6 @@ describe('Route coverage — every route has a UI or a listed exception (Law 3)'
    */
   const MISSING_UI_BACKLOG: RegExp[] = [
     /^\/api\/v1\/sms\/send$/,                       // manual bulk send — needs recipient-picker UI, deferred
-    /^\/api\/v1\/documents(\/|$)/,                  // no documents screen exists at all
     /^\/api\/v1\/auth\/change-password$/,           // belongs on /security (operator: known deferral)
 
     // ── Finance admin (audited money actions, reachable only by API) ──────────
@@ -68,7 +67,6 @@ describe('Route coverage — every route has a UI or a listed exception (Law 3)'
 
     // ── Student record actions the profile screen does not expose ────────────
     /^\/api\/v1\/students\/[^/]+\/report-cards$/,               // a student's report cards
-    /^\/api\/v1\/students\/[^/]+\/withdraw$/,                   // the withdrawal process
 
     // ── Misc ─────────────────────────────────────────────────────────────────
     /^\/api\/v1\/audit-logs$/,                      // no audit-log viewer

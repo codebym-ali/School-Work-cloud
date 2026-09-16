@@ -341,6 +341,18 @@ export interface DirectAdmissionBody {
   photoKey?: string;
 }
 export type GuardianRelation = 'FATHER' | 'MOTHER' | 'GUARDIAN';
+export type IssuedDocumentType = 'LEAVING_CERT' | 'CHARACTER_CERT' | 'FEE_CLEARANCE';
+/** A document the school ISSUED. Not the admission checklist, which records paperwork RECEIVED. */
+export interface IssuedDocument { id: string; studentId: string | null; type: string; issuedAt: string; issuedById: string }
+export interface WithdrawalResult {
+  status: 'WITHDRAWN';
+  leavingCertId: string;
+  /** Null when the student left owing: a fee clearance is only issued when fees ARE clear. */
+  feeClearanceId: string | null;
+  leftOwing: boolean;
+  /** Invoices raised for months after the leaving date, closed as not owed. */
+  waivedInvoicesAfterLeaving: number;
+}
 export interface StudentGuardianRow {
   id: string;
   relation: GuardianRelation;
@@ -1083,6 +1095,13 @@ export const api = {
       apiPost<{ sentTo: string; expiresInSeconds: number }>(`/students/guardians/${parentId}/verify-phone`, {}),
     confirmGuardianOtp: (parentId: string, code: string) =>
       apiPost<{ verified: true }>(`/students/guardians/${parentId}/verify-phone/confirm`, { code }),
+    /**
+     * Leave the school. Issues the leaving certificate, closes invoices for months after `leavingDate`,
+     * and disables the portal login. `overrideFeeClearance` is the owner's alone and leaves the owed balance
+     * on the ledger — withdrawal is not a write-off.
+     */
+    withdraw: (id: string, body: { reason: string; leavingDate?: string; overrideFeeClearance?: boolean }) =>
+      apiPost<WithdrawalResult>(`/students/${id}/withdraw`, body),
     /** Audited: every reveal writes a STUDENT_CNIC_REVEALED row. Owner / campus admin only. */
     revealCnic: (id: string) => apiGet<{ cnic: string }>(`/students/${id}/cnic`),
     /** A ten-minute link to the student's photograph, for display. The profile payload carries the
@@ -1110,6 +1129,14 @@ export const api = {
   // Read-only student portal sign-in: registration-no + CNIC (no password), §28/#34.
   studentPortal: {
     login: (registrationNo: string, cnic: string) => apiPost<{ user: Me }>('/portal/auth/login', { registrationNo, cnic }),
+  },
+  /** Certificates the school issues (GAP-14). Campus-scoped; readable only by the roles that issue them. */
+  issuedDocuments: {
+    list: (studentId: string) => apiGet<IssuedDocument[]>(`/documents?studentId=${studentId}`),
+    /** A ten-minute download link, signed only after the student's campus is checked. */
+    url: (id: string) => apiGet<{ url: string; expiresInSeconds: number }>(`/documents/${id}/url`),
+    issue: (body: { studentId: string; type: IssuedDocumentType; overrideFeeClearance?: boolean; reason?: string }) =>
+      apiPost<IssuedDocument>('/documents/certificates', body),
   },
   /**
    * Corrections to money already recorded (GAP-01). Each was built, tested and restricted to the

@@ -651,3 +651,14 @@ export const FEE_ADVANCE_ROLES: Role[] = ['OWNER_ADMIN', 'ACCOUNTANT'];
 export const GUARDIAN_ADD_ROLES: Role[] = ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ADMISSION_CONTROLLER'];
 export const GUARDIAN_EDIT_ROLES: Role[] = ['OWNER_ADMIN', 'CAMPUS_ADMIN'];
 
+/**
+ * Leaving the school, and the certificates the school issues — mirrored from `documents.controller.ts`.
+ *
+ * ⚠️ The fee-clearance OVERRIDE is the owner's alone, and deliberately not by hierarchy: the API checks the
+ * GRANTED role (`assertOwnerOverride`), so the deputy cannot override, and `hasAnyRole(roles, ['OWNER_ADMIN'])`
+ * gives the same answer because the hierarchy never adds OWNER_ADMIN.
+ */
+export const WITHDRAW_ROLES: Role[] = ['OWNER_ADMIN', 'CAMPUS_ADMIN'];
+export const ISSUED_DOCUMENT_ROLES: Role[] = ['OWNER_ADMIN', 'CAMPUS_ADMIN'];
+export const FEE_CLEARANCE_OVERRIDE_ROLES: Role[] = ['OWNER_ADMIN'];
+

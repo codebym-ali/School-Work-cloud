@@ -435,6 +435,63 @@ describe('Campus scoping (e2e, §22.8 / P1.7)', () => {
     expect(acct.body.enrollmentCount).toBe(1);
   });
   /**
+   * Issued documents — leaving certificates, character certificates, fee clearances.
+   *
+   * ⚠️ Until 2026-09-16 the READ routes had no `@Roles` and no ownership check, although `getUrl` was
+   * documented "after an ownership check": any signed-in user could list a student's documents and mint a
+   * download link for any of them. And a FEE CLEARANCE certificate — "has cleared all outstanding fee
+   * dues" — could be issued for a student who owed money, because only the leaving certificate was checked.
+   * Both students here carry an unpaid July invoice.
+   */
+  describe('issued documents', () => {
+    let docB: string;
+
+    beforeAll(async () => {
+      // The owner issues a character certificate for the campus-B student — it needs no fee check.
+      const issued = await ownerPost('/api/v1/documents/certificates', { studentId: studentB, type: 'CHARACTER_CERT' });
+      expect(issued.status).toBe(201);
+      docB = issued.body.id;
+    });
+
+    it('does not let a non-issuing role list a student\'s documents', async () => {
+      expect((await authed('get', `/api/v1/documents?studentId=${studentB}`, acctCookies)).status).toBe(403);
+    });
+
+    it('does not let a non-issuing role mint a download link for a document', async () => {
+      const res = await authed('get', `/api/v1/documents/${docB}/url`, acctCookies);
+      expect(res.status).toBe(403);
+      expect(res.body.url).toBeUndefined();
+    });
+
+    it("confines a campus admin to their own campus's documents", async () => {
+      expect((await authed('get', `/api/v1/documents?studentId=${studentB}`, adminCookies)).status).toBe(403);
+      expect((await authed('get', `/api/v1/documents/${docB}/url`, adminCookies)).status).toBe(403);
+      expect((await authed('get', `/api/v1/documents?studentId=${studentA}`, adminCookies)).status).toBe(200);
+    });
+
+    it('still serves the owner', async () => {
+      const list = await authed('get', `/api/v1/documents?studentId=${studentB}`, ownerCookies);
+      expect(list.status).toBe(200);
+      expect(list.body.map((d: { id: string }) => d.id)).toContain(docB);
+      expect((await authed('get', `/api/v1/documents/${docB}/url`, ownerCookies)).status).toBe(200);
+    });
+
+    it('never issues a fee clearance certificate for a student who owes money — not even for the owner', async () => {
+      // An override can excuse a LEAVING certificate. It cannot make "has cleared all fee dues" true.
+      const plain = await ownerPost('/api/v1/documents/certificates', { studentId: studentB, type: 'FEE_CLEARANCE' });
+      expect(plain.status).toBe(409);
+      const forced = await ownerPost('/api/v1/documents/certificates', { studentId: studentB, type: 'FEE_CLEARANCE', overrideFeeClearance: true, reason: 'x' });
+      expect(forced.status).toBe(409);
+    });
+
+    it("refuses a campus admin a leaving-certificate override, and another campus's student", async () => {
+      const adminPost = (b: object) => authed('post', '/api/v1/documents/certificates', adminCookies, csrfOf(adminCookies)).send(b);
+      expect((await adminPost({ studentId: studentA, type: 'LEAVING_CERT', overrideFeeClearance: true, reason: 'x' })).status).toBe(403);
+      expect((await adminPost({ studentId: studentB, type: 'CHARACTER_CERT' })).status).toBe(403);
+    });
+  });
+
+  /**
    * ⚠️ Precondition overrides are owner-only, and until 2026-09-16 that was true only in comments.
    *
    * Promotion and withdrawal each take an override flag in the request BODY, on routes a CAMPUS_ADMIN

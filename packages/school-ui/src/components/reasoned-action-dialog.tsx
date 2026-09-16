@@ -32,6 +32,8 @@ export function ReasonedActionDialog({
   reasonLabel = 'Reason',
   reasonPlaceholder,
   destructive = true,
+  children,
+  extraReady = true,
   onConfirm,
   onClose,
 }: {
@@ -42,6 +44,10 @@ export function ReasonedActionDialog({
   reasonLabel?: string;
   reasonPlaceholder?: string;
   destructive?: boolean;
+  /** Extra fields the action needs besides the reason (a date, an override), rendered above it. */
+  children?: React.ReactNode;
+  /** False while those extra fields are incomplete; keeps the confirm button disabled. */
+  extraReady?: boolean;
   /** Resolve with a success message to show before closing, or throw. */
   onConfirm: (reason: string) => Promise<string>;
   onClose: () => void;
@@ -61,7 +67,7 @@ export function ReasonedActionDialog({
   }, [busy, onClose]);
 
   const trimmed = reason.trim();
-  const canSubmit = trimmed.length > 0 && trimmed.length <= REASON_MAX && !busy && !done;
+  const canSubmit = trimmed.length > 0 && trimmed.length <= REASON_MAX && extraReady && !busy && !done;
 
   async function confirm() {
     if (!canSubmit) return;
@@ -99,6 +105,8 @@ export function ReasonedActionDialog({
         ) : (
           <>
             <div className="muted" style={{ fontSize: 13 }}>{consequence}</div>
+
+            {children}
 
             <div>
               <label htmlFor="reasoned-action-reason">{reasonLabel}</label>

@@ -11,6 +11,7 @@ import { MoveStudentDialog } from '@school/components/move-student-dialog';
 import { DirectAdmission } from '../admissions/direct-admission';
 import { StudentFeesCard } from './student-fees-card';
 import { GuardiansCard } from './guardians-card';
+import { IssuedDocumentsCard, WithdrawalCard } from './leaving-and-certificates';
 
 export default function StudentsPage() {
   return (
@@ -301,7 +302,7 @@ function ChangeStatusDialog({ student, onClose, onDone, onError }: {
           </div>
 
           <p className="muted" style={{ margin: 0, fontSize: 12 }}>
-            Leaving the school is handled by the withdrawal process instead, so the fee clearance and leaving certificate are issued.
+            Leaving the school is not a status: use <strong>Withdraw student</strong> on the profile, which issues the leaving certificate and stops billing.
           </p>
           <div><button disabled={!canSubmit} onClick={submit}>{busy ? 'Saving…' : 'Save status'}</button></div>
         </>
@@ -768,6 +769,10 @@ function StudentProfile({ id, classes, sections, onBack }: { id: string; classes
           {/* Directly under the record card: the paperwork IS most of what an admission consists
               of, and it belongs on the screen the office already has open. */}
           <DocumentsCard studentId={s.id} onSaved={load} />
+
+          {/* Issued certificates, then leaving — the leaving certificate appears in the first once issued. */}
+          <IssuedDocumentsCard student={s} />
+          <WithdrawalCard student={s} onChanged={load} />
 
           {moving && (
             <MoveStudentDialog student={s} classes={classes} sections={sections}

@@ -2,6 +2,7 @@ import { HttpStatus, Injectable } from '@nestjs/common';
 import { DocumentType, EnrollmentStatus, FeeInvoiceStatus } from '@prisma/client';
 import { AppError, assertCampusAccess, assertOwnerOverride, AuditActions, ErrorCodes, PdfService, StorageService, TenantContext } from '@common';
 import { AuditService, TenantPrismaService } from '@database';
+import { InvoicingService } from '../fees/invoicing.service';
 
 export interface IssueCertInput {
   studentId: string;
@@ -13,6 +14,18 @@ export interface IssueCertInput {
 export interface WithdrawInput {
   reason: string;
   overrideFeeClearance?: boolean;
+  leavingDate?: string;
+}
+
+/** Invoice statuses that still carry an unpaid balance. */
+const OWING = [FeeInvoiceStatus.PENDING, FeeInvoiceStatus.PARTIAL, FeeInvoiceStatus.OVERDUE];
+
+/**
+ * The first day an invoice's billing period covers. A monthly invoice bills its month; an annual one
+ * (`month` null) is treated as starting with its year's first month, so it always counts as begun.
+ */
+function periodStart(inv: { month: number | null; year: number }): Date {
+  return new Date(Date.UTC(inv.year, (inv.month ?? 1) - 1, 1));
 }
 
 /**
@@ -31,6 +44,7 @@ export class DocumentsService {
     private readonly audit: AuditService,
     private readonly storage: StorageService,
     private readonly pdf: PdfService,
+    private readonly invoicing: InvoicingService,
   ) {}
 
   private get db() {
@@ -41,25 +55,47 @@ export class DocumentsService {
   }
 
   async issueCertificate(input: IssueCertInput) {
-    const student = await this.db.student.findFirst({ where: { id: input.studentId } });
-    if (!student) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'Student not found');
+    assertOwnerOverride(this.ctx.user, input.overrideFeeClearance, 'fee clearance for a certificate');
+    await this.scopedStudent(input.studentId);
+    const cleared = await this.feeCleared(input.studentId);
 
-    if (input.type === 'LEAVING_CERT' && !input.overrideFeeClearance && !(await this.feeCleared(input.studentId))) {
+    // ⚠️ A FEE CLEARANCE certificate states "has cleared all outstanding fee dues". No override makes that
+    // true, so none is honoured — until 2026-09-16 this type was issued with no fee check at all.
+    if (input.type === 'FEE_CLEARANCE' && !cleared) {
+      throw new AppError(ErrorCodes.CONFLICT, HttpStatus.CONFLICT, 'This student still owes fees, so a fee clearance certificate cannot be issued');
+    }
+    // A LEAVING certificate may be released while fees are owed, by the owner, with a reason.
+    if (input.type === 'LEAVING_CERT' && !input.overrideFeeClearance && !cleared) {
       throw new AppError(ErrorCodes.CONFLICT, HttpStatus.CONFLICT, 'Unpaid invoices exist; clear fees or override (OWNER_ADMIN)');
     }
-    return this.createDocument(input.studentId, input.type as DocumentType);
+    const doc = await this.createDocument(input.studentId, input.type as DocumentType);
+    await this.audit.record({
+      action: AuditActions.CERTIFICATE_ISSUED,
+      entityType: 'Student',
+      entityId: input.studentId,
+      ...(input.reason ? { reason: input.reason } : {}),
+      newValue: { documentId: doc.id, type: input.type, overrodeFeeClearance: !!input.overrideFeeClearance && !cleared },
+    });
+    return doc;
   }
 
   async listForStudent(studentId: string) {
+    await this.scopedStudent(studentId);
     return this.db.document.findMany({ where: { studentId }, orderBy: { issuedAt: 'desc' } });
   }
 
-  /** 10-minute pre-signed GET after an ownership check (§15, §22.6). */
+  /** 10-minute pre-signed GET — after the campus check on the document's student (§15, §22.6). */
   async getUrl(id: string) {
     const doc = await this.db.document.findFirst({ where: { id } });
     if (!doc) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'Document not found');
+    // ⚠️ Authorise the STUDENT before signing anything. A document id is opaque but not secret: it
+    // appears in lists and URLs, and a link signed for it is a copy of the certificate.
+    if (doc.studentId) await this.scopedStudent(doc.studentId);
+    // Not tied to a student: there is no campus to check a campus-bound caller against, so only a
+    // school-wide admin may read it.
+    else assertCampusAccess(this.ctx.user, null);
     const url = await this.storage.presignGet(doc.fileKey, 600, `${doc.type}.pdf`);
-    return { fileKey: doc.fileKey, url, expiresInSeconds: 600 };
+    return { url, expiresInSeconds: 600 };
   }
 
   /** Student withdrawal workflow (§15). */
@@ -77,30 +113,72 @@ export class DocumentsService {
     // refused to a campus-bound caller for the same reason `getOne` refuses them.
     const campusId = student.enrollments[0]?.campusId ?? null;
     assertCampusAccess(this.ctx.user, campusId);
-    if (!input.overrideFeeClearance && !(await this.feeCleared(studentId))) {
+    if (!student.enrollments.length) {
+      throw new AppError(ErrorCodes.CONFLICT, HttpStatus.CONFLICT, 'This student is not currently enrolled');
+    }
+
+    const leftOn = input.leavingDate ? new Date(`${input.leavingDate.slice(0, 10)}T00:00:00Z`) : new Date();
+    if (leftOn.getTime() > Date.now() + 86_400_000) {
+      throw new AppError(ErrorCodes.VALIDATION_FAILED, HttpStatus.UNPROCESSABLE_ENTITY, 'The leaving date cannot be in the future');
+    }
+
+    // ⚠️ Invoices already raised for months AFTER the student left are not owed — the student was not
+    // enrolled for them. Left as they were, they aged into OVERDUE and put a family that left owing
+    // nothing on the defaulter list, which does not look at enrolment. They are closed with a waiver
+    // line whose reason says exactly why. Anything for a month that had begun stays owed: withdrawal is
+    // not a write-off (Decision D6).
+    const owing = await this.db.feeInvoice.findMany({ where: { studentId, status: { in: OWING } }, select: { id: true, month: true, year: true } });
+    const afterLeaving = owing.filter((inv) => periodStart(inv) > leftOn);
+    for (const inv of afterLeaving) {
+      await this.invoicing.waive(inv.id, { reason: `Withdrawn on ${leftOn.toISOString().slice(0, 10)}: not enrolled for this period` });
+    }
+
+    const cleared = await this.feeCleared(studentId, leftOn);
+    if (!input.overrideFeeClearance && !cleared) {
       throw new AppError(ErrorCodes.CONFLICT, HttpStatus.CONFLICT, 'Unpaid invoices exist; clear fees or override');
     }
 
-    const feeClearance = await this.createDocument(studentId, DocumentType.FEE_CLEARANCE);
+    // ⚠️ A fee clearance certificate only when fees ARE clear. Overriding lets the student leave with a
+    // balance still owed; it does not make "has cleared all outstanding fee dues" true, and until
+    // 2026-09-16 withdrawal issued that certificate anyway.
+    const feeClearance = cleared ? await this.createDocument(studentId, DocumentType.FEE_CLEARANCE) : null;
     const leavingCert = await this.createDocument(studentId, DocumentType.LEAVING_CERT);
 
     await this.db.studentEnrollment.updateMany({
       where: { studentId, status: EnrollmentStatus.ACTIVE },
-      data: { status: EnrollmentStatus.WITHDRAWN, endedAt: new Date() },
+      data: { status: EnrollmentStatus.WITHDRAWN, endedAt: leftOn },
     });
     await this.db.student.update({ where: { id: studentId }, data: { isActive: false } });
     if (student.userId) {
       await this.db.user.update({ where: { id: student.userId }, data: { status: 'DISABLED' } });
     }
 
+    // Every withdrawal is audited as what it is. The override gets its own entry, and only when fees
+    // were actually owed — previously every withdrawal was logged as WITHDRAWAL_FEE_OVERRIDE, so the log
+    // could not answer "who let a student leave owing money?".
     await this.audit.record({
-      action: AuditActions.WITHDRAWAL_FEE_OVERRIDE,
+      action: AuditActions.STUDENT_WITHDRAWN,
       entityType: 'Student',
       entityId: studentId,
       reason: input.reason,
-      newValue: { overrode: !!input.overrideFeeClearance },
+      newValue: { leavingDate: leftOn.toISOString().slice(0, 10), waivedInvoicesAfterLeaving: afterLeaving.length },
     });
-    return { feeClearanceId: feeClearance.id, leavingCertId: leavingCert.id, status: 'WITHDRAWN' };
+    if (!cleared) {
+      await this.audit.record({
+        action: AuditActions.WITHDRAWAL_FEE_OVERRIDE,
+        entityType: 'Student',
+        entityId: studentId,
+        reason: input.reason,
+        newValue: { overrode: true },
+      });
+    }
+    return {
+      feeClearanceId: feeClearance?.id ?? null,
+      leavingCertId: leavingCert.id,
+      status: 'WITHDRAWN' as const,
+      waivedInvoicesAfterLeaving: afterLeaving.length,
+      leftOwing: !cleared,
+    };
   }
 
   // ── helpers ──────────────────────────────────────────────────────────────────
@@ -125,11 +203,30 @@ export class DocumentsService {
     });
   }
 
-  private async feeCleared(studentId: string): Promise<boolean> {
-    const unpaid = await this.db.feeInvoice.findFirst({
-      where: { studentId, status: { in: [FeeInvoiceStatus.PENDING, FeeInvoiceStatus.PARTIAL, FeeInvoiceStatus.OVERDUE] } },
+  /**
+   * Does this student owe anything for a period that has BEGUN by `asOf`?
+   *
+   * ⚠️ (B6) This used to count every unpaid invoice, including one raised early for a month that had not
+   * started — so a student whose next month was already billed could not be withdrawn or given a leaving
+   * certificate without an override, for money they did not yet owe.
+   */
+  private async feeCleared(studentId: string, asOf: Date = new Date()): Promise<boolean> {
+    const unpaid = await this.db.feeInvoice.findMany({ where: { studentId, status: { in: OWING } }, select: { month: true, year: true } });
+    return !unpaid.some((inv) => periodStart(inv) <= asOf);
+  }
+
+  /**
+   * The student, after the campus check. Scoped by their most recent enrolment of ANY status — a withdrawn
+   * student has no active one, and the campus admin who withdrew them must still reach their certificate.
+   */
+  private async scopedStudent(studentId: string) {
+    const student = await this.db.student.findFirst({
+      where: { id: studentId },
+      include: { enrollments: { orderBy: { startedAt: 'desc' }, take: 1, select: { campusId: true } } },
     });
-    return !unpaid;
+    if (!student) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'Student not found');
+    assertCampusAccess(this.ctx.user, student.enrollments[0]?.campusId ?? null);
+    return student;
   }
 }
 

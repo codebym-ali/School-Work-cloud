@@ -1424,3 +1424,48 @@ so the office links them instead. Two records sharing a phone would text a house
 CNIC deliberately stays out of the contact edit: it is encrypted and read back only through the
 audited reveal. OTP routes were checked for campus scope before building on them — `loadScopedParent`
 already enforces it.
+
+## Withdrawal and issued documents: a UI job that turned out to be a security fix (2026-09-16, GAP-04/14)
+
+The plan called withdrawal "almost entirely a UI job" because the backend workflow existed. Reading the
+documents module before building on it found **an access-control hole and three integrity defects**.
+Every one was shown failing against the old code before being fixed.
+
+**Security (proven with live responses before the fix):**
+- `GET /documents?studentId=` and `GET /documents/:id/url` had **no `@Roles` and no ownership check** —
+  `getUrl` was DOCUMENTED "after an ownership check" and performed none. An accountant on campus A got
+  **200** listing a campus-B student's documents and **200** minting a download link. Now issuer roles
+  only, and campus-scoped by the student's most recent enrolment (a withdrawn student has no active one,
+  and the admin who withdrew them must still reach the certificate).
+- `issueCertificate` honoured `overrideFeeClearance` for campus admins (**201**) and had no campus check —
+  the B12 class, on a third route that 0.3 missed. ⚠️ Lesson: fix a defect CLASS by searching for every
+  instance (`grep overrideFeeClearance`), not only the instances named in the plan.
+
+**Integrity:**
+- **A FEE CLEARANCE certificate — "has cleared all outstanding fee dues" — was issued with no fee check at
+  all** (owner got **201** for a student who owed). Now refused while anything is owed, and no override
+  applies: no permission makes that sentence true.
+- **Withdrawal issued that same certificate even when the owner overrode because money WAS owed.** Now
+  issued only when fees are actually clear; the response says `leftOwing`.
+- **Invoices already raised for months after leaving stayed owed**, aged into OVERDUE, and put a family
+  that left owing nothing on the defaulter list (which does not look at enrolment). Withdrawal now closes
+  them with a WAIVER line naming the leaving date. Anything for a month that had BEGUN stays owed —
+  withdrawal is not a write-off (D6).
+- **B6:** `feeCleared` counted an invoice for a month that had not begun, blocking withdrawal for money not
+  yet owed. Now judged against the period's first day.
+
+**Also:** an office-set `leavingDate` (not in the future) drives both `endedAt` and which months are
+"after leaving"; every withdrawal is audited `STUDENT_WITHDRAWN`, with `WITHDRAWAL_FEE_OVERRIDE` only when
+fees were really owed (previously every withdrawal was logged as an override).
+
+⚠️ **Transactional ordering is load-bearing.** Future invoices are waived BEFORE the fee check, so a refused
+withdrawal must roll them back — and it does, because the whole request is one transaction and
+`AuditService` writes through the same client, so no phantom `FEE_WAIVED` row survives. Pinned by a test.
+
+⚠️ **A weak test caught in review:** the "not a defaulter after withdrawal" case passed against the OLD code
+for the wrong reason — the withdrawal was refused, so the student never left. It now asserts the 201
+first. Running new tests against the old code is what exposed it.
+
+UI: `WithdrawalCard` computes owed / after-leaving with the server's own period rule so the outcome is
+visible before confirming; only the owner sees "let them leave owing it". `IssuedDocumentsCard` offers a
+leaving certificate only for a student who has left.

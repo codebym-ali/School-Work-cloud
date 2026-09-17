@@ -58,7 +58,10 @@ const SECTIONS: Array<{ title: string; icon: IconName; tiles: Tile[] }> = [
     ],
   },
   {
-    title: 'Finance',
+    // ⚠️ "Collections", not "Finance" (GAP-10). The panel shows money IN — collected and owed — and no cost.
+    // Titled "Finance", revenue with no expense beside it reads as profit. Expense tracking is a separate,
+    // undecided scope question (Decision D5); until it exists, the label must not imply it does.
+    title: 'Collections',
     icon: 'fees',
     // Money in is `ok`; money that did not arrive is `danger`. That pairing is the whole point of
     // the section — the two numbers are the same fact from opposite ends.

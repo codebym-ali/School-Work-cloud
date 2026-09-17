@@ -184,7 +184,7 @@ export interface SmsLog {
   failReason: string | null; createdAt: string; sentAt: string | null; deliveredAt: string | null;
 }
 export interface Campus { id: string; name: string; address?: string | null }
-export interface AcademicYear { id: string; name: string; isCurrent: boolean }
+export interface AcademicYear { id: string; name: string; isCurrent: boolean; startDate: string; endDate: string }
 export interface CoverageGap {
   classId: string; className: string;
   sectionId: string; sectionName: string;
@@ -359,6 +359,25 @@ export interface CampusSummary {
   campusId: string; name: string; activeStudents: number;
   attendanceToday: { percent: number | null; marked: number; expected: number };
   collectedThisMonth: number; overdue: number; defaulters: number;
+}
+/** One student's line in a promotion preview. */
+export interface PromotionLine {
+  enrollmentId: string; studentId: string; studentName: string; fromSectionId: string;
+  outcome: 'PROMOTED' | 'RETAINED' | 'WITHDRAWN' | 'COMPLETED' | null;
+  toSectionId: string | null; toClassId: string | null; toLabel: string | null;
+  blocked: string | null; skipped: boolean;
+}
+export interface PromotionPreview {
+  targetYear: { id: string; name: string };
+  /** Pass back to `commit`; it is refused if the plan changed since. */
+  fingerprint: string;
+  requireFeeClearance: boolean;
+  sections: Array<{ sectionId: string; label: string; campus: string; lines: PromotionLine[] }>;
+  totals: { promoted: number; retained: number; withdrawn: number; completed: number; skipped: number; blocked: number };
+}
+export interface PromotionResultBody {
+  promoted: number; retained: number; withdrawn: number; completed: number; skipped: number;
+  blocked: Array<{ studentId: string; studentName: string; reason: string }>;
 }
 export interface ReportStudentOption { id: string; fullName: string; grNumber: string; isActive: boolean; placement: string | null }
 /** One activity-log entry. `actor` is the email of whoever did it; values are the recorded before/after. */
@@ -1176,6 +1195,13 @@ export const api = {
   },
   /** Campuses side by side (GAP-11). Owner and deputy only. Reversed payments are not counted as collected. */
   campusSummary: () => apiGet<CampusSummary[]>('/campuses/summary'),
+  /** Year-end promotion (GAP-03): preview writes nothing; commit applies the previewed plan atomically. */
+  promotions: {
+    plan: (body: { targetYearId: string; campusId?: string; overrides?: Array<{ studentId: string; action: 'RETAINED' | 'WITHDRAWN' }>; overridePreconditions?: boolean }) =>
+      apiPost<PromotionPreview>('/promotions/plan', body),
+    commit: (body: { targetYearId: string; campusId?: string; overrides?: Array<{ studentId: string; action: 'RETAINED' | 'WITHDRAWN' }>; overridePreconditions?: boolean; fingerprint: string; reason?: string }) =>
+      apiPost<PromotionResultBody>('/promotions/commit', body),
+  },
   /** The defaulter working list (GAP-13). Campus-scoped on the server whatever is asked. */
   defaulters: {
     list: (minDays = 0) => apiGet<Defaulter[]>(`/fees/defaulters?minDays=${minDays}`),

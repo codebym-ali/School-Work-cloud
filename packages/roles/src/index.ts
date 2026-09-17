@@ -80,6 +80,8 @@ export const NAV: NavItem[] = [
   // The cross-class view of subjects (who teaches what, where it is short, periods/week). Sits
   // beside Classes; both move into a 'School structure' group in IA5.
   { href: '/subjects', label: 'Subjects', icon: 'classes', group: 'School structure', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
+  // Year-end promotion (GAP-03). Mirrors `@Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')` on /promotions.
+  { href: '/promotion', label: 'Year-end promotion', icon: 'trend-up', group: 'School structure', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
   { href: '/attendance', label: 'Attendance', icon: 'attendance', group: 'Teaching', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'TEACHER'] },
   { href: '/leaves', label: 'Leave requests', icon: 'leaves', group: 'Teaching', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
   { href: '/my-classes', label: 'My Classes', icon: 'classes', group: 'Teaching', roles: ['TEACHER'] },

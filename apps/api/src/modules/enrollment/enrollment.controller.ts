@@ -3,7 +3,7 @@ import { Roles } from '@common';
 import { EnrollmentService } from './enrollment.service';
 import { PromotionService } from './promotion.service';
 import { EnrollmentListQuery, TransferDto } from './dto/enrollment.dto';
-import { PromoteDto } from './dto/promotion.dto';
+import { PromoteDto, PromotionCommitDto, PromotionPlanDto } from './dto/promotion.dto';
 
 @Controller('enrollments')
 export class EnrollmentController {
@@ -40,5 +40,21 @@ export class PromotionController {
   @HttpCode(HttpStatus.OK)
   promote(@Body() dto: PromoteDto) {
     return this.promotion.promote(dto);
+  }
+
+  /** What promoting this campus would do — writes nothing. Returns the fingerprint `commit` must match. */
+  @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
+  @Post('plan')
+  @HttpCode(HttpStatus.OK)
+  plan(@Body() dto: PromotionPlanDto) {
+    return this.promotion.preview(dto);
+  }
+
+  /** Apply the reviewed plan, atomically. 409 if anything changed since the preview. */
+  @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
+  @Post('commit')
+  @HttpCode(HttpStatus.OK)
+  commit(@Body() dto: PromotionCommitDto) {
+    return this.promotion.commit(dto);
   }
 }

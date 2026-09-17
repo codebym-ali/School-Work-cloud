@@ -1595,3 +1595,39 @@ prices but not set them — is told the owner sets fees.
 
 ⚠️ Caught in my own wiring: blocked classes were first matched by NAME. Two campuses can each have a
 "Grade 1", so a blocker on one would have flagged both. Matched by id.
+
+## Year-end promotion: preview, exceptions, one atomic commit (2026-09-17, GAP-03)
+
+The largest operation in a school year had an endpoint and no screen, and the endpoint could not have
+survived one. Rebuilt backend-first; `/promotion` is the screen.
+
+**Rules live in a pure planner** (`promotion-planner.ts`, 16 unit tests); the service only loads inputs
+and writes the result.
+- **B2** — the top class had no destination and errored every year. It now COMPLETES, using
+  `EnrollmentStatus.COMPLETED`, which already existed and nothing wrote — so no migration; this replaces the
+  `GRADUATED` status proposed in Decision D2. Completed and leaving students become `isActive: false`.
+- **B3** — "next class" was `order + 1`; deleting a class broke promotion out of the one below. Now the
+  next HIGHER order in the same campus.
+- **B4** — the fallback section ignored HARD capacity. Seats are counted as students are placed, shared
+  across sections (1-A and 1-B both fill Grade 2), and a student with no seat is blocked by name.
+- **B6** — fee clearance (on by default) counted invoices for months not yet begun.
+- **B1** — ~4 queries per student became a fixed nine to load, one `updateMany` per outcome and one
+  `createMany` to write. ⚠️ Not asserted by a query counter — Prisma query events need logging configured
+  at client construction, which the shared test app does not do. The bound is structural: no per-student
+  await remains.
+
+**B5/F4 — preview then commit with a fingerprint** of the decisions (not names, so a spelling fix does not
+invalidate a review). Commit recomputes and returns 409 if anything changed — pinned by admitting a
+student between preview and commit.
+
+⚠️ **Deviation from the plan, deliberately:** the plan said "commit per section, resumable". With batched
+writes a whole campus is a handful of statements, so the commit is ONE transaction over the campus —
+all-or-nothing is safer than a half-promoted campus, and a re-run skips anyone already placed. A
+concurrent double commit hits the one-ACTIVE-enrolment-per-year index and returns 409.
+
+⚠️ **The re-run trap:** a RETAINED student's new-year enrolment is ACTIVE in the same section. The source
+query must exclude the target year, or a second run moves them again.
+
+The screen lists blocked students first, and Promote stays disabled while any choice differs from the
+last preview, so the fingerprint is always of the list on screen. The original `POST /promotions` still
+works, re-implemented over the planner.

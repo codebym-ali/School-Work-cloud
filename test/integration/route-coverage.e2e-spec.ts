@@ -68,7 +68,6 @@ describe('Route coverage — every route has a UI or a listed exception (Law 3)'
     /^\/api\/v1\/students\/[^/]+\/report-cards$/,               // a student's report cards
 
     // ── Misc ─────────────────────────────────────────────────────────────────
-    /^\/api\/v1\/promotions$/,                      // year-end promotion flow
     /^\/api\/v1\/student-leaves\/[^/]+\/cancel$/,   // a student cancelling their own leave
   ];
 

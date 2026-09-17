@@ -11,7 +11,9 @@ import { destroyTenant } from '../integration/support/tenant';
  * `admin` or `administration`, and this deletes a school and everything under it — the blast
  * radius of a wrong match is the whole tenant.
  */
-const PROVISIONED_BY_SUITE = '^admin-[0-9]+$';
+// `qa<stamp>` is the Owner Gaps QA world (test/e2e/qa/qa.setup.ts) — same anchored, digits-only shape.
+// `QA_KEEP=1` leaves QA schools in place, to inspect a failed run by hand.
+const PROVISIONED_BY_SUITE = process.env.QA_KEEP === '1' ? '^admin-[0-9]+$' : '^(admin-|qa)[0-9]+$';
 
 /**
  * Retire what the suite enrolled, after every run.

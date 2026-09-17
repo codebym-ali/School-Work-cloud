@@ -43,11 +43,20 @@ export default defineConfig({
     // `platform-auth.setup.ts` (whose name contains the substring `auth.setup.ts`).
     { name: 'setup-tenant', testMatch: /[\\/]auth\.setup\.ts$/ },
     { name: 'setup-platform', testMatch: /platform-auth\.setup\.ts$/ },
+    // Owner Gaps QA Test Plan: a disposable school with two-factor-enrolled accounts (test/e2e/qa).
+    { name: 'setup-qa', testMatch: /[\\/]qa[\\/]qa\.setup\.ts$/, dependencies: ['setup-platform'] },
+    {
+      name: 'qa',
+      testMatch: /[\\/]qa[\\/].*\.spec\.ts$/,
+      use: { ...devices['Desktop Chrome'] },
+      // setup-tenant too: AUTH-02/03 read the demo owner's (unenrolled) session.
+      dependencies: ['setup-qa', 'setup-tenant'],
+    },
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'], storageState: STORAGE_STATE },
       dependencies: ['setup-tenant', 'setup-platform'],
-      testIgnore: [/[\\/]auth\.setup\.ts$/, /platform-auth\.setup\.ts$/],
+      testIgnore: [/[\\/]auth\.setup\.ts$/, /platform-auth\.setup\.ts$/, /[\\/]qa[\\/]/],
     },
   ],
 });

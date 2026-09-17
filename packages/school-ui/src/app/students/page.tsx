@@ -41,7 +41,8 @@ function StudentsInner() {
   const [search, setSearch] = useState('');
   const [adding, setAdding] = useState(false);
   const [importing, setImporting] = useState(false);
-  const [detailId, setDetailId] = useState<string | null>(null);
+  // `?student=<id>` opens a profile directly — so other screens (defaulters, activity) can link to one.
+  const [detailId, setDetailId] = useState<string | null>(params.get('student'));
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [statusFor, setStatusFor] = useState<Student | null>(null);
   const [deleteFor, setDeleteFor] = useState<Student | null>(null);

@@ -102,6 +102,8 @@ export const NAV: NavItem[] = [
   // A campus admin may READ the queue (it is their campus's money) but only the cashier and the
   // owner may verify — confirming a submission is what issues the receipt.
   { href: '/fee-claims', label: 'Payment submissions', icon: 'fee-claims', group: 'Finance', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT'] },
+  // Who owes, and who to contact about it (GAP-13). Mirrors `@Roles` on /fees/defaulters.
+  { href: '/defaulters', label: 'Defaulters', icon: 'trend-up', group: 'Finance', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT'] },
 
   // The HR manager's single home. Recruitment was removed 2026-07-30 and this role's real job
   // is owning the campus staff record, so there is one staff screen, role-shaped, rather than a

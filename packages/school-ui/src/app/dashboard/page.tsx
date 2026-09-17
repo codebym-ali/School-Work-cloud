@@ -64,7 +64,7 @@ const SECTIONS: Array<{ title: string; icon: IconName; tiles: Tile[] }> = [
     // the section — the two numbers are the same fact from opposite ends.
     tiles: [
       { key: 'monthCollections', label: 'Collections (month)', href: '/fees', icon: 'fees', tone: 'ok', money: true },
-      { key: 'defaulterCount', label: 'Defaulters', href: '/reports', icon: 'trend-up', tone: 'info', alert: (v) => v > 0, alertTone: 'danger' },
+      { key: 'defaulterCount', label: 'Defaulters', href: '/defaulters', icon: 'trend-up', tone: 'info', alert: (v) => v > 0, alertTone: 'danger' },
     ],
   },
   {

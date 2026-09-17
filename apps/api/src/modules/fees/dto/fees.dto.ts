@@ -1,5 +1,6 @@
 import { Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
   ArrayMinSize,
   IsArray,
   IsBoolean,
@@ -183,6 +184,12 @@ export class PaymentListQuery extends PaginationQuery {
    * older receipts silently disappeared from their own profile.
    */
   @IsOptional() @IsUUID() studentId?: string;
+}
+
+/** Who to remind. Ids only — amounts are resolved on the server, so the message states what is really owed. */
+export class RemindDefaultersDto {
+  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(500) @IsUUID('4', { each: true })
+  studentIds!: string[];
 }
 
 export class DefaultersQuery {

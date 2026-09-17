@@ -34,6 +34,7 @@ import {
   RejectClaimDto,
   SubmitClaimDto,
   DefaultersQuery,
+  RemindDefaultersDto,
   InvoiceListQuery,
   PayInvoiceDto,
   PaymentListQuery,
@@ -271,6 +272,13 @@ export class FeesController {
   @Get('defaulters')
   defaulters(@Query() q: DefaultersQuery) {
     return this.invoicing.defaulters(q);
+  }
+
+  /** Text the chosen defaulters' guardians. Ids in, amounts resolved on the server. (GAP-13) */
+  @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT')
+  @Post('defaulters/reminders')
+  remindDefaulters(@Body() dto: RemindDefaultersDto) {
+    return this.invoicing.remindDefaulters(dto.studentIds);
   }
 
   // Job triggers (also run by the worker cron; see §27). Ops Admin may run the defaulters sweep

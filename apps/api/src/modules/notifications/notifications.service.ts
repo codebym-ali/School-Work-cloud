@@ -191,7 +191,7 @@ export class NotificationsService {
         const v = d.visible as string[];
         if (v.includes('defaulterCount') && d.defaulterCount > 0) {
           out.push({ id: `defaulters:${d.defaulterCount}`, kind: 'DEFAULTERS', severity: 'warn', at,
-            text: `${d.defaulterCount} fee ${plural(d.defaulterCount, 'defaulter', 'defaulters')}.`, href: '/reports' });
+            text: `${d.defaulterCount} fee ${plural(d.defaulterCount, 'defaulter', 'defaulters')}.`, href: '/defaulters' });
         }
         if (v.includes('pendingLeaves') && (d.pendingLeaves ?? 0) > 0) {
           out.push({ id: `leaves-pending:${d.pendingLeaves}`, kind: 'LEAVES_PENDING', severity: 'warn', at,

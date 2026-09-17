@@ -45,6 +45,8 @@ export class SmsService {
         return this.dispatchResultReady(job);
       case 'SCHOOL_CLOSED':
         return this.dispatchSchoolClosed(job);
+      case 'FEE_REMINDER':
+        return this.dispatchFeeReminder(job);
       case 'MANUAL':
         // No dedupe key — a school may deliberately send the same broadcast twice.
         for (const to of job.recipients) await this.sendOne(to, job.body, 'MANUAL', {}, false);
@@ -102,6 +104,29 @@ export class SmsService {
       guardian.phone, body, 'SCHOOL_CLOSED', { studentId: job.studentId }, false,
       `SCHOOL_CLOSED:${job.holidayId}:${job.studentId}`,
     );
+  }
+
+  /**
+   * A fee reminder to the primary guardian.
+   *
+   * ⚠️ NOT transactional: a reminder is a nudge the guardian may opt out of, unlike a receipt for money they
+   * paid. `sendOne(..., false, …)` therefore honours opt-out and the credit balance without overdraft.
+   */
+  private async dispatchFeeReminder(job: Extract<SmsJob, { type: 'FEE_REMINDER' }>): Promise<void> {
+    const student = await this.db.student.findFirst({ where: { id: job.studentId } });
+    const guardian = await this.primaryGuardian(job.studentId);
+    if (!student || !guardian) return;
+    if (!guardian.phoneVerifiedAt) {
+      await this.logUnverified(guardian.phone, 'FEE_REMINDER', { studentId: job.studentId });
+      return;
+    }
+    const body = renderTemplate(await this.templateBody('FEE_REMINDER'), {
+      amount: job.amount.toLocaleString('en-PK'),
+      dueDate: job.dueDate,
+      studentName: student.fullName,
+      schoolName: await this.schoolName(),
+    });
+    await this.sendOne(guardian.phone, body, 'FEE_REMINDER', { studentId: job.studentId }, false, `FEE_REMINDER:${job.studentId}:${job.day}`);
   }
 
   private async dispatchLeaveStatus(job: Extract<SmsJob, { type: 'LEAVE_STATUS' }>): Promise<void> {

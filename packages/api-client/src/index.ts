@@ -348,6 +348,12 @@ export interface DirectAdmissionBody {
 }
 export type GuardianRelation = 'FATHER' | 'MOTHER' | 'GUARDIAN';
 export type IssuedDocumentType = 'LEAVING_CERT' | 'CHARACTER_CERT' | 'FEE_CLEARANCE';
+/** One defaulting student, with the guardian to contact. `canText` = verified number that has not opted out. */
+export interface Defaulter {
+  student: { id: string; fullName: string; grNumber: string };
+  outstanding: number; invoices: number; oldestDueDate: string; daysOverdue: number;
+  guardian: { name: string; relation: string; phone: string; canText: boolean } | null;
+}
 export interface ReportStudentOption { id: string; fullName: string; grNumber: string; isActive: boolean; placement: string | null }
 /** One activity-log entry. `actor` is the email of whoever did it; values are the recorded before/after. */
 export interface AuditEntry {
@@ -1161,6 +1167,13 @@ export const api = {
       apiGet<ReportStudentOption[]>(`/reports/lookups/students?q=${encodeURIComponent(q)}`, signal),
     sections: () => apiGet<Array<{ id: string; label: string; campus: string }>>('/reports/lookups/sections'),
     exams: () => apiGet<Array<{ id: string; label: string; term: string }>>('/reports/lookups/exams'),
+  },
+  /** The defaulter working list (GAP-13). Campus-scoped on the server whatever is asked. */
+  defaulters: {
+    list: (minDays = 0) => apiGet<Defaulter[]>(`/fees/defaulters?minDays=${minDays}`),
+    /** Ids only: each student's balance is re-read on the server when the reminder is queued. */
+    remind: (studentIds: string[]) =>
+      apiPost<{ queued: number; skipped: { notDefaulting: number; cannotText: number } }>('/fees/defaulters/reminders', { studentIds }),
   },
   /** Certificates the school issues (GAP-14). Campus-scoped; readable only by the roles that issue them. */
   issuedDocuments: {

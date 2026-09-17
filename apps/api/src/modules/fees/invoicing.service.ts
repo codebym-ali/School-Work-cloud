@@ -16,6 +16,7 @@ import { createHash } from 'node:crypto';
 import { AuditService, IdempotencyService, TenantPrismaService } from '@database';
 import { AccessService } from '../access/access.service';
 import { SetupService } from '../setup/setup.service';
+import { SmsProducer } from '../comms/sms/sms-producer.service';
 import { PaymentsService } from './payments.service';
 import type { CreateInvoiceBatchDto, CreateStudentInvoiceDto, DefaultersQuery, InvoiceListQuery, ReasonDto } from './dto/fees.dto';
 
@@ -31,6 +32,15 @@ interface LineItem {
 }
 
 /** Invoicing (blueprint §12): idempotent batch generation, queries, waive, defaulters. */
+export interface DefaulterRow {
+  student: { id: string; fullName: string; grNumber: string };
+  outstanding: number;
+  invoices: number;
+  oldestDueDate: Date;
+  daysOverdue: number;
+  guardian: { name: string; relation: string; phone: string; canText: boolean } | null;
+}
+
 @Injectable()
 export class InvoicingService {
   constructor(
@@ -41,6 +51,7 @@ export class InvoicingService {
     private readonly payments: PaymentsService,
     private readonly access: AccessService,
     private readonly idempotency: IdempotencyService,
+    private readonly sms: SmsProducer,
   ) {}
 
   private get db() {
@@ -442,23 +453,83 @@ export class InvoicingService {
 
   async defaulters(q: DefaultersQuery) {
     const cutoff = new Date(Date.now() - (q.minDays ?? 0) * 86400000);
+    const campusId = effectiveCampusFilter(this.ctx.user, q.campusId);
     const invoices = await this.db.feeInvoice.findMany({
       where: {
         status: { in: [FeeInvoiceStatus.PENDING, FeeInvoiceStatus.PARTIAL, FeeInvoiceStatus.OVERDUE] },
         dueDate: { lt: cutoff },
-        ...(q.campusId ? { enrollment: { campusId: q.campusId } } : {}),
+        // ⚠️ Forced for a campus-bound caller. This used the CLIENT's campusId as-is, so a campus-A accountant
+        // who sent none — or sent campus B — received another campus's defaulters: names, GR numbers and
+        // amounts owed. The reports copy of this query already forced it; this one did not.
+        ...(campusId ? { enrollment: { campusId } } : {}),
       },
-      include: { student: { select: { id: true, fullName: true, grNumber: true } } },
+      include: {
+        student: {
+          select: {
+            id: true, fullName: true, grNumber: true,
+            // The primary guardian in the SAME query — a working list resolving one guardian per row would
+            // be one query per defaulter.
+            guardians: {
+              where: { isPrimary: true },
+              take: 1,
+              select: { relation: true, parent: { select: { fullName: true, phone: true, phoneVerifiedAt: true, smsOptOut: true } } },
+            },
+          },
+        },
+      },
     });
-    const byStudent = new Map<string, { student: unknown; outstanding: number; invoices: number }>();
+    // One row per student, with everything the office needs to ACT on it — who to call, whether an SMS can
+    // reach them, and how long it has been owed — rather than a list to look people up from elsewhere.
+    const now = Date.now();
+    const byStudent = new Map<string, DefaulterRow>();
     for (const inv of invoices) {
-      const key = inv.studentId;
-      const cur = byStudent.get(key) ?? { student: inv.student, outstanding: 0, invoices: 0 };
+      const g = inv.student.guardians[0];
+      const cur = byStudent.get(inv.studentId) ?? {
+        student: { id: inv.student.id, fullName: inv.student.fullName, grNumber: inv.student.grNumber },
+        outstanding: 0, invoices: 0, oldestDueDate: inv.dueDate, daysOverdue: 0,
+        guardian: g ? {
+          name: g.parent.fullName, relation: g.relation, phone: g.parent.phone,
+          // Whether a reminder can actually arrive: SMS goes only to verified numbers that have not opted out.
+          canText: g.parent.phoneVerifiedAt !== null && !g.parent.smsOptOut,
+        } : null,
+      };
       cur.outstanding = money(cur.outstanding + Number(inv.totalAmount) - Number(inv.paidAmount));
       cur.invoices += 1;
-      byStudent.set(key, cur);
+      if (inv.dueDate < cur.oldestDueDate) cur.oldestDueDate = inv.dueDate;
+      cur.daysOverdue = Math.max(0, Math.floor((now - cur.oldestDueDate.getTime()) / 86_400_000));
+      byStudent.set(inv.studentId, cur);
     }
     return [...byStudent.values()].sort((a, b) => b.outstanding - a.outstanding);
+  }
+
+  /**
+   * Queue fee reminders for chosen defaulters (GAP-13).
+   *
+   * ⚠️ **The client sends ids, never amounts.** Each student's outstanding balance and oldest due date are
+   * re-read here from the same defaulter query the list uses, so a reminder states what is owed NOW — not
+   * what the screen showed an hour ago, and not a number anyone could edit in transit.
+   *
+   * ⚠️ **Campus scope comes from that query, not a separate check.** An id outside the caller's campus is
+   * simply not a defaulter in their view, and is reported as skipped rather than texted.
+   *
+   * One reminder per student per day: the queue job id and the dispatcher's dedupe key both carry the date,
+   * so sending the list twice in a morning costs the school nothing extra.
+   */
+  async remindDefaulters(studentIds: string[]): Promise<{ queued: number; skipped: { notDefaulting: number; cannotText: number } }> {
+    const wanted = new Set(studentIds);
+    const rows = (await this.defaulters({})).filter((r) => wanted.has(r.student.id));
+    const day = new Date().toISOString().slice(0, 10);
+    let queued = 0;
+    let cannotText = 0;
+    for (const r of rows) {
+      if (!r.guardian?.canText) { cannotText += 1; continue; }
+      await this.sms.enqueueFeeReminder({
+        type: 'FEE_REMINDER', schoolId: this.sid, studentId: r.student.id,
+        amount: r.outstanding, dueDate: r.oldestDueDate.toISOString().slice(0, 10), day,
+      });
+      queued += 1;
+    }
+    return { queued, skipped: { notDefaulting: wanted.size - rows.length, cannotText } };
   }
 
   private school() {

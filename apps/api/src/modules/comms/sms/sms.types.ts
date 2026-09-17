@@ -12,6 +12,9 @@ export type SmsJob =
    * that the moment one send failed halfway.
    */
   | { type: 'SCHOOL_CLOSED'; schoolId: string; studentId: string; holidayId: string; date: string; reason: string }
+  /** A reminder about fees owed. `amount` and `dueDate` are resolved by the SERVER when queued, never taken
+   *  from the client; `day` is the queue date, so one student is reminded at most once a day. */
+  | { type: 'FEE_REMINDER'; schoolId: string; studentId: string; amount: number; dueDate: string; day: string }
   | { type: 'MANUAL'; schoolId: string; recipients: string[]; body: string };
 
 export const SMS_QUEUE = Symbol('SMS_QUEUE');

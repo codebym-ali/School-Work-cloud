@@ -35,6 +35,14 @@ export class SmsProducer {
    * text every family twice and charge the school twice. The dispatcher dedupes on the same key at
    * send time; this stops the job ever reaching it.
    */
+  /**
+   * key fee-reminder:{studentId}:{day} — at most one reminder per student per day, however many times the
+   * list is sent. The dispatcher dedupes on the same key, so a retried job cannot charge the school twice.
+   */
+  async enqueueFeeReminder(job: Extract<SmsJob, { type: 'FEE_REMINDER' }>): Promise<void> {
+    await this.queue.add('FEE_REMINDER', job, { jobId: `fee-reminder:${job.studentId}:${job.day}` });
+  }
+
   async enqueueSchoolClosed(job: Extract<SmsJob, { type: 'SCHOOL_CLOSED' }>): Promise<void> {
     await this.queue.add('SCHOOL_CLOSED', job, { jobId: `closed:${job.holidayId}:${job.studentId}` });
   }

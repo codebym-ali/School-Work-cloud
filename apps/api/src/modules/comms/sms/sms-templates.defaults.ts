@@ -24,8 +24,10 @@ export const DEFAULT_TEMPLATES: Record<SmsTriggerKey, string> = {
     'School will be CLOSED on {date} ({reason}). - {schoolName}',
   FEE_RECEIPT:
     'Payment of Rs {amount} received for {studentName}. Receipt #{receiptNo}. - {schoolName}',
+  // ⚠️ "outstanding since", not "is due on": a reminder goes to a DEFAULTER, whose due date has passed. The old
+  // wording told a family a fee was due on a date already weeks gone. Still one GSM-7 segment.
   FEE_REMINDER:
-    'Reminder: fee of Rs {amount} for {studentName} is due on {dueDate}. - {schoolName}',
+    'Reminder: Rs {amount} fee for {studentName} is outstanding since {dueDate}. Please pay at the school office. - {schoolName}',
   RESULT_READY:
     'Result for {studentName} ({term}) is now available on the portal. - {schoolName}',
   LEAVE_STATUS: 'Leave request for {name} has been {status}. - {schoolName}',

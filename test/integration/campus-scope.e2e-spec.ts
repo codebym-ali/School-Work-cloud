@@ -449,6 +449,26 @@ describe('Campus scoping (e2e, §22.8 / P1.7)', () => {
   });
 
   /**
+   * ⚠️ `/fees/defaulters` admits CAMPUS_ADMIN and ACCOUNTANT, and the service used the CLIENT's `campusId`
+   * as-is — so a campus-bound caller who sent none, or sent another campus, got that campus's defaulters:
+   * names, GR numbers and amounts owed. Both students owe July, past due.
+   */
+  it("confines the defaulter list to the caller's campus, whatever campus they ask for", async () => {
+    const ids = (body: Array<{ student: { id: string } }>) => body.map((d) => d.student.id);
+
+    const plain = await authed('get', '/api/v1/fees/defaulters', acctCookies);
+    expect(plain.status).toBe(200);
+    expect(ids(plain.body)).toContain(studentA);
+    expect(ids(plain.body)).not.toContain(studentB);
+
+    const asked = await authed('get', `/api/v1/fees/defaulters?campusId=${campusB}`, acctCookies);
+    expect(ids(asked.body)).not.toContain(studentB);
+
+    // The owner still sees the whole school.
+    expect(ids((await authed('get', '/api/v1/fees/defaulters', ownerCookies)).body)).toEqual(expect.arrayContaining([studentA, studentB]));
+  });
+
+  /**
    * Reports without UUIDs (GAP-09). The screen asked for `studentId`, `sectionId` and `examId` as free text,
    * and three reports returned ids instead of names. The pickers' lookups live under the REPORTS roles —
    * the general student routes do not admit the accountant, who runs the fee ledger most.

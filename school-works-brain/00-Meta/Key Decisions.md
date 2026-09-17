@@ -1535,3 +1535,29 @@ returned `invoiceId`. Both sides are now names: student, GR number, class and se
 ⚠️ **Known, not fixed (separate item):** the Fees screen resolves student names from
 `/students?pageSize=100` — refused to ACCOUNTANT and truncated past 100 students. Same shape as the
 fee-card bug fixed in GAP-01.
+
+## Defaulters: a working list, a campus leak, and a reminder nothing could send (2026-09-17, GAP-13)
+
+**Leak first, proven before the fix.** `/fees/defaulters` admits CAMPUS_ADMIN and ACCOUNTANT, and
+`invoicing.defaulters()` used the client's `campusId` as-is. A campus-A accountant who sent none
+received campus B's defaulters — names, GR numbers, amounts owed (the test got both students). Now
+`effectiveCampusFilter`. ⚠️ The reports copy of this same query already forced the campus: two
+implementations of one question, one of them safe. Third instance today of "a campus-bound role on a
+route whose service trusts the client or checks nothing" (documents, payslips, audit log, defaulters).
+
+**`/defaulters` screen.** Each row carries the primary guardian, a `tel:` number, days overdue since
+the oldest due date, and **`canText`** (verified AND not opted out), resolved in the same query as the
+invoices — not one guardian lookup per row. Rows that cannot be texted cannot be ticked and say "call
+instead", because a reminder queued to them is silently dropped while the office believes the family
+was told. Dashboard tile and bell notification now point here, not at a report dropdown.
+
+**Fee reminders — the `FEE_REMINDER` template existed and NOTHING sent it.** Built the pipeline:
+job type, producer, dispatcher, `POST /fees/defaulters/reminders`.
+- ⚠️ **Ids in, never amounts.** Each balance is re-read from the defaulter query at queue time, so a list
+  left open all morning texts today's figure, and scope comes from that same query.
+- **Once per family per day**: the queue job id and the dispatcher dedupe key both carry the date.
+- **Not transactional**: a reminder honours opt-out and never overdrafts credits, unlike a receipt.
+- ⚠️ The default wording said "is due on {dueDate}" — to a DEFAULTER, whose due date is weeks past. Now
+  "is outstanding since {dueDate}".
+
+Also: `/students?student=<id>` opens a profile directly, so other screens can link to one.

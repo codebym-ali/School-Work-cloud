@@ -1,19 +1,34 @@
-import { Controller, Get, Query, Res } from '@nestjs/common';
+import { Controller, Get, HttpStatus, Query, Res } from '@nestjs/common';
 import type { Response } from 'express';
-import { IsIn, IsOptional, IsString } from 'class-validator';
+import { IsDateString, IsIn, IsInt, IsOptional, IsString, IsUUID, MaxLength, Min } from 'class-validator';
 import { Type } from 'class-transformer';
-import { Roles } from '@common';
+import { AppError, ErrorCodes, Roles } from '@common';
 import { ReportsService } from './reports.service';
 
+/**
+ * ⚠️ Ids are validated as UUIDs and dates as dates. They were plain strings, so a missing or mistyped id
+ * reached Prisma as `''` and came back as a 500 — which the Reports screen, whose id boxes were free text,
+ * made the common case.
+ */
+class LookupQuery {
+  @IsOptional() @IsString() @MaxLength(60) q?: string;
+}
+
+/** A report that cannot run without a parameter says which, instead of failing further down. */
+function required(value: string | undefined, label: string): string {
+  if (!value) throw new AppError(ErrorCodes.VALIDATION_FAILED, HttpStatus.BAD_REQUEST, `Choose a ${label} to run this report`);
+  return value;
+}
+
 class ReportQuery {
-  @IsOptional() @IsString() date?: string;
-  @IsOptional() @IsString() studentId?: string;
-  @IsOptional() @IsString() sectionId?: string;
-  @IsOptional() @IsString() from?: string;
-  @IsOptional() @IsString() to?: string;
-  @IsOptional() @IsString() campusId?: string;
-  @IsOptional() @IsString() examId?: string;
-  @IsOptional() @Type(() => Number) minDays?: number;
+  @IsOptional() @IsDateString() date?: string;
+  @IsOptional() @IsUUID() studentId?: string;
+  @IsOptional() @IsUUID() sectionId?: string;
+  @IsOptional() @IsDateString() from?: string;
+  @IsOptional() @IsDateString() to?: string;
+  @IsOptional() @IsUUID() campusId?: string;
+  @IsOptional() @IsUUID() examId?: string;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(0) minDays?: number;
 
   @IsOptional() @IsIn(['json', 'csv', 'pdf'])
   format?: 'json' | 'csv' | 'pdf';
@@ -35,12 +50,12 @@ export class ReportsController {
 
   @Get('fee-ledger')
   async feeLedger(@Query() q: ReportQuery, @Res() res: Response) {
-    return this.render(res, q.format, 'Fee Ledger', await this.reports.feeLedger(q.studentId ?? ''));
+    return this.render(res, q.format, 'Fee Ledger', await this.reports.feeLedger(required(q.studentId, 'student')));
   }
 
   @Get('attendance-register')
   async attendanceRegister(@Query() q: ReportQuery, @Res() res: Response) {
-    return this.render(res, q.format, 'Attendance Register', await this.reports.attendanceRegister(q.sectionId ?? '', q.from ?? today(), q.to ?? today()));
+    return this.render(res, q.format, 'Attendance Register', await this.reports.attendanceRegister(required(q.sectionId, 'section'), q.from ?? today(), q.to ?? today()));
   }
 
   @Get('class-strength')
@@ -55,7 +70,29 @@ export class ReportsController {
 
   @Get('exam-summary')
   async examSummary(@Query() q: ReportQuery, @Res() res: Response) {
-    return this.render(res, q.format, 'Exam Summary', await this.reports.examSummary(q.examId ?? ''));
+    return this.render(res, q.format, 'Exam Summary', await this.reports.examSummary(required(q.examId, 'exam')));
+  }
+
+  /**
+   * Pickers for the Reports screen (GAP-09), so nobody types a UUID.
+   *
+   * ⚠️ Under the REPORTS roles on purpose. The general `/students`, `/sections` and `/exams` routes do not
+   * admit ACCOUNTANT — so a picker built on them would work for the owner and silently show nothing to the
+   * accountant, who runs the fee ledger more than anyone. Campus-scoped like the reports themselves.
+   */
+  @Get('lookups/students')
+  lookupStudents(@Query() q: LookupQuery) {
+    return this.reports.lookupStudents(q.q ?? '');
+  }
+
+  @Get('lookups/sections')
+  lookupSections() {
+    return this.reports.lookupSections();
+  }
+
+  @Get('lookups/exams')
+  lookupExams() {
+    return this.reports.lookupExams();
   }
 
   @Get('sms-usage')

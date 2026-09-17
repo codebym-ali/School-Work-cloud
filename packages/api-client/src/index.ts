@@ -17,7 +17,7 @@ function csrfToken(): string {
   return m ? decodeURIComponent(m[1]) : '';
 }
 
-async function request<T>(path: string, opts: { method?: string; body?: unknown; headers?: Record<string, string> } = {}): Promise<T> {
+async function request<T>(path: string, opts: { method?: string; body?: unknown; headers?: Record<string, string>; signal?: AbortSignal } = {}): Promise<T> {
   const method = opts.method ?? 'GET';
   const headers: Record<string, string> = { 'Content-Type': 'application/json', ...opts.headers };
   if (method !== 'GET') headers['X-CSRF-Token'] = csrfToken();
@@ -27,6 +27,7 @@ async function request<T>(path: string, opts: { method?: string; body?: unknown;
     headers,
     credentials: 'include',
     body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
+    signal: opts.signal,
   });
 
   const data = res.status === 204 ? null : await res.json().catch(() => null);
@@ -37,7 +38,12 @@ async function request<T>(path: string, opts: { method?: string; body?: unknown;
   return data as T;
 }
 
-export const apiGet = <T>(path: string) => request<T>(path);
+/**
+ * `signal` lets a caller cancel a read it no longer wants. A typeahead needs it: without cancellation a slow
+ * response for "Al" can land after the fast one for "Ali" and overwrite the right answer. Debounce alone
+ * narrows that window; it does not close it.
+ */
+export const apiGet = <T>(path: string, signal?: AbortSignal) => request<T>(path, { signal });
 export const apiPost = <T>(path: string, body?: unknown, headers?: Record<string, string>) =>
   request<T>(path, { method: 'POST', body, headers });
 export const apiPut = <T>(path: string, body?: unknown) => request<T>(path, { method: 'PUT', body });
@@ -342,6 +348,7 @@ export interface DirectAdmissionBody {
 }
 export type GuardianRelation = 'FATHER' | 'MOTHER' | 'GUARDIAN';
 export type IssuedDocumentType = 'LEAVING_CERT' | 'CHARACTER_CERT' | 'FEE_CLEARANCE';
+export interface ReportStudentOption { id: string; fullName: string; grNumber: string; isActive: boolean; placement: string | null }
 /** One activity-log entry. `actor` is the email of whoever did it; values are the recorded before/after. */
 export interface AuditEntry {
   id: string; action: string; entityType: string; entityId: string; userId: string;
@@ -1144,6 +1151,16 @@ export const api = {
       const qs = new URLSearchParams(Object.entries(q).filter(([, v]) => v !== undefined && v !== '').map(([k, v]) => [k, String(v)]));
       return apiGet<{ data: AuditEntry[]; nextCursor: string | null }>(`/audit-logs?${qs}`);
     },
+  },
+  /**
+   * Pickers for the Reports screen (GAP-09). Served under the reports' own roles, so they work for the
+   * accountant too — the general student/section/exam routes do not admit that role.
+   */
+  reportLookups: {
+    students: (q: string, signal?: AbortSignal) =>
+      apiGet<ReportStudentOption[]>(`/reports/lookups/students?q=${encodeURIComponent(q)}`, signal),
+    sections: () => apiGet<Array<{ id: string; label: string; campus: string }>>('/reports/lookups/sections'),
+    exams: () => apiGet<Array<{ id: string; label: string; term: string }>>('/reports/lookups/exams'),
   },
   /** Certificates the school issues (GAP-14). Campus-scoped; readable only by the roles that issue them. */
   issuedDocuments: {

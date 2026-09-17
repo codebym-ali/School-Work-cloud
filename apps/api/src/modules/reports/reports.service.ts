@@ -51,15 +51,21 @@ export class ReportsService {
         paidAt: { gte: day, lt: next },
         ...(restricted ? { invoice: { enrollment: { campusId: restricted } } } : {}),
       },
+      include: { invoice: { select: { student: { select: { fullName: true, grNumber: true } } } } },
       orderBy: { receiptNo: 'asc' },
     });
-    return payments.map((p) => ({ receiptNo: p.receiptNo, amountPaid: Number(p.amountPaid), method: p.method, transactionRef: p.transactionRef, paidAt: p.paidAt }));
+    // Who paid, not only a receipt number — a collection sheet the cashier cannot reconcile by name is half a sheet.
+    return payments.map((p) => ({
+      receiptNo: p.receiptNo, student: p.invoice.student.fullName, grNumber: p.invoice.student.grNumber,
+      amountPaid: Number(p.amountPaid), method: p.method, transactionRef: p.transactionRef, paidAt: p.paidAt,
+    }));
   }
 
   async feeLedger(studentId: string): Promise<Row[]> {
     const invoices = await this.db.feeInvoice.findMany({ where: { studentId, ...this.campusEnrollmentFilter }, include: { payments: true }, orderBy: { createdAt: 'asc' } });
     return invoices.map((i) => ({
-      invoiceId: i.id, month: i.month, year: i.year, total: Number(i.totalAmount), paid: Number(i.paidAmount),
+      period: i.month ? `${i.month}/${i.year}` : String(i.year), total: Number(i.totalAmount), paid: Number(i.paidAmount),
+      balance: Math.max(Math.round((Number(i.totalAmount) - Number(i.paidAmount)) * 100) / 100, 0),
       status: i.status, dueDate: i.dueDate, payments: i.payments.length,
     }));
   }
@@ -71,9 +77,13 @@ export class ReportsService {
         enrollment: { sectionId, ...(restricted ? { campusId: restricted } : {}) },
         date: { gte: new Date(from), lte: new Date(to) },
       },
+      include: { enrollment: { select: { rollNumber: true, student: { select: { fullName: true, grNumber: true } } } } },
       orderBy: [{ date: 'asc' }],
     });
-    return records.map((r) => ({ enrollmentId: r.enrollmentId, date: r.date, session: r.session, status: r.status }));
+    return records.map((r) => ({
+      date: r.date, student: r.enrollment.student.fullName, grNumber: r.enrollment.student.grNumber,
+      roll: r.enrollment.rollNumber, session: r.session, status: r.status,
+    }));
   }
 
   async classStrength(): Promise<Row[]> {
@@ -85,7 +95,18 @@ export class ReportsService {
       where: { academicYearId: year.id, status: 'ACTIVE', ...(restricted ? { campusId: restricted } : {}) },
       _count: { _all: true },
     });
-    return grouped.map((g) => ({ classId: g.classId, sectionId: g.sectionId, activeStudents: g._count._all }));
+    // Names, not ids, ordered as the school orders its classes. The ids alone made this — the report an owner
+    // reads every term — a table of UUIDs.
+    const [classes, sections] = await Promise.all([
+      this.db.class.findMany({ where: { id: { in: [...new Set(grouped.map((g) => g.classId))] } }, select: { id: true, name: true, order: true } }),
+      this.db.section.findMany({ where: { id: { in: [...new Set(grouped.map((g) => g.sectionId))] } }, select: { id: true, name: true } }),
+    ]);
+    const cls = new Map(classes.map((c) => [c.id, c]));
+    const sec = new Map(sections.map((s) => [s.id, s.name]));
+    return grouped
+      .map((g) => ({ order: cls.get(g.classId)?.order ?? 0, class: cls.get(g.classId)?.name ?? '—', section: sec.get(g.sectionId) ?? '—', activeStudents: g._count._all }))
+      .sort((a, b) => a.order - b.order || a.section.localeCompare(b.section))
+      .map(({ order: _order, ...row }) => row);
   }
 
   async defaulters(campusId?: string, minDays = 0): Promise<Row[]> {
@@ -98,7 +119,7 @@ export class ReportsService {
     });
     const byStudent = new Map<string, Row & { outstanding: number }>();
     for (const inv of invoices) {
-      const cur = (byStudent.get(inv.studentId) as (Row & { outstanding: number }) | undefined) ?? { studentId: inv.studentId, name: inv.student.fullName, grNumber: inv.student.grNumber, outstanding: 0 };
+      const cur = (byStudent.get(inv.studentId) as (Row & { outstanding: number }) | undefined) ?? { name: inv.student.fullName, grNumber: inv.student.grNumber, outstanding: 0 };
       cur.outstanding = Math.round((cur.outstanding + Number(inv.totalAmount) - Number(inv.paidAmount)) * 100) / 100;
       byStudent.set(inv.studentId, cur);
     }
@@ -106,11 +127,68 @@ export class ReportsService {
   }
 
   async examSummary(examId: string): Promise<Row[]> {
-    const results = await this.db.examResult.findMany({ where: { examId, ...this.campusEnrollmentFilter }, include: { subject: { select: { name: true } } } });
-    return results.map((r) => ({
-      enrollmentId: r.enrollmentId, subject: r.subject.name,
-      marksObtained: r.isAbsent ? 'ABS' : Number(r.marksObtained), totalMarks: Number(r.totalMarks), isAbsent: r.isAbsent,
+    const results = await this.db.examResult.findMany({
+      where: { examId, ...this.campusEnrollmentFilter },
+      include: { subject: { select: { name: true } }, enrollment: { select: { student: { select: { fullName: true, grNumber: true } } } } },
+    });
+    return results
+      .map((r) => ({
+        student: r.enrollment.student.fullName, grNumber: r.enrollment.student.grNumber, subject: r.subject.name,
+        marksObtained: r.isAbsent ? 'ABS' : Number(r.marksObtained), totalMarks: Number(r.totalMarks),
+      }))
+      .sort((a, b) => a.student.localeCompare(b.student) || a.subject.localeCompare(b.subject));
+  }
+
+  // ── Report pickers ───────────────────────────────────────────────────────────
+  /**
+   * Students by name or GR number, for the fee-ledger picker. At least two characters: a one-letter search
+   * matches most of the school and is not a search. Name matching uses the `students_full_name_trgm` GIN
+   * index (ILIKE is index-backed with pg_trgm), so it stays an index lookup as the school grows. Includes
+   * students who have left — a fee ledger is most often wanted for exactly them.
+   */
+  async lookupStudents(q: string) {
+    const term = q.trim();
+    if (term.length < 2) return [];
+    const restricted = restrictedCampusId(this.ctx.user);
+    const rows = await this.db.student.findMany({
+      where: {
+        deletedAt: null,
+        OR: [{ fullName: { contains: term, mode: 'insensitive' } }, { grNumber: { startsWith: term, mode: 'insensitive' } }],
+        ...(restricted ? { enrollments: { some: { campusId: restricted } } } : {}),
+      },
+      select: {
+        id: true, fullName: true, grNumber: true, isActive: true,
+        enrollments: { orderBy: { startedAt: 'desc' }, take: 1, select: { class: { select: { name: true } }, section: { select: { name: true } } } },
+      },
+      orderBy: { fullName: 'asc' },
+      take: 20,
+    });
+    return rows.map((s) => ({
+      id: s.id, fullName: s.fullName, grNumber: s.grNumber, isActive: s.isActive,
+      placement: s.enrollments[0] ? `${s.enrollments[0].class.name} ${s.enrollments[0].section.name}` : null,
     }));
+  }
+
+  async lookupSections() {
+    const restricted = restrictedCampusId(this.ctx.user);
+    const rows = await this.db.section.findMany({
+      where: restricted ? { class: { campusId: restricted } } : {},
+      select: { id: true, name: true, class: { select: { name: true, order: true, campus: { select: { name: true } } } } },
+    });
+    return rows
+      .sort((a, b) => a.class.campus.name.localeCompare(b.class.campus.name) || a.class.order - b.class.order || a.name.localeCompare(b.name))
+      .map((s) => ({ id: s.id, label: `${s.class.name} ${s.name}`, campus: s.class.campus.name }));
+  }
+
+  async lookupExams() {
+    const restricted = restrictedCampusId(this.ctx.user);
+    const rows = await this.db.examDefinition.findMany({
+      where: restricted ? { class: { campusId: restricted } } : {},
+      select: { id: true, name: true, class: { select: { name: true, order: true } }, term: { select: { name: true } } },
+    });
+    return rows
+      .sort((a, b) => a.class.order - b.class.order || a.name.localeCompare(b.name))
+      .map((e) => ({ id: e.id, label: `${e.name} — ${e.class.name}`, term: e.term.name }));
   }
 
   async smsUsage(from?: string, to?: string): Promise<Row[]> {

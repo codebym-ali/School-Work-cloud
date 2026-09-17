@@ -1511,3 +1511,27 @@ skip — which fails against the old offset code.
 
 The UI says "Load older", never page numbers, and states that campus admins see their own campus's
 people, so an owner's action missing from their view reads as scope rather than a gap in the record.
+
+## Reports ask for things by name and answer in names (2026-09-17, GAP-09 / F2)
+
+The Reports screen labelled every parameter with its field name and made each a text box, so three of
+seven reports (fee ledger, attendance register, exam summary) needed a UUID no screen ever shows. And
+the outputs had the same disease: **class strength — the report an owner reads every term — returned
+bare `classId`/`sectionId`**; attendance register and exam summary returned `enrollmentId`; fee ledger
+returned `invoiceId`. Both sides are now names: student, GR number, class and section, period, balance.
+
+- **Pickers** — `StudentPicker` (plan foundation F2): server typeahead over the existing
+  `students_full_name_trgm` GIN index, 2-character minimum, 250 ms debounce, AND an `AbortController`.
+  ⚠️ Debounce alone does not stop a slow response for "Al" landing after "Ali" and overwriting it;
+  cancellation does. `apiGet` gained an optional `signal` for this.
+- ⚠️ **The lookups live under the REPORTS roles** (`/reports/lookups/{students,sections,exams}`), not on
+  `/students`, because the general routes do not admit ACCOUNTANT — a picker built on them would work for
+  the owner and silently return nothing to the person who runs the fee ledger most. Campus-scoped;
+  student lookup includes pupils who have left, since a ledger is most often wanted for exactly them.
+- **Validation** — ids are `@IsUUID`, dates `@IsDateString`. They were `@IsString`, so a missing id reached
+  Prisma as `''` and came back as a 500. A required parameter now returns 400 "Choose a student…", and
+  the screen disables View and Download until it is chosen.
+
+⚠️ **Known, not fixed (separate item):** the Fees screen resolves student names from
+`/students?pageSize=100` — refused to ACCOUNTANT and truncated past 100 students. Same shape as the
+fee-card bug fixed in GAP-01.

@@ -449,6 +449,58 @@ describe('Campus scoping (e2e, §22.8 / P1.7)', () => {
   });
 
   /**
+   * Reports without UUIDs (GAP-09). The screen asked for `studentId`, `sectionId` and `examId` as free text,
+   * and three reports returned ids instead of names. The pickers' lookups live under the REPORTS roles —
+   * the general student routes do not admit the accountant, who runs the fee ledger most.
+   */
+  describe('report pickers and outputs', () => {
+    const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+    it('lets the accountant find students — on their own campus only', async () => {
+      const alice = await authed('get', '/api/v1/reports/lookups/students?q=Alice', acctCookies);
+      expect(alice.status).toBe(200);
+      expect(alice.body.map((s: { id: string }) => s.id)).toContain(studentA);
+
+      const bob = await authed('get', '/api/v1/reports/lookups/students?q=Bob', acctCookies);
+      expect(bob.body).toEqual([]); // Bob is on campus B
+
+      // One character is not a search — it would match most of the school.
+      expect((await authed('get', '/api/v1/reports/lookups/students?q=A', acctCookies)).body).toEqual([]);
+    });
+
+    it("scopes the section picker to the reader's campus", async () => {
+      const ids = (await authed('get', '/api/v1/reports/lookups/sections', adminCookies)).body.map((s: { id: string }) => s.id);
+      expect(ids).toContain(sectionA);
+      expect(ids).not.toContain(sectionB);
+    });
+
+    it('asks for a missing student instead of failing with a 500', async () => {
+      const none = await authed('get', '/api/v1/reports/fee-ledger', ownerCookies);
+      expect(none.status).toBe(400);
+      expect(none.body.error.message).toMatch(/choose a student/i);
+      expect((await authed('get', '/api/v1/reports/fee-ledger?studentId=not-an-id', ownerCookies)).status).toBe(400);
+    });
+
+    it('returns names, not ids — class strength was a table of UUIDs', async () => {
+      const res = await authed('get', '/api/v1/reports/class-strength', ownerCookies);
+      expect(res.status).toBe(200);
+      expect(res.body.length).toBeGreaterThan(0);
+      for (const row of res.body as Array<Record<string, unknown>>) {
+        expect(Object.keys(row)).toEqual(['class', 'section', 'activeStudents']);
+        for (const v of Object.values(row)) expect(String(v)).not.toMatch(UUID);
+      }
+    });
+
+    it('shows the fee ledger by period and balance, with no invoice id', async () => {
+      const res = await authed('get', `/api/v1/reports/fee-ledger?studentId=${studentA}`, acctCookies);
+      expect(res.status).toBe(200);
+      expect(res.body[0]).toMatchObject({ period: '7/2026' });
+      expect(res.body[0]).toHaveProperty('balance');
+      expect(res.body[0]).not.toHaveProperty('invoiceId');
+    });
+  });
+
+  /**
    * ⚠️ A payslip is salary data. `payslipPdf` treated ANY campus admin as an admin, with no campus check,
    * so a campus-A admin could download a campus-B teacher's salary slip. Found sweeping every presigned-URL
    * route after the documents hole (2026-09-16).

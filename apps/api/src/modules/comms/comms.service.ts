@@ -1,8 +1,10 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { HttpStatus, Inject, Injectable } from '@nestjs/common';
-import { SmsStatus } from '@prisma/client';
+import { EnrollmentStatus, SmsStatus } from '@prisma/client';
 import {
   AppError,
+  AuditActions,
+  effectiveCampusFilter,
   ENV,
   ErrorCodes,
   paginate,
@@ -11,12 +13,13 @@ import {
   type Env,
   type Paginated,
 } from '@common';
-import { PlatformPrismaService, TenantPrismaService } from '@database';
+import { AuditService, PlatformPrismaService, TenantPrismaService } from '@database';
+import { chunk, resolveAudience } from './broadcast/broadcast-audience';
 import { CreditsService } from './sms/credits.service';
 import { SmsProducer } from './sms/sms-producer.service';
 import { computeSegments } from './sms/sms-segments';
 import { DEFAULT_TEMPLATES, SMS_TRIGGER_KEYS } from './sms/sms-templates.defaults';
-import type { ManualSendDto, SmsLogQuery, SmsWebhookDto, UpsertTemplateDto } from './dto/comms.dto';
+import type { BroadcastAudienceDto, BroadcastSendDto, ManualSendDto, SmsLogQuery, SmsWebhookDto, UpsertTemplateDto } from './dto/comms.dto';
 
 /** API-facing comms operations (blueprint §14, §24): templates, logs, credits, manual send, webhooks. */
 @Injectable()
@@ -27,6 +30,7 @@ export class CommsService {
     private readonly ctx: TenantContext,
     private readonly credits: CreditsService,
     private readonly producer: SmsProducer,
+    private readonly audit: AuditService,
     @Inject(ENV) private readonly env: Env,
   ) {}
 
@@ -88,6 +92,91 @@ export class CommsService {
       body: dto.body,
     });
     return { recipients: dto.recipients.length, estimatedSegments: perMessage * dto.recipients.length };
+  }
+
+  // ── Broadcast (GAP-15) ─────────────────────────────────────────────────────────
+  /**
+   * Resolve a broadcast's audience on the SERVER: active students in scope, their primary guardian, one
+   * phone per family, verified and not opted out. The client never sends phone numbers.
+   *
+   * ⚠️ Campus is forced for a campus-bound caller, and class/section only narrow WITHIN it — a campus-A admin
+   * naming a campus-B section gets an audience of zero, not campus B's parents.
+   */
+  private async audience(dto: BroadcastAudienceDto) {
+    const campusId = effectiveCampusFilter(this.ctx.user, dto.campusId);
+    const enrollments = await this.db.studentEnrollment.findMany({
+      where: {
+        status: EnrollmentStatus.ACTIVE,
+        student: { deletedAt: null },
+        ...(campusId ? { campusId } : {}),
+        ...(dto.classId ? { classId: dto.classId } : {}),
+        ...(dto.sectionId ? { sectionId: dto.sectionId } : {}),
+      },
+      select: {
+        studentId: true,
+        student: {
+          select: {
+            guardians: {
+              where: { isPrimary: true },
+              take: 1,
+              select: { parent: { select: { phone: true, phoneVerifiedAt: true, smsOptOut: true } } },
+            },
+          },
+        },
+      },
+    });
+    return resolveAudience(enrollments.map((e) => {
+      const p = e.student.guardians[0]?.parent;
+      return { studentId: e.studentId, guardian: p ? { phone: p.phone, verified: p.phoneVerifiedAt !== null, optedOut: p.smsOptOut } : null };
+    }));
+  }
+
+  async previewBroadcast(dto: BroadcastAudienceDto) {
+    const a = await this.audience(dto);
+    const segmentsPerMessage = computeSegments(dto.body).segments;
+    const totalSegments = segmentsPerMessage * a.recipients.length;
+    const balance = await this.credits.balance();
+    return {
+      students: a.students, recipients: a.recipients.length, skipped: a.skipped,
+      segmentsPerMessage, totalSegments, balance, enoughCredits: balance >= totalSegments,
+    };
+  }
+
+  /**
+   * ⚠️ **All or nothing on credits.** A broadcast is not critical, so each send past the balance would fail
+   * on its own — half of Class 5 told school is closed tomorrow, half not. Refused up front instead.
+   */
+  async sendBroadcast(dto: BroadcastSendDto) {
+    const a = await this.audience(dto);
+    if (a.recipients.length === 0) {
+      throw new AppError(ErrorCodes.VALIDATION_FAILED, HttpStatus.BAD_REQUEST, 'No family in this audience can receive an SMS');
+    }
+    if (a.recipients.length !== dto.expectedRecipients) {
+      throw new AppError(ErrorCodes.CONFLICT, HttpStatus.CONFLICT,
+        `The audience changed: it now reaches ${a.recipients.length} families, not ${dto.expectedRecipients}. Check it again before sending.`);
+    }
+    const segmentsPerMessage = computeSegments(dto.body).segments;
+    const totalSegments = segmentsPerMessage * a.recipients.length;
+    const balance = await this.credits.balance();
+    if (balance < totalSegments) {
+      throw new AppError(ErrorCodes.INSUFFICIENT_SMS_CREDITS, HttpStatus.CONFLICT,
+        `This needs ${totalSegments} SMS credits and the school has ${balance}. Nothing was sent.`);
+    }
+    const schoolId = this.ctx.requireSchoolId();
+    // Audit first: the queue sits outside the transaction, so if the audit write fails nothing is queued.
+    await this.audit.record({
+      action: AuditActions.SMS_BROADCAST_SENT,
+      entityType: 'SmsBroadcast',
+      entityId: schoolId,
+      newValue: {
+        audience: { campusId: effectiveCampusFilter(this.ctx.user, dto.campusId) ?? null, classId: dto.classId ?? null, sectionId: dto.sectionId ?? null },
+        recipients: a.recipients.length, skipped: a.skipped, totalSegments, body: dto.body,
+      },
+    });
+    for (const recipients of chunk(a.recipients, 100)) {
+      await this.producer.enqueueManual({ type: 'MANUAL', schoolId, recipients, body: dto.body });
+    }
+    return { queued: a.recipients.length, skipped: a.skipped, totalSegments };
   }
 
   async retry(logId: string): Promise<void> {

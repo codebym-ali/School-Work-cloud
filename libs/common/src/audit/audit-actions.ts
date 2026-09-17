@@ -141,6 +141,9 @@ export const AuditActions = {
   // moved, not two unrelated permissions.
   ADMISSION_OFFICER_ASSIGNED: 'ADMISSION_OFFICER_ASSIGNED',
   ADMISSION_OFFICER_REMOVED: 'ADMISSION_OFFICER_REMOVED',
+
+  // A text to many families at once (GAP-15): who chose the audience, what it said, how many it reached.
+  SMS_BROADCAST_SENT: 'SMS_BROADCAST_SENT',
 } as const;
 
 export type AuditAction = (typeof AuditActions)[keyof typeof AuditActions];

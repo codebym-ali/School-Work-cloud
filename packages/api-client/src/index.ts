@@ -380,6 +380,13 @@ export interface PromotionResultBody {
   blocked: Array<{ studentId: string; studentName: string; reason: string }>;
 }
 /** One salary structure. A raise is a NEW structure from a date; payroll uses whichever is in force. */
+/** What a broadcast would reach and cost, before anything is spent (GAP-15). */
+export interface BroadcastPreview {
+  students: number; recipients: number;
+  skipped: { noGuardian: number; unverified: number; optedOut: number };
+  segmentsPerMessage: number; totalSegments: number; balance: number; enoughCredits: boolean;
+}
+export type BroadcastAudience = { campusId?: string; classId?: string; sectionId?: string; body: string };
 export interface SalaryStructure {
   id: string; staffId: string; basic: string; effectiveFrom: string;
   allowances: Record<string, number> | null; fixedDeductions: Record<string, number> | null;
@@ -1082,6 +1089,9 @@ export const api = {
       return apiGet<Paged<SmsLog>>(`/sms/logs${s ? `?${s}` : ''}`);
     },
     retry: (id: string) => apiPost<void>(`/sms/logs/${id}/retry`, {}),
+    previewBroadcast: (a: BroadcastAudience) => apiPost<BroadcastPreview>('/sms/broadcast/preview', a),
+    broadcast: (a: BroadcastAudience & { expectedRecipients: number }) =>
+      apiPost<{ queued: number; totalSegments: number; skipped: BroadcastPreview['skipped'] }>('/sms/broadcast', a),
   },
   bellSchedules: {
     list: () => apiGet<{ academicYearId: string; schedules: BellSchedule[] }>('/bell-schedules'),

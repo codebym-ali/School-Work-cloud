@@ -1639,3 +1639,10 @@ works, re-implemented over the planner.
 - Security fix shipped with it: `GET /staff/:id/salary-structures` had no `@Roles`, so teachers could read colleagues' salaries.
 - Draft runs block their month until discarded; approved runs cannot be discarded; mark-paid refuses a second time (409); concurrent drafts of one month → one run, 409 not 500.
 - My Payslips empty state now explains payslips appear once the school approves a month.
+
+## SMS broadcast by audience (GAP-15, 2026-09-17)
+- `POST /sms/broadcast/preview` + `POST /sms/broadcast` (OWNER_ADMIN, CAMPUS_ADMIN). Audience = active students in campus/class/section → primary guardian → one phone per family; verified and NOT opted out. The client never sends phone numbers.
+- Campus is forced for campus-bound callers; class/section only narrow within it.
+- Send carries `expectedRecipients` from the preview; a changed audience → 409. Credits short → 409 INSUFFICIENT_SMS_CREDITS and nothing queued (no half-sent broadcasts). Audited as SMS_BROADCAST_SENT with body and counts. Queued in chunks of 100.
+- Counting rules are a pure function (`comms/broadcast/broadcast-audience.ts`, unit-tested).
+- ⚠️ Found, not fixed here: `SmsService` dispatchers (SCHOOL_CLOSED, ABSENCE, MANUAL via /sms/send and retry) never check `smsOptOut`; only broadcast and fee reminders honour it.

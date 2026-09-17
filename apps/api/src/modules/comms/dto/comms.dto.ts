@@ -1,4 +1,4 @@
-import { IsArray, IsIn, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import { IsArray, IsIn, IsInt, IsOptional, IsString, IsUUID, MaxLength, Min, MinLength } from 'class-validator';
 import { PaginationQuery } from '@common';
 import { SMS_TRIGGER_KEYS, type SmsTriggerKey } from '../sms/sms-templates.defaults';
 
@@ -17,6 +17,26 @@ export class ManualSendDto {
 
   @IsString() @MinLength(1) @MaxLength(1000)
   body!: string;
+}
+
+/** Who a broadcast goes to. Omit everything for the whole school (a campus-bound caller is forced to theirs). */
+export class BroadcastAudienceDto {
+  @IsOptional() @IsUUID() campusId?: string;
+  @IsOptional() @IsUUID() classId?: string;
+  @IsOptional() @IsUUID() sectionId?: string;
+
+  // Four segments of plain text. A broadcast longer than that is a letter, and costs like one.
+  @IsString() @MinLength(1) @MaxLength(612)
+  body!: string;
+}
+
+export class BroadcastSendDto extends BroadcastAudienceDto {
+  /**
+   * The family count the sender was SHOWN. If the audience changed between preview and send (a class
+   * admitted ten students), the send is refused so nobody pays for a number they did not agree to.
+   */
+  @IsInt() @Min(1)
+  expectedRecipients!: number;
 }
 
 export class SmsLogQuery extends PaginationQuery {

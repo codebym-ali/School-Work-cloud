@@ -5,6 +5,7 @@ import { api, ApiError, type SmsLog, type SmsTemplate } from '@sw/api-client';
 import { useMe } from '@sw/session';
 import { isSchoolWideAdmin } from '@sw/roles';
 import { Metric } from '@sw/ui';
+import { BroadcastCard } from './broadcast-card';
 
 /**
  * SMS & notifications (§14).
@@ -91,6 +92,8 @@ export default function SmsPage() {
         <Metric label="Templates" value={templates.length} />
         <Metric label="Recent failures" value={failed} alert={failed > 0} />
       </div>
+
+      <BroadcastCard onSent={(text) => { setMsg({ ok: true, text }); api.sms.credits().then((c) => setBalance(c.balance)).catch(() => {}); loadLogs(); }} />
 
       <div className="card stack" style={{ gap: 8 }}>
         <div className="section-title" style={{ margin: 0 }}>Templates</div>

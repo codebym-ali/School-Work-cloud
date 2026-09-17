@@ -12,7 +12,7 @@ import {
 } from '@nestjs/common';
 import { Public, Roles } from '@common';
 import { CommsService } from './comms.service';
-import { ManualSendDto, SmsLogQuery, SmsWebhookDto, UpsertTemplateDto } from './dto/comms.dto';
+import { BroadcastAudienceDto, BroadcastSendDto, ManualSendDto, SmsLogQuery, SmsWebhookDto, UpsertTemplateDto } from './dto/comms.dto';
 
 // ⚠️ Admin-only by default: SMS logs carry parents' phone numbers and message bodies, and the
 // credit balance is finance data — none of it is a teacher's to read. The GET handlers previously
@@ -44,6 +44,18 @@ export class SmsController {
   @Get('logs')
   logs(@Query() q: SmsLogQuery) {
     return this.comms.listLogs(q);
+  }
+
+  /** Count who a broadcast would reach and what it costs — spends nothing (GAP-15). */
+  @Post('broadcast/preview')
+  @HttpCode(HttpStatus.OK)
+  previewBroadcast(@Body() dto: BroadcastAudienceDto) {
+    return this.comms.previewBroadcast(dto);
+  }
+
+  @Post('broadcast')
+  sendBroadcast(@Body() dto: BroadcastSendDto) {
+    return this.comms.sendBroadcast(dto);
   }
 
   @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')

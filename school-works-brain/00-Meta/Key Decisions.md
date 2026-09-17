@@ -1581,3 +1581,17 @@ that is unique, e.g. include the `@Controller(...)` line.
 
 ⚠️ **Environment:** a `pnpm start:worker` shell with no living parent keeps relaunching the dev worker,
 which `no-worker.js` then reports as "started DURING this run". Kill the `sh.exe` root, not the node child.
+
+## "Setup complete" now means the school can bill (2026-09-17, GAP-12)
+
+The wizard ended at classes and said "Setup complete — you can admit students". A new owner did, then
+could not invoice anyone: fee heads and prices live on the Fees screen the wizard never mentioned. Fees
+are now **step 4**, done when every class has an ACTIVE price for the CURRENT year — a class priced only
+for last year bills nothing this year, which is exactly when a school finds out.
+
+The rule is a pure function (`packages/school-ui/src/lib/setup-readiness.ts`) with a unit spec, not logic
+inside a component nothing tests. Owner and deputy get a link to Fees; a campus admin — who can read
+prices but not set them — is told the owner sets fees.
+
+⚠️ Caught in my own wiring: blocked classes were first matched by NAME. Two campuses can each have a
+"Grade 1", so a blocker on one would have flagged both. Matched by id.

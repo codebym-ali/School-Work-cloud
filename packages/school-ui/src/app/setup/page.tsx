@@ -2,13 +2,19 @@
 
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { api, apiGet, apiPost, ApiError, type AcademicYear, type Campus, type Klass, type Section, type Subject } from '@sw/api-client';
+import { api, apiGet, apiPost, ApiError, type AcademicYear, type Campus, type FeeStructure, type Klass, type Section, type Subject } from '@sw/api-client';
 import { useMe } from '@sw/session';
 import { isSchoolWideAdmin } from '@sw/roles';
 import { ConfirmDialog } from '../classes/confirm-dialog';
 import { subjectCatalogueFrom } from '@school/lib/subject-match';
+import { setupReadiness } from '@school/lib/setup-readiness';
 
-/** Setup is a one-time, ordered job: campuses → school year → classes → sections.
+/** Setup is a one-time, ordered job: campuses → school year → classes → sections → fees.
+ *
+ *  ⚠️ Fees are step 4 since 2026-09-17 (GAP-12). The wizard used to finish at classes and announce
+ *  "Setup complete — you can admit students", and a new owner did — then found they could not raise a
+ *  single invoice, because fee heads and prices live on the Fees screen the wizard never mentioned.
+ *  "Complete" now means the school can bill, not only seat.
  *  Each step is only useful once the one above it exists, so the page presents them
  *  as numbered steps and tells you which one to do next rather than showing three
  *  equal-looking cards the reader has to sequence themselves. */
@@ -20,20 +26,22 @@ export default function SetupPage() {
   const [classes, setClasses] = useState<Klass[]>([]);
   const [sections, setSections] = useState<Section[]>([]);
   const [subjects, setSubjects] = useState<Subject[]>([]);
+  const [structures, setStructures] = useState<FeeStructure[]>([]);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [loaded, setLoaded] = useState(false);
 
   // Subjects are read (not managed) here — step 3 reports whether every class can take a
   // student, which is false until each has both a section AND a subject.
   async function reload() {
-    const [y, c, k, s, sub] = await Promise.all([
+    const [y, c, k, s, sub, fs] = await Promise.all([
       apiGet<AcademicYear[]>('/academic-years'),
       apiGet<Campus[]>('/campuses'),
       apiGet<Klass[]>('/classes'),
       apiGet<Section[]>('/sections'),
       api.subjects.listAll().catch(() => [] as Subject[]),
+      api.feeSetup.structures().catch(() => [] as FeeStructure[]),
     ]);
-    setYears(y); setCampuses(c); setClasses(k); setSections(s); setSubjects(sub);
+    setYears(y); setCampuses(c); setClasses(k); setSections(s); setSubjects(sub); setStructures(fs);
   }
   useEffect(() => { reload().catch(() => {}).finally(() => setLoaded(true)); }, []);
 
@@ -60,16 +68,23 @@ export default function SetupPage() {
   // only "done" when every class does — a single unfinished class must not read as complete.
   const blockers = classes
     .map((k) => ({
+      id: k.id,
       name: k.name,
       needsSection: !sections.some((s) => s.classId === k.id),
       needsSubjects: !subjects.some((s) => s.classId === k.id),
     }))
     .filter((b) => b.needsSection || b.needsSubjects);
-  const classesReady = hasClass && blockers.length === 0;
-  const done = [hasCampus, hasYear, classesReady].filter(Boolean).length;
-
-  // The first unfinished step is the one we open and point the reader at.
-  const nextStep = !hasCampus ? 1 : !hasYear ? 2 : !classesReady ? 3 : 0;
+  // The step rule lives in a pure function (lib/setup-readiness) so it is unit-tested, not only rendered.
+  const readiness = setupReadiness({
+    hasCampus,
+    currentYearId: years.find((y) => y.isCurrent)?.id ?? null,
+    classIds: classes.map((k) => k.id),
+    // By id, not name: two campuses may each have a "Grade 1", and a blocker on one must not flag both.
+    classBlockers: blockers.map((b) => b.id),
+    structures,
+  });
+  const { classesReady, feesReady, done, nextStep } = readiness;
+  const unpriced = classes.filter((k) => readiness.unpricedClassIds.includes(k.id));
   const setupComplete = nextStep === 0;
   // Distinct NAMES, not rows: a subject taught in three classes is one subject to a reader.
   const distinctSubjects = subjectCatalogueFrom(subjects).length;
@@ -81,7 +96,7 @@ export default function SetupPage() {
         <p className="muted" style={{ margin: 0 }}>
           {setupComplete
             ? 'Your campuses, school years and class structure. Students, fees and results are recorded against these.'
-            : 'Three things to set up before you can admit students. Do them in order — each one needs the one above it.'}
+            : 'Four things to set up before your school can admit and bill students. Do them in order — each one needs the one above it.'}
         </p>
       </div>
 
@@ -151,6 +166,33 @@ export default function SetupPage() {
           </div>
         </div>
       </Step>
+
+      <Step
+        n={4}
+        title="Fees"
+        blurb="What each class pays this year. Without a price, admitted students cannot be invoiced."
+        state={feesReady ? 'done' : 'todo'}
+        openByDefault={nextStep === 4}
+        lockedReason={!hasClass ? 'Add classes first — fees are priced per class.' : !hasYear ? 'Set the school year first — prices belong to a year.' : undefined}
+        count={hasClass ? `${classes.length - unpriced.length} of ${classes.length} class${classes.length === 1 ? '' : 'es'} priced` : undefined}
+      >
+        <div className="stack" style={{ gap: 10 }}>
+          {unpriced.length > 0 && (
+            <div className="toast warn">
+              {unpriced.length} class{unpriced.length === 1 ? ' has' : 'es have'} no fee for this year, so {unpriced.length === 1 ? 'its' : 'their'} students
+              cannot be billed: {unpriced.map((k) => k.name).join(', ')}.
+            </div>
+          )}
+          {canConfigure ? (
+            <div>
+              <Link className="chip" href="/fees">💰 {unpriced.length ? 'Set fees on the Fees screen →' : 'Review fees →'}</Link>
+            </div>
+          ) : (
+            // Only the owner (or their deputy) may set prices; a campus admin can see whether it is done.
+            <p className="muted" style={{ margin: 0, fontSize: 13 }}>Fees are set by the school owner. Ask them to price the classes listed above.</p>
+          )}
+        </div>
+      </Step>
       </>
       )}
     </div>
@@ -159,13 +201,13 @@ export default function SetupPage() {
 
 /** Where you are in the three steps, so the page has an obvious starting point. */
 function SetupProgress({ done, nextStep }: { done: number; nextStep: number }) {
-  const labels = ['Campuses', 'School year', 'Classes & sections'];
+  const labels = ['Campuses', 'School year', 'Classes & sections', 'Fees'];
   return (
     <div className="card stack" style={{ gap: 10 }}>
       <div className="row" style={{ alignItems: 'center', gap: 10 }}>
-        <strong style={{ fontSize: 15 }}>{done} of 3 done</strong>
+        <strong style={{ fontSize: 15 }}>{done} of {labels.length} done</strong>
         {nextStep === 0
-          ? <span className="badge ok">Setup complete — you can admit students</span>
+          ? <span className="badge ok">Setup complete — you can admit and bill students</span>
           : <span className="muted" style={{ fontSize: 13 }}>Next: step {nextStep} · {labels[nextStep - 1]}</span>}
       </div>
       <div className="row" style={{ gap: 6 }}>

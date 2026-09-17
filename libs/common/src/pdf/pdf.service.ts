@@ -27,6 +27,14 @@ export interface PayslipPdf {
   staffName: string;
   employeeCode: string;
   period: string;
+  /** The fixed monthly salary. */
+  basic: number;
+  /** Legacy structures only; the schools pay one fixed salary, so this is normally 0 and not printed. */
+  allowances: number;
+  workingDays: number | null;
+  unpaidLeaveDays: number;
+  /** Absent days that were DEDUCTED — 0 when the school does not deduct absence. */
+  absentDays: number;
   gross: number;
   attendanceDeduction: number;
   otherDeductions: number;
@@ -96,9 +104,7 @@ export class PdfService {
       kv(doc, 'Staff', `${d.staffName} (${d.employeeCode})`);
       kv(doc, 'Period', d.period);
       doc.moveDown();
-      kv(doc, 'Gross', money(d.gross));
-      kv(doc, 'Attendance deduction', money(d.attendanceDeduction));
-      kv(doc, 'Other deductions', money(d.otherDeductions));
+      for (const [label, value] of payslipLines(d)) kv(doc, label, value);
       doc.moveDown(0.5).fontSize(13).text(`Net pay: ${money(d.netPay)}`, { underline: true });
     });
   }
@@ -215,4 +221,23 @@ function money(n: number): string {
 }
 function prettyType(t: string): string {
   return t.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+/**
+ * The lines of a payslip, in order (Cash Payroll Plan, WS2.5). Pure, so the wording is testable without a PDF.
+ *
+ * Unpaid leave and absence are separate lines with their day counts: "Attendance deduction Rs 3,200" was a figure
+ * a teacher could not check. Zero lines are left out, and allowance / fixed-deduction lines appear only for legacy
+ * salary structures that have them.
+ */
+export function payslipLines(d: PayslipPdf): Array<[string, string]> {
+  const rs = (n: number) => `Rs ${Math.round(n).toLocaleString('en-PK')}`;
+  const perDay = d.workingDays ? d.basic / d.workingDays : 0;
+  const days = (n: number) => `${n} day${n === 1 ? '' : 's'}`;
+  const lines: Array<[string, string]> = [['Monthly salary', rs(d.basic)]];
+  if (d.allowances > 0) lines.push(['Allowances', rs(d.allowances)]);
+  if (d.unpaidLeaveDays > 0) lines.push([`Unpaid leave (${days(d.unpaidLeaveDays)})`, `- ${rs(d.unpaidLeaveDays * perDay)}`]);
+  if (d.absentDays > 0) lines.push([`Absence (${days(d.absentDays)})`, `- ${rs(d.absentDays * perDay)}`]);
+  if (d.otherDeductions > 0) lines.push(['Fixed deductions', `- ${rs(d.otherDeductions)}`]);
+  return lines;
 }

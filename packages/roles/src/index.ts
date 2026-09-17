@@ -110,8 +110,9 @@ export const NAV: NavItem[] = [
   // The HR manager's single home. Recruitment was removed 2026-07-30 and this role's real job
   // is owning the campus staff record, so there is one staff screen, role-shaped, rather than a
   // second list of the same people.
-  // Draft, approve and pay salaries (GAP-05). Owner only — mirrors `@Roles('OWNER_ADMIN')` on /payroll-runs.
-  { href: '/payroll', label: 'Payroll', icon: 'payslips', group: 'People', roles: ['OWNER_ADMIN'] },
+  // Draft and pay salaries (campus accountant), approve (owner). Mirrors `@Roles('OWNER_ADMIN','ACCOUNTANT')`
+  // on /payroll-runs; campus scope and "owner approves" are enforced by the API.
+  { href: '/payroll', label: 'Payroll', icon: 'payslips', group: 'People', roles: ['OWNER_ADMIN', 'ACCOUNTANT'] },
   { href: '/staff', label: 'Staff', icon: 'staff', group: 'People', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'HR_MANAGER'] },
 
   { href: '/setup', label: 'School configuration', icon: 'setup', group: 'Administration', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },

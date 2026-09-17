@@ -588,7 +588,7 @@ describe('Staff attendance marking (e2e)', () => {
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({ succeeded: 1, failed: 1 });
     expect(res.body.errors[0]).toMatchObject({ index: 0, code: 'CONFLICT' });
-    expect(res.body.errors[0].message).toMatch(/reverse the payroll run/i);
+    expect(res.body.errors[0].message).toMatch(/approved for this campus, so attendance for that month can no longer be changed/i);
 
     // A payslip was computed from campus A's rows, so they hold still...
     expect(await platform.staffAttendance.count({ where: { staffId: staffA } })).toBe(0);

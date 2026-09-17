@@ -3,8 +3,16 @@
 import { useEffect, useState } from 'react';
 import { api, ApiError, type Payslip } from '@sw/api-client';
 
-const badge = (s: string) => (s === 'PAID' ? 'ok' : s === 'APPROVED' ? 'warn' : '');
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+const rs = (n: number | string) => `Rs ${Math.round(Number(n)).toLocaleString()}`;
 
+/**
+ * My Payslips (Cash Payroll Plan).
+ *
+ * ⚠️ Only approved months arrive here — the API no longer returns drafts, which showed a figure the owner could
+ * still change. Each row is named by its MONTH (it showed none) and says whether the salary has been handed over
+ * yet, so "approved but I haven't been paid" is visible to the one person it matters to.
+ */
 export default function MyPayslips() {
   const [rows, setRows] = useState<Payslip[] | null>(null);
   const [err, setErr] = useState(false);
@@ -18,7 +26,7 @@ export default function MyPayslips() {
       const { url } = await api.payslips.pdf(id);
       window.open(url, '_blank', 'noopener');
     } catch (e) {
-      setMsg(e instanceof ApiError ? e.message : 'Payslip PDF is not available yet');
+      setMsg(e instanceof ApiError ? e.message : 'The payslip PDF is not available right now.');
     }
   }
 
@@ -31,17 +39,26 @@ export default function MyPayslips() {
       {msg && <div className="toast err">{msg}</div>}
       <div className="card stack">
         <table className="stacked">
-          <thead><tr><th>Gross</th><th>Deductions</th><th>Net pay</th><th>Status</th><th>Paid on</th><th></th></tr></thead>
+          <thead><tr><th>Month</th><th style={{ textAlign: 'right' }}>Salary</th><th>Deductions</th><th style={{ textAlign: 'right' }}>Net pay</th><th>Status</th><th></th></tr></thead>
           <tbody>
             {rows.map((p) => {
-              const deductions = Number(p.attendanceDeduction) + Number(p.otherDeductions);
+              const b = p.breakdown ?? {};
+              const deduction = Number(p.attendanceDeduction) + Number(p.otherDeductions);
+              const why = [
+                b.unpaidLeaveDays ? `${b.unpaidLeaveDays} unpaid leave` : '',
+                b.absentDays && b.deductForAbsence ? `${b.absentDays} absent` : '',
+              ].filter(Boolean).join(', ');
               return (
                 <tr key={p.id}>
-                  <td data-label="Gross">Rs {Number(p.gross).toLocaleString()}</td>
-                  <td data-label="Deductions">Rs {deductions.toLocaleString()}</td>
-                  <td data-label="Net pay">Rs {Number(p.netPay).toLocaleString()}</td>
-                  <td data-label="Status"><span className={`badge ${badge(p.status)}`}>{p.status}</span></td>
-                  <td data-label="Paid on" className="muted">{p.paidAt ? new Date(p.paidAt).toLocaleDateString() : '—'}</td>
+                  <td data-label="Month"><strong>{MONTHS[p.month - 1]} {p.year}</strong></td>
+                  <td data-label="Salary" style={{ textAlign: 'right' }}>{rs(p.gross)}</td>
+                  <td data-label="Deductions">{deduction > 0 ? <>− {rs(deduction)}{why && <span className="muted"> ({why})</span>}</> : <span className="muted">None</span>}</td>
+                  <td data-label="Net pay" style={{ textAlign: 'right' }}><strong>{rs(p.netPay)}</strong></td>
+                  <td data-label="Status">
+                    {p.state === 'PAID'
+                      ? <span className="badge ok">Paid {p.paidAt ? new Date(p.paidAt).toLocaleDateString() : ''}</span>
+                      : <span className="badge warn">Approved · not paid yet</span>}
+                  </td>
                   <td data-label="" style={{ textAlign: 'right' }}><button className="ghost small" onClick={() => openPdf(p.id)}>PDF</button></td>
                 </tr>
               );

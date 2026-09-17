@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
-import { AttendanceStatus, LeaveStatus } from '@prisma/client';
-import { TenantContext } from '@common';
+import { AttendanceStatus, LeaveStatus, PayrollRunStatus } from '@prisma/client';
+import { restrictedCampusId, TenantContext } from '@common';
 import { TenantPrismaService } from '@database';
 import { CoverService } from '../cover/cover.service';
 import { DashboardService } from '../reports/insights.service';
@@ -44,7 +44,9 @@ export type NotificationItem = {
     // Cover (C2): one for the person taking the class, one for the person whose class it is.
     | 'COVERING_TODAY' | 'COVERED_TODAY'
     // The school is shut today or tomorrow. Everyone's business, not a role's.
-    | 'SCHOOL_CLOSED';
+    | 'SCHOOL_CLOSED'
+    // Approved salaries not yet handed over (Cash Payroll Plan, WS3.1).
+    | 'SALARIES_TO_PAY';
   severity: 'info' | 'warn';
   text: string;
   href: string;
@@ -80,6 +82,8 @@ const NEEDS = {
   admissions: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ADMISSION_CONTROLLER'],
   /** `GET /dashboard` — self-shaping: it returns `visible` and nulls what a role may not see. */
   dashboard: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT'],
+  /** `GET /payroll-runs` — the people who hand over salaries. */
+  salaries: ['OWNER_ADMIN', 'ACCOUNTANT'],
 } as const;
 
 /** How far back an event is still worth mentioning. Beyond this it is history, not news. */
@@ -266,6 +270,22 @@ export class NotificationsService {
             href: '/calendar',
           });
         }
+      }),
+
+      attempt(NEEDS.salaries, async () => {
+        // Approved payslips nobody has recorded as paid — the accountant's payday list. Their OWN payslip is not
+        // counted for them: they cannot mark it, so it is not theirs to act on.
+        const campusId = restrictedCampusId(this.ctx.user);
+        const unpaid = await this.db.payslip.count({
+          where: {
+            paidAt: null,
+            run: { status: PayrollRunStatus.APPROVED, ...(campusId ? { campusId } : {}) },
+            ...(this.ctx.user ? { staff: { userId: { not: this.ctx.user.userId } } } : {}),
+          },
+        });
+        if (unpaid === 0) return;
+        out.push({ id: `salaries-to-pay:${unpaid}`, kind: 'SALARIES_TO_PAY', severity: 'warn', at,
+          text: `${unpaid} approved ${plural(unpaid, 'salary', 'salaries')} not yet paid.`, href: '/payroll' });
       }),
 
       attempt(NEEDS.claims, async () => {

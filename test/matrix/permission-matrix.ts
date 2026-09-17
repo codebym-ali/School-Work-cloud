@@ -283,7 +283,12 @@ export const PERMISSION_MATRIX: MatrixRow[] = [
   { label: 'enter class test marks', method: 'post', path: '/api/v1/class-tests/00000000-0000-0000-0000-000000000000/scores', body: { rows: [] }, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'TEACHER'], scopeGated: true },
   { label: 'set user module', method: 'patch', path: '/api/v1/users/00000000-0000-0000-0000-000000000000/modules', body: { moduleKey: 'hr.assign', allowed: false }, allow: ['OWNER_ADMIN'], scopeGated: true },
   { label: 'create staff', method: 'post', path: '/api/v1/staff', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'], scopeGated: true },
-  { label: 'run payroll', method: 'post', path: '/api/v1/payroll-runs', body: {}, allow: ['OWNER_ADMIN'] },
+  // Cash Payroll Plan: the campus ACCOUNTANT drafts, lists, opens and pays; only the OWNER approves. Campus scope is
+  // enforced in the service, so the id-bearing rows are scope-gated (the deny side is the guarantee here).
+  { label: 'run payroll', method: 'post', path: '/api/v1/payroll-runs', body: {}, allow: ['OWNER_ADMIN', 'ACCOUNTANT'] },
+  { label: 'list payroll runs', method: 'get', path: '/api/v1/payroll-runs', allow: ['OWNER_ADMIN', 'ACCOUNTANT'] },
+  { label: 'approve payroll', method: 'post', path: '/api/v1/payroll-runs/00000000-0000-0000-0000-000000000000/approve', body: {}, allow: ['OWNER_ADMIN'], scopeGated: true },
+  { label: 'mark payslip paid', method: 'patch', path: '/api/v1/payslips/00000000-0000-0000-0000-000000000000/mark-paid', body: {}, allow: ['OWNER_ADMIN', 'ACCOUNTANT'], scopeGated: true },
 
   // Teacher self-service — TEACHER-only; positive path needs a linked StaffProfile so it's
   // scope-gated (deny side is the guarantee here).

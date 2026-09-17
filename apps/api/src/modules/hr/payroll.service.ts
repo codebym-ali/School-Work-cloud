@@ -1,6 +1,6 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { AttendanceStatus, LeaveStatus, PayrollRunStatus, Prisma } from '@prisma/client';
-import { AppError, assertCampusAccess, AuditActions, ErrorCodes, parseSchoolSettings, PdfService, StorageService, TenantContext, workingDaysBetween } from '@common';
+import { AppError, assertCampusAccess, AuditActions, effectiveCampusFilter, ErrorCodes, parseSchoolSettings, PdfService, StorageService, TenantContext, workingDaysBetween } from '@common';
 import { AuditService, TenantPrismaService } from '@database';
 import type { MarkPaidDto, RunPayrollDto } from './dto/hr.dto';
 
@@ -33,6 +33,8 @@ export class PayrollService {
   }
 
   async run(dto: RunPayrollDto) {
+    // A campus accountant drafts their own campus only; the owner, any.
+    assertCampusAccess(this.ctx.user, dto.campusId);
     const existing = await this.db.payrollRun.findFirst({ where: { campusId: dto.campusId, month: dto.month, year: dto.year } });
     if (existing) return { runId: existing.id, alreadyExists: true, payslips: 0 };
 
@@ -135,8 +137,9 @@ export class PayrollService {
    * There was no list at all — only create, fetch-by-id and approve — so no screen could show past runs.
    */
   async listRuns(q: { campusId?: string; year?: number }) {
+    const campusId = effectiveCampusFilter(this.ctx.user, q.campusId);
     const runs = await this.db.payrollRun.findMany({
-      where: { ...(q.campusId ? { campusId: q.campusId } : {}), ...(q.year ? { year: q.year } : {}) },
+      where: { ...(campusId ? { campusId } : {}), ...(q.year ? { year: q.year } : {}) },
       orderBy: [{ year: 'desc' }, { month: 'desc' }],
       include: { payslips: { select: { netPay: true, paidAt: true } } },
       take: 60,
@@ -162,6 +165,7 @@ export class PayrollService {
   async discardDraft(runId: string) {
     const run = await this.db.payrollRun.findFirst({ where: { id: runId } });
     if (!run) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'Payroll run not found');
+    assertCampusAccess(this.ctx.user, run.campusId);
     if (run.status !== PayrollRunStatus.DRAFT) {
       throw new AppError(ErrorCodes.INVALID_STATE_TRANSITION, HttpStatus.CONFLICT, 'An approved payroll run cannot be discarded');
     }
@@ -183,8 +187,14 @@ export class PayrollService {
   }
 
   async markPaid(payslipId: string, dto: MarkPaidDto) {
-    const payslip = await this.db.payslip.findFirst({ where: { id: payslipId }, include: { run: true } });
+    const payslip = await this.db.payslip.findFirst({ where: { id: payslipId }, include: { run: true, staff: { select: { userId: true } } } });
     if (!payslip) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'Payslip not found');
+    const caller = this.ctx.user!;
+    assertCampusAccess(caller, payslip.run.campusId);
+    // Nobody records their own salary as received — the accountant's own payslip is marked by the owner.
+    if (payslip.staff.userId === caller.userId) {
+      throw new AppError(ErrorCodes.SELF_PAYMENT_FORBIDDEN, HttpStatus.FORBIDDEN, 'Someone else must record your own salary as paid');
+    }
     if (payslip.run.status !== PayrollRunStatus.APPROVED) {
       throw new AppError(ErrorCodes.CONFLICT, HttpStatus.CONFLICT, 'Approve the run before recording disbursement');
     }
@@ -193,19 +203,31 @@ export class PayrollService {
     if (payslip.paidAt) {
       throw new AppError(ErrorCodes.CONFLICT, HttpStatus.CONFLICT, `Already recorded as paid on ${payslip.paidAt.toISOString().slice(0, 10)}`);
     }
-    return this.db.payslip.update({
+    const method = dto.method ?? 'CASH';
+    const updated = await this.db.payslip.update({
       where: { id: payslipId },
-      data: { paidAt: new Date(), paymentMethod: dto.method as never, paymentRef: dto.reference },
+      data: { paidAt: new Date(), paymentMethod: method as never, paymentRef: dto.reference, paidById: caller.userId },
     });
+    await this.audit.record({
+      action: AuditActions.PAYSLIP_MARKED_PAID, entityType: 'Payslip', entityId: payslipId,
+      newValue: { runId: payslip.runId, staffId: payslip.staffId, netPay: Number(payslip.netPay), method, reference: dto.reference ?? null },
+    });
+    return updated;
   }
 
   async getRun(id: string) {
     const run = await this.db.payrollRun.findFirst({ where: { id } });
     if (!run) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'Payroll run not found');
+    assertCampusAccess(this.ctx.user, run.campusId);
     const payslips = await this.db.payslip.findMany({
       where: { runId: id },
-      include: { staff: { select: { employeeCode: true, designation: true, user: { select: { email: true } } } } },
+      include: { staff: { select: { employeeCode: true, designation: true, fullName: true, userId: true, user: { select: { email: true } } } } },
     });
+    // Who recorded each payment — one lookup for the run, not one per row.
+    const payerIds = [...new Set(payslips.map((p) => p.paidById).filter((x): x is string => !!x))];
+    const payers = new Map((payerIds.length
+      ? await this.db.user.findMany({ where: { id: { in: payerIds } }, select: { id: true, email: true } })
+      : []).map((u) => [u.id, u.email]));
     // ⚠️ Staff with no salary structure were skipped SILENTLY, so a teacher could be left out of payroll and
     // nobody reviewing the run would see it. They are named, so the omission is a decision, not an accident.
     const excluded = await this.db.staffProfile.findMany({
@@ -215,7 +237,11 @@ export class PayrollService {
     return {
       ...run,
       campusName: (await this.db.campus.findFirst({ where: { id: run.campusId }, select: { name: true } }))?.name ?? '',
-      payslips: payslips.map(({ staff, ...p }) => ({ ...p, employeeCode: staff.employeeCode, designation: staff.designation, email: staff.user.email })),
+      payslips: payslips.map(({ staff, ...p }) => ({
+        ...p, employeeCode: staff.employeeCode, designation: staff.designation, email: staff.user.email,
+        staffName: staff.fullName ?? staff.user.email, staffUserId: staff.userId,
+        paidBy: p.paidById ? (payers.get(p.paidById) ?? null) : null,
+      })),
       excluded: excluded.map((e) => ({ staffId: e.id, employeeCode: e.employeeCode, email: e.user.email, reason: 'No salary structure for this month' })),
     };
   }
@@ -225,10 +251,14 @@ export class PayrollService {
     if (!staff) return [];
     // Newest pay period first. Payslip has no createdAt, and the PK is a random UUID, so
     // order by the run's period rather than by id (which would be arbitrary).
-    return this.db.payslip.findMany({
-      where: { staffId: staff.id },
+    // ⚠️ APPROVED runs only. This returned every payslip, so a teacher saw a draft figure the owner could still
+    // discard or change. A payslip exists for its owner from the moment the school commits to it.
+    const rows = await this.db.payslip.findMany({
+      where: { staffId: staff.id, run: { status: PayrollRunStatus.APPROVED } },
+      include: { run: { select: { month: true, year: true } } },
       orderBy: [{ run: { year: 'desc' } }, { run: { month: 'desc' } }],
     });
+    return rows.map(({ run, ...p }) => ({ ...p, month: run.month, year: run.year, state: p.paidAt ? 'PAID' : 'APPROVED' }));
   }
 
   /**
@@ -244,7 +274,8 @@ export class PayrollService {
     if (!payslip) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'Payslip not found');
 
     const caller = this.ctx.user!;
-    const isAdmin = caller.roles.some((r) => r === 'OWNER_ADMIN' || r === 'CAMPUS_ADMIN');
+    const isOwner = caller.roles.includes('OWNER_ADMIN');
+    const isAdmin = caller.roles.some((r) => r === 'OWNER_ADMIN' || r === 'CAMPUS_ADMIN' || r === 'ACCOUNTANT');
     if (!isAdmin && payslip.staff.userId !== caller.userId) {
       throw new AppError(ErrorCodes.FORBIDDEN, HttpStatus.FORBIDDEN, 'Not your payslip');
     }
@@ -252,12 +283,25 @@ export class PayrollService {
     // campus's payroll, not another's. Without this a campus-A admin could download a campus-B teacher's
     // salary slip. A staff member's OWN payslip is always theirs, whichever campus holds the run.
     if (isAdmin && payslip.staff.userId !== caller.userId) assertCampusAccess(caller, payslip.run.campusId);
+    // Campus first: another campus's payslip is refused as such, draft or not.
+    // ⚠️ A draft is not a payslip yet. Anyone but the owner and the campus accountant (who prepare it) is told it
+    // does not exist — 404, not 403, so a draft's existence is not confirmed to the person it is about.
+    const preparer = isOwner || (caller.roles.includes('ACCOUNTANT') && payslip.staff.userId !== caller.userId);
+    if (payslip.run.status !== PayrollRunStatus.APPROVED && !preparer) {
+      throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'Payslip not found');
+    }
 
     const schoolName = (await this.db.school.findFirst({ where: { id: this.sid } }))?.name ?? 'School';
     const period = `${MONTHS[payslip.run.month - 1]} ${payslip.run.year}`;
+    const b = (payslip.breakdown ?? {}) as { basic?: number; allowances?: number; unpaidLeaveDays?: number; absentDays?: number; deductForAbsence?: boolean; workingDays?: number };
     const buffer = await this.pdf.payslip({
       schoolName,
-      staffName: payslip.staff.user.email,
+      staffName: payslip.staff.fullName ?? payslip.staff.user.email,
+      basic: Number(b.basic ?? payslip.gross),
+      allowances: Number(b.allowances ?? 0),
+      workingDays: b.workingDays ?? null,
+      unpaidLeaveDays: b.unpaidLeaveDays ?? 0,
+      absentDays: b.deductForAbsence ? (b.absentDays ?? 0) : 0,
       employeeCode: payslip.staff.employeeCode,
       period,
       gross: Number(payslip.gross),

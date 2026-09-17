@@ -111,7 +111,7 @@ export interface NotificationItem {
     | 'REGISTERS_UNMARKED' | 'STAFF_UNMARKED' | 'STAFF_ABSENT'
     | 'READY_TO_ADMIT' | 'TESTS_TODAY'
     | 'COVERING_TODAY' | 'COVERED_TODAY'
-    | 'SCHOOL_CLOSED';
+    | 'SCHOOL_CLOSED' | 'SALARIES_TO_PAY';
   severity: 'info' | 'warn';
   text: string;
   href: string;
@@ -397,6 +397,10 @@ export interface PayrollRunSummary {
 }
 export interface PayrollPayslip {
   id: string; staffId: string; email: string; employeeCode: string; designation: string;
+  /** Full name, falling back to email. `staffUserId` lets the screen hide "Mark paid" on the caller's own row. */
+  staffName: string; staffUserId: string;
+  /** Email of whoever recorded the payment; null if unpaid or paid before this was recorded. */
+  paidBy: string | null;
   gross: string; attendanceDeduction: string; otherDeductions: string; netPay: string;
   paidAt: string | null; paymentMethod: string | null; paymentRef: string | null;
   /** The arithmetic behind the figures, recorded when the run was drafted. */
@@ -783,7 +787,12 @@ export interface FeeLinkClaim {
   paidOn: string;
   note?: string;
 }
-export interface Payslip { id: string; runId: string; gross: string; attendanceDeduction: string; otherDeductions: string; netPay: string; status: string; paidAt: string | null }
+/** A staff member's own payslip. Only APPROVED months are returned — drafts never reach staff. */
+export interface Payslip {
+  id: string; runId: string; month: number; year: number; state: 'APPROVED' | 'PAID';
+  gross: string; attendanceDeduction: string; otherDeductions: string; netPay: string; paidAt: string | null;
+  breakdown: { basic?: number; unpaidLeaveDays?: number; absentDays?: number; deductForAbsence?: boolean } | null;
+}
 /** Admin queue rows carry the person's name so the screen never has to resolve ids itself. */
 export interface StaffLeaveRow extends StaffLeave { staffId: string; staff?: { fullName: string | null; employeeCode: string } }
 export interface StudentLeaveRow extends StudentLeave { student?: { fullName: string; grNumber: string } }
@@ -1237,10 +1246,10 @@ export const api = {
   /** Salary structures (GAP-05). Owner and campus admin; HR creates staff but does not set their pay. */
   salaries: {
     list: (staffId: string) => apiGet<SalaryStructure[]>(`/staff/${staffId}/salary-structures`),
-    create: (staffId: string, body: { basic: number; allowances?: Record<string, number>; deductionsFixed?: Record<string, number>; effectiveFrom: string }) =>
+    create: (staffId: string, body: { basic: number; effectiveFrom: string }) =>
       apiPost<SalaryStructure>(`/staff/${staffId}/salary-structures`, body),
   },
-  /** Payroll (GAP-05). Owner only; approving and marking paid are two-factor gated. */
+  /** Payroll (Cash Payroll Plan). The campus accountant drafts and pays; the owner approves. Paying and approving need 2FA. */
   payroll: {
     listRuns: () => apiGet<PayrollRunSummary[]>('/payroll-runs'),
     getRun: (id: string) => apiGet<PayrollRunDetail>(`/payroll-runs/${id}`),
@@ -1248,7 +1257,7 @@ export const api = {
       apiPost<{ runId: string; alreadyExists: boolean; payslips: number; excluded?: number }>('/payroll-runs', body),
     discard: (id: string) => apiDelete<null>(`/payroll-runs/${id}`),
     approve: (id: string) => apiPost<unknown>(`/payroll-runs/${id}/approve`, {}),
-    markPaid: (payslipId: string, body: { method: 'CASH' | 'BANK_TRANSFER' | 'CHEQUE'; reference?: string }) =>
+    markPaid: (payslipId: string, body: { method?: 'CASH' | 'BANK_TRANSFER' | 'CHEQUE'; reference?: string }) =>
       apiPatch<unknown>(`/payslips/${payslipId}/mark-paid`, body),
   },
   /** The defaulter working list (GAP-13). Campus-scoped on the server whatever is asked. */

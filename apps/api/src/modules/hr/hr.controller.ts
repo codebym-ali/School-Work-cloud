@@ -60,12 +60,14 @@ export class TeacherAssignmentsController {
 export class PayrollController {
   constructor(private readonly payroll: PayrollService) {}
 
-  @Roles('OWNER_ADMIN') @Post() run(@Body() dto: RunPayrollDto) { return this.payroll.run(dto); }
+  // Cash Payroll Plan: the campus ACCOUNTANT drafts and pays; only the owner approves. Campus scope for the
+  // accountant is enforced in the service (it reads the run), never by these decorators alone.
+  @Roles('OWNER_ADMIN', 'ACCOUNTANT') @Post() run(@Body() dto: RunPayrollDto) { return this.payroll.run(dto); }
   /** Past and current runs with totals (B9). Declared before `:id` so `GET /payroll-runs` is never read as an id. */
-  @Roles('OWNER_ADMIN') @Get() list(@Query() q: PayrollRunListQuery) { return this.payroll.listRuns(q); }
+  @Roles('OWNER_ADMIN', 'ACCOUNTANT') @Get() list(@Query() q: PayrollRunListQuery) { return this.payroll.listRuns(q); }
   /** Discard a DRAFT so the month can be recomputed (B10). Approved runs are refused. */
-  @Roles('OWNER_ADMIN') @Delete(':id') @HttpCode(HttpStatus.NO_CONTENT) discard(@Param('id') id: string) { return this.payroll.discardDraft(id); }
-  @Roles('OWNER_ADMIN') @Get(':id') getRun(@Param('id') id: string) { return this.payroll.getRun(id); }
+  @Roles('OWNER_ADMIN', 'ACCOUNTANT') @Delete(':id') @HttpCode(HttpStatus.NO_CONTENT) discard(@Param('id') id: string) { return this.payroll.discardDraft(id); }
+  @Roles('OWNER_ADMIN', 'ACCOUNTANT') @Get(':id') getRun(@Param('id') id: string) { return this.payroll.getRun(id); }
   @Roles('OWNER_ADMIN') @RequiresMfa() @Post(':id/approve') approve(@Param('id') id: string) { return this.payroll.approve(id); }
 }
 
@@ -78,7 +80,7 @@ export class PayslipsController {
   // Owner-or-admin check is in the service (§22.8), so no @Roles here.
   @Get(':id/pdf') pdf(@Param('id') id: string) { return this.payroll.payslipPdf(id); }
 
-  @Roles('OWNER_ADMIN')
+  @Roles('OWNER_ADMIN', 'ACCOUNTANT')
   @RequiresMfa()
   @Patch(':id/mark-paid')
   markPaid(@Param('id') id: string, @Body() dto: MarkPaidDto) { return this.payroll.markPaid(id, dto); }

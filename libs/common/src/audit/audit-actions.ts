@@ -144,6 +144,9 @@ export const AuditActions = {
 
   // A text to many families at once (GAP-15): who chose the audience, what it said, how many it reached.
   SMS_BROADCAST_SENT: 'SMS_BROADCAST_SENT',
+
+  // A salary recorded as handed over. Cash leaves no bank trail, so this row is the trail.
+  PAYSLIP_MARKED_PAID: 'PAYSLIP_MARKED_PAID',
 } as const;
 
 export type AuditAction = (typeof AuditActions)[keyof typeof AuditActions];

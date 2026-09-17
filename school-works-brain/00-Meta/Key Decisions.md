@@ -1652,3 +1652,14 @@ works, re-implemented over the planner.
 - `test/e2e/owner-gaps.spec.ts` (Playwright, live dev stack): owner sees Reverse on a paid receipt while the accountant door offers it nowhere; all 7 reports run with pickers and no id typing; the Campus Hub login link opens the staff door and a campus admin signs in through it; /payroll, /defaulters, /activity, /promotion open, and the broadcast audience check returns a count with no 5xx.
 - ⚠️ Gotchas: Next.js mounts an empty `role=alert` route announcer, and the two-factor banner uses `.toast.err`, so "no error" must be asserted by the result rendering, not by the absence of those selectors. A `<select>`'s options are `role=option` too — scope picker options to their listbox.
 - ⚠️ The dev API on :4000 was running a stale `dist` build (new routes 404'd). Rebuild with `nest build api` before browser runs.
+
+## Cash payroll (2026-09-17) — agreed with the product owner
+- **Model:** one fixed monthly salary (no allowances/bonuses/advances/fines/tax); paid in **cash**; full month for mid-month joiners/leavers. Deductions: approved unpaid leave always; absence only if the school's `payrollDeductsAbsence` setting is on. Day rate = salary ÷ working days.
+- **Roles:** owner / campus admin set salaries. The **campus ACCOUNTANT** drafts, discards and marks paid for their own campus; the **owner** does the same for any campus (covers a campus with no accountant) and is the only approver. The accountant never sees salary history — only amounts inside a run.
+- **Self-payment refused** (`SELF_PAYMENT_FORBIDDEN`, 403, by user id): the owner records the accountant's own salary.
+- **`payslips.paid_by_id`** (nullable, no FK so a departed accountant never blocks history) records who handed the cash over; `PAYSLIP_MARKED_PAID` audit row per payment. Method optional → CASH.
+- **Staff see APPROVED payslips only** (`/payslips/mine` and the PDF). A draft PDF is 404 to anyone but the owner and the campus accountant; campus scope is checked first so another campus's slip stays a 403.
+- ⚠️ Opening `/payroll-runs` to a campus-bound role exposed that `run/getRun/discard/markPaid` found records by id alone — safe only while the owner (school-wide) was the sole caller. `assertCampusAccess` added in the same change.
+- `SALARIES_TO_PAY` notification for OWNER_ADMIN/ACCOUNTANT (approved + unpaid, excluding the caller's own payslip).
+- PDF lines come from pure `payslipLines()`: Monthly salary, Unpaid leave (n days), Absence (n days), legacy allowance/fixed lines only when present.
+- The attendance-lock message no longer tells people to "reverse the payroll run" — no such action exists.

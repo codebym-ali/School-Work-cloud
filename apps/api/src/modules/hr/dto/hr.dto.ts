@@ -68,8 +68,9 @@ export class PayrollRunListQuery {
 }
 
 export class MarkPaidDto {
-  @IsEnum({ CASH: 'CASH', BANK_TRANSFER: 'BANK_TRANSFER', CHEQUE: 'CHEQUE' })
-  method!: 'CASH' | 'BANK_TRANSFER' | 'CHEQUE';
+  /** Omitted means CASH — how the schools pay salaries. Bank transfer and cheque stay available. */
+  @IsOptional() @IsEnum({ CASH: 'CASH', BANK_TRANSFER: 'BANK_TRANSFER', CHEQUE: 'CHEQUE' })
+  method?: 'CASH' | 'BANK_TRANSFER' | 'CHEQUE';
 
   @IsOptional() @IsString() @MaxLength(120)
   reference?: string;

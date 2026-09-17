@@ -1908,6 +1908,9 @@ model Payslip {
   paidAt              DateTime?      @map("paid_at")
   paymentMethod       PaymentMethod? @map("payment_method")
   paymentRef          String?        @map("payment_ref")
+  /// Who recorded the payment. For cash this IS the record — there is no bank trail. Null on rows paid before
+  /// it was captured. No FK: a departed accountant's user must neither block nor cascade into payroll history.
+  paidById            String?        @map("paid_by_id") @db.Uuid
 
   @@unique([runId, staffId])
   @@index([schoolId, staffId])

@@ -630,7 +630,8 @@ export class AttendanceService {
   }
 
   private payrollFrozenMessage(date: Date): string {
-    return `Payroll for ${date.getUTCMonth() + 1}/${date.getUTCFullYear()} is already approved for this campus — reverse the payroll run before changing attendance for that month.`;
+    // No mention of reversing the run: an approved run is final and nothing can reverse it.
+    return `Payroll for ${date.getUTCMonth() + 1}/${date.getUTCFullYear()} is approved for this campus, so attendance for that month can no longer be changed.`;
   }
 
   /** Single-person variant (self check-in): the caller's own campus only. */

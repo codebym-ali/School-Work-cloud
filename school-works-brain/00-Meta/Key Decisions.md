@@ -1561,3 +1561,23 @@ job type, producer, dispatcher, `POST /fees/defaulters/reminders`.
   "is outstanding since {dueDate}".
 
 Also: `/students?student=<id>` opens a profile directly, so other screens can link to one.
+
+## Campus comparison, and the dashboard counted reversed money (2026-09-17, GAP-11)
+
+Campus Hub now opens with one row per campus — active students, today's attendance WITH how much of the
+register is marked, collected this month, overdue, defaulters — for the owner and deputy; hidden for a
+single-campus school. `GET /campuses/summary` is five Prisma queries whatever the campus count, grouped
+in memory. Raw SQL was avoided on purpose: the dashboard records that raw reads bypass the tenant
+extension, the first of the three isolation layers.
+
+⚠️ **Found while matching figures:** the dashboard's "Collections (month)" and its six-month trend
+**counted reversed payments as collected**, overstating every month by the corrections made in it.
+Both now filter `reversal: null`, so the dashboard and the comparison agree; pinned in `fees.e2e-spec`.
+
+⚠️ **Tooling lesson:** the route first landed on the ACADEMIC-YEARS controller. The edit anchored on
+`@Roles(...STAFF_ROLES) @Get()`, which occurs in more than one controller, and it compiled because that
+controller also injects `SetupService`. Only the route-level test (404) caught it. Anchor edits on text
+that is unique, e.g. include the `@Controller(...)` line.
+
+⚠️ **Environment:** a `pnpm start:worker` shell with no living parent keeps relaunching the dev worker,
+which `no-worker.js` then reports as "started DURING this run". Kill the `sh.exe` root, not the node child.

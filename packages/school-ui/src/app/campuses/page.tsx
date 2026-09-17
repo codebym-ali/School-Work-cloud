@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { api, apiGet, apiPost, apiDelete, ApiError, type Campus, type ManagedUser } from '@sw/api-client';
 import { useMe } from '@sw/session';
 import { doorOrigin, roleLabels } from '@sw/roles';
+import { CampusComparison } from './campus-comparison';
 
 type Msg = { ok: boolean; text: string } | null;
 
@@ -122,6 +123,9 @@ export default function CampusesPage() {
     <div className="stack">
       <h1>Campuses</h1>
       {msg && <div className={`toast ${msg.ok ? 'ok' : 'err'}`}>{msg.text}</div>}
+
+      {/* Figures first: "which campus is behind" is the question; managing the campuses comes after. */}
+      {isOwner && <CampusComparison />}
 
       {isOwner && selected.size > 0 && (
         <div className="card row" style={{ alignItems: 'center', gap: 12 }}>

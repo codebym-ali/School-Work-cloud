@@ -453,6 +453,35 @@ describe('Campus scoping (e2e, §22.8 / P1.7)', () => {
    * as-is — so a campus-bound caller who sent none, or sent another campus, got that campus's defaulters:
    * names, GR numbers and amounts owed. Both students owe July, past due.
    */
+  /**
+   * Campus comparison (GAP-11). Expected figures are computed from the database, not hard-coded: earlier cases
+   * in this file record payments, and a comparison that only matches a fixed number proves nothing.
+   */
+  it('compares campuses with figures that match the ledger — reversals excluded', async () => {
+    const res = await authed('get', '/api/v1/campuses/summary', ownerCookies);
+    expect(res.status).toBe(200);
+    type Row = { campusId: string; activeStudents: number; collectedThisMonth: number; overdue: number; defaulters: number };
+    const byId = new Map((res.body as Row[]).map((r) => [r.campusId, r]));
+    expect(byId.size).toBe(2);
+
+    const monthStart = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1));
+    for (const campus of [campusA, campusB]) {
+      const row = byId.get(campus)!;
+      const paid = await platform.feePayment.aggregate({
+        _sum: { amountPaid: true },
+        where: { schoolId, paidAt: { gte: monthStart }, reversal: null, invoice: { enrollment: { campusId: campus } } },
+      });
+      expect(row.collectedThisMonth).toBe(Number(paid._sum.amountPaid ?? 0));
+      expect(row.activeStudents).toBe(1);
+      expect(row.defaulters).toBe(1);
+      expect(row.overdue).toBeGreaterThan(0);
+    }
+  });
+
+  it('keeps the comparison from a campus admin — it is a question about campuses they do not run', async () => {
+    expect((await authed('get', '/api/v1/campuses/summary', adminCookies)).status).toBe(403);
+  });
+
   it("confines the defaulter list to the caller's campus, whatever campus they ask for", async () => {
     const ids = (body: Array<{ student: { id: string } }>) => body.map((d) => d.student.id);
 

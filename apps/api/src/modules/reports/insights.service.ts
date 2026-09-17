@@ -63,9 +63,11 @@ export class DashboardService {
       ? await this.db.studentEnrollment.count({ where: { academicYearId: year.id, status: 'ACTIVE', student: { deletedAt: null }, ...(restricted ? { campusId: restricted } : {}) } })
       : 0;
 
+    // ⚠️ `reversal: null` — a reversed payment is money the school gave back or never had. Counted, it
+    // overstated the month by every correction made, and disagreed with the campus comparison.
     const collections = await this.db.feePayment.aggregate({
       _sum: { amountPaid: true },
-      where: { paidAt: { gte: monthStart }, ...(restricted ? { invoice: { enrollment: { campusId: restricted } } } : {}) },
+      where: { paidAt: { gte: monthStart }, reversal: null, ...(restricted ? { invoice: { enrollment: { campusId: restricted } } } : {}) },
     });
 
     // ── Collections trend ─────────────────────────────────────────────────────────────────
@@ -79,7 +81,7 @@ export class DashboardService {
     // hand-rolled in this codebase.
     const trendStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - (TREND_MONTHS - 1), 1));
     const trendPayments = await this.db.feePayment.findMany({
-      where: { paidAt: { gte: trendStart }, ...(restricted ? { invoice: { enrollment: { campusId: restricted } } } : {}) },
+      where: { paidAt: { gte: trendStart }, reversal: null, ...(restricted ? { invoice: { enrollment: { campusId: restricted } } } : {}) },
       select: { paidAt: true, amountPaid: true },
     });
     const buckets = new Map<string, number>();

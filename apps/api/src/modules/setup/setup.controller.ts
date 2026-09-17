@@ -116,6 +116,16 @@ export class HolidayController {
 export class CampusController {
   constructor(private readonly setup: SetupService) {}
 
+  /**
+   * Campus comparison (GAP-11). School-wide roles only: comparing campuses is a question about campuses a
+   * campus admin does not run. Declared before any `:id` route so it is never read as an id.
+   */
+  @Roles('OWNER_ADMIN', 'OPERATIONS_ADMIN')
+  @Get('summary')
+  summary() {
+    return this.setup.campusSummary();
+  }
+
   @Roles('OWNER_ADMIN', 'OPERATIONS_ADMIN')
   @Post()
   create(@Body() dto: CreateCampusDto) {

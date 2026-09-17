@@ -208,6 +208,18 @@ describe('Fees end-to-end (e2e, §12)', () => {
     expect(none.body.data).toEqual([]);
   });
 
+  it("does not count a reversed payment in the dashboard's collections", async () => {
+    // ⚠️ Reversed money was counted as collected, overstating the month by every correction made — and
+    // disagreeing with the campus comparison, which excludes it.
+    const monthStart = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1));
+    const kept = await platform.feePayment.aggregate({ _sum: { amountPaid: true }, where: { schoolId, paidAt: { gte: monthStart }, reversal: null } });
+    const all = await platform.feePayment.aggregate({ _sum: { amountPaid: true }, where: { schoolId, paidAt: { gte: monthStart } } });
+    expect(Number(all._sum.amountPaid)).toBeGreaterThan(Number(kept._sum.amountPaid)); // a reversal exists this month
+
+    const dash = await get('/api/v1/dashboard');
+    expect(dash.body.monthCollections).toBe(Number(kept._sum.amountPaid ?? 0));
+  });
+
   it('answers a double-clicked reversal with one reversal and a clean 409', async () => {
     // A fresh Rs 100 so the race has its own payment; reversing it returns the invoice to where it was.
     const paid = await post(`/api/v1/fees/invoices/${invoiceId}/payments`, { amountPaid: 100, method: 'CASH' }, idem());

@@ -354,6 +354,12 @@ export interface Defaulter {
   outstanding: number; invoices: number; oldestDueDate: string; daysOverdue: number;
   guardian: { name: string; relation: string; phone: string; canText: boolean } | null;
 }
+/** One campus in the Campus Hub comparison. `attendanceToday.percent` is null until a register is marked. */
+export interface CampusSummary {
+  campusId: string; name: string; activeStudents: number;
+  attendanceToday: { percent: number | null; marked: number; expected: number };
+  collectedThisMonth: number; overdue: number; defaulters: number;
+}
 export interface ReportStudentOption { id: string; fullName: string; grNumber: string; isActive: boolean; placement: string | null }
 /** One activity-log entry. `actor` is the email of whoever did it; values are the recorded before/after. */
 export interface AuditEntry {
@@ -1168,6 +1174,8 @@ export const api = {
     sections: () => apiGet<Array<{ id: string; label: string; campus: string }>>('/reports/lookups/sections'),
     exams: () => apiGet<Array<{ id: string; label: string; term: string }>>('/reports/lookups/exams'),
   },
+  /** Campuses side by side (GAP-11). Owner and deputy only. Reversed payments are not counted as collected. */
+  campusSummary: () => apiGet<CampusSummary[]>('/campuses/summary'),
   /** The defaulter working list (GAP-13). Campus-scoped on the server whatever is asked. */
   defaulters: {
     list: (minDays = 0) => apiGet<Defaulter[]>(`/fees/defaulters?minDays=${minDays}`),

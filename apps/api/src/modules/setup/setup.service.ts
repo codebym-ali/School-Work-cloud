@@ -450,6 +450,66 @@ export class SetupService {
   }
 
   // ── Campuses ───────────────────────────────────────────────────────────────
+  /**
+   * One row per campus: students, today's register, money in this month, money overdue (GAP-11).
+   *
+   * Campus Hub listed campuses with add, delete and a login link — and no figure. "Which campus is behind?"
+   * meant running each report per campus and comparing by hand.
+   *
+   * ⚠️ **Five queries whatever the number of campuses** — one per metric, grouped in memory — not a
+   * dashboard computed per campus, which grows as O(campuses × metrics). Prisma rather than raw SQL on
+   * purpose: the dashboard records why, raw reads bypass the tenant extension that scopes every query.
+   *
+   * ⚠️ **Attendance carries its coverage.** A percentage over the registers that exist is a reassuring lie
+   * when half are unmarked, so `marked` and `expected` travel with it, as on the dashboard.
+   *
+   * ⚠️ **Reversed payments are not collections.** Same rule now applied to the dashboard, so the two agree.
+   */
+  async campusSummary() {
+    const now = new Date();
+    const day = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+    const year = await this.db.academicYear.findFirst({ where: { isCurrent: true }, select: { id: true } });
+
+    const [campuses, active, expected, marks, payments, owing] = await Promise.all([
+      this.db.campus.findMany({ select: { id: true, name: true }, orderBy: { name: 'asc' } }),
+      year
+        ? this.db.studentEnrollment.groupBy({ by: ['campusId'], where: { academicYearId: year.id, status: 'ACTIVE', student: { deletedAt: null } }, _count: { _all: true } })
+        : Promise.resolve([] as Array<{ campusId: string; _count: { _all: number } }>),
+      this.db.studentEnrollment.groupBy({ by: ['campusId'], where: { status: 'ACTIVE', student: { deletedAt: null }, startedAt: { lte: day } }, _count: { _all: true } }),
+      this.db.attendanceRecord.findMany({ where: { date: day }, select: { status: true, enrollment: { select: { campusId: true } } } }),
+      this.db.feePayment.findMany({ where: { paidAt: { gte: monthStart }, reversal: null }, select: { amountPaid: true, invoice: { select: { enrollment: { select: { campusId: true } } } } } }),
+      this.db.feeInvoice.findMany({
+        where: { status: { in: ['PENDING', 'PARTIAL', 'OVERDUE'] }, dueDate: { lt: now } },
+        select: { studentId: true, totalAmount: true, paidAmount: true, enrollment: { select: { campusId: true } } },
+      }),
+    ]);
+
+    const count = (rows: Array<{ campusId: string; _count: { _all: number } }>) => new Map(rows.map((r) => [r.campusId, r._count._all]));
+    const activeBy = count(active);
+    const expectedBy = count(expected);
+    const round = (x: number) => Math.round(x * 100) / 100;
+
+    return campuses.map((c) => {
+      const today = marks.filter((m) => m.enrollment.campusId === c.id);
+      const present = today.filter((m) => m.status === 'PRESENT' || m.status === 'LATE' || m.status === 'HALF_DAY').length;
+      const overdue = owing.filter((i) => i.enrollment.campusId === c.id);
+      return {
+        campusId: c.id,
+        name: c.name,
+        activeStudents: activeBy.get(c.id) ?? 0,
+        attendanceToday: {
+          percent: today.length ? Math.round((present / today.length) * 100) : null,
+          marked: today.length,
+          expected: expectedBy.get(c.id) ?? 0,
+        },
+        collectedThisMonth: round(payments.filter((p) => p.invoice.enrollment.campusId === c.id).reduce((n, p) => n + Number(p.amountPaid), 0)),
+        overdue: round(overdue.reduce((n, i) => n + Number(i.totalAmount) - Number(i.paidAmount), 0)),
+        defaulters: new Set(overdue.map((i) => i.studentId)).size,
+      };
+    });
+  }
+
   async createCampus(dto: CreateCampusDto) {
     const name = dto.name.trim();
     // Campus names are unique per school (case-insensitive) — no two same-named campuses.

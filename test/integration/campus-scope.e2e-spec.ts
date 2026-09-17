@@ -434,6 +434,20 @@ describe('Campus scoping (e2e, §22.8 / P1.7)', () => {
     // Financial metrics are campus-scoped to A (their one student).
     expect(acct.body.enrollmentCount).toBe(1);
   });
+  it("shows a campus admin only the activity of people on their own campus", async () => {
+    // ⚠️ Until 2026-09-16 the log was unfiltered: a campus-A admin read the whole school's entries,
+    // including campus-B reversals, withdrawals, reasons and guardians' phone numbers.
+    const res = await authed('get', '/api/v1/audit-logs?limit=100', adminCookies);
+    expect(res.status).toBe(200);
+    const actorIds = new Set((res.body.data as Array<{ userId: string }>).map((r) => r.userId));
+    const actors = await platform.user.findMany({ where: { id: { in: [...actorIds] } }, select: { campusId: true } });
+    for (const a of actors) expect(a.campusId).toBe(campusA);
+
+    // The owner's own view is school-wide, and includes entries the campus admin cannot see.
+    const all = await authed('get', '/api/v1/audit-logs?limit=100', ownerCookies);
+    expect(all.body.data.length).toBeGreaterThan(res.body.data.length);
+  });
+
   /**
    * ⚠️ A payslip is salary data. `payslipPdf` treated ANY campus admin as an admin, with no campus check,
    * so a campus-A admin could download a campus-B teacher's salary slip. Found sweeping every presigned-URL

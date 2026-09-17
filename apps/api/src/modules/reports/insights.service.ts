@@ -1,6 +1,16 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { isAdminRole, paginate, restrictedCampusId, TenantContext, toSkipTake, type PaginationQuery, type Paginated } from '@common';
+import {
+  isAdminRole,
+  restrictedCampusId,
+  TenantContext,
+  KeysetQuery,
+  type KeysetPage,
+  decodeKeysetCursor,
+  keysetOlderThan,
+  toKeysetPage,
+  KEYSET_ORDER,
+} from '@common';
 import { TenantPrismaService } from '@database';
 
 /** Today's register, by what actually happened — the shape the dashboard chart plots. */
@@ -172,10 +182,7 @@ export class DashboardService {
   }
 }
 
-export class AuditLogQuery implements PaginationQuery {
-  page = 1;
-  pageSize = 25;
-  sort?: string;
+export class AuditLogQuery extends KeysetQuery {
   from?: string;
   to?: string;
   action?: string;
@@ -187,24 +194,51 @@ export class AuditLogQuery implements PaginationQuery {
 /** Audit-log browser (blueprint §24). */
 @Injectable()
 export class AuditQueryService {
-  constructor(private readonly tenantPrisma: TenantPrismaService) {}
+  constructor(
+    private readonly tenantPrisma: TenantPrismaService,
+    private readonly ctx: TenantContext,
+  ) {}
 
   private get db() {
     return this.tenantPrisma.client;
   }
 
-  async list(q: AuditLogQuery): Promise<Paginated<unknown>> {
+  /**
+   * The activity log: who did what, when, and why (GAP-06).
+   *
+   * ⚠️ **Campus-scoped, by the ACTOR.** CAMPUS_ADMIN may read this route, and until 2026-09-16 nothing
+   * narrowed it — a campus-A admin read the whole school's log, including campus-B reversals, withdrawals,
+   * reasons and before/after values that carry guardians' phone numbers. An audit row has no campus of its
+   * own, so a campus-bound reader sees the entries recorded by people on THEIR campus. Those people can only
+   * act on that campus, so nothing from another campus appears. Entries by school-wide staff (the owner, the
+   * deputy) are the owner's log, not a campus admin's.
+   *
+   * ⚠️ **Keyset-paged, no `count()`** — see `keyset.ts`. Offset paging on a table that only grows is both
+   * slower every month and wrong: new entries shift every page while someone is reading.
+   */
+  async list(q: AuditLogQuery): Promise<KeysetPage<unknown>> {
     const where: Prisma.AuditLogWhereInput = {};
     if (q.action) where.action = q.action;
     if (q.userId) where.userId = q.userId;
     if (q.entityType) where.entityType = q.entityType;
     if (q.entityId) where.entityId = q.entityId;
     if (q.from || q.to) where.createdAt = { ...(q.from ? { gte: new Date(q.from) } : {}), ...(q.to ? { lte: new Date(q.to) } : {}) };
-    const { skip, take } = toSkipTake(q);
-    const [rows, total] = await Promise.all([
-      this.db.auditLog.findMany({ where, skip, take, orderBy: { createdAt: 'desc' } }),
-      this.db.auditLog.count({ where }),
-    ]);
-    return paginate(rows, total, q);
+
+    const restricted = restrictedCampusId(this.ctx.user);
+    if (restricted !== null) where.user = { campusId: restricted };
+
+    const limit = q.limit ?? 50;
+    const rows = await this.db.auditLog.findMany({
+      where: { AND: [where, keysetOlderThan(decodeKeysetCursor(q.cursor))] },
+      orderBy: KEYSET_ORDER,
+      take: limit + 1,
+      include: { user: { select: { email: true } } },
+    });
+    const page = toKeysetPage(rows, limit);
+    return {
+      nextCursor: page.nextCursor,
+      // The actor's address, not their id: a raw user id means nothing to the person reading the log.
+      data: page.data.map(({ user, ...r }) => ({ ...r, actor: user?.email ?? null })),
+    };
   }
 }

@@ -118,6 +118,9 @@ export const NAV: NavItem[] = [
   // its own create and delete. TEACHER can read it: a teacher who cannot see the closures is a
   // teacher who turns up at a locked school. The screen hides the write controls from them.
   { href: '/calendar', label: 'School calendar', icon: 'calendar', group: 'Administration', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'TEACHER'] },
+  // Who did what, and why (GAP-06). Mirrors `@Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')` on /audit-logs; a campus
+  // admin's view is narrowed to their own campus by the API.
+  { href: '/activity', label: 'Activity log', icon: 'inbox', group: 'Administration', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
   // The product texts parents (fees, absence, results); this is the only window into the
   // templates, the credit balance, and what was actually sent. Editing templates is owner-only
   // (enforced in the API); a campus admin reads.

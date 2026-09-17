@@ -342,6 +342,11 @@ export interface DirectAdmissionBody {
 }
 export type GuardianRelation = 'FATHER' | 'MOTHER' | 'GUARDIAN';
 export type IssuedDocumentType = 'LEAVING_CERT' | 'CHARACTER_CERT' | 'FEE_CLEARANCE';
+/** One activity-log entry. `actor` is the email of whoever did it; values are the recorded before/after. */
+export interface AuditEntry {
+  id: string; action: string; entityType: string; entityId: string; userId: string;
+  actor: string | null; reason: string | null; oldValue: unknown; newValue: unknown; createdAt: string;
+}
 /** A document the school ISSUED. Not the admission checklist, which records paperwork RECEIVED. */
 export interface IssuedDocument { id: string; studentId: string | null; type: string; issuedAt: string; issuedById: string }
 export interface WithdrawalResult {
@@ -1129,6 +1134,16 @@ export const api = {
   // Read-only student portal sign-in: registration-no + CNIC (no password), §28/#34.
   studentPortal: {
     login: (registrationNo: string, cnic: string) => apiPost<{ user: Me }>('/portal/auth/login', { registrationNo, cnic }),
+  },
+  /**
+   * The activity log (GAP-06). Cursor-paged: pass back `nextCursor` for the next older batch. There are no
+   * page numbers because the log grows while it is read. Campus admins receive their own campus's actors only.
+   */
+  activity: {
+    list: (q: { action?: string; entityId?: string; userId?: string; from?: string; to?: string; cursor?: string; limit?: number }) => {
+      const qs = new URLSearchParams(Object.entries(q).filter(([, v]) => v !== undefined && v !== '').map(([k, v]) => [k, String(v)]));
+      return apiGet<{ data: AuditEntry[]; nextCursor: string | null }>(`/audit-logs?${qs}`);
+    },
   },
   /** Certificates the school issues (GAP-14). Campus-scoped; readable only by the roles that issue them. */
   issuedDocuments: {

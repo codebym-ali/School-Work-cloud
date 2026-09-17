@@ -10,6 +10,7 @@ import { STATUS_TRANSITIONS, STUDENT_STATUS, statusStyle } from '@sw/ui';
 import { MoveStudentDialog } from '@school/components/move-student-dialog';
 import { DirectAdmission } from '../admissions/direct-admission';
 import { StudentFeesCard } from './student-fees-card';
+import { hasAnyRole } from '@sw/roles';
 import { GuardiansCard } from './guardians-card';
 import { IssuedDocumentsCard, WithdrawalCard } from './leaving-and-certificates';
 
@@ -704,6 +705,7 @@ function CnicRow({ student, onSaved }: { student: StudentDetail; onSaved: () => 
 }
 
 function StudentProfile({ id, classes, sections, onBack }: { id: string; classes: Klass[]; sections: Section[]; onBack: () => void }) {
+  const profileMe = useMe();
   const [s, setS] = useState<StudentDetail | null>(null);
   const [error, setError] = useState<ApiError | null>(null);
   const [moving, setMoving] = useState(false);
@@ -725,7 +727,16 @@ function StudentProfile({ id, classes, sections, onBack }: { id: string; classes
 
   return (
     <div className="stack">
-      <div className="row"><h1>Student</h1><button className="ghost" onClick={onBack}>← Back</button></div>
+      <div className="row">
+        <h1>Student</h1>
+        <span className="row" style={{ gap: 8 }}>
+          {/* This student's own history in the activity log — "who changed this record, and why", answered in place. */}
+          {hasAnyRole(profileMe?.roles, ['OWNER_ADMIN', 'CAMPUS_ADMIN']) && (
+            <a className="ghost small" href={`/activity?entityId=${id}`} style={{ textDecoration: 'none' }}>Activity</a>
+          )}
+          <button className="ghost" onClick={onBack}>← Back</button>
+        </span>
+      </div>
       {error ? (
         <div className="card stack"><div className="toast err">{error.message}</div><div><button className="ghost" onClick={onBack}>Back</button></div></div>
       ) : !s ? (

@@ -1,6 +1,6 @@
 import { Controller, Get, Query } from '@nestjs/common';
-import { IsOptional, IsString } from 'class-validator';
-import { PaginationQuery, Roles } from '@common';
+import { IsDateString, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
+import { KeysetQuery, Roles } from '@common';
 import { AuditQueryService, DashboardService } from './insights.service';
 
 @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT')
@@ -14,13 +14,17 @@ export class DashboardController {
   }
 }
 
-class AuditQueryDto extends PaginationQuery {
-  @IsOptional() @IsString() from?: string;
-  @IsOptional() @IsString() to?: string;
-  @IsOptional() @IsString() action?: string;
-  @IsOptional() @IsString() userId?: string;
-  @IsOptional() @IsString() entityType?: string;
-  @IsOptional() @IsString() entityId?: string;
+/**
+ * Filters for the activity log. Cursor-paged (`KeysetQuery`) rather than page-numbered: the table only
+ * grows, and page numbers shift under a reader every time something new is recorded.
+ */
+class AuditQueryDto extends KeysetQuery {
+  @IsOptional() @IsDateString() from?: string;
+  @IsOptional() @IsDateString() to?: string;
+  @IsOptional() @IsString() @MaxLength(60) action?: string;
+  @IsOptional() @IsUUID() userId?: string;
+  @IsOptional() @IsString() @MaxLength(60) entityType?: string;
+  @IsOptional() @IsUUID() entityId?: string;
 }
 
 @Controller('audit-logs')

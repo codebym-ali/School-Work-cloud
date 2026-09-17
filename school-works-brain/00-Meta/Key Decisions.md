@@ -1486,3 +1486,28 @@ the plan's list:
 
 ⚠️ The shape to remember: `caller.roles.some(r => r === 'CAMPUS_ADMIN')` answers "is this an admin", never
 "is this THEIR admin". Any hand-rolled admin check needs `assertCampusAccess` beside it.
+
+## The activity log: readable, campus-scoped, and cursor-paged (2026-09-17, GAP-06 / B8 / F3)
+
+Every sensitive action was audited and none could be read without database access. `/activity` now
+shows who did what, when, and the reason given, filterable by action and date, with before/after
+values on demand, and deep-linkable per record (`/activity?entityId=…`, linked from the student profile).
+
+⚠️ **A cross-campus leak came first.** CAMPUS_ADMIN may read `/audit-logs`, and `list()` applied no
+campus filter: a campus-A admin read the whole school's log — campus-B reversals, withdrawals, reasons,
+and before/after values carrying guardians' phone numbers. An audit row has no campus, so campus-bound
+readers now see entries whose ACTOR is on their campus; those people can only act on that campus. The
+owner's and deputy's entries are the owner's log. ⚠️ Honesty note: the before-run for this case failed on
+a 500 (the old service cannot read the new query shape), not on the leak itself — the leak is established
+by reading `list()`, which had no filter at all.
+
+**Keyset paging (plan foundation F3, `libs/common/src/dto/keyset.ts`)** replaces `skip/take + count()`.
+Offset on an append-only table is not just slower each month; it is wrong — an entry written mid-read
+shifts every later page, so rows repeat or vanish. The cursor is `(createdAt, id)` with `id` as tiebreak,
+because `createdAt` alone is not a total order; `take: limit + 1` answers "is there more?" without a
+count. A tampered cursor is a 400, never a silent restart from the top. `audit-log.e2e-spec` walks seven
+entries sharing ONE timestamp while a newer entry is written mid-browse, and asserts no duplicate and no
+skip — which fails against the old offset code.
+
+The UI says "Load older", never page numbers, and states that campus admins see their own campus's
+people, so an owner's action missing from their view reads as scope rather than a gap in the record.

@@ -8,6 +8,8 @@ import {
   type HrSummary, type TeacherAssignment, type UserModule,
 } from '@sw/api-client';
 import { useMe } from '@sw/session';
+import { hasAnyRole } from '@sw/roles';
+import { SalaryPanel } from './salary-panel';
 import { Metric, MetricFilter } from '@sw/ui';
 import { useCampusLens } from '@sw/session';
 
@@ -538,6 +540,9 @@ function StaffRow({ member, isOwner, assignments, classes, sections, subjects, c
 }) {
   const [open, setOpen] = useState(false);
   const [accessOpen, setAccessOpen] = useState(false);
+  const [salaryOpen, setSalaryOpen] = useState(false);
+  const rowMe = useMe();
+  const canSalary = hasAnyRole(rowMe?.roles, ['OWNER_ADMIN', 'CAMPUS_ADMIN']);
   const [classId, setClassId] = useState('');
   const [sectionId, setSectionId] = useState('');
   const [subjectId, setSubjectId] = useState('');
@@ -569,6 +574,11 @@ function StaffRow({ member, isOwner, assignments, classes, sections, subjects, c
         <span className="badge">{member.staffType.charAt(0) + member.staffType.slice(1).toLowerCase()}</span>
         <span className={`badge ${member.user.status === 'ACTIVE' ? 'ok' : member.user.status === 'INVITED' ? 'warn' : 'bad'}`}>{member.user.status}</span>
         <div className="row" style={{ gap: 8, marginLeft: 'auto' }}>
+          {canSalary && (
+            <button className="ghost small" onClick={() => setSalaryOpen((v) => !v)}>
+              {salaryOpen ? 'Close salary' : '💰 Salary'}
+            </button>
+          )}
           {isOwner && (
             <button className="ghost small" onClick={() => setAccessOpen((v) => !v)}>
               {accessOpen ? 'Close access' : '⚙ Manage access'}
@@ -581,6 +591,8 @@ function StaffRow({ member, isOwner, assignments, classes, sections, subjects, c
           )}
         </div>
       </div>
+
+      {salaryOpen && canSalary && <SalaryPanel staffId={member.id} onMsg={onMsg} />}
 
       {accessOpen && isOwner && (
         <AccessPanel userId={member.user.id} roles={member.user.roles} campusId={member.user.campusId}

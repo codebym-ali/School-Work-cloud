@@ -1,7 +1,7 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { AttendanceStatus, LeaveStatus, PayrollRunStatus, Prisma } from '@prisma/client';
-import { AppError, assertCampusAccess, ErrorCodes, parseSchoolSettings, PdfService, StorageService, TenantContext, workingDaysBetween } from '@common';
-import { TenantPrismaService } from '@database';
+import { AppError, assertCampusAccess, AuditActions, ErrorCodes, parseSchoolSettings, PdfService, StorageService, TenantContext, workingDaysBetween } from '@common';
+import { AuditService, TenantPrismaService } from '@database';
 import type { MarkPaidDto, RunPayrollDto } from './dto/hr.dto';
 
 const money = (n: number): number => Math.round(n * 100) / 100;
@@ -22,6 +22,7 @@ export class PayrollService {
     private readonly ctx: TenantContext,
     private readonly pdf: PdfService,
     private readonly storage: StorageService,
+    private readonly audit: AuditService,
   ) {}
 
   private get db() {
@@ -47,20 +48,39 @@ export class PayrollService {
     })).map((h) => new Date(h.date).toISOString().slice(0, 10));
     const workingDays = workingDaysBetween(monthStart, monthEnd, settings.weeklyOffDays, holidayISODates).length;
 
-    const run = await this.db.payrollRun.create({
-      data: { schoolId: this.sid, campusId: dto.campusId, month: dto.month, year: dto.year, status: PayrollRunStatus.DRAFT, createdById: this.ctx.user!.userId },
-    });
+    let run;
+    try {
+      run = await this.db.payrollRun.create({
+        data: { schoolId: this.sid, campusId: dto.campusId, month: dto.month, year: dto.year, status: PayrollRunStatus.DRAFT, createdById: this.ctx.user!.userId },
+      });
+    } catch (e) {
+      // Two people running the same campus-month at once: the unique (campus, month, year) refuses the second.
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        throw new AppError(ErrorCodes.CONFLICT, HttpStatus.CONFLICT, 'Payroll for this campus and month was just started by someone else');
+      }
+      throw e;
+    }
 
     const staff = await this.db.staffProfile.findMany({
       where: { employmentStatus: 'ACTIVE', user: { campusId: dto.campusId } },
+      select: { id: true },
     });
+    const staffIds = staff.map((s) => s.id);
 
-    let count = 0;
+    // ⚠️ B11 — three queries for the whole campus, not three per staff member. The loop used to fetch each
+    // person's salary, unpaid leave and absences separately.
+    const [salaries, leaves, absences] = await Promise.all([
+      this.db.salaryStructure.findMany({ where: { staffId: { in: staffIds }, effectiveFrom: { lte: monthEnd } }, orderBy: { effectiveFrom: 'desc' } }),
+      this.db.staffLeave.findMany({ where: { staffId: { in: staffIds }, status: LeaveStatus.APPROVED, isUnpaid: true, fromDate: { lte: monthEnd }, toDate: { gte: monthStart } } }),
+      this.db.staffAttendance.findMany({ where: { staffId: { in: staffIds }, status: AttendanceStatus.ABSENT, date: { gte: monthStart, lte: monthEnd } }, select: { staffId: true, date: true } }),
+    ]);
+    // Ordered newest first, so the first structure seen per person is the one in force for this month.
+    const salaryOf = new Map<string, (typeof salaries)[number]>();
+    for (const sal of salaries) if (!salaryOf.has(sal.staffId)) salaryOf.set(sal.staffId, sal);
+
+    const rows: Prisma.PayslipCreateManyInput[] = [];
     for (const s of staff) {
-      const salary = await this.db.salaryStructure.findFirst({
-        where: { staffId: s.id, effectiveFrom: { lte: monthEnd } },
-        orderBy: { effectiveFrom: 'desc' },
-      });
+      const salary = salaryOf.get(s.id);
       if (!salary) continue;
 
       const basic = Number(salary.basic);
@@ -68,8 +88,14 @@ export class PayrollService {
       const fixedDeductions = sumValues(salary.fixedDeductions);
       const gross = money(basic + allowances);
 
-      const unpaidLeaveDays = await this.unpaidLeaveDays(s.id, monthStart, monthEnd, settings.weeklyOffDays, holidayISODates);
-      const absentDays = await this.absentDays(s.id, monthStart, monthEnd);
+      const unpaidLeaveDays = leaves
+        .filter((l) => l.staffId === s.id)
+        .reduce((n, l) => {
+          const from = new Date(Math.max(new Date(l.fromDate).getTime(), monthStart.getTime()));
+          const to = new Date(Math.min(new Date(l.toDate).getTime(), monthEnd.getTime()));
+          return n + workingDaysBetween(from, to, settings.weeklyOffDays, holidayISODates).length;
+        }, 0);
+      const absentDays = new Set(absences.filter((a) => a.staffId === s.id).map((a) => new Date(a.date).getUTCDate())).size;
       const perDay = workingDays > 0 ? basic / workingDays : 0;
 
       // Whether an absence costs money is the school's decision (G5), not this service's. Some
@@ -83,27 +109,68 @@ export class PayrollService {
       const attendanceDeduction = money(deductedDays * perDay);
       const netPay = money(gross - fixedDeductions - attendanceDeduction);
 
-      await this.db.payslip.create({
-        data: {
-          schoolId: this.sid,
-          runId: run.id,
-          staffId: s.id,
-          gross,
-          attendanceDeduction,
-          otherDeductions: fixedDeductions,
-          netPay,
-          // `deductForAbsence` is recorded on the payslip, not just applied: a payslip showing
-          // 3 absent days and no deduction is otherwise indistinguishable from a bug, six months
-          // later, to whoever is asked why.
-          breakdown: {
-            basic, allowances, fixedDeductions, workingDays,
-            unpaidLeaveDays, absentDays, deductForAbsence, attendanceDeduction, netPay,
-          } as Prisma.InputJsonValue,
-        },
+      rows.push({
+        schoolId: this.sid,
+        runId: run.id,
+        staffId: s.id,
+        gross,
+        attendanceDeduction,
+        otherDeductions: fixedDeductions,
+        netPay,
+        // `deductForAbsence` is recorded on the payslip, not just applied: a payslip showing
+        // 3 absent days and no deduction is otherwise indistinguishable from a bug, six months
+        // later, to whoever is asked why.
+        breakdown: {
+          basic, allowances, fixedDeductions, workingDays,
+          unpaidLeaveDays, absentDays, deductForAbsence, attendanceDeduction, netPay,
+        } as Prisma.InputJsonValue,
       });
-      count++;
     }
-    return { runId: run.id, alreadyExists: false, payslips: count };
+    if (rows.length) await this.db.payslip.createMany({ data: rows });
+    return { runId: run.id, alreadyExists: false, payslips: rows.length, excluded: staff.length - rows.length };
+  }
+
+  /**
+   * Payroll runs for the payroll screen, newest period first, with the totals a reviewer needs (B9).
+   * There was no list at all — only create, fetch-by-id and approve — so no screen could show past runs.
+   */
+  async listRuns(q: { campusId?: string; year?: number }) {
+    const runs = await this.db.payrollRun.findMany({
+      where: { ...(q.campusId ? { campusId: q.campusId } : {}), ...(q.year ? { year: q.year } : {}) },
+      orderBy: [{ year: 'desc' }, { month: 'desc' }],
+      include: { payslips: { select: { netPay: true, paidAt: true } } },
+      take: 60,
+    });
+    // PayrollRun has no campus relation; one lookup for the names rather than a schema change for a label.
+    const names = new Map((await this.db.campus.findMany({ select: { id: true, name: true } })).map((c) => [c.id, c.name]));
+    return runs.map(({ payslips, ...r }) => ({
+      ...r,
+      campusName: names.get(r.campusId) ?? '',
+      payslips: payslips.length,
+      totalNet: money(payslips.reduce((n, p) => n + Number(p.netPay), 0)),
+      paid: payslips.filter((p) => p.paidAt).length,
+    }));
+  }
+
+  /**
+   * Discard a DRAFT so it can be run again (B10).
+   *
+   * ⚠️ A draft used to block its campus-month forever: `run()` found it and returned `alreadyExists`. So an
+   * absence corrected, a leave approved late, or a salary fixed after drafting could never reach that month's
+   * pay. An APPROVED run is refused — once approved, the month is settled and dependent screens rely on it.
+   */
+  async discardDraft(runId: string) {
+    const run = await this.db.payrollRun.findFirst({ where: { id: runId } });
+    if (!run) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'Payroll run not found');
+    if (run.status !== PayrollRunStatus.DRAFT) {
+      throw new AppError(ErrorCodes.INVALID_STATE_TRANSITION, HttpStatus.CONFLICT, 'An approved payroll run cannot be discarded');
+    }
+    await this.db.payslip.deleteMany({ where: { runId } });
+    await this.db.payrollRun.delete({ where: { id: runId } });
+    await this.audit.record({
+      action: AuditActions.PAYROLL_DRAFT_DISCARDED, entityType: 'PayrollRun', entityId: runId,
+      oldValue: { campusId: run.campusId, month: run.month, year: run.year },
+    });
   }
 
   async approve(runId: string) {
@@ -121,6 +188,11 @@ export class PayrollService {
     if (payslip.run.status !== PayrollRunStatus.APPROVED) {
       throw new AppError(ErrorCodes.CONFLICT, HttpStatus.CONFLICT, 'Approve the run before recording disbursement');
     }
+    // ⚠️ A second "mark paid" used to overwrite the first — a double click silently rewrote the payment date
+    // and method of a salary already paid. Paid is recorded once.
+    if (payslip.paidAt) {
+      throw new AppError(ErrorCodes.CONFLICT, HttpStatus.CONFLICT, `Already recorded as paid on ${payslip.paidAt.toISOString().slice(0, 10)}`);
+    }
     return this.db.payslip.update({
       where: { id: payslipId },
       data: { paidAt: new Date(), paymentMethod: dto.method as never, paymentRef: dto.reference },
@@ -130,8 +202,22 @@ export class PayrollService {
   async getRun(id: string) {
     const run = await this.db.payrollRun.findFirst({ where: { id } });
     if (!run) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'Payroll run not found');
-    const payslips = await this.db.payslip.findMany({ where: { runId: id } });
-    return { ...run, payslips };
+    const payslips = await this.db.payslip.findMany({
+      where: { runId: id },
+      include: { staff: { select: { employeeCode: true, designation: true, user: { select: { email: true } } } } },
+    });
+    // ⚠️ Staff with no salary structure were skipped SILENTLY, so a teacher could be left out of payroll and
+    // nobody reviewing the run would see it. They are named, so the omission is a decision, not an accident.
+    const excluded = await this.db.staffProfile.findMany({
+      where: { employmentStatus: 'ACTIVE', user: { campusId: run.campusId }, id: { notIn: payslips.map((p) => p.staffId) } },
+      select: { id: true, employeeCode: true, user: { select: { email: true } } },
+    });
+    return {
+      ...run,
+      campusName: (await this.db.campus.findFirst({ where: { id: run.campusId }, select: { name: true } }))?.name ?? '',
+      payslips: payslips.map(({ staff, ...p }) => ({ ...p, employeeCode: staff.employeeCode, designation: staff.designation, email: staff.user.email })),
+      excluded: excluded.map((e) => ({ staffId: e.id, employeeCode: e.employeeCode, email: e.user.email, reason: 'No salary structure for this month' })),
+    };
   }
 
   async myPayslips() {
@@ -190,39 +276,4 @@ export class PayrollService {
   // `workingDaysBetween` from @common — the same function the leave count and the attendance
   // deadline use, because a second implementation of "which days does this school work" is a
   // second answer waiting to disagree with the first.
-
-  /**
-   * Unpaid-leave days falling in this month — counted as WORKING days, not calendar days.
-   *
-   * It used to be calendar days, which over-deducted every time: the rate applied to them is
-   * `basic / workingDays`, a denominator that already excludes weekly offs and closures, so a
-   * seven-day leave across a six-working-day week was charged as seven sixths of a week. The
-   * weekly off is not a day the person took off — it was already not a working day.
-   */
-  private async unpaidLeaveDays(
-    staffId: string,
-    monthStart: Date,
-    monthEnd: Date,
-    weeklyOff: string[],
-    holidayISODates: string[],
-  ): Promise<number> {
-    const leaves = await this.db.staffLeave.findMany({
-      where: { staffId, status: LeaveStatus.APPROVED, isUnpaid: true, fromDate: { lte: monthEnd }, toDate: { gte: monthStart } },
-    });
-    let days = 0;
-    for (const l of leaves) {
-      const from = new Date(Math.max(new Date(l.fromDate).getTime(), monthStart.getTime()));
-      const to = new Date(Math.min(new Date(l.toDate).getTime(), monthEnd.getTime()));
-      days += workingDaysBetween(from, to, weeklyOff, holidayISODates).length;
-    }
-    return days;
-  }
-
-  private async absentDays(staffId: string, monthStart: Date, monthEnd: Date): Promise<number> {
-    const rows = await this.db.staffAttendance.findMany({
-      where: { staffId, status: AttendanceStatus.ABSENT, date: { gte: monthStart, lte: monthEnd } },
-      select: { date: true },
-    });
-    return new Set(rows.map((r) => new Date(r.date).getUTCDate())).size;
-  }
 }

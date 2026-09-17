@@ -1631,3 +1631,11 @@ query must exclude the target year, or a second run moves them again.
 The screen lists blocked students first, and Promote stays disabled while any choice differs from the
 last preview, so the fingerprint is always of the list on screen. The original `POST /promotions` still
 works, re-implemented over the planner.
+
+## Payroll gets a screen (GAP-05, 2026-09-17)
+- `/payroll` (owner door only — OWNER_ADMIN): draft a campus-month, review each payslip WITH its arithmetic (working days, unpaid leave, absences, whether the school deducts absence), discard a draft to recompute, approve (MFA, final), mark paid once per payslip, PDF.
+- Staff who were left out (no salary structure) are named on the run, not silently skipped.
+- Salary is set on the Staff screen (💰 Salary, OWNER_ADMIN + CAMPUS_ADMIN). A raise is a NEW structure from a date, never an edit — past months stay as computed. HR does not set pay (separation of duties; D3 withdrawn).
+- Security fix shipped with it: `GET /staff/:id/salary-structures` had no `@Roles`, so teachers could read colleagues' salaries.
+- Draft runs block their month until discarded; approved runs cannot be discarded; mark-paid refuses a second time (409); concurrent drafts of one month → one run, 409 not 500.
+- My Payslips empty state now explains payslips appear once the school approves a month.

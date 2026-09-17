@@ -46,7 +46,7 @@ export default function MyPayslips() {
                 </tr>
               );
             })}
-            {rows.length === 0 && <tr><td colSpan={6} className="muted">No payslips yet.</td></tr>}
+            {rows.length === 0 && <tr><td colSpan={6} className="muted">No payslips have been issued yet. They appear here once the school approves a month&apos;s payroll.</td></tr>}
           </tbody>
         </table>
       </div>

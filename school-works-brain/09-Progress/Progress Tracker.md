@@ -1222,3 +1222,4 @@ existed and four of its rules were wrong, each of them about money.
 3. Update the header (`updated`, `current_milestone`, test count) and the top gates line.
 4. Update any brain note whose **Implementation status** changed, and [[Roadmap & Milestones]] if sequencing shifted.
 5. Commit with the phase (the repo history + this file must agree).
+- [x] **Owner Gap Resolution Plan — Phase 5 payroll (GAP-05) SHIPPED (2026-09-17).** `/payroll` screen on the owner door (draft → review with per-payslip arithmetic and named exclusions → discard/recompute → approve (MFA) → mark paid once → PDF) and a Salary panel on Staff (owner + campus admin, dated history). Backend: batched run, list with totals, discard draft, mark-paid idempotence, concurrent-draft 409. **Leak fixed:** teachers could read colleagues' salaries (GET salary-structures had no `@Roles`), proven by a failing test first. Three payroll routes removed from the route-coverage backlog. See [[Key Decisions]].

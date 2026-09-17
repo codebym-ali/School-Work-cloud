@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Patch, Post, Query } from '@nestjs/common';
 import { RequiresMfa, Roles } from '@common';
 import { StaffService } from './staff.service';
 import { PayrollService } from './payroll.service';
@@ -7,6 +7,7 @@ import {
   CreateStaffDto,
   CreateTeacherAssignmentDto,
   MarkPaidDto,
+  PayrollRunListQuery,
   RunPayrollDto,
 } from './dto/hr.dto';
 
@@ -30,6 +31,9 @@ export class StaffController {
   @Post(':id/salary-structures')
   createSalary(@Param('id') id: string, @Body() dto: CreateSalaryStructureDto) { return this.staff.createSalaryStructure(id, dto); }
 
+  // ⚠️ Had NO role gate until 2026-09-17: the service only narrowed by campus, so any campus-bound role — a
+  // teacher, office staff — could read every colleague's salary on their campus. Mirrors the POST above.
+  @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
   @Get(':id/salary-structures')
   listSalary(@Param('id') id: string) { return this.staff.listSalaryStructures(id); }
 }
@@ -57,6 +61,10 @@ export class PayrollController {
   constructor(private readonly payroll: PayrollService) {}
 
   @Roles('OWNER_ADMIN') @Post() run(@Body() dto: RunPayrollDto) { return this.payroll.run(dto); }
+  /** Past and current runs with totals (B9). Declared before `:id` so `GET /payroll-runs` is never read as an id. */
+  @Roles('OWNER_ADMIN') @Get() list(@Query() q: PayrollRunListQuery) { return this.payroll.listRuns(q); }
+  /** Discard a DRAFT so the month can be recomputed (B10). Approved runs are refused. */
+  @Roles('OWNER_ADMIN') @Delete(':id') @HttpCode(HttpStatus.NO_CONTENT) discard(@Param('id') id: string) { return this.payroll.discardDraft(id); }
   @Roles('OWNER_ADMIN') @Get(':id') getRun(@Param('id') id: string) { return this.payroll.getRun(id); }
   @Roles('OWNER_ADMIN') @RequiresMfa() @Post(':id/approve') approve(@Param('id') id: string) { return this.payroll.approve(id); }
 }

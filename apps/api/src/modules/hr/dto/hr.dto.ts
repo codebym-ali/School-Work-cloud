@@ -14,6 +14,7 @@ import {
   MinLength,
 } from 'class-validator';
 import { Role, StaffType } from '@prisma/client';
+import { Type } from 'class-transformer';
 
 export class CreateStaffDto {
   @IsEmail() email!: string;
@@ -59,6 +60,11 @@ export class RunPayrollDto {
   @IsUUID() campusId!: string;
   @IsInt() @Min(1) @Max(12) month!: number;
   @IsInt() @Min(2000) @Max(3000) year!: number;
+}
+
+export class PayrollRunListQuery {
+  @IsOptional() @IsUUID() campusId?: string;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(2000) @Max(3000) year?: number;
 }
 
 export class MarkPaidDto {

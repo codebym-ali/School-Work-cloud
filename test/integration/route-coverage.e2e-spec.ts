@@ -59,11 +59,6 @@ describe('Route coverage — every route has a UI or a listed exception (Law 3)'
     // ── Finance admin (audited money actions, reachable only by API) ──────────
     /^\/api\/v1\/fees\/integrity-check$/,           // ledger reconciliation
 
-    // ── Payroll (no admin surface at all) ────────────────────────────────────
-    /^\/api\/v1\/payroll-runs(\/|$)/,               // create/list/approve a payroll run
-    /^\/api\/v1\/payslips\/[^/]+\/mark-paid$/,      // mark a payslip paid
-    /^\/api\/v1\/staff\/[^/]+\/salary-structures$/, // set/read a staff salary structure
-
     // ── Student record actions the profile screen does not expose ────────────
     /^\/api\/v1\/students\/[^/]+\/report-cards$/,               // a student's report cards
 

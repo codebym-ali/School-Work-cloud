@@ -379,6 +379,28 @@ export interface PromotionResultBody {
   promoted: number; retained: number; withdrawn: number; completed: number; skipped: number;
   blocked: Array<{ studentId: string; studentName: string; reason: string }>;
 }
+/** One salary structure. A raise is a NEW structure from a date; payroll uses whichever is in force. */
+export interface SalaryStructure {
+  id: string; staffId: string; basic: string; effectiveFrom: string;
+  allowances: Record<string, number> | null; fixedDeductions: Record<string, number> | null;
+}
+export interface PayrollRunSummary {
+  id: string; campusId: string; campusName: string; month: number; year: number; status: 'DRAFT' | 'APPROVED';
+  payslips: number; totalNet: number; paid: number;
+}
+export interface PayrollPayslip {
+  id: string; staffId: string; email: string; employeeCode: string; designation: string;
+  gross: string; attendanceDeduction: string; otherDeductions: string; netPay: string;
+  paidAt: string | null; paymentMethod: string | null; paymentRef: string | null;
+  /** The arithmetic behind the figures, recorded when the run was drafted. */
+  breakdown: { basic: number; allowances: number; fixedDeductions: number; workingDays: number; unpaidLeaveDays: number; absentDays: number; deductForAbsence: boolean; attendanceDeduction: number; netPay: number };
+}
+export interface PayrollRunDetail {
+  id: string; campusId: string; campusName: string; month: number; year: number; status: 'DRAFT' | 'APPROVED';
+  payslips: PayrollPayslip[];
+  /** Active staff left out — no salary structure for the month. Named so the omission is a decision. */
+  excluded: Array<{ staffId: string; employeeCode: string; email: string; reason: string }>;
+}
 export interface ReportStudentOption { id: string; fullName: string; grNumber: string; isActive: boolean; placement: string | null }
 /** One activity-log entry. `actor` is the email of whoever did it; values are the recorded before/after. */
 export interface AuditEntry {
@@ -1201,6 +1223,23 @@ export const api = {
       apiPost<PromotionPreview>('/promotions/plan', body),
     commit: (body: { targetYearId: string; campusId?: string; overrides?: Array<{ studentId: string; action: 'RETAINED' | 'WITHDRAWN' }>; overridePreconditions?: boolean; fingerprint: string; reason?: string }) =>
       apiPost<PromotionResultBody>('/promotions/commit', body),
+  },
+  /** Salary structures (GAP-05). Owner and campus admin; HR creates staff but does not set their pay. */
+  salaries: {
+    list: (staffId: string) => apiGet<SalaryStructure[]>(`/staff/${staffId}/salary-structures`),
+    create: (staffId: string, body: { basic: number; allowances?: Record<string, number>; deductionsFixed?: Record<string, number>; effectiveFrom: string }) =>
+      apiPost<SalaryStructure>(`/staff/${staffId}/salary-structures`, body),
+  },
+  /** Payroll (GAP-05). Owner only; approving and marking paid are two-factor gated. */
+  payroll: {
+    listRuns: () => apiGet<PayrollRunSummary[]>('/payroll-runs'),
+    getRun: (id: string) => apiGet<PayrollRunDetail>(`/payroll-runs/${id}`),
+    run: (body: { campusId: string; month: number; year: number }) =>
+      apiPost<{ runId: string; alreadyExists: boolean; payslips: number; excluded?: number }>('/payroll-runs', body),
+    discard: (id: string) => apiDelete<null>(`/payroll-runs/${id}`),
+    approve: (id: string) => apiPost<unknown>(`/payroll-runs/${id}/approve`, {}),
+    markPaid: (payslipId: string, body: { method: 'CASH' | 'BANK_TRANSFER' | 'CHEQUE'; reference?: string }) =>
+      apiPatch<unknown>(`/payslips/${payslipId}/mark-paid`, body),
   },
   /** The defaulter working list (GAP-13). Campus-scoped on the server whatever is asked. */
   defaulters: {

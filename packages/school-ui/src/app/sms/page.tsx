@@ -29,6 +29,14 @@ const TRIGGER_LABELS: Record<string, string> = {
   MANUAL: 'Manual message',
 };
 
+/** Why a message did not go, in the office's words. Withheld ones cannot be retried — the reason still stands. */
+const FAIL_REASONS: Record<string, string> = {
+  SMS_OPTED_OUT: 'Parent opted out of SMS',
+  PHONE_UNVERIFIED: 'Number not verified',
+  INSUFFICIENT_SMS_CREDITS: 'Not enough credits',
+};
+const WITHHELD = new Set(['SMS_OPTED_OUT', 'PHONE_UNVERIFIED']);
+
 const STATUS_TONE: Record<string, string> = {
   DELIVERED: 'ok', SENT: 'ok', QUEUED: 'warn', FAILED: 'err',
 };
@@ -167,11 +175,11 @@ export default function SmsPage() {
                     <td>
                       <span className={`badge ${STATUS_TONE[l.status] ?? ''}`}>{l.status}</span>
                       {l.status === 'FAILED' && l.failReason && (
-                        <div className="muted" style={{ fontSize: 11 }}>{l.failReason}</div>
+                        <div className="muted" style={{ fontSize: 11 }}>{FAIL_REASONS[l.failReason] ?? l.failReason}</div>
                       )}
                     </td>
                     <td className="muted" style={{ fontSize: 12, maxWidth: 320 }}>{l.message}</td>
-                    <td>{l.status === 'FAILED' && <button className="ghost small" onClick={() => retry(l.id)}>Retry</button>}</td>
+                    <td>{l.status === 'FAILED' && !WITHHELD.has(l.failReason ?? '') && <button className="ghost small" onClick={() => retry(l.id)}>Retry</button>}</td>
                   </tr>
                 ))}
               </tbody>

@@ -134,6 +134,34 @@ describe('SMS broadcast (e2e, GAP-15)', () => {
     expect(audit).not.toBeNull();
   });
 
+  /**
+   * Item 9: opt-out was honoured only by the broadcast. Blueprint §14: "Opt-out flag per guardian honored for
+   * MANUAL sends; transactional sends always allowed". A hand-typed send and a fee reminder (a nudge, not a
+   * record of something that happened) reached a parent who had said stop.
+   */
+  it('does not text an opted-out parent through a hand-typed send, and says why in the log', async () => {
+    const res = await post('/api/v1/sms/send', { recipients: ['03005550002', '03005550001'], body: 'Typed by hand' });
+    expect(res.status).toBe(202);
+    await drainSmsFor(app, schoolId);
+    const logs = await platform.smsLog.findMany({ where: { schoolId, templateKey: 'MANUAL', message: { in: ['Typed by hand', '(withheld: opted out of SMS)'] } } });
+    const byTail = new Map(logs.map((l) => [l.recipient.slice(-7), l]));
+    expect(byTail.get('5550001')?.status).toBe('SENT');
+    expect(byTail.get('5550002')).toMatchObject({ status: 'FAILED', failReason: 'SMS_OPTED_OUT', segments: 0 });
+  });
+
+  it('refuses to retry a withheld message instead of texting its placeholder', async () => {
+    const withheld = await platform.smsLog.findFirstOrThrow({ where: { schoolId, failReason: 'SMS_OPTED_OUT' } });
+    expect((await post(`/api/v1/sms/logs/${withheld.id}/retry`, {})).status).toBe(409);
+  });
+
+  it('does not charge credits for a withheld message', async () => {
+    const before = (await request(server()).get('/api/v1/sms/credits').set('Host', host).set('Cookie', owner)).body.balance as number;
+    await post('/api/v1/sms/send', { recipients: ['03005550002'], body: 'Still no' });
+    await drainSmsFor(app, schoolId);
+    const after = (await request(server()).get('/api/v1/sms/credits').set('Host', host).set('Cookie', owner)).body.balance as number;
+    expect(after).toBe(before);
+  });
+
   it('refuses when the audience changed since it was previewed', async () => {
     const res = await post('/api/v1/sms/broadcast', { body: 'Hi', expectedRecipients: 7 });
     expect(res.status).toBe(409);

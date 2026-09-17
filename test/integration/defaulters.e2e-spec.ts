@@ -136,6 +136,19 @@ describe('Defaulters and fee reminders (e2e, GAP-13)', () => {
     expect(sent).toBe(1);
   });
 
+  it('withholds a queued reminder if the parent opts out before it is sent', async () => {
+    const studentId = await billed([JULY], '03004440009');
+    await verifyGuardianOf(studentId);
+    expect((await post('/api/v1/fees/defaulters/reminders', { studentIds: [studentId] })).body.queued).toBe(1);
+
+    const link = await platform.studentGuardian.findFirstOrThrow({ where: { studentId, isPrimary: true } });
+    await platform.parentProfile.update({ where: { id: link.parentId }, data: { smsOptOut: true } });
+    await drainSmsFor(app, schoolId);
+
+    const logs = await platform.smsLog.findMany({ where: { schoolId, templateKey: 'FEE_REMINDER', studentId } });
+    expect(logs).toEqual([expect.objectContaining({ status: 'FAILED', failReason: 'SMS_OPTED_OUT', segments: 0 })]);
+  });
+
   it('refuses an empty or malformed list', async () => {
     expect((await post('/api/v1/fees/defaulters/reminders', { studentIds: [] })).status).toBe(400);
     expect((await post('/api/v1/fees/defaulters/reminders', { studentIds: ['not-an-id'] })).status).toBe(400);

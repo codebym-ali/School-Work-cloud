@@ -185,6 +185,14 @@ export class CommsService {
     if (log.status !== SmsStatus.FAILED) {
       throw new AppError(ErrorCodes.CONFLICT, HttpStatus.CONFLICT, 'Only failed messages can be retried');
     }
+    // ⚠️ A withheld message's stored body is the placeholder "(withheld: …)", not what was meant to be sent —
+    // retrying it texted that placeholder to the parent. And the reason it was withheld has not gone away.
+    if (log.failReason === ErrorCodes.SMS_OPTED_OUT || log.failReason === ErrorCodes.PHONE_UNVERIFIED) {
+      throw new AppError(ErrorCodes.CONFLICT, HttpStatus.CONFLICT,
+        log.failReason === ErrorCodes.SMS_OPTED_OUT
+          ? 'This parent opted out of SMS, so the message cannot be retried'
+          : "This number is not verified. Verify the guardian's phone first");
+    }
     await this.producer.enqueueManual({
       type: 'MANUAL',
       schoolId: this.ctx.requireSchoolId(),

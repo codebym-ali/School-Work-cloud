@@ -1,6 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { Prisma, SmsStatus } from '@prisma/client';
-import { ErrorCodes, parseSchoolSettings, TenantContext } from '@common';
+import { ErrorCodes, normalizePkPhone, parseSchoolSettings, TenantContext } from '@common';
 import { TenantPrismaService } from '@database';
 import { CreditsService } from './credits.service';
 import { computeSegments, renderTemplate } from './sms-segments';
@@ -47,10 +47,18 @@ export class SmsService {
         return this.dispatchSchoolClosed(job);
       case 'FEE_REMINDER':
         return this.dispatchFeeReminder(job);
-      case 'MANUAL':
+      case 'MANUAL': {
+        // ⚠️ Blueprint §14: opt-out is honoured for MANUAL sends. Checked HERE, at send time, not only where the
+        // audience was chosen: a hand-typed number or a retried log never passed through an audience filter, and a
+        // parent may opt out between queueing and sending. One query for the whole job, not one per number.
+        const optedOut = await this.optedOutPhones(job.recipients);
         // No dedupe key — a school may deliberately send the same broadcast twice.
-        for (const to of job.recipients) await this.sendOne(to, job.body, 'MANUAL', {}, false);
+        for (const to of job.recipients) {
+          if (optedOut.has(normalizePkPhone(to) ?? to)) await this.logOptedOut(to, 'MANUAL', {});
+          else await this.sendOne(to, job.body, 'MANUAL', {}, false);
+        }
         return;
+      }
     }
   }
 
@@ -110,7 +118,8 @@ export class SmsService {
    * A fee reminder to the primary guardian.
    *
    * ⚠️ NOT transactional: a reminder is a nudge the guardian may opt out of, unlike a receipt for money they
-   * paid. `sendOne(..., false, …)` therefore honours opt-out and the credit balance without overdraft.
+   * paid. Opt-out is checked below — `sendOne` does not do it (this comment used to claim it did, and nothing
+   * checked it). The credit balance applies without overdraft.
    */
   private async dispatchFeeReminder(job: Extract<SmsJob, { type: 'FEE_REMINDER' }>): Promise<void> {
     const student = await this.db.student.findFirst({ where: { id: job.studentId } });
@@ -118,6 +127,10 @@ export class SmsService {
     if (!student || !guardian) return;
     if (!guardian.phoneVerifiedAt) {
       await this.logUnverified(guardian.phone, 'FEE_REMINDER', { studentId: job.studentId });
+      return;
+    }
+    if (guardian.smsOptOut) {
+      await this.logOptedOut(guardian.phone, 'FEE_REMINDER', { studentId: job.studentId });
       return;
     }
     const body = renderTemplate(await this.templateBody('FEE_REMINDER'), {
@@ -264,6 +277,30 @@ export class SmsService {
       include: { parent: { select: { phone: true, phoneVerifiedAt: true, smsOptOut: true } } },
     });
     return link?.parent ?? null;
+  }
+
+  /** Normalised phones among `recipients` whose guardian opted out of SMS. */
+  private async optedOutPhones(recipients: readonly string[]): Promise<Set<string>> {
+    const phones = [...new Set(recipients.map((r) => normalizePkPhone(r) ?? r))];
+    if (phones.length === 0) return new Set();
+    const rows = await this.db.parentProfile.findMany({ where: { phone: { in: phones }, smsOptOut: true }, select: { phone: true } });
+    return new Set(rows.map((r) => r.phone));
+  }
+
+  /** A message withheld because the parent opted out: logged so the office can see why, never charged. */
+  private async logOptedOut(recipient: string, templateKey: SmsTriggerKey, refs: OutboundRefs): Promise<void> {
+    await this.db.smsLog.create({
+      data: {
+        schoolId: this.ctx.requireSchoolId(),
+        recipient,
+        message: '(withheld: opted out of SMS)',
+        templateKey,
+        segments: 0,
+        status: SmsStatus.FAILED,
+        failReason: ErrorCodes.SMS_OPTED_OUT,
+        ...refs,
+      },
+    });
   }
 
   private async logUnverified(recipient: string, templateKey: SmsTriggerKey, refs: OutboundRefs): Promise<void> {

@@ -1645,4 +1645,10 @@ works, re-implemented over the planner.
 - Campus is forced for campus-bound callers; class/section only narrow within it.
 - Send carries `expectedRecipients` from the preview; a changed audience → 409. Credits short → 409 INSUFFICIENT_SMS_CREDITS and nothing queued (no half-sent broadcasts). Audited as SMS_BROADCAST_SENT with body and counts. Queued in chunks of 100.
 - Counting rules are a pure function (`comms/broadcast/broadcast-audience.ts`, unit-tested).
-- ⚠️ Found, not fixed here: `SmsService` dispatchers (SCHOOL_CLOSED, ABSENCE, MANUAL via /sms/send and retry) never check `smsOptOut`; only broadcast and fee reminders honour it.
+- ✅ Fixed (item 9, same day): opt-out is enforced AT SEND TIME in `SmsService` for MANUAL (hand-typed /sms/send, broadcast, retry) and FEE_REMINDER — per blueprint §14 "honored for MANUAL sends; transactional sends always allowed". ABSENCE, FEE_RECEIPT, LEAVE_STATUS, RESULT_READY and SCHOOL_CLOSED are treated as transactional and still reach opted-out parents (pending owner decision). Withheld sends log FAILED `SMS_OPTED_OUT`, 0 segments, no credit. The FEE_REMINDER doc comment claimed `sendOne` honoured opt-out — it never did.
+- Retrying a withheld log (SMS_OPTED_OUT / PHONE_UNVERIFIED) is refused 409: its stored body is the placeholder "(withheld: …)", which a retry used to text to the parent. The SMS screen labels these reasons and hides Retry for them.
+
+## Browser click-through for the owner gaps (item 8, 2026-09-17)
+- `test/e2e/owner-gaps.spec.ts` (Playwright, live dev stack): owner sees Reverse on a paid receipt while the accountant door offers it nowhere; all 7 reports run with pickers and no id typing; the Campus Hub login link opens the staff door and a campus admin signs in through it; /payroll, /defaulters, /activity, /promotion open, and the broadcast audience check returns a count with no 5xx.
+- ⚠️ Gotchas: Next.js mounts an empty `role=alert` route announcer, and the two-factor banner uses `.toast.err`, so "no error" must be asserted by the result rendering, not by the absence of those selectors. A `<select>`'s options are `role=option` too — scope picker options to their listbox.
+- ⚠️ The dev API on :4000 was running a stale `dist` build (new routes 404'd). Rebuild with `nest build api` before browser runs.

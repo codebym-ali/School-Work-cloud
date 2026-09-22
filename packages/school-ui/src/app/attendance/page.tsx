@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { api, apiGet, apiPost, ApiError, type Campus, type Enrollment, type Klass, type Section, type UnmarkedRegisters } from '@sw/api-client';
 import { sectionLabeller } from '@school/lib/labels';
+import { useCampusLens } from '@sw/session';
 
 interface DayCoverage { date: string; working: boolean; marked: number; expected: number; closedFor: string | null }
 
@@ -97,6 +98,7 @@ export default function AttendancePage() {
   const [autoLoaded, setAutoLoaded] = useState(false);
   const [unmarked, setUnmarked] = useState<UnmarkedRegisters | null>(null);
   const [loaded, setLoaded] = useState(false);
+  const lens = useCampusLens();
 
   useEffect(() => {
     apiGet<Klass[]>('/classes').then(setClasses).catch(() => {});
@@ -166,6 +168,13 @@ export default function AttendancePage() {
   }
 
   const sectionLabel = sectionLabeller(classes, campuses);
+  // Show only the selected campus's sections — an owner viewing one campus should not scroll past
+  // every other campus's rooms. A null lens ("All campuses") shows everything.
+  const campusOfSection = (s: Section) => classes.find((c) => c.id === s.classId)?.campusId ?? null;
+  const visibleSections = lens.campusId ? sections.filter((s) => campusOfSection(s) === lens.campusId) : sections;
+  useEffect(() => {
+    if (sectionId && !visibleSections.some((s) => s.id === sectionId)) { setSectionId(''); setRows([]); setLoaded(false); }
+  }, [lens.campusId]); // eslint-disable-line react-hooks/exhaustive-deps
   // Counted from what is on screen, so it cannot disagree with what Save is about to send.
   const tally = rows.reduce((acc, r) => {
     const m = marks[r.id] ?? 'PRESENT';
@@ -214,7 +223,7 @@ export default function AttendancePage() {
         <div><label>Section</label>
           <select value={sectionId} onChange={(e) => { setSectionId(e.target.value); setRows([]); setLoaded(false); setMsg(null); }}>
             <option value="">Select…</option>
-            {sections.map((s) => <option key={s.id} value={s.id}>{sectionLabel(s)}</option>)}
+            {visibleSections.map((s) => <option key={s.id} value={s.id}>{sectionLabel(s)}</option>)}
           </select>
         </div>
         <div><label>Date</label>

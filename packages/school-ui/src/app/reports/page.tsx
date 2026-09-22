@@ -133,7 +133,10 @@ export default function ReportsPage() {
           <button type="button" onClick={run} disabled={busy || missing.length > 0}>{busy ? 'Running…' : 'View'}</button>
           {/* Download is a link; with a required choice missing it would only download an error. */}
           {missing.length === 0
-            ? <a href={`/api/v1/reports/${spec.key}${query('format=csv')}`} className="ghost small" style={{ padding: '10px 16px', textDecoration: 'none' }}>Download CSV</a>
+            ? <>
+                <a href={`/api/v1/reports/${spec.key}${query('format=csv')}`} className="ghost small" style={{ padding: '10px 16px', textDecoration: 'none' }}>Download CSV</a>
+                <a href={`/api/v1/reports/${spec.key}${query('format=pdf')}`} className="ghost small" style={{ padding: '10px 16px', textDecoration: 'none' }}>Download PDF</a>
+              </>
             : <span className="muted" style={{ fontSize: 13, alignSelf: 'center' }}>Choose a {missing.map((m) => LABEL[m].toLowerCase()).join(' and ')} first.</span>}
         </div>
       </div>

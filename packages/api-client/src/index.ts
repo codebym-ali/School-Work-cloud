@@ -17,7 +17,31 @@ function csrfToken(): string {
   return m ? decodeURIComponent(m[1]) : '';
 }
 
-async function request<T>(path: string, opts: { method?: string; body?: unknown; headers?: Record<string, string>; signal?: AbortSignal } = {}): Promise<T> {
+// Login/refresh endpoints must never trigger a refresh-retry (they define the session and would loop).
+const AUTH_NO_REFRESH = ['/auth/refresh', '/auth/login', '/auth/owner-login', '/auth/student-login', '/auth/mfa', '/auth/logout'];
+
+/**
+ * Single-flight access-token refresh. When the short-lived access token expires, one POST
+ * /auth/refresh is made (the backend rotates the refresh cookie, blueprint §22.4) and every
+ * caller retries its own request. Without this the session silently dies mid-task and the app
+ * bounces to the login screen while the refresh token is still perfectly valid.
+ */
+let refreshInFlight: Promise<boolean> | null = null;
+function refreshSession(): Promise<boolean> {
+  if (!refreshInFlight) {
+    refreshInFlight = fetch(`${BASE}/auth/refresh`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'X-CSRF-Token': csrfToken() },
+    })
+      .then((r) => r.ok)
+      .catch(() => false)
+      .finally(() => { refreshInFlight = null; });
+  }
+  return refreshInFlight;
+}
+
+async function request<T>(path: string, opts: { method?: string; body?: unknown; headers?: Record<string, string>; signal?: AbortSignal; _retried?: boolean } = {}): Promise<T> {
   const method = opts.method ?? 'GET';
   const headers: Record<string, string> = { 'Content-Type': 'application/json', ...opts.headers };
   if (method !== 'GET') headers['X-CSRF-Token'] = csrfToken();
@@ -29,6 +53,13 @@ async function request<T>(path: string, opts: { method?: string; body?: unknown;
     body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
     signal: opts.signal,
   });
+
+  // Access token expired: refresh once and retry, so a live session is not dropped to the login
+  // screen while the refresh token is still valid. Auth endpoints are exempt to avoid a loop.
+  if (res.status === 401 && !opts._retried && !AUTH_NO_REFRESH.some((pfx) => path.startsWith(pfx))) {
+    const refreshed = await refreshSession();
+    if (refreshed) return request<T>(path, { ...opts, _retried: true });
+  }
 
   const data = res.status === 204 ? null : await res.json().catch(() => null);
   if (!res.ok) {

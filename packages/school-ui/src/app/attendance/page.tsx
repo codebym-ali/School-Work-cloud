@@ -96,6 +96,7 @@ export default function AttendancePage() {
   const [coverage, setCoverage] = useState<DayCoverage[]>([]);
   const [autoLoaded, setAutoLoaded] = useState(false);
   const [unmarked, setUnmarked] = useState<UnmarkedRegisters | null>(null);
+  const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     apiGet<Klass[]>('/classes').then(setClasses).catch(() => {});
@@ -131,10 +132,10 @@ export default function AttendancePage() {
   }
   useEffect(() => { loadCoverage().catch(() => {}); }, [sectionId, session]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  async function loadRoster() {
+  async function loadRoster(d: string = date) {
     if (!sectionId) return;
     const enr = await apiGet<{ data: Enrollment[] }>(`/enrollments?sectionId=${sectionId}&status=ACTIVE`);
-    const existing = await apiGet<Array<{ enrollmentId: string; status: string }>>(`/attendance?sectionId=${sectionId}&date=${date}`);
+    const existing = await apiGet<Array<{ enrollmentId: string; status: string }>>(`/attendance?sectionId=${sectionId}&date=${d}`);
     const m: Record<string, string> = {};
     for (const e of enr.data) m[e.id] = 'PRESENT';
     for (const a of existing) m[a.enrollmentId] = a.status;
@@ -145,6 +146,7 @@ export default function AttendancePage() {
     setMarks(m);
     setRows(enr.data);
     setMsg(null);
+    setLoaded(true);
   }
 
   async function save() {
@@ -210,7 +212,7 @@ export default function AttendancePage() {
 
       <div className="inline-form">
         <div><label>Section</label>
-          <select value={sectionId} onChange={(e) => setSectionId(e.target.value)}>
+          <select value={sectionId} onChange={(e) => { setSectionId(e.target.value); setRows([]); setLoaded(false); setMsg(null); }}>
             <option value="">Select…</option>
             {sections.map((s) => <option key={s.id} value={s.id}>{sectionLabel(s)}</option>)}
           </select>
@@ -219,10 +221,10 @@ export default function AttendancePage() {
           <input type="date" value={date} min={earliest()} max={today()}
             onChange={(e) => setDate(e.target.value)} />
         </div>
-        <button className="ghost" onClick={loadRoster} disabled={!sectionId}>Load roster</button>
+        <button className="ghost" onClick={() => loadRoster()} disabled={!sectionId}>Load roster</button>
       </div>
 
-      <CoverageStrip days={coverage} selected={date} onPick={(d) => { setDate(d); setRows([]); }} />
+      <CoverageStrip days={coverage} selected={date} onPick={(d) => { setDate(d); loadRoster(d); }} />
 
       {rows.length > 0 && (
         <>
@@ -288,7 +290,7 @@ export default function AttendancePage() {
           </div>
         </>
       )}
-      {sectionId && rows.length === 0 && <p className="muted">No active students in this section — add students first.</p>}
+      {sectionId && loaded && rows.length === 0 && <p className="muted">No students in this section yet - admit or move students into it first.</p>}
     </div>
   );
 }

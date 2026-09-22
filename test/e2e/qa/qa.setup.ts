@@ -38,6 +38,7 @@ async function tenantClient(host: string): Promise<APIRequestContext & { csrf: (
   });
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- generic test helper default
 async function call<T = any>(c: Awaited<ReturnType<typeof tenantClient>>, method: 'get' | 'post' | 'put' | 'patch', path: string, data?: unknown, headers: Record<string, string> = {}): Promise<T> {
   const res = await c[method](`/api/v1${path}`, { data, headers: { 'X-CSRF-Token': await c.csrf(), ...headers } });
   if (res.status() >= 300) throw new Error(`${method.toUpperCase()} ${path} → ${res.status()} ${await res.text()}`);

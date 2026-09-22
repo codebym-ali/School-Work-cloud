@@ -222,7 +222,7 @@ export default function StaffPage() {
       <div className="row">
         <h1>Staff</h1>
         <div className="row" style={{ gap: 8 }}>
-          <button onClick={() => setAddingStaff((v) => !v)}>{addingStaff ? 'Close' : '+ Add teacher'}</button>
+          <button onClick={() => setAddingStaff((v) => !v)}>{addingStaff ? 'Close' : '+ Add staff member'}</button>
         </div>
       </div>
       <p className="muted" style={{ margin: 0 }}>
@@ -467,7 +467,7 @@ function AddStaff({ campuses, lockedCampus, onCreate }: {
 
   return (
     <div className="card stack">
-      <h2 style={{ margin: 0, fontSize: 17 }}>Add teacher</h2>
+      <h2 style={{ margin: 0, fontSize: 17 }}>Add staff member</h2>
       <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(170px,1fr))' }}>
         <div><label>Full name</label><input value={f.fullName ?? ''} onChange={(e) => set('fullName', e.target.value)} placeholder="Ayesha Khan" /></div>
         <div><label>Email</label><input type="email" value={f.email ?? ''} onChange={(e) => set('email', e.target.value)} placeholder="person@school.pk" /></div>
@@ -522,7 +522,7 @@ function AddStaff({ campuses, lockedCampus, onCreate }: {
             designation: f.designation, joinedAt: f.joinedAt, campusId,
             ...(createLogin ? { password: f.password } : {}),
           })}>
-          Add teacher
+          Add staff member
         </button>
         <span className="muted" style={{ marginLeft: 10, fontSize: 12 }}>Assign their classes and subjects from the list below once added.</span>
       </div>

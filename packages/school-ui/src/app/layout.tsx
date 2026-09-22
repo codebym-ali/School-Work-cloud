@@ -9,8 +9,9 @@ import { MeContext } from '@sw/session';
 import { CampusLensContext, CAMPUS_LENS_KEY } from '@sw/session';
 import type { Campus } from '@sw/api-client';
 import { NotificationBell } from '@school/components/notification-bell';
-import { groupedNav, hasAnyRole, isSchoolWideAdmin, navItemFor, needsHomeLink, panelLabel, roleLabels, servesRoute, usesPersonalShell, MFA_REQUIRED_ROLES, type AppName } from '@sw/roles';
+import { COLLAPSIBLE_GROUPS, groupedNav, hasAnyRole, isSchoolWideAdmin, navItemFor, needsHomeLink, panelLabel, roleLabels, servesRoute, usesPersonalShell, MFA_REQUIRED_ROLES, type AppName } from '@sw/roles';
 import { TeacherSidebarNav, TeacherTabs } from '@school/components/teacher-tabs';
+import { useFeatureFlag } from '@school/lib/feature-flags';
 
 /**
  * `app` names the door this shell is rendering in (Front-End Instance Separation Plan, Phase 4).
@@ -33,6 +34,9 @@ export default function AppLayout({ children, app }: { children: React.ReactNode
   // Below 720px the sidebar becomes a slide-over drawer (CSS drives the breakpoint; this
   // only tracks open/closed, so desktop is unaffected).
   const [navOpen, setNavOpen] = useState(false);
+  // B2 nav curation, gated with the same pilot flag as owner-home v2 (?ff=ownerHomeV2): daily-use
+  // groups first, configure-once groups (School structure, Administration) collapsed by default.
+  const v2 = useFeatureFlag('ownerHomeV2');
   // Campus lens (owner with >1 campus only). Fetched here so it persists across every screen.
   const [lensCampuses, setLensCampuses] = useState<Campus[]>([]);
   const [lensCampusId, setLensCampusId] = useState<string | null>(null);
@@ -102,7 +106,7 @@ export default function AppLayout({ children, app }: { children: React.ReactNode
 
   // Show only the screens this role can use, grouped into sidebar categories;
   // gate the routed page centrally.
-  const nav = groupedNav(me.roles, me.admissionsMode)
+  const nav = groupedNav(me.roles, me.admissionsMode, v2)
     .map((g) => ({ ...g, items: g.items.filter((i) => servesRoute(app, i.href, me.admissionsMode)) }))
     .filter((g) => g.items.length > 0);
   const current = navItemFor(pathname);
@@ -179,17 +183,31 @@ export default function AppLayout({ children, app }: { children: React.ReactNode
                   </Link>
                 </div>
               )}
-              {nav.map(({ group, items }) => (
-              <div key={group} className="nav-group">
-                <div className="group-label">{group}</div>
-                {items.map((n) => (
+              {nav.map(({ group, items }) => {
+                const links = items.map((n) => (
                   <Link key={n.href} href={n.href} className={pathname.startsWith(n.href) ? 'active' : ''}>
                     <span className="nav-icon"><Icon name={n.icon} size={18} /></span>
                     {n.label}
                   </Link>
-                ))}
-              </div>
-              ))}
+                ));
+                // B2: in v2, configure-once groups collapse to cut the wall of links. They open
+                // automatically when the current page lives inside them, so you always see where you are.
+                if (v2 && COLLAPSIBLE_GROUPS.includes(group)) {
+                  const activeInGroup = items.some((n) => pathname.startsWith(n.href));
+                  return (
+                    <details key={group} className="nav-group nav-group--collapsible" open={activeInGroup || undefined}>
+                      <summary className="group-label">{group}</summary>
+                      {links}
+                    </details>
+                  );
+                }
+                return (
+                  <div key={group} className="nav-group">
+                    <div className="group-label">{group}</div>
+                    {links}
+                  </div>
+                );
+              })}
             </>
           )}
         </aside>

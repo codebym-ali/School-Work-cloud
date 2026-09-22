@@ -45,6 +45,29 @@ export const NAV_GROUPS: NavGroup[] = [
   'My Portal',
 ];
 
+/**
+ * B2 nav curation (#6). The default order leads with **School structure** — classes, subjects,
+ * timetable, timings, campus hub — which a school configures once and then rarely touches, pushing
+ * the daily work (attendance, fees, staff) down the sidebar. The curated order puts what an owner
+ * opens every day first and the configure-once groups last.
+ */
+export const CURATED_GROUP_ORDER: NavGroup[] = [
+  'Overview',
+  'Enrollment',
+  'Teaching',
+  'Finance',
+  'People',
+  'School structure',
+  'Administration',
+  'My Portal',
+];
+
+/**
+ * The configure-once groups: collapsed by default in the curated sidebar so the everyday groups
+ * above them are not buried under a wall of set-up links. Everything stays one click away.
+ */
+export const COLLAPSIBLE_GROUPS: readonly NavGroup[] = ['School structure', 'Administration'];
+
 export interface NavItem {
   href: string;
   label: string;
@@ -396,9 +419,11 @@ export function canReach(userRoles: string[] | undefined, href: string, admissio
 export function groupedNav(
   userRoles: string[] | undefined,
   admissionsMode?: AdmissionsMode,
+  curated = false,
 ): { group: NavGroup; items: NavItem[] }[] {
   const visible = NAV.filter((n) => !n.hidden && isUsable(n, userRoles, admissionsMode));
-  return NAV_GROUPS.map((group) => ({
+  const order = curated ? CURATED_GROUP_ORDER : NAV_GROUPS;
+  return order.map((group) => ({
     group,
     items: visible.filter((n) => n.group === group),
   })).filter((g) => g.items.length > 0);

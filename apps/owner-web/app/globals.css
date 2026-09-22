@@ -415,6 +415,17 @@ a.metric-link.pipeline-card .metric-go { opacity: 1; margin-top: 0; }
   color: #94a3b8; font-size: 11px; font-weight: 700; letter-spacing: 0.06em;
   text-transform: uppercase; padding: 6px 12px 4px;
 }
+/* B2 nav curation — a collapsible configure-once group. The group label doubles as the toggle, with
+   a chevron that turns as it opens. Native <details>, so keyboard and screen readers get it free. */
+.sidebar summary.group-label {
+  cursor: pointer; user-select: none; display: flex; align-items: center; gap: 6px; list-style: none;
+}
+.sidebar summary.group-label::-webkit-details-marker { display: none; }
+.sidebar summary.group-label::before {
+  content: '▸'; font-size: 9px; color: #64748b; transition: transform .15s ease;
+}
+.sidebar details[open] > summary.group-label::before { transform: rotate(90deg); }
+.sidebar summary.group-label:hover { color: #cbd5e1; }
 .sidebar a {
   display: flex; align-items: center; gap: 10px;
   color: #cbd5e1; text-decoration: none; padding: 9px 12px;

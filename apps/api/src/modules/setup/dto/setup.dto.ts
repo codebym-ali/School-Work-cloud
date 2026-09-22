@@ -117,6 +117,25 @@ export class SetSectionSubjectsDto {
   subjectIds!: string[];
 }
 
+/**
+ * Fold one or more drifted subject names onto a single canonical name (`Mathmetics`, `Maths` →
+ * `Mathematics`). A subject is per class, so where a class already teaches the target name the
+ * duplicate is merged into it (its exam results, teacher assignments, timetable slots, section links
+ * and class tests are repointed) and removed; elsewhere the row is simply renamed. `dryRun` returns
+ * the same counts without writing, so the office can see the effect before committing.
+ */
+export class MergeSubjectsDto {
+  @IsArray() @ArrayMinSize(1) @IsString({ each: true })
+  @MaxLength(80, { each: true })
+  fromNames!: string[];
+
+  @IsString() @MinLength(1) @MaxLength(80)
+  toName!: string;
+
+  @IsOptional() @IsBoolean()
+  dryRun?: boolean;
+}
+
 // ── Subjects ─────────────────────────────────────────────────────────────────
 export class CreateSubjectDto {
   @IsUUID()

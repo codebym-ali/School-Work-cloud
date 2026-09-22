@@ -31,6 +31,10 @@ export const AuditActions = {
   CLASS_DELETED: 'CLASS_DELETED',
   SECTION_DELETED: 'SECTION_DELETED',
   SUBJECT_DELETED: 'SUBJECT_DELETED',
+  // Drifted subject names (Mathmetics / Maths → Mathematics) folded onto one canonical name.
+  // Where a class already had the target name, the duplicate's exam results, teacher assignments,
+  // timetable slots, section links and class tests were repointed onto it and the duplicate deleted.
+  SUBJECT_MERGED: 'SUBJECT_MERGED',
   TEACHER_ASSIGNMENT_REMOVED: 'TEACHER_ASSIGNMENT_REMOVED',
 
   /**

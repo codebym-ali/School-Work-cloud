@@ -475,6 +475,22 @@ export interface Inquiry {
 }
 export interface Subject { id: string; name: string; classId: string; periodsPerWeek: number | null }
 export interface SubjectCatalogueClass { subjectId: string; classId: string; className: string; periodsPerWeek: number | null }
+/** Result of folding drifted subject names onto a canonical one. `dryRun` returns the same shape, unwritten. */
+export interface SubjectMergeResult {
+  dryRun: boolean;
+  toName: string;
+  /** Drifted rows renamed in place (no same-name row existed in their class). */
+  renamed: number;
+  /** Drifted rows merged into an existing same-name row and then deleted. */
+  merged: number;
+  subjectsDeleted: number;
+  /** Dependants repointed onto the canonical row across all merges. */
+  examResults: number;
+  assignments: number;
+  slots: number;
+  sectionLinks: number;
+  classTests: number;
+}
 export interface SubjectCatalogueEntry {
   name: string;
   classCount: number;
@@ -1172,6 +1188,9 @@ export const api = {
     setLoad: (id: string, periodsPerWeek: number | null) =>
       apiPatch<Subject>(`/subjects/${id}`, { periodsPerWeek }),
     remove: (id: string) => apiDelete<null>(`/subjects/${id}`),
+    /** Fold drifted names onto one canonical name. Pass `dryRun` to preview the effect (see SubjectMergeResult). */
+    merge: (fromNames: string[], toName: string, dryRun = false) =>
+      apiPost<SubjectMergeResult>('/subjects/merge', { fromNames, toName, dryRun }),
   },
   terms: {
     remove: (id: string) => apiDelete<{ ok: boolean }>(`/terms/${id}`),

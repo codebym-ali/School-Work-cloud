@@ -11,6 +11,7 @@ import {
   CreateClassDto,
   CreateSectionDto,
   CreateSubjectDto,
+  MergeSubjectsDto,
   SetSectionSubjectsDto,
   UpdateClassDto,
   UpdateSectionDto,
@@ -249,6 +250,14 @@ export class SubjectController {
   @Get('catalogue')
   catalogue() {
     return this.setup.subjectCatalogue();
+  }
+
+  // Fold drifted names onto one canonical spelling. POST (not PATCH :id) because it acts on a NAME
+  // across classes, not a single row, and can delete the duplicates it merges. `dryRun` previews.
+  @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
+  @Post('merge')
+  merge(@Body() dto: MergeSubjectsDto) {
+    return this.setup.mergeSubjects(dto);
   }
 
   @Roles(...STAFF_ROLES)

@@ -21,6 +21,7 @@ import type {
   CreateHolidayRangeDto,
   CreateSectionDto,
   CreateSubjectDto,
+  MergeSubjectsDto,
   HolidayListQuery,
   UpdateCampusDto,
   UpdateClassDto,
@@ -793,6 +794,110 @@ export class SetupService {
       e.classes.push({ subjectId: s.id, classId: s.classId, className: s.class.name, periodsPerWeek: s.periodsPerWeek });
     }
     return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  /**
+   * Fold one or more drifted subject names onto a single canonical name (`Mathmetics`, `Maths` →
+   * `Mathematics`). A `Subject` is per class, so within a class where the target name already exists
+   * the drifted row is MERGED into it — its exam results, teacher assignments, timetable slots,
+   * section links and class tests are repointed and the drifted row deleted — and in classes where
+   * the target name is absent the row is simply renamed. Idempotent-ish: names already equal to the
+   * target are ignored.
+   *
+   * Runs inside the request's `withTenant` transaction (like `deleteClass`), so a partial merge can
+   * never be left behind. `dryRun` returns the same counts and writes nothing, so the office reviews
+   * the effect first — this is the one operation here that deletes rows the school cannot re-derive.
+   */
+  async mergeSubjects(dto: MergeSubjectsDto) {
+    const toName = normalizeSubjectName(dto.toName);
+    const fromNames = [...new Set(dto.fromNames.map(normalizeSubjectName))].filter((n) => n && n !== toName);
+    if (!fromNames.length) {
+      throw new AppError(ErrorCodes.VALIDATION_FAILED, HttpStatus.UNPROCESSABLE_ENTITY,
+        'Nothing to merge — the names given are already the target name.');
+    }
+    // Campus-bound admins are confined to their own campus; an owner sees the whole school.
+    const restricted = restrictedCampusId(this.ctx.user);
+    const campusWhere = restricted ? { class: { campusId: restricted } } : {};
+
+    const drifted = await this.db.subject.findMany({
+      where: { name: { in: fromNames }, ...campusWhere },
+      select: { id: true, name: true, classId: true },
+    });
+    if (!drifted.length) {
+      throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'No subjects with those names were found in your scope.');
+    }
+    const existingTargets = await this.db.subject.findMany({
+      where: { name: toName, ...campusWhere },
+      select: { id: true, classId: true },
+    });
+
+    // The winner row per class: a pre-existing target, else the first drifted row we rename in that
+    // class (a second drifted row in the same class then merges into that freshly-renamed winner).
+    const winnerByClass = new Map<string, string>();
+    for (const t of existingTargets) winnerByClass.set(t.classId, t.id);
+    const toRename: string[] = [];
+    const toMerge: { loserId: string; winnerId: string }[] = [];
+    for (const s of drifted) {
+      const winner = winnerByClass.get(s.classId);
+      if (winner) toMerge.push({ loserId: s.id, winnerId: winner });
+      else { toRename.push(s.id); winnerByClass.set(s.classId, s.id); }
+    }
+
+    // Relations only MOVE for merges; a rename leaves them attached to the same (renamed) row.
+    const loserIds = toMerge.map((m) => m.loserId);
+    const count = (m: { count: (a: { where: { subjectId: { in: string[] } } }) => Promise<number> }) =>
+      loserIds.length ? m.count({ where: { subjectId: { in: loserIds } } }) : Promise.resolve(0);
+    const [examResults, assignments, slots, sectionLinks, classTests] = await Promise.all([
+      count(this.db.examResult), count(this.db.teacherAssignment), count(this.db.timetableSlot),
+      count(this.db.sectionSubject), count(this.db.classTest),
+    ]);
+    const summary = {
+      toName, renamed: toRename.length, merged: toMerge.length, subjectsDeleted: toMerge.length,
+      examResults, assignments, slots, sectionLinks, classTests,
+    };
+    if (dto.dryRun) return { dryRun: true, ...summary };
+
+    for (const id of toRename) await this.db.subject.update({ where: { id }, data: { name: toName } });
+    for (const { loserId, winnerId } of toMerge) {
+      await this.repointSubjectRelations(loserId, winnerId);
+      await this.db.subject.delete({ where: { id: loserId } });
+    }
+
+    await this.audit.record({
+      action: AuditActions.SUBJECT_MERGED,
+      entityType: 'Subject',
+      entityId: [...winnerByClass.values()][0], // a representative canonical row; full detail below
+      newValue: { fromNames, ...summary },
+    });
+    return { dryRun: false, ...summary };
+  }
+
+  /**
+   * Repoint a drifted subject's dependants onto the canonical row, then leave it empty for deletion.
+   * The two spellings live in the SAME class, so a section/exam/enrolment can legitimately appear
+   * under both — which would violate a unique key on repoint. For each constrained relation the
+   * colliding rows on the loser are dropped first (the canonical row's copy is the survivor); the
+   * rest are moved. `TimetableSlot` (unique on section/day/period) and `ClassTest` carry no
+   * subject-based unique, so they move wholesale.
+   */
+  private async repointSubjectRelations(loserId: string, winnerId: string): Promise<void> {
+    const drop = async (
+      model: { findMany: (a: unknown) => Promise<Array<Record<string, unknown>>>; deleteMany: (a: { where: { id: { in: string[] } } }) => Promise<unknown>; updateMany: (a: { where: { subjectId: string }; data: { subjectId: string } }) => Promise<unknown> },
+      keyOf: (r: Record<string, unknown>) => string,
+      select: Record<string, boolean>,
+    ) => {
+      const winnerKeys = new Set((await model.findMany({ where: { subjectId: winnerId }, select })).map(keyOf));
+      const collide = (await model.findMany({ where: { subjectId: loserId }, select: { id: true, ...select } }))
+        .filter((r) => winnerKeys.has(keyOf(r))).map((r) => r.id as string);
+      if (collide.length) await model.deleteMany({ where: { id: { in: collide } } });
+      await model.updateMany({ where: { subjectId: loserId }, data: { subjectId: winnerId } });
+    };
+
+    await drop(this.db.examResult as never, (r) => `${r.examId}:${r.enrollmentId}`, { examId: true, enrollmentId: true });
+    await drop(this.db.teacherAssignment as never, (r) => `${r.staffId}:${r.academicYearId}:${r.sectionId}`, { staffId: true, academicYearId: true, sectionId: true });
+    await drop(this.db.sectionSubject as never, (r) => String(r.sectionId), { sectionId: true });
+    await this.db.timetableSlot.updateMany({ where: { subjectId: loserId }, data: { subjectId: winnerId } });
+    await this.db.classTest.updateMany({ where: { subjectId: loserId }, data: { subjectId: winnerId } });
   }
 
   listSubjects(classId?: string) {

@@ -146,7 +146,7 @@ describe('SMS broadcast (e2e, GAP-15)', () => {
     const logs = await platform.smsLog.findMany({ where: { schoolId, templateKey: 'MANUAL', message: { in: ['Typed by hand', '(withheld: opted out of SMS)'] } } });
     const byTail = new Map(logs.map((l) => [l.recipient.slice(-7), l]));
     expect(byTail.get('5550001')?.status).toBe('SENT');
-    expect(byTail.get('5550002')).toMatchObject({ status: 'FAILED', failReason: 'SMS_OPTED_OUT', segments: 0 });
+    expect(byTail.get('5550002')).toMatchObject({ status: 'WITHHELD', failReason: 'SMS_OPTED_OUT', segments: 0 });
   });
 
   it('refuses to retry a withheld message instead of texting its placeholder', async () => {

@@ -182,16 +182,17 @@ export class CommsService {
   async retry(logId: string): Promise<void> {
     const log = await this.db.smsLog.findFirst({ where: { id: logId } });
     if (!log) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'SMS log not found');
-    if (log.status !== SmsStatus.FAILED) {
-      throw new AppError(ErrorCodes.CONFLICT, HttpStatus.CONFLICT, 'Only failed messages can be retried');
-    }
-    // ⚠️ A withheld message's stored body is the placeholder "(withheld: …)", not what was meant to be sent —
-    // retrying it texted that placeholder to the parent. And the reason it was withheld has not gone away.
-    if (log.failReason === ErrorCodes.SMS_OPTED_OUT || log.failReason === ErrorCodes.PHONE_UNVERIFIED) {
+    // ⚠️ A withheld message was never a failure — it was withheld on purpose (opt-out / unverified),
+    // and its stored body is the placeholder "(withheld: …)", not what was meant to be sent. Retrying
+    // it texted that placeholder to the parent, and the reason it was withheld has not gone away.
+    if (log.status === SmsStatus.WITHHELD) {
       throw new AppError(ErrorCodes.CONFLICT, HttpStatus.CONFLICT,
         log.failReason === ErrorCodes.SMS_OPTED_OUT
           ? 'This parent opted out of SMS, so the message cannot be retried'
           : "This number is not verified. Verify the guardian's phone first");
+    }
+    if (log.status !== SmsStatus.FAILED) {
+      throw new AppError(ErrorCodes.CONFLICT, HttpStatus.CONFLICT, 'Only failed messages can be retried');
     }
     await this.producer.enqueueManual({
       type: 'MANUAL',

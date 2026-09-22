@@ -176,6 +176,9 @@ enum SmsStatus {
   SENT
   DELIVERED
   FAILED
+  // Never sent on purpose: the parent opted out, or the number is unverified. Not a gateway
+  // failure, so it is counted and shown apart from FAILED and can never be retried.
+  WITHHELD
 }
 
 enum StaffType {

@@ -35,11 +35,10 @@ const FAIL_REASONS: Record<string, string> = {
   PHONE_UNVERIFIED: 'Number not verified',
   INSUFFICIENT_SMS_CREDITS: 'Not enough credits',
 };
-const WITHHELD = new Set(['SMS_OPTED_OUT', 'PHONE_UNVERIFIED']);
-
 const STATUS_TONE: Record<string, string> = {
-  DELIVERED: 'ok', SENT: 'ok', QUEUED: 'warn', FAILED: 'err',
+  DELIVERED: 'ok', SENT: 'ok', QUEUED: 'warn', FAILED: 'err', WITHHELD: 'warn',
 };
+const STATUS_LABEL: Record<string, string> = { WITHHELD: 'Withheld' };
 
 export default function SmsPage() {
   const me = useMe();
@@ -154,6 +153,7 @@ export default function SmsPage() {
             <option value="SENT">Sent</option>
             <option value="DELIVERED">Delivered</option>
             <option value="FAILED">Failed</option>
+            <option value="WITHHELD">Withheld</option>
           </select>
         </div>
         {logs.length === 0 ? (
@@ -173,13 +173,13 @@ export default function SmsPage() {
                     <td style={{ whiteSpace: 'nowrap' }}>{l.recipient}</td>
                     <td className="muted" style={{ fontSize: 12 }}>{TRIGGER_LABELS[l.templateKey] ?? l.templateKey}</td>
                     <td>
-                      <span className={`badge ${STATUS_TONE[l.status] ?? ''}`}>{l.status}</span>
-                      {l.status === 'FAILED' && l.failReason && (
+                      <span className={`badge ${STATUS_TONE[l.status] ?? ''}`}>{STATUS_LABEL[l.status] ?? l.status}</span>
+                      {(l.status === 'FAILED' || l.status === 'WITHHELD') && l.failReason && (
                         <div className="muted" style={{ fontSize: 11 }}>{FAIL_REASONS[l.failReason] ?? l.failReason}</div>
                       )}
                     </td>
                     <td className="muted" style={{ fontSize: 12, maxWidth: 320 }}>{l.message}</td>
-                    <td>{l.status === 'FAILED' && !WITHHELD.has(l.failReason ?? '') && <button className="ghost small" onClick={() => retry(l.id)}>Retry</button>}</td>
+                    <td>{l.status === 'FAILED' && <button className="ghost small" onClick={() => retry(l.id)}>Retry</button>}</td>
                   </tr>
                 ))}
               </tbody>

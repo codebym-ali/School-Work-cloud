@@ -211,7 +211,7 @@ export interface Paged<T> { data: T[]; total: number; page: number; pageSize: nu
 export interface SmsTemplate { triggerKey: string; body: string }
 export interface SmsLog {
   id: string; recipient: string; templateKey: string; message: string;
-  segments: number; status: 'QUEUED' | 'SENT' | 'DELIVERED' | 'FAILED';
+  segments: number; status: 'QUEUED' | 'SENT' | 'DELIVERED' | 'FAILED' | 'WITHHELD';
   failReason: string | null; createdAt: string; sentAt: string | null; deliveredAt: string | null;
 }
 export interface Campus { id: string; name: string; address?: string | null }

@@ -40,8 +40,8 @@ export class BroadcastSendDto extends BroadcastAudienceDto {
 }
 
 export class SmsLogQuery extends PaginationQuery {
-  @IsOptional() @IsIn(['QUEUED', 'SENT', 'DELIVERED', 'FAILED'])
-  status?: 'QUEUED' | 'SENT' | 'DELIVERED' | 'FAILED';
+  @IsOptional() @IsIn(['QUEUED', 'SENT', 'DELIVERED', 'FAILED', 'WITHHELD'])
+  status?: 'QUEUED' | 'SENT' | 'DELIVERED' | 'FAILED' | 'WITHHELD';
 
   @IsOptional() @IsString()
   templateKey?: string;

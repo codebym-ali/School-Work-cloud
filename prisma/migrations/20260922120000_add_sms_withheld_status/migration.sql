@@ -1,0 +1,11 @@
+-- A message the school never sent on purpose — the parent opted out, or the number is unverified —
+-- was being stored as FAILED with a "(withheld: …)" placeholder body. That conflated a deliberate
+-- non-send with a real gateway failure: the dashboard's "failed SMS" count, the SMS log filter and
+-- the reports usage table all had to special-case the message text to tell them apart, and any row
+-- whose body did not start with that exact string leaked back into the failure count.
+--
+-- WITHHELD makes the distinction a first-class status. This migration only ADDS the value; it does
+-- not use it, so it is safe inside Prisma's migration transaction on PG16 (the backfill that USES it
+-- is a separate migration, because Postgres forbids using a new enum value in the transaction that
+-- added it).
+ALTER TYPE "SmsStatus" ADD VALUE IF NOT EXISTS 'WITHHELD';

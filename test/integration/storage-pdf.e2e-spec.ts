@@ -14,8 +14,8 @@ import { loginRequest } from './support/login';
 
 /**
  * Real PDFs + storage + upload pipeline (blueprint §22.6, §11, §15) against MinIO.
- * Generates a report-card PDF, uploads it, fetches it back via a presigned GET, issues a
- * certificate PDF, and exercises the presigned-PUT upload pipeline incl. magic-byte rejection.
+ * Generates a report-card PDF, uploads it, fetches it back via a presigned GET, and
+ * exercises the presigned-PUT upload pipeline incl. magic-byte rejection.
  */
 describe('Storage, PDFs & uploads (e2e, §22.6)', () => {
   let app: INestApplication;
@@ -93,14 +93,6 @@ describe('Storage, PDFs & uploads (e2e, §22.6)', () => {
     expect(fetched.status).toBe(200);
     const buf = Buffer.from(await fetched.arrayBuffer());
     expect(buf.subarray(0, 4).toString('latin1')).toBe('%PDF'); // real PDF bytes
-  });
-
-  it('issues a certificate as a real PDF', async () => {
-    const cert = await post('/api/v1/documents/certificates', { studentId, type: 'CHARACTER_CERT' });
-    const signed = await get(`/api/v1/documents/${cert.body.id}/url`);
-    const fetched = await fetch(signed.body.url);
-    const buf = Buffer.from(await fetched.arrayBuffer());
-    expect(buf.subarray(0, 4).toString('latin1')).toBe('%PDF');
   });
 
   it('runs the upload pipeline: presigned PUT → confirm → moved to permanent', async () => {

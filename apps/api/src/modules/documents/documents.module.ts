@@ -1,13 +1,11 @@
 import { Module } from '@nestjs/common';
-import { FeesModule } from '../fees/fees.module';
 import { DocumentsService } from './documents.service';
-import { DocumentsController, WithdrawalController } from './documents.controller';
+import { DocumentsController } from './documents.controller';
 
-/** Documents & certificates (blueprint §15). */
+/** Read access to issued documents — report-card PDFs (blueprint §15, §22.6). Certificate
+ *  issuance was removed on 2026-09-19; withdrawal now lives in the withdrawal module. */
 @Module({
-  // Withdrawal closes invoices already raised for months after the student left (see withdraw()).
-  imports: [FeesModule],
-  controllers: [DocumentsController, WithdrawalController],
+  controllers: [DocumentsController],
   providers: [DocumentsService],
   exports: [DocumentsService],
 })

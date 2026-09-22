@@ -45,6 +45,7 @@ import { FeesModule } from './modules/fees/fees.module';
 import { ExamsModule } from './modules/exams/exams.module';
 import { HrModule } from './modules/hr/hr.module';
 import { DocumentsModule } from './modules/documents/documents.module';
+import { WithdrawalModule } from './modules/withdrawal/withdrawal.module';
 import { ReportsModule } from './modules/reports/reports.module';
 import { StudentPortalModule } from './modules/portal/student-portal.module';
 import { TeachingModule } from './modules/teaching/teaching.module';
@@ -96,6 +97,7 @@ import { UploadsModule } from './modules/uploads/uploads.module';
     ExamsModule,
     HrModule,
     DocumentsModule,
+    WithdrawalModule,
     ReportsModule,
     UploadsModule,
     StudentPortalModule,

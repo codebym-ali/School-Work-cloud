@@ -13,15 +13,6 @@ export interface ReportCardPdf {
   subjects: Array<{ name: string; percent: number | 'ABS' }>;
 }
 
-export interface CertificatePdf {
-  schoolName: string;
-  studentName: string;
-  grNumber: string;
-  type: string;
-  issuedOn: string;
-  body: string;
-}
-
 export interface PayslipPdf {
   schoolName: string;
   staffName: string;
@@ -68,7 +59,7 @@ export interface TablePdf {
   rows: Array<Record<string, unknown>>;
 }
 
-/** Server-side PDF rendering (blueprint §11, §13, §15). Returns a Buffer for upload. */
+/** Server-side PDF rendering (blueprint §11, §13). Returns a Buffer for upload. */
 @Injectable()
 export class PdfService {
   reportCard(d: ReportCardPdf): Promise<Buffer> {
@@ -83,17 +74,6 @@ export class PdfService {
       for (const s of d.subjects) doc.fontSize(11).text(`  ${s.name}: ${s.percent === 'ABS' ? 'ABS' : `${s.percent}%`}`);
       doc.moveDown();
       doc.fontSize(12).text(`Overall: ${d.overallPercent}%   Grade: ${d.gradeLabel}   Rank: ${d.sectionRank ?? '—'}`);
-    });
-  }
-
-  certificate(d: CertificatePdf): Promise<Buffer> {
-    return build((doc) => {
-      header(doc, d.schoolName, prettyType(d.type));
-      doc.moveDown(2);
-      doc.fontSize(12).text(d.body, { align: 'left' });
-      doc.moveDown(2);
-      kv(doc, 'Student', `${d.studentName} (GR ${d.grNumber})`);
-      kv(doc, 'Issued on', d.issuedOn);
     });
   }
 
@@ -218,9 +198,6 @@ function kv(doc: PDFKit.PDFDocument, key: string, value: string): void {
 
 function money(n: number): string {
   return `Rs ${n.toLocaleString('en-PK')}`;
-}
-function prettyType(t: string): string {
-  return t.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 /**

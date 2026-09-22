@@ -872,6 +872,10 @@ existed and four of its rules were wrong, each of them about money.
 - **Gates:** unit 57 · integration **765/765 across 33 suites** · isolation 7 · both lints · api+worker
   build · web tsc + lint.
 
+## Certificate feature removed (2026-09-19)
+
+- **Digital certificates deleted; schools issue them on paper.** Removed the `/documents/certificates` issue route, `PdfService.certificate()`, the `IssuedDocumentsCard` UI, `api.issuedDocuments`, and `ISSUED_DOCUMENT_ROLES`. The `documents` module is now **read-only** (report-card PDF list + presigned download kept). **Student withdrawal was preserved** - moved into a new `withdrawal` module; it still closes the enrolment, waives post-leaving invoices, disables the portal login, audits, and keeps the OWNER_ADMIN unpaid-fees override; it no longer issues certificates. `model Document`/`enum DocumentType` kept (report cards use them); the three cert enum values are dormant (no Postgres enum-drop migration). Gates: api + web typecheck pass. Tests updated (cert cases removed from m6 / storage-pdf / campus-scope / withdrawal / QA suite); resolves QA-D3 (Certificates card stale) by deletion. Branch `chore/remove-certificate-feature`. See [[Key Decisions]].
+
 ## 🧾 Cross-cutting backlog (not milestone-blocking)
 - [x] **Fee-setup gaps — ALL CLOSED (F1–F9), 2026-08-03/04.** See [[Fees Gaps Register]]. F8 was the last and was reclassified Low-Med → **High** on inspection: it was filed as two unguarded reads and turned out to be four, one of which returned a named child's fee concessions to any authenticated session.
 - [x] **Attendance gaps — G1–G5 and G9–G12 all FIXED; G4b closed as accepted (Pakistan-only, UTC+5).** See [[Attendance Gaps Register]]. G6–G8 remain, all Low and all "recorded for clarity" rather than defects.

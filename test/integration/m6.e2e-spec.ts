@@ -15,7 +15,7 @@ import { enrolMfa } from './support/mfa';
 
 /**
  * M6 gate (roadmap M6): promotion E2E + all seven reports export.
- * Also covers payroll compute, certificate issuance, dashboard and audit browser.
+ * Also covers payroll compute, dashboard and audit browser.
  */
 describe('M6 — HR, payroll, documents, reports, promotion (e2e)', () => {
   let app: INestApplication;
@@ -157,16 +157,6 @@ describe('M6 — HR, payroll, documents, reports, promotion (e2e)', () => {
     expect(fetched.status).toBe(200);
     const buf = Buffer.from(await fetched.arrayBuffer());
     expect(buf.subarray(0, 4).toString()).toBe('%PDF'); // real PDF bytes over MinIO
-  });
-
-  it('issues certificates (fee clearance passes with no invoices)', async () => {
-    const char = await post('/api/v1/documents/certificates', { studentId, type: 'CHARACTER_CERT' });
-    expect(char.status).toBe(201);
-    const leaving = await post('/api/v1/documents/certificates', { studentId, type: 'LEAVING_CERT' });
-    expect(leaving.status).toBe(201);
-
-    const docs = await get(`/api/v1/documents?studentId=${studentId}`);
-    expect(docs.body.length).toBe(2);
   });
 
   it('serves the dashboard and the audit-log browser', async () => {

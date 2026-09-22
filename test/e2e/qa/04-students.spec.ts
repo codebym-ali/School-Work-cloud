@@ -3,7 +3,7 @@ import { api, signIn, world } from './qa-world';
 
 const card = (page: Page, heading: string) => page.locator('.card', { has: page.getByRole('heading', { name: heading, exact: true }) });
 
-/** GUA-01..04, WDR-01..04 — guardians, withdrawal and certificates on the student profile (Phase 3.1–3.2). */
+/** GUA-01..04, WDR-01..04 — guardians and withdrawal on the student profile (Phase 3.1–3.2). */
 test.describe('GUA · guardians', () => {
   const second = `QA Uncle ${Date.now().toString().slice(-4)}`;
 
@@ -56,7 +56,7 @@ test.describe('GUA · guardians', () => {
   });
 });
 
-test.describe('WDR · withdrawal and certificates', () => {
+test.describe('WDR · withdrawal', () => {
   test('WDR-04 a campus admin cannot let an owing student leave', async ({ browser }) => {
     const w = world();
     const { page, context } = await signIn(browser, 'campusAdmin');
@@ -75,18 +75,12 @@ test.describe('WDR · withdrawal and certificates', () => {
     const { page, context } = await signIn(browser, 'owner');
     await page.goto(`/students?student=${w.students.noDues.id}`);
     await card(page, 'Leaving the school').getByRole('button', { name: 'Withdraw student' }).click();
-    await expect(page.getByText('Nothing is owed. A fee clearance certificate will be issued too.')).toBeVisible();
+    await expect(page.getByText('Nothing is owed.')).toBeVisible();
     await page.locator('#reasoned-action-reason').fill('QA WDR-01: family relocating');
     await page.getByRole('button', { name: 'Withdraw student' }).last().click();
     // ⚠️ QA-D2: the profile reloads as withdrawn and unmounts the dialog, so the result message is gone within
-    // moments — sometimes before it can be read at all. Asserted by the outcome: withdrawn, and both certificates issued.
+    // moments — sometimes before it can be read at all. Asserted by the outcome: the student is withdrawn.
     await expect(page.getByText('This student has been withdrawn.')).toBeVisible();
-    const issued = await api<Array<{ type: string }>>(page, 'GET', `/documents?studentId=${w.students.noDues.id}`);
-    expect(issued.body.map((d) => d.type).sort()).toEqual(['FEE_CLEARANCE', 'LEAVING_CERT']);
-    // QA-D3: the Certificates card on the same page must list what was just issued, without a reload.
-    await expect.soft(card(page, 'Certificates').getByRole('button', { name: 'Download' }), 'QA-D3: card not refreshed after withdrawal').toHaveCount(2);
-    await page.reload();
-    await expect(card(page, 'Certificates').getByRole('button', { name: 'Download' }), 'after a reload').toHaveCount(2);
     await context.close();
   });
 
@@ -107,19 +101,7 @@ test.describe('WDR · withdrawal and certificates', () => {
     await expect(page.getByText('This student has been withdrawn.')).toBeVisible();
     const inv = await api<{ data: Array<{ month: number; status: string }> }>(page, 'GET', `/fees/invoices?studentId=${w.students.owingWithdraw.id}`);
     expect(inv.body.data.find((i) => i.month === 7)?.status).not.toBe('WAIVED');
-    const issued = await api<Array<{ type: string }>>(page, 'GET', `/documents?studentId=${w.students.owingWithdraw.id}`);
-    expect(issued.body.map((d) => d.type)).toEqual(['LEAVING_CERT']);
     await context.close();
   });
 
-  test('WDR-03 issue a character certificate', async ({ browser }) => {
-    const w = world();
-    const { page, context } = await signIn(browser, 'owner');
-    await page.goto(`/students?student=${w.students.paid.id}`);
-    const certs = card(page, 'Certificates');
-    await certs.locator('#issue-type').selectOption('CHARACTER_CERT');
-    await certs.getByRole('button', { name: 'Issue', exact: true }).click();
-    await expect(certs.getByRole('button', { name: 'Download' }).first()).toBeVisible();
-    await context.close();
-  });
 });

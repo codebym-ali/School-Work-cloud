@@ -9,6 +9,9 @@ updated: 2026-08-20
 The locked, cross-cutting decisions every note and every developer must respect.
 Full ledger: [[consistency-register]] (LOCKED). This is the digest.
 
+## Certificates - removed (2026-09-19)
+- **Digital certificate issuance is removed; schools issue certificates on paper.** Gone: the `/documents/certificates` write route, `PdfService.certificate()`, `IssuedDocumentsCard`, `api.issuedDocuments`, `ISSUED_DOCUMENT_ROLES`. The `documents` module is now read-only (report-card PDF list + presigned download). **Withdrawal is unchanged in behaviour** - it now lives in the `withdrawal` module and still closes the enrolment, waives post-leaving invoices, disables the portal login, audits, and keeps the OWNER_ADMIN override for letting a student leave owing (balance stays on record); it simply no longer mints certificates. `model Document` + `enum DocumentType` are **kept** (report cards use them); the three certificate enum values are left dormant rather than dropped (removing a Postgres enum value is not worth the migration risk). See [[HR, Payroll, Comms & Documents]].
+
 ## Architecture & tenancy
 - **Pooled multi-tenancy**: one Postgres, shared schema, every tenant row carries `school_id`. Isolation via 3 layers → [[Multi-Tenancy & Isolation]].
 - **Modular monolith**: one codebase, two deployables (`api` + `worker`); modules talk through exported services.

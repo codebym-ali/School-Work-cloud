@@ -1,6 +1,6 @@
 import {
   FEE_ADVANCE_ROLES, FEE_CLEARANCE_OVERRIDE_ROLES, FEE_REVERSE_WAIVE_ROLES, GUARDIAN_ADD_ROLES, GUARDIAN_EDIT_ROLES,
-  hasAnyRole, ISSUED_DOCUMENT_ROLES, WITHDRAW_ROLES,
+  hasAnyRole, WITHDRAW_ROLES,
 } from './index';
 
 /**
@@ -54,7 +54,7 @@ describe('guardian permissions mirror the API', () => {
 });
 
 describe('leaving and certificate permissions mirror the API', () => {
-  // documents.controller.ts: withdraw / issue / read = OWNER_ADMIN, CAMPUS_ADMIN (deputy by hierarchy).
+  // withdrawal.controller.ts: withdraw = OWNER_ADMIN, CAMPUS_ADMIN (deputy by hierarchy).
   // The fee-clearance OVERRIDE checks the GRANTED role in the service, so the deputy may withdraw but not override.
   const cases: Array<[role: string, withdraw: boolean, override: boolean]> = [
     ['OWNER_ADMIN', true, true],
@@ -65,9 +65,8 @@ describe('leaving and certificate permissions mirror the API', () => {
     ['TEACHER', false, false],
   ];
 
-  it.each(cases)('%s: withdraw/documents=%s, override fee clearance=%s', (role, withdraw, override) => {
+  it.each(cases)('%s: withdraw=%s, override fee clearance=%s', (role, withdraw, override) => {
     expect(hasAnyRole([role], WITHDRAW_ROLES)).toBe(withdraw);
-    expect(hasAnyRole([role], ISSUED_DOCUMENT_ROLES)).toBe(withdraw);
     expect(hasAnyRole([role], FEE_CLEARANCE_OVERRIDE_ROLES)).toBe(override);
   });
 });

@@ -12,7 +12,7 @@ import { DirectAdmission } from '../admissions/direct-admission';
 import { StudentFeesCard } from './student-fees-card';
 import { hasAnyRole } from '@sw/roles';
 import { GuardiansCard } from './guardians-card';
-import { IssuedDocumentsCard, WithdrawalCard } from './leaving-and-certificates';
+import { WithdrawalCard } from './withdrawal';
 
 export default function StudentsPage() {
   return (
@@ -782,8 +782,6 @@ function StudentProfile({ id, classes, sections, onBack }: { id: string; classes
               of, and it belongs on the screen the office already has open. */}
           <DocumentsCard studentId={s.id} onSaved={load} />
 
-          {/* Issued certificates, then leaving — the leaving certificate appears in the first once issued. */}
-          <IssuedDocumentsCard student={s} />
           <WithdrawalCard student={s} onChanged={load} />
 
           {moving && (

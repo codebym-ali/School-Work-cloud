@@ -669,6 +669,5 @@ export const GUARDIAN_EDIT_ROLES: Role[] = ['OWNER_ADMIN', 'CAMPUS_ADMIN'];
  * gives the same answer because the hierarchy never adds OWNER_ADMIN.
  */
 export const WITHDRAW_ROLES: Role[] = ['OWNER_ADMIN', 'CAMPUS_ADMIN'];
-export const ISSUED_DOCUMENT_ROLES: Role[] = ['OWNER_ADMIN', 'CAMPUS_ADMIN'];
 export const FEE_CLEARANCE_OVERRIDE_ROLES: Role[] = ['OWNER_ADMIN'];
 

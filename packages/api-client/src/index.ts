@@ -347,7 +347,6 @@ export interface DirectAdmissionBody {
   photoKey?: string;
 }
 export type GuardianRelation = 'FATHER' | 'MOTHER' | 'GUARDIAN';
-export type IssuedDocumentType = 'LEAVING_CERT' | 'CHARACTER_CERT' | 'FEE_CLEARANCE';
 /** One defaulting student, with the guardian to contact. `canText` = verified number that has not opted out. */
 export interface Defaulter {
   student: { id: string; fullName: string; grNumber: string };
@@ -419,12 +418,8 @@ export interface AuditEntry {
   actor: string | null; reason: string | null; oldValue: unknown; newValue: unknown; createdAt: string;
 }
 /** A document the school ISSUED. Not the admission checklist, which records paperwork RECEIVED. */
-export interface IssuedDocument { id: string; studentId: string | null; type: string; issuedAt: string; issuedById: string }
 export interface WithdrawalResult {
   status: 'WITHDRAWN';
-  leavingCertId: string;
-  /** Null when the student left owing: a fee clearance is only issued when fees ARE clear. */
-  feeClearanceId: string | null;
   leftOwing: boolean;
   /** Invoices raised for months after the leaving date, closed as not owed. */
   waivedInvoicesAfterLeaving: number;
@@ -1266,14 +1261,6 @@ export const api = {
     /** Ids only: each student's balance is re-read on the server when the reminder is queued. */
     remind: (studentIds: string[]) =>
       apiPost<{ queued: number; skipped: { notDefaulting: number; cannotText: number } }>('/fees/defaulters/reminders', { studentIds }),
-  },
-  /** Certificates the school issues (GAP-14). Campus-scoped; readable only by the roles that issue them. */
-  issuedDocuments: {
-    list: (studentId: string) => apiGet<IssuedDocument[]>(`/documents?studentId=${studentId}`),
-    /** A ten-minute download link, signed only after the student's campus is checked. */
-    url: (id: string) => apiGet<{ url: string; expiresInSeconds: number }>(`/documents/${id}/url`),
-    issue: (body: { studentId: string; type: IssuedDocumentType; overrideFeeClearance?: boolean; reason?: string }) =>
-      apiPost<IssuedDocument>('/documents/certificates', body),
   },
   /**
    * Corrections to money already recorded (GAP-01). Each was built, tested and restricted to the

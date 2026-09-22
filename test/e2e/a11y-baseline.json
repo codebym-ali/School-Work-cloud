@@ -1,0 +1,27 @@
+{
+  "Attendance": {
+    "label": 1,
+    "select-name": 1
+  },
+  "Classes": {
+    "select-name": 2
+  },
+  "Dashboard": {},
+  "Fees": {
+    "label": 2,
+    "select-name": 1
+  },
+  "Reports": {},
+  "Settings": {
+    "label": 8,
+    "select-name": 1
+  },
+  "Staff": {
+    "select-name": 2
+  },
+  "Students": {
+    "label": 1,
+    "select-name": 3
+  },
+  "Subjects": {}
+}

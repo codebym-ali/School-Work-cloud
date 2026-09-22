@@ -1,0 +1,106 @@
+name: a11y
+
+# Accessibility gate — axe-core over the owner app (test/e2e/a11y.spec.ts, the `a11y` Playwright
+# project). It fails only on NEW serious/critical violations vs test/e2e/a11y-baseline.json, so it
+# blocks a11y regressions while the existing backlog is burned down.
+#
+# ⚠️ MANUAL TRIGGER ON PURPOSE (workflow_dispatch). Unlike the static gates in ci.yml, this one has
+# to SERVE the app (API + owner-web) and drive a real browser — the reason the e2e suite is not in
+# ci.yml. Serving in CI (tenant host resolution, NEXT_API_ORIGIN, browser deps) needs one live
+# validation on the runner before it can be trusted to gate every PR. Once it passes here from the
+# Actions tab, switch the trigger to `pull_request` to make it merge-blocking.
+on:
+  workflow_dispatch:
+  # pull_request:   # ← enable after the first green manual run
+
+jobs:
+  a11y:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: school
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres -d school"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 3s --health-retries 10
+
+    env:
+      NODE_ENV: test
+      API_PORT: '4000'
+      APP_APEX_DOMAIN: localhost:3000
+      RESERVED_SUBDOMAINS: www,api,admin,app
+      DATABASE_URL: postgresql://app_user:app_pw@localhost:5432/school?schema=public
+      PLATFORM_DATABASE_URL: postgresql://platform_admin:platform_pw@localhost:5432/school?schema=public
+      MIGRATION_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/school?schema=public
+      REDIS_URL: redis://localhost:6379
+      JWT_ACTIVE_KID: k1
+      JWT_KEYS: '{"k1":"ci-secret-k1-please-change","k2":"ci-secret-k2-please-change"}'
+      JWT_ACCESS_TTL: 15m
+      JWT_REFRESH_TTL: 30d
+      COOKIE_SECURE: 'false'
+      COOKIE_DOMAIN: localhost
+      ENCRYPTION_MASTER_KEY: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
+      S3_ENDPOINT: http://localhost:9000
+      S3_BUCKET: school-uploads
+      S3_ACCESS_KEY_ID: minioadmin
+      S3_SECRET_ACCESS_KEY: minioadmin
+      SMS_PROVIDER: console
+      SMS_WEBHOOK_HMAC_SECRET: ci-webhook-secret
+      # owner-web proxies /api to the API bundle started below.
+      NEXT_API_ORIGIN: http://localhost:4000
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install (frozen lockfile)
+        run: pnpm install --frozen-lockfile
+
+      # Same DB bootstrap as ci.yml (roles/extensions → migrate → SQL companions).
+      - name: Bootstrap DB roles + extensions
+        run: psql "${MIGRATION_DATABASE_URL%%\?*}" -v ON_ERROR_STOP=1 -f scripts/postgres-init.sql
+      - name: Prisma generate
+        run: pnpm prisma:generate
+      - name: Migrate
+        run: pnpm prisma:deploy
+      - name: SQL companions
+        run: pnpm db:sql
+      - name: Seed the demo tenant (owner@demo.pk)
+        run: pnpm db:seed
+
+      - name: Build API + owner-web
+        run: pnpm build && pnpm --filter ./apps/owner-web build
+
+      - name: Start API + owner-web
+        run: |
+          set -euo pipefail
+          node dist/apps/api/main.js &
+          pnpm --filter ./apps/owner-web start &
+          echo "waiting for API :4000 and owner-web :3005…"
+          for i in $(seq 1 60); do
+            curl -fs http://localhost:4000/api/v1/health >/dev/null 2>&1 && \
+            curl -fs http://localhost:3005 >/dev/null 2>&1 && { echo "up"; exit 0; }
+            sleep 2
+          done
+          echo "servers did not come up in time" >&2
+          exit 1
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Accessibility gate (axe)
+        run: pnpm test:a11y

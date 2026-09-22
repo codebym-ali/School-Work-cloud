@@ -52,11 +52,19 @@ export default defineConfig({
       // setup-tenant too: AUTH-02/03 read the demo owner's (unenrolled) session.
       dependencies: ['setup-qa', 'setup-tenant'],
     },
+    // Accessibility gate (axe-core). Owner session only, so it needs just API + owner-web, not the
+    // platform console — cheap enough to run on its own. See test/e2e/a11y.spec.ts.
+    {
+      name: 'a11y',
+      testMatch: /[\\/]a11y\.spec\.ts$/,
+      use: { ...devices['Desktop Chrome'], storageState: STORAGE_STATE },
+      dependencies: ['setup-tenant'],
+    },
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'], storageState: STORAGE_STATE },
       dependencies: ['setup-tenant', 'setup-platform'],
-      testIgnore: [/[\\/]auth\.setup\.ts$/, /platform-auth\.setup\.ts$/, /[\\/]qa[\\/]/],
+      testIgnore: [/[\\/]auth\.setup\.ts$/, /platform-auth\.setup\.ts$/, /[\\/]qa[\\/]/, /a11y\.spec\.ts$/],
     },
   ],
 });

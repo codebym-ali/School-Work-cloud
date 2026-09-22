@@ -38,7 +38,8 @@
     "test:unit": "jest --selectProjects unit --passWithNoTests",
     "test:integration": "jest --selectProjects integration --runInBand --forceExit",
     "test:isolation": "jest --selectProjects isolation --runInBand --forceExit",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "test:a11y": "playwright test --project=a11y"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1080.0",
@@ -75,6 +76,7 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
     "@nestjs/cli": "^10.4.0",
     "@nestjs/schematics": "^10.1.0",
     "@nestjs/testing": "^10.4.0",
@@ -91,6 +93,7 @@
     "@types/uuid": "^10.0.0",
     "@typescript-eslint/eslint-plugin": "^8.4.0",
     "@typescript-eslint/parser": "^8.4.0",
+    "axe-core": "^4.13.0",
     "eslint": "^8.57.0",
     "eslint-config-prettier": "^9.1.0",
     "eslint-plugin-boundaries": "^5.0.0",

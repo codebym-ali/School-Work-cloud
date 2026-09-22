@@ -48,3 +48,6 @@ backups/
 
 # graphify knowledge-graph output (generated, not committed)
 graphify-out/
+
+# Local seed login credentials (contains passwords) — never commit
+SEED-CREDENTIALS.md

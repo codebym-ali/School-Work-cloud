@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { api, type AdmissionsSummary, type Dashboard, type NotificationItem, type StaffDaySummary } from '@sw/api-client';
 import { useMe, useCampusLens } from '@sw/session';
 import { canReach } from '@sw/roles';
+import { useFeatureFlag } from '@school/lib/feature-flags';
 
 /**
  * Tone is MEANING, never decoration (UI Retheme Plan U4, design reference §6.4). One rule, applied
@@ -120,6 +121,9 @@ function Stat({ href, icon, tone, value, caption, money }: {
 export default function DashboardPage() {
   const me = useMe();
   const lens = useCampusLens();
+  // Owner-home v2 (B1): a "what needs you" headline, calmer register bar, month-on-month context and
+  // scope labels. Off by default; opt in with `?ff=ownerHomeV2`. See @school/lib/feature-flags.
+  const v2 = useFeatureFlag('ownerHomeV2');
   const [data, setData] = useState<Dashboard | null>(null);
   const [adm, setAdm] = useState<AdmissionsSummary | null>(null);
   const [staff, setStaff] = useState<StaffDaySummary | null>(null);
@@ -194,11 +198,35 @@ export default function DashboardPage() {
   const expected = data.todayAttendanceExpected ?? 0;
   const registersComplete = expected > 0 && marked >= expected;
 
+  // ── v2 (B1) derived context ──────────────────────────────────────────────────
+  // #15 scope: the metric panels honour the campus lens, but the attention strip is school-wide.
+  // With a campus selected, say so on each — otherwise "0 defaulters" (this campus) sitting beside
+  // "1 fee defaulter" (whole school) reads as a contradiction rather than two different questions.
+  const activeCampus = lens.campusId ? (lens.campuses.find((c) => c.id === lens.campusId)?.name ?? 'This campus') : null;
+  // #12 grey bar: an all-unmarked day is not an alert. Only draw the part-to-whole bar once at least
+  // one child is marked; before that the "0 of N" statline says it calmly, without a wall of grey.
+  const bd = data.attendanceBreakdown;
+  const anyMarked = !!bd && bd.present + bd.late + bd.leave + bd.absent > 0;
+  // #13 context: this month against last, from the six-month trend the server already returns.
+  const trend = data.collectionsTrend ?? [];
+  const thisMonth = trend.length ? trend[trend.length - 1].collected : 0;
+  const lastMonth = trend.length > 1 ? trend[trend.length - 2].collected : 0;
+  const collectionsDelta = lastMonth > 0 ? Math.round(((thisMonth - lastMonth) / lastMonth) * 100) : null;
+
   return (
     <div className="stack">
       <div>
-        <h1 style={{ marginBottom: 2 }}>{greeting()}</h1>
+        {/* #5 — the headline answers "what needs me?", not just the time of day. The greeting moves
+            to the subline; the number of things waiting is the first thing the owner reads. */}
+        <h1 style={{ marginBottom: 2 }}>
+          {v2
+            ? (needsAttention
+                ? `${reachableAttention.length} thing${reachableAttention.length === 1 ? '' : 's'} need${reachableAttention.length === 1 ? 's' : ''} you today`
+                : "You're all caught up")
+            : greeting()}
+        </h1>
         <p className="muted" style={{ margin: 0 }}>
+          {v2 ? `${greeting()} · ` : ''}
           {new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })} · {me?.email}
         </p>
       </div>
@@ -213,6 +241,8 @@ export default function DashboardPage() {
           {needsAttention
             ? <span className="badge warn">{reachableAttention.length}</span>
             : <span className="dot-live" aria-hidden="true" />}
+          {/* #15 — this list is school-wide even when a campus lens narrows the metrics below. */}
+          {v2 && activeCampus && <span className="badge" style={{ marginLeft: 'auto', fontWeight: 400 }}>Whole school</span>}
         </header>
         <div className="body">
           {needsAttention ? (
@@ -238,6 +268,8 @@ export default function DashboardPage() {
             <header>
               <span className="ico"><Icon name={s.icon} size={18} /></span>
               {s.title}
+              {/* #15 — name the campus these numbers are for, so they read as "this campus" not "all". */}
+              {v2 && activeCampus && <span className="badge" style={{ marginLeft: 'auto', fontWeight: 400 }}>{activeCampus}</span>}
             </header>
             <div className="body stack">
               <div className="grid">
@@ -267,13 +299,27 @@ export default function DashboardPage() {
               {/* The chart earns its place by answering what the percentage cannot: WHAT the day
                   was made of. "100%" over one marked register and sixteen blank ones is true and
                   useless — the bar shows the sixteen. */}
-              {showCoverage && data?.attendanceBreakdown && (
+              {/* #12 — in v2, a day with nothing marked yet shows no bar (the "0 of N" line above
+                  says it); a wall of grey is not an alert. v1 keeps its original behaviour. */}
+              {showCoverage && data?.attendanceBreakdown && (!v2 || anyMarked) && (
                 <RegisterBar b={data.attendanceBreakdown} />
               )}
               {/* Six months of context under the month's total: one figure says how much, the
-                  trend says whether that is normal. */}
-              {s.title === 'Finance' && data?.collectionsTrend?.length ? (
-                <CollectionsTrend points={data.collectionsTrend} money={money} />
+                  trend says whether that is normal. (Was gated on the section's OLD title 'Finance'
+                  after it was renamed 'Collections', so the trend had silently stopped rendering.) */}
+              {s.title === 'Collections' && data?.collectionsTrend?.length ? (
+                <>
+                  {/* #13 — a number needs a comparison. This month against last, in words. */}
+                  {v2 && collectionsDelta !== null && (
+                    <div className="statline">
+                      <span>vs last month</span>
+                      <span className={`v ${collectionsDelta > 0 ? 'is-ok' : collectionsDelta < 0 ? 'is-danger' : 'is-info'}`}>
+                        {collectionsDelta > 0 ? '▲' : collectionsDelta < 0 ? '▼' : '='} {Math.abs(collectionsDelta)}%
+                      </span>
+                    </div>
+                  )}
+                  <CollectionsTrend points={data.collectionsTrend} money={money} />
+                </>
               ) : null}
             </div>
           </section>

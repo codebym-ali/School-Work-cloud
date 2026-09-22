@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import {
   isAdminRole,
   restrictedCampusId,
+  effectiveCampusFilter,
   TenantContext,
   KeysetQuery,
   type KeysetPage,
@@ -49,9 +50,9 @@ export class DashboardService {
     return this.tenantPrisma.client;
   }
 
-  async get() {
+  async get(campusId?: string) {
     void this.ctx.requireSchoolId();
-    const restricted = restrictedCampusId(this.ctx.user); // null for OWNER_ADMIN
+    const eff = effectiveCampusFilter(this.ctx.user, campusId); // campus-bound users forced to own campus; owner gets the selected lens (undefined = whole school)
     const isAdmin = isAdminRole(this.ctx.user); // OWNER_ADMIN or CAMPUS_ADMIN
     const visible = isAdmin ? ALL_METRICS : FINANCIAL_METRICS;
 
@@ -60,14 +61,14 @@ export class DashboardService {
 
     const year = await this.db.academicYear.findFirst({ where: { isCurrent: true } });
     const enrollmentCount = year
-      ? await this.db.studentEnrollment.count({ where: { academicYearId: year.id, status: 'ACTIVE', student: { deletedAt: null }, ...(restricted ? { campusId: restricted } : {}) } })
+      ? await this.db.studentEnrollment.count({ where: { academicYearId: year.id, status: 'ACTIVE', student: { deletedAt: null }, ...(eff ? { campusId: eff } : {}) } })
       : 0;
 
     // ⚠️ `reversal: null` — a reversed payment is money the school gave back or never had. Counted, it
     // overstated the month by every correction made, and disagreed with the campus comparison.
     const collections = await this.db.feePayment.aggregate({
       _sum: { amountPaid: true },
-      where: { paidAt: { gte: monthStart }, reversal: null, ...(restricted ? { invoice: { enrollment: { campusId: restricted } } } : {}) },
+      where: { paidAt: { gte: monthStart }, reversal: null, ...(eff ? { invoice: { enrollment: { campusId: eff } } } : {}) },
     });
 
     // ── Collections trend ─────────────────────────────────────────────────────────────────
@@ -81,7 +82,7 @@ export class DashboardService {
     // hand-rolled in this codebase.
     const trendStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - (TREND_MONTHS - 1), 1));
     const trendPayments = await this.db.feePayment.findMany({
-      where: { paidAt: { gte: trendStart }, reversal: null, ...(restricted ? { invoice: { enrollment: { campusId: restricted } } } : {}) },
+      where: { paidAt: { gte: trendStart }, reversal: null, ...(eff ? { invoice: { enrollment: { campusId: eff } } } : {}) },
       select: { paidAt: true, amountPaid: true },
     });
     const buckets = new Map<string, number>();
@@ -98,7 +99,7 @@ export class DashboardService {
     const collectionsTrend: CollectionPoint[] = [...buckets].map(([month, collected]) => ({ month, collected }));
 
     const defaulters = await this.db.feeInvoice.findMany({
-      where: { status: { in: ['PENDING', 'PARTIAL', 'OVERDUE'] }, dueDate: { lt: now }, ...(restricted ? { enrollment: { campusId: restricted } } : {}) },
+      where: { status: { in: ['PENDING', 'PARTIAL', 'OVERDUE'] }, dueDate: { lt: now }, ...(eff ? { enrollment: { campusId: eff } } : {}) },
       select: { studentId: true },
       distinct: ['studentId'],
     });
@@ -113,7 +114,7 @@ export class DashboardService {
     if (isAdmin) {
       const day = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
       const todayRecords = await this.db.attendanceRecord.findMany({
-        where: { date: day, ...(restricted ? { enrollment: { campusId: restricted } } : {}) },
+        where: { date: day, ...(eff ? { enrollment: { campusId: eff } } : {}) },
         select: { status: true },
       });
       const present = todayRecords.filter((r) => r.status === 'PRESENT' || r.status === 'LATE' || r.status === 'HALF_DAY').length;
@@ -131,7 +132,7 @@ export class DashboardService {
           status: 'ACTIVE',
           student: { deletedAt: null },
           startedAt: { lte: day },
-          ...(restricted ? { campusId: restricted } : {}),
+          ...(eff ? { campusId: eff } : {}),
         },
       });
       todayAttendanceMarked = todayRecords.length;
@@ -157,7 +158,7 @@ export class DashboardService {
       };
 
       const [studentLeaves, staffLeaves, failedSms] = await Promise.all([
-        this.db.studentLeave.count({ where: { status: 'PENDING', ...(restricted ? { student: { enrollments: { some: { status: 'ACTIVE', campusId: restricted } } } } : {}) } }),
+        this.db.studentLeave.count({ where: { status: 'PENDING', ...(eff ? { student: { enrollments: { some: { status: 'ACTIVE', campusId: eff } } } } : {}) } }),
         this.db.staffLeave.count({ where: { status: 'PENDING' } }), // staff have no campus dimension
         // Withheld messages (opted out / unverified number) are stored as FAILED but are NOT send
         // failures. Counting them made the dashboard cry "failed SMS" when nothing had actually broken.

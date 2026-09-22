@@ -863,7 +863,8 @@ export const api = {
     /** Issues a fresh set of ten and invalidates the old one. Shown once. */
     regenerateRecovery: () => apiPost<{ recoveryCodes: string[] }>('/auth/mfa/recovery-codes'),
   },
-  dashboard: () => apiGet<Dashboard>('/dashboard'),
+  /** Owner may pass the selected campus lens; campus-bound users are scoped to their own campus server-side. */
+  dashboard: (campusId?: string) => apiGet<Dashboard>(campusId ? '/dashboard?campusId=' + encodeURIComponent(campusId) : '/dashboard'),
   users: {
     list: () => apiGet<ManagedUser[]>('/users'),
     create: (body: { email: string; roles: string[]; campusId?: string; password: string }) => apiPost<ManagedUser>('/users', body),

@@ -5,7 +5,7 @@ import { RegisterBar, CollectionsTrend } from '@school/components/charts';
 import { useEffect, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { api, type AdmissionsSummary, type Dashboard, type NotificationItem, type StaffDaySummary } from '@sw/api-client';
-import { useMe } from '@sw/session';
+import { useMe, useCampusLens } from '@sw/session';
 import { canReach } from '@sw/roles';
 
 /**
@@ -119,6 +119,7 @@ function Stat({ href, icon, tone, value, caption, money }: {
 
 export default function DashboardPage() {
   const me = useMe();
+  const lens = useCampusLens();
   const [data, setData] = useState<Dashboard | null>(null);
   const [adm, setAdm] = useState<AdmissionsSummary | null>(null);
   const [staff, setStaff] = useState<StaffDaySummary | null>(null);
@@ -129,7 +130,10 @@ export default function DashboardPage() {
   const [err, setErr] = useState(false);
 
   useEffect(() => {
-    api.dashboard().then(setData).catch(() => setErr(true));
+    // Honour the campus lens: the owner's headline numbers narrow to the selected campus (money is
+    // attributed by each invoice's enrolment campus). A campus-bound user is forced to their own campus
+    // server-side, so the value sent here is only ever used for the whole-school owner.
+    api.dashboard(lens.campusId ?? undefined).then(setData).catch(() => setErr(true));
     // Fails silently for a role the API denies, so the section simply doesn't render — the
     // same pattern the other rollups use rather than showing an error to someone who was
     // never meant to see the card.
@@ -142,7 +146,7 @@ export default function DashboardPage() {
     // pipeline) the card would advertise "0 open inquiries · 0% conversion" for ever — a
     // metric that can never move is worse than no metric. Skip the fetch entirely.
     if (me?.admissionsMode === 'PIPELINE') api.admissions.summary().then(setAdm).catch(() => {});
-  }, [me?.admissionsMode]);
+  }, [me?.admissionsMode, lens.campusId]);
 
   if (err) return <p className="error">Couldn&apos;t load the dashboard.</p>;
   if (!data) return <p className="muted">Loading…</p>;

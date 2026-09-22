@@ -3,14 +3,20 @@ import { IsDateString, IsOptional, IsString, IsUUID, MaxLength } from 'class-val
 import { KeysetQuery, Roles } from '@common';
 import { AuditQueryService, DashboardService } from './insights.service';
 
+class DashboardQueryDto {
+  @IsOptional() @IsUUID() campusId?: string;
+}
+
 @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT')
 @Controller('dashboard')
 export class DashboardController {
   constructor(private readonly dashboard: DashboardService) {}
 
+  // The owner may narrow the whole dashboard to one campus (the campus "lens"); a campus-bound
+  // user is forced to their own campus server-side, so their client value is ignored.
   @Get()
-  get() {
-    return this.dashboard.get();
+  get(@Query() q: DashboardQueryDto) {
+    return this.dashboard.get(q.campusId);
   }
 }
 

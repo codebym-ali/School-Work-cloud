@@ -33,6 +33,7 @@
     "db:check-migrations": "node scripts/check-migration-safety.mjs",
     "db:setup": "pnpm db:check-migrations && prisma migrate deploy && pnpm db:sql && pnpm db:check-rls",
     "db:seed": "ts-node prisma/seed.ts",
+    "db:clean-demo": "ts-node scripts/purge-demo-testdata.ts",
     "test": "pnpm test:unit && pnpm test:integration && pnpm test:isolation",
     "test:unit": "jest --selectProjects unit --passWithNoTests",
     "test:integration": "jest --selectProjects integration --runInBand --forceExit",

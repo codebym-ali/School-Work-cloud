@@ -159,7 +159,9 @@ export class DashboardService {
       const [studentLeaves, staffLeaves, failedSms] = await Promise.all([
         this.db.studentLeave.count({ where: { status: 'PENDING', ...(restricted ? { student: { enrollments: { some: { status: 'ACTIVE', campusId: restricted } } } } : {}) } }),
         this.db.staffLeave.count({ where: { status: 'PENDING' } }), // staff have no campus dimension
-        this.db.smsLog.count({ where: { status: 'FAILED' } }), // school-wide
+        // Withheld messages (opted out / unverified number) are stored as FAILED but are NOT send
+        // failures. Counting them made the dashboard cry "failed SMS" when nothing had actually broken.
+        this.db.smsLog.count({ where: { status: 'FAILED', NOT: { message: { startsWith: '(withheld:' } } } }), // real gateway failures only, school-wide
       ]);
       pendingLeaves = studentLeaves + staffLeaves;
       failedSmsCount = failedSms;

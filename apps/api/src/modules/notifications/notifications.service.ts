@@ -203,7 +203,7 @@ export class NotificationsService {
         }
         if (v.includes('failedSmsCount') && (d.failedSmsCount ?? 0) > 0) {
           out.push({ id: `sms-failed:${d.failedSmsCount}`, kind: 'SMS_FAILED', severity: 'warn', at,
-            text: `${d.failedSmsCount} failed SMS.`, href: '/reports' });
+            text: `${d.failedSmsCount} failed SMS.`, href: '/sms' });
         }
       }),
 
@@ -213,7 +213,7 @@ export class NotificationsService {
         // lesson that has not happened yet, and nagging then is how a warning becomes wallpaper.
         if (!u.due || u.count === 0) return;
         out.push({ id: `registers-unmarked:${u.count}`, kind: 'REGISTERS_UNMARKED', severity: 'warn', at,
-          text: `${u.count} ${plural(u.count, 'register', 'registers')} not marked today.`, href: '/attendance?unmarked=1' });
+          text: `${u.count} ${plural(u.count, 'class register', 'class registers')} past today's marking time.`, href: '/attendance?unmarked=1' });
       }),
 
       attempt(NEEDS.staffDay, async () => {

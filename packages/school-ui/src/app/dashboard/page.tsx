@@ -159,7 +159,8 @@ export default function DashboardPage() {
   const toneOf = (t: Tile): Tone => (isAlert(t) && t.alertTone ? t.alertTone : t.tone);
   const display = (t: Tile): ReactNode => {
     const v = val(t);
-    if (v == null) return '—';
+    // A blank attendance figure means 'no register marked yet', not a missing metric - say so in words.
+    if (v == null) return t.key === 'todayAttendancePercent' ? 'Not marked yet' : '—';
     // ⚠️ `.money` is applied to an INLINE span rather than to `.value` itself: the class carries
     // right-alignment for table rows, which inside a left-aligned tile would fling the numeral to
     // one edge and leave its caption at the other. The tabular numerals still apply.

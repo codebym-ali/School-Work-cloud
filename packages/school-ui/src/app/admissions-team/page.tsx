@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { api, ApiError, type CampusAdmissionOfficer, type ManagedUser } from '@sw/api-client';
 import { useMe } from '@sw/session';
 import { doorOrigin, isSchoolWideAdmin } from '@sw/roles';
+import { toSlug } from '@school/lib/slug';
 
 type Msg = { ok: boolean; text: string } | null;
 
@@ -46,7 +47,7 @@ export default function AdmissionsTeamPage() {
   // ⚠️ On the STAFF door, never "this origin". The portal is served only by staff-web; built from
   // `window.location.origin` on the owner door, every link this page handed out was a 404.
   const portalLink = (name: string) =>
-    typeof window === 'undefined' ? '' : `${doorOrigin('staff', window.location)}/admission-portal/${encodeURIComponent(name)}`;
+    typeof window === 'undefined' ? '' : `${doorOrigin('staff', window.location)}/admission-portal/${toSlug(name)}`;
 
   /** Only this campus's own people can hold its seat — the server enforces it too. */
   const candidatesFor = (campusId: string, currentId?: string) =>

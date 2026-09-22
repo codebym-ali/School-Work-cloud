@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { api, ApiError } from '@sw/api-client';
 import { landingPath } from '@sw/roles';
 import { PasswordInput } from '@sw/ui';
+import { fromSlug } from '@school/lib/slug';
 
 /**
  * Dedicated, branded Admission Portal login for one campus. The campus admin generates the
@@ -14,7 +15,9 @@ import { PasswordInput } from '@sw/ui';
 export default function AdmissionPortalLogin() {
   const router = useRouter();
   const params = useParams<{ campus: string }>();
-  const campusName = decodeURIComponent(String(params.campus ?? '')).trim();
+  // The segment is a slug (#18) — "falcon-school-main-campus" → "Falcon School Main Campus" for the
+  // branded subtitle. `fromSlug` also tolerates a legacy space-separated segment, so old links read fine.
+  const campusName = fromSlug(decodeURIComponent(String(params.campus ?? '')).trim());
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');

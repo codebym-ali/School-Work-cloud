@@ -5,6 +5,7 @@ import { api, apiGet, ApiError, type ReportStudentOption } from '@sw/api-client'
 import { useMe } from '@sw/session';
 import { hasAnyRole } from '@sw/roles';
 import { StudentPicker } from '@school/components/student-picker';
+import { SearchableSelect } from '@school/components/searchable-select';
 
 /** What a parameter IS, which decides how it is asked for. Nothing here is a free-text id any more. */
 type ParamKind = 'date' | 'from' | 'to' | 'minDays' | 'student' | 'section' | 'exam';
@@ -109,15 +110,26 @@ export default function ReportsPage() {
               {p === 'student' ? (
                 <StudentPicker id={`rep-${p}`} value={student} onChange={setStudent} />
               ) : p === 'section' ? (
-                <select id={`rep-${p}`} value={values.section ?? ''} onChange={(e) => set('section', e.target.value)}>
-                  <option value="">{sections === null ? 'Loading…' : 'Choose a section'}</option>
-                  {sections?.map((s) => <option key={s.id} value={s.id}>{s.label}{new Set(sections.map((x) => x.campus)).size > 1 ? ` · ${s.campus}` : ''}</option>)}
-                </select>
+                <SearchableSelect
+                  id={`rep-${p}`}
+                  value={values.section ?? ''}
+                  onChange={(v) => set('section', v)}
+                  placeholder={sections === null ? 'Loading…' : 'Search a section'}
+                  emptyLabel="No section matches."
+                  options={(sections ?? []).map((s) => ({
+                    value: s.id,
+                    label: `${s.label}${new Set((sections ?? []).map((x) => x.campus)).size > 1 ? ` · ${s.campus}` : ''}`,
+                  }))}
+                />
               ) : p === 'exam' ? (
-                <select id={`rep-${p}`} value={values.exam ?? ''} onChange={(e) => set('exam', e.target.value)}>
-                  <option value="">{exams === null ? 'Loading…' : 'Choose an exam'}</option>
-                  {exams?.map((x) => <option key={x.id} value={x.id}>{x.label} · {x.term}</option>)}
-                </select>
+                <SearchableSelect
+                  id={`rep-${p}`}
+                  value={values.exam ?? ''}
+                  onChange={(v) => set('exam', v)}
+                  placeholder={exams === null ? 'Loading…' : 'Search an exam'}
+                  emptyLabel="No exam matches."
+                  options={(exams ?? []).map((x) => ({ value: x.id, label: `${x.label} · ${x.term}` }))}
+                />
               ) : p === 'minDays' ? (
                 <input id={`rep-${p}`} type="number" min={0} inputMode="numeric" placeholder="0" value={values.minDays ?? ''} onChange={(e) => set('minDays', e.target.value)} />
               ) : (

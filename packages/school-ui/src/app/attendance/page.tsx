@@ -221,7 +221,7 @@ export default function AttendancePage() {
 
       <div className="inline-form">
         <div><label>Section</label>
-          <select value={sectionId} onChange={(e) => { setSectionId(e.target.value); setRows([]); setLoaded(false); setMsg(null); }}>
+          <select aria-label="Section" value={sectionId} onChange={(e) => { setSectionId(e.target.value); setRows([]); setLoaded(false); setMsg(null); }}>
             <option value="">Select…</option>
             {visibleSections.map((s) => <option key={s.id} value={s.id}>{sectionLabel(s)}</option>)}
           </select>

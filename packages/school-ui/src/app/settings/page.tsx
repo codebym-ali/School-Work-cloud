@@ -68,7 +68,7 @@ export default function SettingsPage() {
       <Section title="Where the school is" blurb="The clock every timing rule is judged against — lateness, the staff day close, and when a class register counts as overdue.">
         <div style={{ maxWidth: 260 }}>
           <label>Time zone</label>
-          <select value={s.timezone} disabled={!canEdit || busy === 'timezone'}
+          <select aria-label="Time zone" value={s.timezone} disabled={!canEdit || busy === 'timezone'}
             onChange={(e) => save('timezone', { timezone: e.target.value })}>
             {/* A short, honest list rather than all ~600 IANA zones: this product serves Pakistani
                 schools, and a 600-item dropdown is a worse answer than five relevant ones. The API

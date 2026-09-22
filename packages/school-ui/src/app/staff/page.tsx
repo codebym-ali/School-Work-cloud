@@ -277,13 +277,13 @@ export default function StaffPage() {
           director sets the branch once and every oversight screen follows. */}
       <div className="inline-form">
         <div><label>Type</label>
-          <select value={fType} onChange={(e) => setFType(e.target.value)}>
+          <select aria-label="Filter by staff type" value={fType} onChange={(e) => setFType(e.target.value)}>
             <option value="">All types</option>
             {STAFF_TYPES.map((t) => <option key={t} value={t}>{t.charAt(0) + t.slice(1).toLowerCase()}</option>)}
           </select>
         </div>
         <div><label>Subject</label>
-          <select value={fSubject} onChange={(e) => setFSubject(e.target.value)}>
+          <select aria-label="Filter by subject" value={fSubject} onChange={(e) => setFSubject(e.target.value)}>
             <option value="">All subjects</option>
             {Array.from(new Map(subjects.map((s) => [s.name, s])).values()).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
           </select>

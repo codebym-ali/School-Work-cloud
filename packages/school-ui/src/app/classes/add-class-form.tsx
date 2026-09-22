@@ -60,7 +60,7 @@ export function AddClassForm({ campuses, classes, subjects, onCreate, defaultCam
         {campuses.length > 1 && (
           <div>
             <label>Campus</label>
-            <select value={campusId} onChange={(e) => setCampusId(e.target.value)}>
+            <select aria-label="Campus" value={campusId} onChange={(e) => setCampusId(e.target.value)}>
               <option value="">Select…</option>
               {campuses.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
@@ -79,7 +79,7 @@ export function AddClassForm({ campuses, classes, subjects, onCreate, defaultCam
         {classes.length > 0 && (
           <div>
             <label>Copy subjects from</label>
-            <select value={copyFrom} onChange={(e) => setCopyFrom(e.target.value)}>
+            <select aria-label="Copy subjects from" value={copyFrom} onChange={(e) => setCopyFrom(e.target.value)}>
               <option value="">Start with none</option>
               {classes.map((c) => {
                 const n = subjects.filter((s) => s.classId === c.id).length;

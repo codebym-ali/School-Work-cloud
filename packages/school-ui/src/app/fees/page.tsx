@@ -204,7 +204,7 @@ export default function FeesPage() {
         <h2 style={{ margin: 0, fontSize: 17 }}>Generate invoices (monthly)</h2>
         <div className="inline-form">
           <div><label>Class</label>
-            <select value={batch.classId} onChange={(e) => setBatch({ ...batch, classId: e.target.value })}>
+            <select aria-label="Class" value={batch.classId} onChange={(e) => setBatch({ ...batch, classId: e.target.value })}>
               <option value="">Select…</option>{classes.map((c) => <option key={c.id} value={c.id}>{classLabel(c)}</option>)}
             </select>
           </div>

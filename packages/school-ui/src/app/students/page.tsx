@@ -139,19 +139,19 @@ function StudentsInner() {
 
       <div className="inline-form">
         <div><label>Class</label>
-          <select value={classId} onChange={(e) => setFilter({ classId: e.target.value, sectionId: '' })}>
+          <select aria-label="Filter by class" value={classId} onChange={(e) => setFilter({ classId: e.target.value, sectionId: '' })}>
             <option value="">All classes</option>
             {classesForCampus.map((c) => <option key={c.id} value={c.id}>{classLabel(c)}</option>)}
           </select>
         </div>
         <div><label>Section</label>
-          <select value={sectionId} onChange={(e) => setFilter({ sectionId: e.target.value })} disabled={!classId}>
+          <select aria-label="Filter by section" value={sectionId} onChange={(e) => setFilter({ sectionId: e.target.value })} disabled={!classId}>
             <option value="">All sections</option>
             {sectionsForClass.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
           </select>
         </div>
         <div><label>Status</label>
-          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+          <select aria-label="Filter by status" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
             <option value="">All statuses</option>
             {(Object.keys(STUDENT_STATUS) as StudentStatus[]).map((s) => (
               <option key={s} value={s}>{STUDENT_STATUS[s].label}</option>

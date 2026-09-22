@@ -248,10 +248,10 @@ export default function AppLayout({ children, app }: { children: React.ReactNode
               a real consequence is read; one that could be ignored forever teaches people to ignore
               red. Routine work is deliberately NOT in the list, because it is not locked. */}
           {needsMfa && pathname !== '/security' && (
-            <div className="toast err">
-              <strong>Set up two-factor authentication to unlock sensitive actions.</strong>{' '}
-              Until you do, you can&apos;t reverse payments, waive fees, reveal a CNIC, approve payroll or
-              change staff access. Everything else works as normal.{' '}
+            <div className="toast warn">
+              <strong>Add an extra sign-in step to protect money and staff records.</strong>{' '}
+              Until you set it up, you can&apos;t reverse a payment, waive a fee, see a full ID number,
+              approve salaries, or change who can do what. Everything else works normally.{' '}
               <Link href="/security" style={{ fontWeight: 600 }}>Set it up — about a minute →</Link>
             </div>
           )}

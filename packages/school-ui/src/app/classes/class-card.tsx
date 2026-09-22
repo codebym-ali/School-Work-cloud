@@ -209,6 +209,11 @@ export function ClassCard({
           })
         )}
       </div>
+      {/* #23 — the `*` above is meaningless without a key. Shown only when a subject actually
+          carries one, so it never captions a list that has none. */}
+      {subjects.some((s) => { const st = studiedBy(s.id); return st.length > 0 && st.length < sections.length; }) && (
+        <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>* taught in some sections only</div>
+      )}
 
       {(uncovered.length > 0 || classTeacherGaps.length > 0) && (
         <Link href={`/classes/${klass.id}`} style={{ fontSize: 12, color: '#b45309', textDecoration: 'none', fontWeight: 600 }}>

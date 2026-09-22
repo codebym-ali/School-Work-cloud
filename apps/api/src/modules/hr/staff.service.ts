@@ -39,13 +39,17 @@ export class StaffService {
     // the raw P2002 below could name neither the field nor a record the operator can see.
     // Pre-check instead, and say plainly when the clash is with a removed record.
     const email = dto.email.toLowerCase();
+    // Canonicalise the employee code the same way the email is lower-cased: trim and upper-case it,
+    // so `emp001` and `EMP001` are one code, the (school, employeeCode) uniqueness is not defeated by
+    // casing, and the directory reads consistently. Applied to the pre-check, the row and the reply.
+    const employeeCode = dto.employeeCode.trim().toUpperCase();
     const [emailOwner, codeOwner] = await Promise.all([
       // Only a LIVE account blocks the address. The unique index is partial
       // (WHERE deleted_at IS NULL), so a removed colleague's email is reusable — this
       // pre-check exists for the message, and must not be stricter than the constraint.
       this.db.user.findFirst({ where: { email, deletedAt: null }, select: { deletedAt: true } }),
       this.db.staffProfile.findFirst({
-        where: { employeeCode: dto.employeeCode },
+        where: { employeeCode },
         select: { user: { select: { deletedAt: true } } },
       }),
     ]);
@@ -62,8 +66,8 @@ export class StaffService {
         ErrorCodes.CONFLICT,
         HttpStatus.CONFLICT,
         codeOwner.user?.deletedAt
-          ? `Employee code ${dto.employeeCode} still belongs to a removed staff member. Use a different code.`
-          : `Employee code ${dto.employeeCode} is already in use.`,
+          ? `Employee code ${employeeCode} still belongs to a removed staff member. Use a different code.`
+          : `Employee code ${employeeCode} is already in use.`,
         [{ field: 'employeeCode', issue: codeOwner.user?.deletedAt ? 'taken-by-removed' : 'duplicate' }],
       );
     }
@@ -89,7 +93,7 @@ export class StaffService {
           schoolId: this.sid,
           userId: user.id,
           staffType: dto.staffType,
-          employeeCode: dto.employeeCode,
+          employeeCode,
           fullName: dto.fullName,
           designation: dto.designation,
           joinedAt: new Date(dto.joinedAt),

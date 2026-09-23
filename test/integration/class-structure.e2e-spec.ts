@@ -321,4 +321,67 @@ describe('Class structure — section subjects & teacher assignments (e2e)', () 
       expect(cov.body.every((g: { classId: string }) => g.classId !== classOnB)).toBe(true);
     });
   });
+
+  // ── QA-found regressions (2026-09-23) ──────────────────────────────────────────
+  describe('QA regressions', () => {
+    // #2 — a duplicate (campus/class, name) used to leak the raw Prisma unique violation as a 500;
+    // it must be a clean 409 like campuses/fee-heads/holidays already are.
+    it('duplicate class / subject / section name returns 409, not 500', async () => {
+      const dupClass = await ownerPost('/api/v1/classes', { campusId: campusA, name: '9th', order: 9 });
+      expect(dupClass.status).toBe(409);
+      expect(dupClass.body.error.code).toBe('CONFLICT');
+
+      const dupSubject = await ownerPost('/api/v1/subjects', { classId: classA, name: 'Mathematics' });
+      expect(dupSubject.status).toBe(409);
+
+      const dupSection = await ownerPost('/api/v1/sections', { classId: classA, name: 'A' });
+      expect(dupSection.status).toBe(409);
+    });
+
+    // #3 — GET /staff (list) and GET /staff/:id had no @Roles, so any authenticated principal
+    // (a teacher here) could read the whole staff directory. Must be admin/HR only.
+    it('the staff directory is not readable by a non-admin — 403 for a teacher, 200 for the owner', async () => {
+      const hire = await ownerPost('/api/v1/staff', {
+        email: 'reg.teach@cst.pk', campusId: campusA, staffType: 'TEACHER',
+        employeeCode: `EMP-${randomUUID().slice(0, 6)}`, designation: 'Teacher', joinedAt: '2026-04-01',
+        fullName: 'Reg Teacher', password: 'Teach!Secret12',
+      });
+      expect(hire.status).toBe(201);
+      const teachCookies = await login('reg.teach@cst.pk', 'Teach!Secret12');
+
+      expect((await authed('get', '/api/v1/staff', teachCookies)).status).toBe(403);
+      expect((await authed('get', `/api/v1/staff/${hire.body.staffId}`, teachCookies)).status).toBe(403);
+      // The valid caller is unaffected.
+      expect((await ownerGet('/api/v1/staff')).status).toBe(200);
+    });
+
+    // #4 — withdrawing a student on/after admission must work; the enrolment CHECK
+    // (ended_at >= started_at) used to surface as a 500 for a same-day withdrawal, and a leaving
+    // date before admission should be a 422, not a 500.
+    it('same-day withdrawal succeeds and a pre-admission leaving date is a 422 (never a 500)', async () => {
+      const officer = { email: 'reg.officer@cst.pk', password: 'Officer!Secret12' };
+      await platform.user.create({
+        data: {
+          schoolId, campusId: campusA, email: officer.email, roles: ['ADMISSION_CONTROLLER'] as never,
+          status: 'ACTIVE', passwordHash: await argon2.hash(officer.password, { type: argon2.argon2id }),
+        },
+      });
+      const offCookies = await login(officer.email, officer.password);
+      const offCsrf = csrfOf(offCookies);
+      const admit = async (fullName: string) => authed('post', '/api/v1/students', offCookies, offCsrf).send({
+        fullName, gender: 'MALE', dateOfBirth: '2014-05-10', campusId: campusA, classId: classA, sectionId: sectionA,
+        guardian: { mode: 'CREATE', fullName: `G ${fullName}`, phone: `+9230012${Math.floor(Math.random() * 100000)}`, relation: 'FATHER' },
+      });
+      const today = new Date().toISOString().slice(0, 10);
+
+      const s1 = await admit('QA SameDay'); expect(s1.status).toBe(201);
+      const w1 = await ownerPost(`/api/v1/students/${s1.body.studentId}/withdraw`, { reason: 'same-day withdrawal', leavingDate: today });
+      expect(w1.status).toBe(201);
+
+      const s2 = await admit('QA PreAdmit'); expect(s2.status).toBe(201);
+      const w2 = await ownerPost(`/api/v1/students/${s2.body.studentId}/withdraw`, { reason: 'before admission', leavingDate: '2020-01-01' });
+      expect(w2.status).toBe(422);
+      expect(w2.body.error.code).toBe('VALIDATION_FAILED');
+    });
+  });
 });

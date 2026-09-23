@@ -51,7 +51,7 @@ export class WithdrawalService {
 
     const student = await this.db.student.findFirst({
       where: { id: studentId },
-      include: { enrollments: { where: { status: EnrollmentStatus.ACTIVE }, select: { campusId: true } } },
+      include: { enrollments: { where: { status: EnrollmentStatus.ACTIVE }, select: { campusId: true, startedAt: true } } },
     });
     if (!student) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'Student not found');
     // ⚠️ Found by id alone — RLS scopes that to the school, not the campus. A campus admin could
@@ -67,6 +67,17 @@ export class WithdrawalService {
     if (leftOn.getTime() > Date.now() + 86_400_000) {
       throw new AppError(ErrorCodes.VALIDATION_FAILED, HttpStatus.UNPROCESSABLE_ENTITY, 'The leaving date cannot be in the future');
     }
+    // ⚠️ The enrolment carries a CHECK (chk_enrollment_dates) that ended_at >= started_at. A leaving
+    // date BEFORE the admission date is invalid — say so with a 422 rather than letting the DB throw a
+    // 500. And a student admitted and withdrawn on the SAME day is legitimate: `started_at` carries the
+    // admission timestamp while `leftOn` is midnight, so clamp `endedAt` up to `started_at` to satisfy
+    // the check without rejecting a same-day withdrawal.
+    const startedAt = student.enrollments[0].startedAt;
+    const startDay = new Date(Date.UTC(startedAt.getUTCFullYear(), startedAt.getUTCMonth(), startedAt.getUTCDate()));
+    if (leftOn < startDay) {
+      throw new AppError(ErrorCodes.VALIDATION_FAILED, HttpStatus.UNPROCESSABLE_ENTITY, 'The leaving date cannot be before the admission date');
+    }
+    const endedAt = leftOn.getTime() >= startedAt.getTime() ? leftOn : startedAt;
 
     // ⚠️ Invoices already raised for months AFTER the student left are not owed — the student was not
     // enrolled for them. They are closed with a waiver line whose reason says exactly why. Anything for
@@ -84,7 +95,7 @@ export class WithdrawalService {
 
     await this.db.studentEnrollment.updateMany({
       where: { studentId, status: EnrollmentStatus.ACTIVE },
-      data: { status: EnrollmentStatus.WITHDRAWN, endedAt: leftOn },
+      data: { status: EnrollmentStatus.WITHDRAWN, endedAt },
     });
     await this.db.student.update({ where: { id: studentId }, data: { isActive: false } });
     if (student.userId) {

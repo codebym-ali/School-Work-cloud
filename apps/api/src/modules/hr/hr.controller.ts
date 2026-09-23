@@ -19,12 +19,14 @@ export class StaffController {
   // Salary and payroll deliberately stay owner-only — whoever creates an employee must not
   // also set their pay, or one person can invent a staff member on a salary unobserved.
   @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN', 'HR_MANAGER') @Post() create(@Body() dto: CreateStaffDto) { return this.staff.createStaff(dto); }
+  @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN', 'HR_MANAGER')
   @Get() list() { return this.staff.listStaff(); }
 
   /** HR rollup: headcount, joiners, half-finished setups and uncovered subjects. */
   @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN', 'HR_MANAGER')
   @Get('summary')
   summary() { return this.staff.hrSummary(); }
+  @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN', 'HR_MANAGER')
   @Get(':id') getOne(@Param('id') id: string) { return this.staff.getStaff(id); }
 
   @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')

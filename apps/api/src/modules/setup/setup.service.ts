@@ -581,6 +581,10 @@ export class SetupService {
     if (dto.minAgeYears != null && dto.maxAgeYears != null && dto.maxAgeYears < dto.minAgeYears) {
       throw new AppError(ErrorCodes.VALIDATION_FAILED, HttpStatus.UNPROCESSABLE_ENTITY, 'maxAgeYears < minAgeYears');
     }
+    // A clean 409 rather than a raw unique-violation 500 (@@unique([campusId, name])) — the same
+    // pre-check campuses/fee-heads/holidays already do; class create had leaked a 500 on a dup name.
+    const dupClass = await this.db.class.findFirst({ where: { campusId: dto.campusId, name: dto.name }, select: { id: true } });
+    if (dupClass) throw new AppError(ErrorCodes.CONFLICT, HttpStatus.CONFLICT, `A class named "${dto.name}" already exists in this campus.`);
     return this.db.class.create({
       data: {
         schoolId: this.sid,
@@ -604,6 +608,9 @@ export class SetupService {
   // ── Sections ───────────────────────────────────────────────────────────────
   async createSection(dto: CreateSectionDto) {
     await this.assertClassCampus(dto.classId);
+    // 409, not a raw 500, when a section of this name already exists in the class (@@unique([classId, name])).
+    const dupSection = await this.db.section.findFirst({ where: { classId: dto.classId, name: dto.name }, select: { id: true } });
+    if (dupSection) throw new AppError(ErrorCodes.CONFLICT, HttpStatus.CONFLICT, `Section "${dto.name}" already exists in this class.`);
     const section = await this.db.section.create({
       data: { schoolId: this.sid, classId: dto.classId, name: dto.name, capacity: dto.capacity ?? 40 },
     });
@@ -744,11 +751,15 @@ export class SetupService {
   // ── Subjects ───────────────────────────────────────────────────────────────
   async createSubject(dto: CreateSubjectDto) {
     await this.assertClassCampus(dto.classId);
+    // 409, not a raw 500, when the class already offers a subject of this name (@@unique([classId, name])).
+    const name = normalizeSubjectName(dto.name);
+    const dupSubject = await this.db.subject.findFirst({ where: { classId: dto.classId, name }, select: { id: true } });
+    if (dupSubject) throw new AppError(ErrorCodes.CONFLICT, HttpStatus.CONFLICT, `This class already has a subject named "${name}".`);
     return this.db.subject.create({
       data: {
         schoolId: this.sid,
         classId: dto.classId,
-        name: normalizeSubjectName(dto.name),
+        name,
         periodsPerWeek: dto.periodsPerWeek ?? null,
       },
     });

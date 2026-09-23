@@ -146,7 +146,7 @@ describe('Defaulters and fee reminders (e2e, GAP-13)', () => {
     await drainSmsFor(app, schoolId);
 
     const logs = await platform.smsLog.findMany({ where: { schoolId, templateKey: 'FEE_REMINDER', studentId } });
-    expect(logs).toEqual([expect.objectContaining({ status: 'FAILED', failReason: 'SMS_OPTED_OUT', segments: 0 })]);
+    expect(logs).toEqual([expect.objectContaining({ status: 'WITHHELD', failReason: 'SMS_OPTED_OUT', segments: 0 })]);
   });
 
   it('refuses an empty or malformed list', async () => {

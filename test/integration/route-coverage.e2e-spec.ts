@@ -61,6 +61,9 @@ describe('Route coverage — every route has a UI or a listed exception (Law 3)'
 
     // ── Student record actions the profile screen does not expose ────────────
     /^\/api\/v1\/students\/[^/]+\/report-cards$/,               // a student's report cards
+    // Read-only document download (report cards / receipts). The issued-documents card that called
+    // it was removed with digital certificates (2026-09-19); the list+download screen is deferred.
+    /^\/api\/v1\/documents\/[^/]+\/url$/,
 
     // ── Misc ─────────────────────────────────────────────────────────────────
     /^\/api\/v1\/student-leaves\/[^/]+\/cancel$/,   // a student cancelling their own leave

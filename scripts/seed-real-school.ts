@@ -262,6 +262,10 @@ async function createAll(db: PrismaClient, ownerHash: string, staffHash: string)
     }
   }
 
+  // Advance the school's gap-free receipt sequence past the receipts we hand-assigned above, or the
+  // first real payment/reversal would reuse receiptNo 1 and hit the (schoolId, receiptNo) unique.
+  await db.school.update({ where: { id: sid }, data: { nextReceiptNo: receiptNo } });
+
   creds.push(...sampleStudentLogins);
   return creds;
 }

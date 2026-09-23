@@ -149,6 +149,20 @@ Result key: ✅ pass · ❌ fail · ⚠️ partial/observation · ⬜ not yet ru
   - **Live fix:** `scripts/fix-receipt-counter.ts` advanced demo `nextReceiptNo` 1 → 22; payment collection now works (re-verified: receipt #22, PAID).
   - **Seed fix:** `seed-real-school.ts` now sets `School.nextReceiptNo` past the seeded receipts (dry-run re-validated).
 
-### Not yet exercised (follow-up pass)
-Campus-admin/admission-controller/HR **screens** (auth+scope confirmed via API); deeper mutations (admit a student, mark a fresh register via UI, payroll run, SMS send/broadcast, exams marks entry, student status change/withdraw); RBAC negative routes (SEC-01/04). The engines behind these are covered by the 1260-test integration suite; this pass focused on live per-portal behaviour with real data.
+### Deeper mutation pass — 2026-09-23 (Exams · Payroll · SMS · student lifecycle)
+- **Student lifecycle:** status change ACTIVE↔SUSPENDED (200, needs `endsOn` for SUSPENDED) ✅; withdraw a student who owes → 409 safeguard ✅; admit as ADMISSION_CONTROLLER → 201 ✅ (owner admit → 403, **by design** — admission is a delegated seat); withdraw same-day admit → **500 (Bug #4, fixed)** → now 201; pre-admission leaving date → 422.
+- **Exams:** create (201, requires `weightagePercent`) · open-marks (201) · bulk marks (200, 5 stored) · results (200) · publish → 422 `RESULTS_INCOMPLETE` when a subject is unmarked (**by design**) · report-cards generate → 422 `WEIGHTAGE_SUM_INVALID` unless term weightages sum to 100 (**by design**). Marks 150/100 → 200 but **not persisted** (silently dropped; see Obs-1).
+- **Payroll:** salary structure (201) · run (201, generates payslips) · payslip PDF → 200 (url) ✅ · mark-paid → 403 `MFA_ENROLMENT_REQUIRED` (**by design** money-out gate).
+- **SMS broadcast:** preview → 200 ✅ but **recipients=0** because seeded guardian phones are unverified (Obs-2); send needs ≥1 verified recipient.
+- **Waive / reverse / payroll-approve** → 403 MFA-gated (**by design**). **RBAC negatives** all correctly 403.
+
+### 🐞 Consolidated issue list (whole QA effort)
+| # | Severity | Issue | Status |
+|---|----------|-------|--------|
+| 1 | High | Fee payment 500 — seed didn't advance `School.nextReceiptNo` (receipt collision) | ✅ fixed (script + seed) |
+| 2 | Medium | Duplicate class/subject/section name → 500 instead of 409 (unhandled P2002) | ✅ fixed + regression test |
+| 3 | High | `GET /staff` & `/staff/:id` had no `@Roles` — staff directory readable by any authed user incl. students | ✅ fixed + regression test |
+| 4 | Medium | Withdraw with leaving-date on/before admission → 500 (`chk_enrollment_dates`) | ✅ fixed + regression test |
+
+**Observations (not bugs):** Obs-1 exam marks>total returns 200 without persisting (should be 422; no bad data). Obs-2 seeded guardian phones unverified → broadcasts reach 0 (seed characteristic). Obs-3 teacher attendance dropdown lists all sections (roster is server-scoped). Obs-4 owner-admit 403 by design. Obs-5 QA exam definitions left as demo debris (no delete-exam endpoint). Obs-6 login-form submit flakiness in automation only (not an app defect).
 

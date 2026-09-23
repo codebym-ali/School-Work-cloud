@@ -29,6 +29,8 @@ export class TermsController {
   @Post(':id/report-cards/generate')
   generate(@Param('id') id: string) { return this.reportCards.generate(id); }
 
+  // Staff only — a student reads their own via GET /students/:id/report-cards (ownership-checked).
+  @Roles(...STAFF_ROLES)
   @Get(':id/report-cards')
   termReportCards(@Param('id') id: string) { return this.reportCards.listByTerm(id); }
 }
@@ -49,6 +51,7 @@ export class ExamsController {
   @HttpCode(HttpStatus.OK)
   enterMarks(@Param('id') id: string, @Body() dto: BulkMarksDto) { return this.exams.enterMarks(id, dto); }
 
+  @Roles(...STAFF_ROLES)
   @Get(':id/results')
   results(@Param('id') id: string) { return this.exams.getResults(id); }
 

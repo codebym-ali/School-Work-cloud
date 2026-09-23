@@ -50,6 +50,8 @@ export class TeacherAssignmentsController {
   // `academicYearId` is optional and defaults to the current year — a teaching record is per
   // year, and returning all of them let the class screen mistake last year's teacher for this
   // year's and delete the historical row when reassigning.
+  // Staff-directory data (who teaches what) — admins/HR only, never a student. Service scopes by campus.
+  @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN', 'HR_MANAGER')
   @Get() list(
     @Query('sectionId') sectionId?: string,
     @Query('staffId') staffId?: string,

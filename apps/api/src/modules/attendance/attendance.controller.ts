@@ -1,5 +1,5 @@
 import { Body, Controller, Get, HttpCode, HttpStatus, Param, Patch, Post, Query } from '@nestjs/common';
-import { Roles } from '@common';
+import { Roles, STAFF_ROLES } from '@common';
 import { AttendanceService } from './attendance.service';
 import {
   AttendanceCoverageQuery,
@@ -60,11 +60,16 @@ export class AttendanceController {
   }
 
   /** Which of the last N days this section is marked for — powers the backfill strip. */
+  // Staff only (never a student/guardian): the service scopes to the caller's campus/assignment (§22.8).
+  @Roles(...STAFF_ROLES)
   @Get('coverage')
   coverage(@Query() q: AttendanceCoverageQuery) {
     return this.attendance.coverage(q.sectionId, q.session, q.days ?? 7);
   }
 
+  // ⚠️ Staff only. Without @Roles this read defaulted to any authenticated user, so a STUDENT could
+  // pull a whole section's register. Campus/assignment scoping still applies in the service (§22.8).
+  @Roles(...STAFF_ROLES)
   @Get()
   query(@Query() q: AttendanceQuery) {
     return this.attendance.query(q);

@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { ClsService } from 'nestjs-cls';
+import { Prisma } from '@prisma/client';
 import { AppError, type ErrorDetail } from './app.error';
 import { ErrorCodes, type ErrorCode } from './error-codes';
 import { captureError } from '../observability/sentry';
@@ -92,10 +93,68 @@ export class AllExceptionsFilter implements ExceptionFilter {
       };
     }
 
+    const prisma = this.normalizePrisma(exception, requestId);
+    if (prisma) return prisma;
+
     return {
       status: HttpStatus.INTERNAL_SERVER_ERROR,
       body: { error: { code: ErrorCodes.INTERNAL, message: 'Internal server error', requestId } },
     };
+  }
+
+  /**
+   * Safety net for database errors that escaped a service-level pre-check (§WS-A). A stray `P2002`,
+   * `P2003`, `P2025` or a Postgres CHECK/FK violation must degrade to a clean 4xx — never a 500 with a
+   * stack leak. Services should still throw a human-worded 409/404/422 first (that wins because it
+   * throws before Prisma does); this is the floor, with a generic message that names no internals.
+   */
+  private normalizePrisma(exception: unknown, requestId?: string): { status: number; body: ErrorBody } | null {
+    if (exception instanceof Prisma.PrismaClientKnownRequestError) {
+      switch (exception.code) {
+        case 'P2002': {
+          // Unique constraint. `meta.target` names the column(s); surfaced as a field, never the raw value.
+          const target = exception.meta?.target;
+          const fields = Array.isArray(target) ? target : target ? [String(target)] : [];
+          return {
+            status: HttpStatus.CONFLICT,
+            body: {
+              error: {
+                code: ErrorCodes.CONFLICT,
+                message: 'A record with these details already exists.',
+                details: fields.length ? fields.map((f) => ({ field: String(f), issue: 'must be unique' })) : undefined,
+                requestId,
+              },
+            },
+          };
+        }
+        case 'P2025':
+          return {
+            status: HttpStatus.NOT_FOUND,
+            body: { error: { code: ErrorCodes.NOT_FOUND, message: 'The requested record was not found.', requestId } },
+          };
+        case 'P2003':
+          return {
+            status: HttpStatus.CONFLICT,
+            body: {
+              error: { code: ErrorCodes.CONFLICT, message: 'This record is still referenced by other data.', requestId },
+            },
+          };
+        case 'P2010': {
+          // Raw-query failure — carries the Postgres SQLSTATE in meta.code (23514 CHECK, 23503 FK).
+          const sqlState = (exception.meta as { code?: string } | undefined)?.code;
+          if (sqlState === '23514' || sqlState === '23503') {
+            return {
+              status: HttpStatus.UNPROCESSABLE_ENTITY,
+              body: { error: { code: ErrorCodes.VALIDATION_FAILED, message: 'The data violates a database rule.', requestId } },
+            };
+          }
+          return null;
+        }
+        default:
+          return null;
+      }
+    }
+    return null;
   }
 
   private statusToCode(status: number): ErrorCode {

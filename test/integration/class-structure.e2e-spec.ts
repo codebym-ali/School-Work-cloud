@@ -338,6 +338,17 @@ describe('Class structure — section subjects & teacher assignments (e2e)', () 
       expect(dupSection.status).toBe(409);
     });
 
+    // WS-A — the global filter is the safety net: a unique violation that NO service pre-check catches
+    // must still degrade to a clean 409, never a 500. `createAcademicYear` guards date-overlap but not
+    // the (schoolId, name) unique, so a same-named year with non-overlapping dates reaches Prisma raw.
+    it('an un-pre-checked unique violation degrades to 409 via the exception filter (not 500)', async () => {
+      const dup = await ownerPost('/api/v1/academic-years', {
+        name: '2025-26', startDate: '2030-04-01', endDate: '2031-03-31',
+      });
+      expect(dup.status).toBe(409);
+      expect(dup.body.error.code).toBe('CONFLICT');
+    });
+
     // #3 — GET /staff (list) and GET /staff/:id had no @Roles, so any authenticated principal
     // (a teacher here) could read the whole staff directory. Must be admin/HR only.
     it('the staff directory is not readable by a non-admin — 403 for a teacher, 200 for the owner', async () => {

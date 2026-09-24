@@ -1,9 +1,13 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { api, apiGet, apiPost, ApiError, type Campus, type Enrollment, type Klass, type Section, type UnmarkedRegisters } from '@sw/api-client';
+import { api, apiGet, apiPost, ApiError, type Campus, type Enrollment, type Klass, type Section, type TeacherClass, type UnmarkedRegisters } from '@sw/api-client';
 import { sectionLabeller } from '@school/lib/labels';
-import { useCampusLens } from '@sw/session';
+import { useCampusLens, useMe } from '@sw/session';
+
+/** Roles that mark attendance across the school; everyone else marking is a teacher scoped to their own
+ *  sections. Drives whether the section picker is fed by the school-wide list or by /teaching/my-classes. */
+const SCHOOL_WIDE_ATTENDANCE_ROLES = ['OWNER_ADMIN', 'OPERATIONS_ADMIN', 'CAMPUS_ADMIN'];
 
 interface DayCoverage { date: string; working: boolean; marked: number; expected: number; closedFor: string | null }
 
@@ -98,12 +102,23 @@ export default function AttendancePage() {
   const [autoLoaded, setAutoLoaded] = useState(false);
   const [unmarked, setUnmarked] = useState<UnmarkedRegisters | null>(null);
   const [loaded, setLoaded] = useState(false);
+  const [myClasses, setMyClasses] = useState<TeacherClass[]>([]);
   const lens = useCampusLens();
+  const me = useMe();
+  // A pure teacher marks only the sections assigned to them. Sourcing the picker from
+  // /teaching/my-classes (not the school-wide list) is defence in depth over the server scoping AND
+  // clearer UX — no scrolling past sections they cannot mark, no picking one that would 403 on save.
+  const schoolWide = !!me && me.roles.some((r) => SCHOOL_WIDE_ATTENDANCE_ROLES.includes(r));
 
   useEffect(() => {
-    apiGet<Klass[]>('/classes').then(setClasses).catch(() => {});
-    apiGet<Section[]>('/sections').then(setSections).catch(() => {});
-    apiGet<Campus[]>('/campuses').then(setCampuses).catch(() => {});
+    if (me && !schoolWide) {
+      // Teacher: only their own sections. The school-wide lists would 403 for this role anyway.
+      api.teaching.myClasses().then(setMyClasses).catch(() => {});
+    } else if (me) {
+      apiGet<Klass[]>('/classes').then(setClasses).catch(() => {});
+      apiGet<Section[]>('/sections').then(setSections).catch(() => {});
+      apiGet<Campus[]>('/campuses').then(setCampuses).catch(() => {});
+    }
     // Deep-link from "My Classes" (e.g. /attendance?sectionId=…): preselect that section.
     const params = new URLSearchParams(window.location.search);
     const sid = params.get('sectionId');
@@ -113,7 +128,7 @@ export default function AttendancePage() {
     if (params.get('unmarked')) {
       api.staff.unmarkedRegisters().then(setUnmarked).catch(() => {});
     }
-  }, []);
+  }, [me, schoolWide]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Once the deep-linked section is set, load its roster automatically (one time).
   useEffect(() => {
@@ -172,8 +187,14 @@ export default function AttendancePage() {
   // every other campus's rooms. A null lens ("All campuses") shows everything.
   const campusOfSection = (s: Section) => classes.find((c) => c.id === s.classId)?.campusId ?? null;
   const visibleSections = lens.campusId ? sections.filter((s) => campusOfSection(s) === lens.campusId) : sections;
+  // The picker options: an admin sees the (campus-lensed) school-wide sections; a teacher sees only the
+  // sections they are assigned to teach, de-duplicated (my-classes has one row per subject).
+  const pickerOptions: Array<{ id: string; label: string }> = schoolWide
+    ? visibleSections.map((s) => ({ id: s.id, label: sectionLabel(s) }))
+    : Array.from(new Map(myClasses.map((c) => [c.sectionId, `${c.className} ${c.sectionName}`])).entries())
+        .map(([id, label]) => ({ id, label }));
   useEffect(() => {
-    if (sectionId && !visibleSections.some((s) => s.id === sectionId)) { setSectionId(''); setRows([]); setLoaded(false); }
+    if (sectionId && schoolWide && !visibleSections.some((s) => s.id === sectionId)) { setSectionId(''); setRows([]); setLoaded(false); }
   }, [lens.campusId]); // eslint-disable-line react-hooks/exhaustive-deps
   // Counted from what is on screen, so it cannot disagree with what Save is about to send.
   const tally = rows.reduce((acc, r) => {
@@ -223,7 +244,7 @@ export default function AttendancePage() {
         <div><label>Section</label>
           <select aria-label="Section" value={sectionId} onChange={(e) => { setSectionId(e.target.value); setRows([]); setLoaded(false); setMsg(null); }}>
             <option value="">Select…</option>
-            {visibleSections.map((s) => <option key={s.id} value={s.id}>{sectionLabel(s)}</option>)}
+            {pickerOptions.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
           </select>
         </div>
         <div><label>Date</label>

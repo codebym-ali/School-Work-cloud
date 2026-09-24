@@ -135,7 +135,11 @@ function toCsv(rows: Row[]): string {
   if (rows.length === 0) return '';
   const headers = Object.keys(rows[0]);
   const escape = (v: unknown): string => {
-    const s = v == null ? '' : String(v);
+    let s = v == null ? '' : String(v);
+    // CSV formula-injection guard (OWASP): a cell beginning with = + - @ (or a leading tab/CR) is executed as
+    // a formula by Excel/Sheets on open — a crafted student/class name could exfiltrate or run a command.
+    // Prefix such a cell with a single quote so it renders as literal text and never evaluates.
+    if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
     return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
   const lines = [headers.join(',')];

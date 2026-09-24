@@ -277,7 +277,8 @@ export class StudentsService {
     const school = await this.db.school.findFirst({ where: { id: schoolId } });
     if (!school) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'School not found');
     const updated = await this.db.school.update({ where: { id: schoolId }, data: { nextRegistrationNo: { increment: 1 } } });
-    return `${school.registrationPrefix}${updated.nextRegistrationNo - 1}`;
+    // Zero-padded so the sequence sorts and reads as a real register (REG-2026-0031, not REG-2026-31).
+    return `${school.registrationPrefix}${String(updated.nextRegistrationNo - 1).padStart(4, '0')}`;
   }
 
   /**
@@ -868,7 +869,9 @@ export class StudentsService {
       where: { id: schoolId },
       data: { nextGrNumber: { increment: 1 } },
     });
-    return `${school.grPrefix}${updated.nextGrNumber - 1}`;
+    // Zero-padded: the GR number is the child's permanent identity (on the leaving certificate, every
+    // receipt) — GR-0031, never GR-31 — so it matches how a school actually writes it.
+    return `${school.grPrefix}${String(updated.nextGrNumber - 1).padStart(4, '0')}`;
   }
 
 

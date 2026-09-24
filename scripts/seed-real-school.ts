@@ -190,7 +190,7 @@ async function createAll(db: PrismaClient, ownerHash: string, staffHash: string)
       const last = pick(LAST, idx + 3);
       const fullName = `${first} ${last}`;
       const gr = `GR-${String(grSeq++).padStart(4, '0')}`;
-      const regNo = `REG-2026-${String(regSeq++).padStart(3, '0')}`;
+      const regNo = `REG-2026-${String(regSeq++).padStart(4, '0')}`;
       const cnic = `35201${String(1000000 + idx).padStart(7, '0')}${male ? '1' : '2'}`; // 13-digit, realistic shape
 
       // A few students get a working student-portal login (registration no + CNIC).
@@ -264,6 +264,14 @@ async function createAll(db: PrismaClient, ownerHash: string, staffHash: string)
       idx++;
     }
   }
+
+  // Continue the register from where the seed left off, in the SAME format the app's generator produces
+  // (prefixed + zero-padded), so the next LIVE admission is GR-0031 / REG-2026-0031 — never a bare number,
+  // and never colliding with a seeded GR. (QA C, 2026-09-24.)
+  await db.school.update({
+    where: { id: sid },
+    data: { grPrefix: 'GR-', nextGrNumber: grSeq, registrationPrefix: 'REG-2026-', nextRegistrationNo: regSeq },
+  });
 
   // Staff attendance history for the teachers (present, occasional absence).
   for (const [ti, t] of teachers.entries()) {

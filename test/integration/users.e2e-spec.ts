@@ -161,4 +161,28 @@ describe('Users & roles (e2e, §23)', () => {
     expect(reset.status).toBe(201);
     expect((await login(campusAdmin.email, 'Rotated!Secret12')).status).toBe(200);
   });
+
+  // QA #1b: a campus-less staff user (base STAFF + HR_MANAGER access, as the demo HR was) must be VISIBLE in
+  // user admin and REPAIRABLE — the owner can assign it a campus. Previously an access-role-only user was
+  // invisible (not in MANAGEABLE_ROLES) and orphaned users had no assign-campus path.
+  it('surfaces a campus-less staff user and lets the owner assign it a campus', async () => {
+    const argon2 = await import('argon2');
+    const orphan = await platform.user.create({
+      data: {
+        schoolId, email: 'orphan-hr@usr.pk', roles: ['STAFF', 'HR_MANAGER'] as never, status: 'ACTIVE',
+        campusId: null, passwordHash: await argon2.hash('Another!Secret12', { type: argon2.argon2id }),
+      },
+    });
+
+    const before = await get('/api/v1/users', ownerCookies);
+    const row = before.body.find((u: { id: string }) => u.id === orphan.id);
+    expect(row).toBeTruthy();          // visible despite having no campus
+    expect(row.campusId).toBeNull();
+
+    const assign = await patch(`/api/v1/users/${orphan.id}`, { campusId: campusAId }, ownerCookies);
+    expect(assign.status).toBe(200);
+
+    const after = await get('/api/v1/users', ownerCookies);
+    expect(after.body.find((u: { id: string }) => u.id === orphan.id).campusId).toBe(campusAId);
+  });
 });

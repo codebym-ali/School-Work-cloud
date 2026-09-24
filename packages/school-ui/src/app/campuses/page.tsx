@@ -111,7 +111,14 @@ export default function CampusesPage() {
     }
     return held;
   };
-  const schoolWide = users.filter((u) => u.campusId == null);
+  // A user with no campus is only correct for the school-wide roles (owner + deputy). Anyone else with no
+  // campus is MIS-CONFIGURED — a campus-scoped role (HR, teacher, accountant…) that sees nothing until it
+  // has a campus. Surface those separately with an "assign a campus" control, so the office can repair a
+  // user the seat groups above never show (the gap that stranded the seeded HR manager). (QA 2026-09-24.)
+  const schoolWideRoles = ['OWNER_ADMIN', 'OPERATIONS_ADMIN'];
+  const campusLess = users.filter((u) => u.campusId == null);
+  const schoolWide = campusLess.filter((u) => u.roles.some((r) => schoolWideRoles.includes(r)));
+  const needsCampus = campusLess.filter((u) => !u.roles.some((r) => schoolWideRoles.includes(r)));
   // ⚠️ The STAFF door, never "this origin". Campus Hub is owner-only, so this origin is always the
   // owner door — which admits OWNER_ADMIN alone, and refuses anyone else with the same "invalid
   // credentials" a wrong password gets. A campus admin handed the old link could not sign in, and
@@ -218,6 +225,34 @@ export default function CampusesPage() {
       ))}
       {campuses.length === 0 && <p className="muted">No campuses yet.{isOwner ? ' Add one above.' : ''}</p>}
 
+      {isOwner && needsCampus.length > 0 && (
+        <div className="card stack" style={{ borderLeft: '4px solid #d97706' }}>
+          <h2 style={{ margin: 0, fontSize: 18 }}>Needs a campus</h2>
+          <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+            These logins have no campus, so their campus-scoped screens (staff directory, attendance, fees)
+            show nothing. Assign each one to a campus to activate it.
+          </p>
+          <table>
+            <tbody>
+              {needsCampus.map((u) => (
+                <tr key={u.id}>
+                  <td>{u.email}</td>
+                  <td>{roleLabels(u.roles).join(', ')}</td>
+                  <td><span className="badge warn">no campus</span></td>
+                  <td style={{ textAlign: 'right' }}>
+                    <AssignCampus
+                      userId={u.id}
+                      campuses={campuses}
+                      onDone={async (ok, text) => { setMsg({ ok, text }); if (ok) await load(); }}
+                    />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
       {schoolWide.length > 0 && (
         <div className="card stack">
           <h2 style={{ margin: 0, fontSize: 18 }}>School-wide</h2>
@@ -232,6 +267,37 @@ export default function CampusesPage() {
         </div>
       )}
     </div>
+  );
+}
+
+/** Assign a campus to a mis-configured (campus-less) user. OWNER-only screen; the API is MFA-gated, so an
+ *  un-enrolled owner is told to set up two-factor rather than getting a silent failure. */
+function AssignCampus({ userId, campuses, onDone }: {
+  userId: string; campuses: Campus[]; onDone: (ok: boolean, text: string) => void;
+}) {
+  const [campusId, setCampusId] = useState('');
+  const [busy, setBusy] = useState(false);
+  async function assign() {
+    if (!campusId) return;
+    setBusy(true);
+    try {
+      await api.users.update(userId, { campusId });
+      const name = campuses.find((c) => c.id === campusId)?.name ?? 'the campus';
+      onDone(true, `Assigned to ${name}.`);
+    } catch (e) {
+      onDone(false, e instanceof ApiError ? e.message : 'Failed to assign a campus');
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <span className="row" style={{ gap: 6, justifyContent: 'flex-end' }}>
+      <select aria-label="Campus" value={campusId} onChange={(e) => setCampusId(e.target.value)}>
+        <option value="">Select campus…</option>
+        {campuses.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+      </select>
+      <button className="small" disabled={!campusId || busy} onClick={assign}>Assign</button>
+    </span>
   );
 }
 

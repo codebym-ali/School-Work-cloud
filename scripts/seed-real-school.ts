@@ -116,9 +116,10 @@ async function createAll(db: PrismaClient, ownerHash: string, staffHash: string)
   const staffSpecs: { email: string; roles: Role[]; type: StaffType; designation: string; campusBound: boolean; name: string }[] = [
     { email: 'admin@demo.pk', roles: ['CAMPUS_ADMIN'], type: 'ADMIN', designation: 'Campus Administrator', campusBound: true, name: 'Nadia Khan' },
     { email: 'accountant@demo.pk', roles: ['ACCOUNTANT'], type: 'ACCOUNTANT', designation: 'Accountant', campusBound: true, name: 'Imran Malik' },
-    // HR must be campus-bound: the staff directory is campus-scoped, so a campus-less HR sees zero staff
-    // ("No campus assigned") and the role is unusable — and the owner UI can't repair it. (QA 2026-09-24.)
-    { email: 'hr@demo.pk', roles: ['HR_MANAGER'], type: 'ADMIN', designation: 'HR Manager', campusBound: true, name: 'Sadia Sheikh' },
+    // HR_MANAGER is an ACCESS capability granted on top of a base identity — not a standalone role. A user
+    // with only ['HR_MANAGER'] is invisible to user admin (not in MANAGEABLE_ROLES) and, campus-less, sees
+    // zero staff. So HR is a campus-bound STAFF member WITH the HR_MANAGER capability. (QA 2026-09-24.)
+    { email: 'hr@demo.pk', roles: ['STAFF', 'HR_MANAGER'], type: 'ADMIN', designation: 'HR Manager', campusBound: true, name: 'Sadia Sheikh' },
     { email: 'admissions@demo.pk', roles: ['ADMISSION_CONTROLLER'], type: 'ADMIN', designation: 'Admission Officer', campusBound: true, name: 'Bilal Qureshi' },
   ];
   const teacherNames = ['Ayesha Farooq', 'Usman Raza', 'Hira Ansari', 'Saad Baig', 'Maryam Javed'];

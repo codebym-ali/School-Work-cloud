@@ -29,15 +29,20 @@ async function main() {
     if (!school) throw new Error('demo school not found');
     const campus = await db.campus.findFirst({ where: { schoolId: school.id, name: 'Main Campus' }, select: { id: true } });
     if (!campus) throw new Error('Main Campus not found');
-    const hr = await db.user.findFirst({ where: { schoolId: school.id, email: 'hr@demo.pk' }, select: { id: true, campusId: true } });
+    const hr = await db.user.findFirst({ where: { schoolId: school.id, email: 'hr@demo.pk' }, select: { id: true, campusId: true, roles: true } });
     if (!hr) throw new Error('hr@demo.pk not found');
 
-    if (hr.campusId === campus.id) {
-      console.log('HR already bound to Main Campus — nothing to do.');
+    // Base identity so the user is manageable (MANAGEABLE_ROLES) + visible in Campus Hub; HR_MANAGER is the
+    // access capability on top; a campus so the campus-scoped staff directory returns rows.
+    const roles = Array.from(new Set([...hr.roles, 'STAFF'])) as typeof hr.roles;
+    const needsRole = roles.length !== hr.roles.length;
+    const needsCampus = hr.campusId !== campus.id;
+    if (!needsRole && !needsCampus) {
+      console.log('HR already bound to Main Campus with a base role — nothing to do.');
       return;
     }
-    await db.user.update({ where: { id: hr.id }, data: { campusId: campus.id } });
-    console.log(`✔ Bound hr@demo.pk to Main Campus (${campus.id}). HR can now see the staff directory.`);
+    await db.user.update({ where: { id: hr.id }, data: { campusId: campus.id, roles } });
+    console.log(`✔ hr@demo.pk → Main Campus (${campus.id}), roles [${roles.join(', ')}]. HR is now visible in Campus Hub and sees the staff directory.`);
   } finally {
     await db.$disconnect();
   }

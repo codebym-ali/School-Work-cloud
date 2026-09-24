@@ -293,4 +293,129 @@ export const PERMISSION_MATRIX: MatrixRow[] = [
   // Teacher self-service — TEACHER-only; positive path needs a linked StaffProfile so it's
   // scope-gated (deny side is the guarantee here).
   { label: 'teacher my-classes', method: 'get', path: '/api/v1/teaching/my-classes', allow: ['TEACHER'], scopeGated: true },
+
+  // ═══════════════════════════════════════════════════════════════════════════════════════════════
+  // Completeness fill (2026-09-24, QA plan C1). `route-authz-matrix-coverage.e2e` proved these
+  // role-gated routes had NO matrix row — unmeasured for role conformance, the exact "a route with no
+  // row is not assumed safe" gap the comments above warn about. Each row below encodes the role set the
+  // controller's `@Roles` declares, translated to the six SEEDED roles (OPERATIONS_ADMIN → owner-only
+  // here; STAFF_ROLES → every staff role, deny PARENT). `scopeGated` on every id-bearing / campus-
+  // scoped / MFA-gated route (a legitimately-admitted non-owner may 404/403 there), so the deny side —
+  // PARENT and any non-admitted role → 403 — is the guarantee. MFA-gated routes (reset-password, waive,
+  // user delete/update, bulk-delete) admit only MFA-enrolled sessions; only the enrolled OWNER's
+  // positive path is asserted, exactly as `mark payslip paid` already is.
+  // ── Students (read + edit; class-level OWNER/CAMPUS/ADMISSION, narrowed per method) ──
+  { label: 'search parents', method: 'get', path: '/api/v1/students/parents/search', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ADMISSION_CONTROLLER'], scopeGated: true },
+  { label: 'read one student', method: 'get', path: '/api/v1/students/00000000-0000-0000-0000-000000000000', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ADMISSION_CONTROLLER'], scopeGated: true },
+  { label: 'read student photo', method: 'get', path: '/api/v1/students/00000000-0000-0000-0000-000000000000/photo', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ADMISSION_CONTROLLER'], scopeGated: true },
+  { label: 'edit student', method: 'patch', path: '/api/v1/students/00000000-0000-0000-0000-000000000000', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'], scopeGated: true },
+  { label: 'list student documents', method: 'get', path: '/api/v1/students/00000000-0000-0000-0000-000000000000/documents', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ADMISSION_CONTROLLER'], scopeGated: true },
+  { label: 'attach a student document', method: 'put', path: '/api/v1/students/00000000-0000-0000-0000-000000000000/documents/PHOTO', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ADMISSION_CONTROLLER'], scopeGated: true },
+  { label: 'edit a guardian', method: 'patch', path: '/api/v1/students/00000000-0000-0000-0000-000000000000/guardians/00000000-0000-0000-0000-000000000000', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'], scopeGated: true },
+  { label: 'edit a guardian’s contact', method: 'patch', path: '/api/v1/students/00000000-0000-0000-0000-000000000000/guardians/00000000-0000-0000-0000-000000000000/contact', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'], scopeGated: true },
+  { label: 'remove a guardian', method: 'delete', path: '/api/v1/students/00000000-0000-0000-0000-000000000000/guardians/00000000-0000-0000-0000-000000000000', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'], scopeGated: true },
+  { label: 'withdraw a student', method: 'post', path: '/api/v1/students/00000000-0000-0000-0000-000000000000/withdraw', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'], scopeGated: true },
+  // ── Setup (academic years, campuses, classes, sections, subjects) ──
+  { label: 'list academic years', method: 'get', path: '/api/v1/academic-years', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ADMISSION_CONTROLLER', 'ACCOUNTANT', 'TEACHER'] },
+  { label: 'set current academic year', method: 'post', path: '/api/v1/academic-years/00000000-0000-0000-0000-000000000000/set-current', body: {}, allow: ['OWNER_ADMIN'], scopeGated: true },
+  { label: 'list campuses', method: 'get', path: '/api/v1/campuses', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ADMISSION_CONTROLLER', 'ACCOUNTANT', 'TEACHER'] },
+  { label: 'campuses summary', method: 'get', path: '/api/v1/campuses/summary', allow: ['OWNER_ADMIN'] },
+  { label: 'rename campus', method: 'patch', path: '/api/v1/campuses/00000000-0000-0000-0000-000000000000', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'], scopeGated: true },
+  { label: 'list classes', method: 'get', path: '/api/v1/classes', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ADMISSION_CONTROLLER', 'ACCOUNTANT', 'TEACHER'], scopeGated: true },
+  { label: 'list sections', method: 'get', path: '/api/v1/sections', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ADMISSION_CONTROLLER', 'ACCOUNTANT', 'TEACHER'], scopeGated: true },
+  { label: 'create section', method: 'post', path: '/api/v1/sections', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'], scopeGated: true },
+  { label: 'list subjects', method: 'get', path: '/api/v1/subjects', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ADMISSION_CONTROLLER', 'ACCOUNTANT', 'TEACHER'], scopeGated: true },
+  { label: 'create subject', method: 'post', path: '/api/v1/subjects', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'], scopeGated: true },
+  { label: 'merge subjects', method: 'post', path: '/api/v1/subjects/merge', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'], scopeGated: true },
+  // ── Exams (grade scales, terms, exams, marks) ──
+  { label: 'read grade scale', method: 'get', path: '/api/v1/grade-scales', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ADMISSION_CONTROLLER', 'ACCOUNTANT', 'TEACHER'] },
+  { label: 'set grade scale', method: 'put', path: '/api/v1/grade-scales', body: {}, allow: ['OWNER_ADMIN'] },
+  { label: 'list terms', method: 'get', path: '/api/v1/terms', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ADMISSION_CONTROLLER', 'ACCOUNTANT', 'TEACHER'] },
+  { label: 'create term', method: 'post', path: '/api/v1/terms', body: {}, allow: ['OWNER_ADMIN'] },
+  { label: 'list term report cards', method: 'get', path: '/api/v1/terms/00000000-0000-0000-0000-000000000000/report-cards', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ADMISSION_CONTROLLER', 'ACCOUNTANT', 'TEACHER'], scopeGated: true },
+  { label: 'generate report cards', method: 'post', path: '/api/v1/terms/00000000-0000-0000-0000-000000000000/report-cards/generate', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'], scopeGated: true },
+  { label: 'list exams', method: 'get', path: '/api/v1/exams', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ADMISSION_CONTROLLER', 'ACCOUNTANT', 'TEACHER'], scopeGated: true },
+  { label: 'open marks entry', method: 'post', path: '/api/v1/exams/00000000-0000-0000-0000-000000000000/open-marks-entry', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'], scopeGated: true },
+  { label: 'delete exam', method: 'delete', path: '/api/v1/exams/00000000-0000-0000-0000-000000000000', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'], scopeGated: true },
+  { label: 'enter exam marks', method: 'post', path: '/api/v1/exams/00000000-0000-0000-0000-000000000000/results/bulk', body: { records: [] }, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'TEACHER'], scopeGated: true },
+  { label: 'read exam results', method: 'get', path: '/api/v1/exams/00000000-0000-0000-0000-000000000000/results', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ADMISSION_CONTROLLER', 'ACCOUNTANT', 'TEACHER'], scopeGated: true },
+  { label: 'publish exam', method: 'post', path: '/api/v1/exams/00000000-0000-0000-0000-000000000000/publish', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'], scopeGated: true },
+  // ── HR (staff directory, salary, teacher assignments, payroll) ──
+  { label: 'list staff', method: 'get', path: '/api/v1/staff', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'HR_MANAGER'], scopeGated: true },
+  { label: 'read one staff', method: 'get', path: '/api/v1/staff/00000000-0000-0000-0000-000000000000', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'HR_MANAGER'], scopeGated: true },
+  { label: 'set a salary structure', method: 'post', path: '/api/v1/staff/00000000-0000-0000-0000-000000000000/salary-structures', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'], scopeGated: true },
+  { label: 'read salary structures', method: 'get', path: '/api/v1/staff/00000000-0000-0000-0000-000000000000/salary-structures', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'], scopeGated: true },
+  { label: 'list teacher assignments', method: 'get', path: '/api/v1/teacher-assignments', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'HR_MANAGER'], scopeGated: true },
+  { label: 'unassign a teacher', method: 'delete', path: '/api/v1/teacher-assignments/00000000-0000-0000-0000-000000000000', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'HR_MANAGER'], scopeGated: true },
+  { label: 'read a payroll run', method: 'get', path: '/api/v1/payroll-runs/00000000-0000-0000-0000-000000000000', allow: ['OWNER_ADMIN', 'ACCOUNTANT'], scopeGated: true },
+  { label: 'discard a payroll run', method: 'delete', path: '/api/v1/payroll-runs/00000000-0000-0000-0000-000000000000', allow: ['OWNER_ADMIN', 'ACCOUNTANT'], scopeGated: true },
+  // ── Fees (setup + collection + statements) ──
+  { label: 'create a fee head', method: 'post', path: '/api/v1/fee-heads', body: {}, allow: ['OWNER_ADMIN'] },
+  { label: 'create a fee price', method: 'post', path: '/api/v1/fee-structures', body: {}, allow: ['OWNER_ADMIN'] },
+  { label: 'create a discount', method: 'post', path: '/api/v1/discounts', body: {}, allow: ['OWNER_ADMIN'] },
+  { label: 'revoke a discount', method: 'post', path: '/api/v1/discounts/00000000-0000-0000-0000-000000000000/revoke', body: {}, allow: ['OWNER_ADMIN'], scopeGated: true },
+  { label: 'read a claim’s proof', method: 'get', path: '/api/v1/fees/claims/00000000-0000-0000-0000-000000000000/proof', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT'], scopeGated: true },
+  { label: 'claims pending count', method: 'get', path: '/api/v1/fees/claims/pending-count', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT'] },
+  { label: 'read one invoice', method: 'get', path: '/api/v1/fees/invoices/00000000-0000-0000-0000-000000000000', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT'], scopeGated: true },
+  { label: 'issue an ad-hoc invoice', method: 'post', path: '/api/v1/fees/invoices', body: {}, allow: ['OWNER_ADMIN', 'ACCOUNTANT'] },
+  { label: 'record a payment', method: 'post', path: '/api/v1/fees/invoices/00000000-0000-0000-0000-000000000000/payments', body: {}, allow: ['OWNER_ADMIN', 'ACCOUNTANT'], scopeGated: true },
+  { label: 'waive a fine', method: 'post', path: '/api/v1/fees/invoices/00000000-0000-0000-0000-000000000000/waive', body: {}, allow: ['OWNER_ADMIN'], scopeGated: true },
+  { label: 'list payments', method: 'get', path: '/api/v1/fees/payments', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT'], scopeGated: true },
+  { label: 'list advances', method: 'get', path: '/api/v1/fees/advances', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT'], scopeGated: true },
+  { label: 'record an advance', method: 'post', path: '/api/v1/fees/advances', body: {}, allow: ['OWNER_ADMIN', 'ACCOUNTANT'] },
+  { label: 'list defaulters', method: 'get', path: '/api/v1/fees/defaulters', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT'], scopeGated: true },
+  { label: 'send defaulter reminders', method: 'post', path: '/api/v1/fees/defaulters/reminders', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT'] },
+  { label: 'run mark-overdue job', method: 'post', path: '/api/v1/fees/jobs/mark-overdue', body: {}, allow: ['OWNER_ADMIN'] },
+  { label: 'preview a fee statement', method: 'post', path: '/api/v1/fees/statements/preview', body: {}, allow: ['OWNER_ADMIN', 'ACCOUNTANT'] },
+  { label: 'record a fee statement', method: 'post', path: '/api/v1/fees/statements', body: {}, allow: ['OWNER_ADMIN', 'ACCOUNTANT'] },
+  { label: 'list unexplained statements', method: 'get', path: '/api/v1/fees/statements/unexplained', allow: ['OWNER_ADMIN', 'ACCOUNTANT'] },
+  { label: 'fee integrity check', method: 'get', path: '/api/v1/fees/integrity-check', allow: ['OWNER_ADMIN'] },
+  { label: 'set the late-fee policy', method: 'put', path: '/api/v1/late-fee-policy', body: {}, allow: ['OWNER_ADMIN'] },
+  // ── Reports & insights (class-level OWNER/CAMPUS/ACCOUNTANT; performance is OWNER/CAMPUS) ──
+  { label: 'daily-collection report', method: 'get', path: '/api/v1/reports/daily-collection', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT'], scopeGated: true },
+  { label: 'fee-ledger report', method: 'get', path: '/api/v1/reports/fee-ledger', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT'], scopeGated: true },
+  { label: 'attendance-register report', method: 'get', path: '/api/v1/reports/attendance-register', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT'], scopeGated: true },
+  { label: 'defaulters report', method: 'get', path: '/api/v1/reports/defaulters', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT'], scopeGated: true },
+  { label: 'exam-summary report', method: 'get', path: '/api/v1/reports/exam-summary', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT'], scopeGated: true },
+  { label: 'report lookups: students', method: 'get', path: '/api/v1/reports/lookups/students', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT'] },
+  { label: 'report lookups: sections', method: 'get', path: '/api/v1/reports/lookups/sections', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT'] },
+  { label: 'report lookups: exams', method: 'get', path: '/api/v1/reports/lookups/exams', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT'] },
+  { label: 'sms-usage report', method: 'get', path: '/api/v1/reports/sms-usage', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT'] },
+  { label: 'one class’s performance', method: 'get', path: '/api/v1/reports/performance/classes/00000000-0000-0000-0000-000000000000', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'], scopeGated: true },
+  { label: 'read the audit log', method: 'get', path: '/api/v1/audit-logs', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
+  // ── Class-tests (teacher-owned; admins may step in — ownership check in service) ──
+  { label: 'read a class test', method: 'get', path: '/api/v1/class-tests/00000000-0000-0000-0000-000000000000', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'TEACHER'], scopeGated: true },
+  { label: 'edit a class test', method: 'patch', path: '/api/v1/class-tests/00000000-0000-0000-0000-000000000000', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'TEACHER'], scopeGated: true },
+  { label: 'delete a class test', method: 'delete', path: '/api/v1/class-tests/00000000-0000-0000-0000-000000000000', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'TEACHER'], scopeGated: true },
+  // ── Teaching (teacher self-service; roster ownership in service) ──
+  { label: 'read a section roster (teaching)', method: 'get', path: '/api/v1/teaching/sections/00000000-0000-0000-0000-000000000000/roster', allow: ['TEACHER'], scopeGated: true },
+  // ── Documents (read-only: report-card list + presigned download) ──
+  { label: 'list documents', method: 'get', path: '/api/v1/documents', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
+  { label: 'get a document url', method: 'get', path: '/api/v1/documents/00000000-0000-0000-0000-000000000000/url', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'], scopeGated: true },
+  // ── Admissions / inquiries (class-level OWNER/CAMPUS/ADMISSION) ──
+  { label: 'create an inquiry', method: 'post', path: '/api/v1/inquiries', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ADMISSION_CONTROLLER'], scopeGated: true },
+  { label: 'read one inquiry', method: 'get', path: '/api/v1/inquiries/00000000-0000-0000-0000-000000000000', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ADMISSION_CONTROLLER'], scopeGated: true },
+  { label: 'schedule an entry test', method: 'post', path: '/api/v1/inquiries/00000000-0000-0000-0000-000000000000/entry-test', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ADMISSION_CONTROLLER'], scopeGated: true },
+  { label: 'record an entry-test result', method: 'patch', path: '/api/v1/inquiries/00000000-0000-0000-0000-000000000000/entry-test', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ADMISSION_CONTROLLER'], scopeGated: true },
+  { label: 'reject an inquiry', method: 'post', path: '/api/v1/inquiries/00000000-0000-0000-0000-000000000000/reject', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ADMISSION_CONTROLLER'], scopeGated: true },
+  { label: 'withdraw an inquiry', method: 'post', path: '/api/v1/inquiries/00000000-0000-0000-0000-000000000000/withdraw', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ADMISSION_CONTROLLER'], scopeGated: true },
+  // ── Attendance (query + coverage are staff reads; patch is admin) ──
+  { label: 'read attendance', method: 'get', path: '/api/v1/attendance', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ADMISSION_CONTROLLER', 'ACCOUNTANT', 'TEACHER'], scopeGated: true },
+  { label: 'attendance coverage', method: 'get', path: '/api/v1/attendance/coverage', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ADMISSION_CONTROLLER', 'ACCOUNTANT', 'TEACHER'], scopeGated: true },
+  { label: 'correct an attendance mark', method: 'patch', path: '/api/v1/attendance/00000000-0000-0000-0000-000000000000', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'], scopeGated: true },
+  // ── Enrollment / promotion (two-step plan → commit) ──
+  { label: 'plan a promotion', method: 'post', path: '/api/v1/promotions/plan', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'], scopeGated: true },
+  { label: 'commit a promotion', method: 'post', path: '/api/v1/promotions/commit', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'], scopeGated: true },
+  // ── SMS (send + broadcast; templates/credits/logs already covered) ──
+  { label: 'preview a broadcast', method: 'post', path: '/api/v1/sms/broadcast/preview', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
+  { label: 'send a broadcast', method: 'post', path: '/api/v1/sms/broadcast', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
+  { label: 'send an ad-hoc sms', method: 'post', path: '/api/v1/sms/send', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
+  // ── Leaves (reject mirrors approve — office only, never the teacher who filed) ──
+  { label: 'reject a staff leave', method: 'post', path: '/api/v1/staff-leaves/00000000-0000-0000-0000-000000000000/reject', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
+  { label: 'reject a student leave', method: 'post', path: '/api/v1/student-leaves/00000000-0000-0000-0000-000000000000/reject', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
+  // ── Users (MFA-gated; only the enrolled owner's positive path is asserted) ──
+  { label: 'edit a user', method: 'patch', path: '/api/v1/users/00000000-0000-0000-0000-000000000000', body: {}, allow: ['OWNER_ADMIN'], scopeGated: true },
+  { label: 'remove a user', method: 'delete', path: '/api/v1/users/00000000-0000-0000-0000-000000000000', allow: ['OWNER_ADMIN'], scopeGated: true },
+  { label: 'reset a user’s password', method: 'post', path: '/api/v1/users/00000000-0000-0000-0000-000000000000/reset-password', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'], scopeGated: true },
+  { label: 'bulk-delete users', method: 'post', path: '/api/v1/users/bulk-delete', body: {}, allow: ['OWNER_ADMIN'], scopeGated: true },
 ];

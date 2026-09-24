@@ -3,6 +3,7 @@ import { PATH_METADATA, METHOD_METADATA } from '@nestjs/common/constants';
 import { Test } from '@nestjs/testing';
 import { DiscoveryModule, DiscoveryService, MetadataScanner, Reflector } from '@nestjs/core';
 import { AppModule } from '../../apps/api/src/app.module';
+import { OPEN_BY_DESIGN } from './support/authz-open-by-design';
 
 /**
  * Authorization coverage (Law 3, security half) — every route names its roles, or is explicitly open.
@@ -15,35 +16,6 @@ import { AppModule } from '../../apps/api/src/app.module';
  */
 const ROLES_KEY = 'roles';
 const IS_PUBLIC = 'isPublic';
-
-/**
- * Routes that are INTENTIONALLY reachable by any authenticated principal or are public. Each is either
- * PUBLIC (pre-session) or SELF-SCOPED — the service enforces ownership (§22.8), so a role gate would add
- * nothing. Adding a line here is a deliberate security decision; anything NOT here must declare @Roles.
- */
-const OPEN_BY_DESIGN: RegExp[] = [
-  /^\/api\/v1\/auth\//,                           // login / refresh / logout / mfa — public / session-establishing
-  /^\/api\/v1\/portal\//,                         // student portal auth
-  /^\/api\/v1\/health/,                           // probes
-  /^\/api\/v1\/webhooks\//,                       // signed external callbacks
-  // ── self-scoped reads/writes: the service resolves "me" from the session ──
-  /^\/api\/v1\/notifications$/,                    // the caller's own notifications
-  /^\/api\/v1\/notifications\/seen$/,
-  /^\/api\/v1\/timetable\/mine$/,
-  /^\/api\/v1\/cover\/mine$/,
-  /^\/api\/v1\/attendance\/mine\//,               // the caller's own unmarked registers
-  /^\/api\/v1\/attendance\/closure-notice$/,      // school-closure banner — deliberately every authed user
-  /^\/api\/v1\/staff-attendance\/mine/,           // own attendance + self check-in state
-  /^\/api\/v1\/staff-attendance\/check-in$/,      // self presence claim
-  /^\/api\/v1\/staff-leaves(\/balance)?$/,        // own leaves + balance
-  /^\/api\/v1\/staff-leaves\/[^/]+\/cancel$/,     // cancel own leave
-  /^\/api\/v1\/student-leaves$/,                  // own leaves
-  /^\/api\/v1\/student-leaves\/[^/]+\/cancel$/,   // cancel own leave
-  /^\/api\/v1\/payslips\/mine$/,                  // own payslips
-  /^\/api\/v1\/payslips\/[^/]+\/pdf$/,            // owner/admin check in the service (§22.8)
-  /^\/api\/v1\/students\/[^/]+\/report-cards$/,   // ownership-checked in the service (a student sees only their own)
-  /^\/api\/v1\/uploads(\/confirm)?$/,             // presigned upload for the caller's own file
-];
 
 interface RouteMeta { method: string; path: string; hasRoles: boolean; isPublic: boolean }
 

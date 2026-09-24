@@ -13,6 +13,8 @@ overall: 6 of 7 milestones (GA) — full v1 domain built; M7 hardening complete
 
 **Last updated:** 2026-09-24 · **Stack:** Contabo VPS + Coolify + self-hosted Postgres 16 + Redis + Cloudflare R2 (see [[Deployment & Operations]]) · **Repo:** NestJS monorepo (`apps/api`, `apps/worker`, `libs/common`, `libs/database`).
 
+> [!success] **QA Tier-2 shipped (2026-09-24)** — **C6** every money-out action stays MFA-gated (waive/reverse/approve/mark-paid/reset), **§4** leaves date-guard + cancel-frees-slot, **§5** uploads pipeline vs real MinIO (allowlist + magic-byte + promotion + prefix guard). Audit found **§3** timetable/cover and **§6** platform already exhaustively covered — no new tests. Full integration **1813✓ / 71 suites**. Commits `8d189c8`, `a44e314`, `1997766`.
+
 > [!success] **QA Tier-1 shipped (2026-09-24)** — **C4** parallel idempotency/concurrency races (receipt-counter race that caused Bug #1 now proven safe), **§2** promotion concurrent-commit race (exactly-once, no doubling), **C3** Prisma-error fuzz (15 illegal writes across 11 models, no 500 anywhere), **§1** fees-mutation (discount bounds + copy precondition + discount-applies). Full integration **1794✓ / 68 suites**. Commits `3c4b106`, `79745cc`, `fcfac5e`, `f07b6e3`.
 
 > [!success] **QA Tier-0 cross-cutting gates shipped (2026-09-24)** — from [[QA Plan — Remaining Surface & Cross-Cutting]]: **C1** authz conformance (new `route-authz-matrix-coverage` gate + 99 previously-unmeasured routes filled; `matrix-conformance` now 1102 assertions), **C2** two-school tenant-isolation sweep (crown-jewel lists + cross-tenant `:id`→404), **C5** money-ledger integrity property test (randomized pay/overpay/reverse). Gates: **integration 1771✓ / 64 suites**. Commits `49413fc`, `4d5762b`, `a9acd02`.

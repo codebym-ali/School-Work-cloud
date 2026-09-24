@@ -77,7 +77,11 @@ A bulk, irreversible, cross-year write — never mutation-tested. Rules (from `p
 - **Idempotent preview vs commit:** preview mutates nothing; re-running preview after commit reflects the new
   year. **Integrity:** old-year enrolments end, new-year enrolments start, roll numbers don't collide.
 
-### 3. Timetable & cover  ·  **P1/P2**  ·  `timetable.e2e-spec.ts` (extend) + `cover.e2e-spec.ts` (extend)
+### 3. Timetable & cover  ·  **P1/P2**  ·  ✅ ALREADY COVERED (audit 2026-09-24 — no new tests needed)
+> `timetable.e2e` pins teacher clash (409, named), cell-replace, subject-not-in-class, teacher-left,
+> my-week, and student-week isolation; `cover.e2e` (40+ cases) pins double-book refusal, payroll-approved
+> lock, campus scoping, FREE/BUSY suggestions, the cover can't enter marks, and a teacher can't arrange
+> their own cover. The §3 surface is already exhaustive.
 Never live-passed. Rules (from `timetable.service.ts`, `cover.service.ts`):
 - **Clash detection:** same **teacher** in two rooms in one period → 422; same **section** double-booked → 422
   (L284/L317/L348 — assert each distinct clash message).
@@ -91,7 +95,11 @@ Rules (from `leaves.service.ts`): `toDate < fromDate` → 422; **overlapping** l
 decrement on approve and **restore on cancel**; cancel an already-approved/started leave boundary; `staffId`
 required unless an admin omits on self (L238). Assert the **balance math** directly, not just the response.
 
-### 5. Documents / uploads pipeline  ·  **P1**  ·  `student-documents.e2e-spec.ts` + `storage-pdf.e2e-spec.ts` (extend)
+### 5. Documents / uploads pipeline  ·  **P1**  ·  ✅ DONE 2026-09-24 (`1997766`)
+> Shipped `uploads-pipeline.e2e` against real MinIO: disallowed MIME → 422 (no presign); bytes not matching
+> the declared type → 422 magic-byte gate; a real PNG round-trips request→PUT→confirm→promoted out of
+> quarantine; confirm outside the caller's own quarantine prefix → 403; a never-uploaded key → 404. (ClamAV
+> is opt-in/off in test — its branch stays covered by `clamav.service.spec`.)
 Presigned PUT → magic-byte/MIME allowlist → ClamAV → quarantine→permanent (from `uploads.service.ts`):
 - MIME not in allowlist → 422; **content that doesn't match its declared type** (png bytes as pdf) → 422
   `File content does not match its declared type`.
@@ -99,7 +107,12 @@ Presigned PUT → magic-byte/MIME allowlist → ClamAV → quarantine→permanen
   `VIRUS_SCAN_UNAVAILABLE` (fail-closed). *(clamav is opt-in; gate this behind the profile.)*
 - Report-card PDF served only via a **10-min presigned GET**; a link for **another school's** object → 403.
 
-### 6. Platform / superadmin  ·  **P0/P1**  ·  `platform-*.e2e-spec.ts` (extend the lifecycle + billing ones)
+### 6. Platform / superadmin  ·  **P0/P1**  ·  ✅ ALREADY COVERED (audit 2026-09-24 — no new tests needed)
+> Audit of the 11 `platform-*.e2e` specs confirms the plan's negatives are all pinned: purge needs the
+> retention window + matching subdomain confirmation (`platform-tenant-lifecycle`), suspend → login
+> `TENANT_SUSPENDED` (`platform.e2e`), per-student price required before invoicing + dunning/reactivation
+> matrix (`platform-billing*`), an operator cannot change their **own** role/status
+> (`platform-operators.e2e:97`), non-super roles forbidden (`platform-authz-audit`). Nothing to add.
 Tenant lifecycle (provision → suspend → reactivate → schedule-termination → purge), billing invoices
 (issue/pay/void state machine, per-student pricing required before invoicing — L135), break-glass access,
 operator MFA, auto-reactivate-on-payment switch. **Key negatives:** a tenant operator cannot change **their
@@ -173,7 +186,11 @@ A property-style check over a randomized op sequence per student: `paid ≤ tota
 sum(reversals) = paidAmount`, advances never go negative, a reversed payment never leaves an invoice `PAID`.
 Run it after fuzzed pay/reverse/advance/discount sequences. Money bugs don't show on the happy path.
 
-### C6. MFA & money-out gates  ·  **P1**
+### C6. MFA & money-out gates  ·  **P1**  ·  ✅ DONE 2026-09-24 (`8d189c8`)
+> Shipped `mfa-money-out-gates.e2e`: waive / reverse / payroll-approve / payslip mark-paid / user
+> password-reset each → 403 `MFA_ENROLMENT_REQUIRED` for an un-enrolled owner, and no longer that code once
+> enrolled. Pins the whole money-out set so dropping `@RequiresMfa` from one can't slip through (the
+> mechanism itself is in `mfa-enforcement.e2e`).
 Assert every sensitive action stays gated: waive, reverse, payroll approve, payslip mark-paid all →
 `MFA_ENROLMENT_REQUIRED` (403) for an un-enrolled mandatory-MFA role, and succeed once enrolled. A regression
 here silently disarms the money-out controls.
@@ -203,8 +220,8 @@ lens scoping on the shared screens, and the fees partial→full→PAID and promo
 | **1** | ✅ **DONE** — **C1 authz conformance** + **C2 isolation sweep** + **C5 money integrity** (all Tier-0 P0s) | all merge-blocking; integration 1771✓ / 64 suites | shipped 2026-09-24 |
 | **2** | ✅ **DONE** — **Fees** (§1) + **C4 idempotency/concurrency** + **C5 money integrity** | fees-mutation + money-invariant | shipped 2026-09-24 |
 | **3** | ✅ **DONE** — **Promotion** (§2) + **C3 Prisma fuzz** | promotion race + fuzz harness | shipped 2026-09-24 |
-| **4** | **Timetable/cover** (§3) + **Leaves** (§4) + **C6 MFA gates** | per-module extensions | ~1.5d |
-| **5** | **Platform** (§6) + **Uploads** (§5) + **C8 SMS** | lifecycle + pipeline | ~1.5d |
+| **4** | ✅ **DONE** — **C6 MFA gates** + **Leaves** (§4); **Timetable/cover** (§3) already covered | mfa-money-out + leaves-edge | shipped 2026-09-24 |
+| **5** | ✅ **DONE** — **Uploads** (§5); **Platform** (§6) already covered; **C8 SMS** → Tier-3 | uploads-pipeline | shipped 2026-09-24 |
 | **6** | **Reports/insights/class-tests** (§7) + **C7 envelope** + **C9 Playwright** | export-parity + e2e | ~1d |
 
 **Tooling.** All server tests are `test/integration/*.e2e-spec.ts` on the existing supertest + provisioning

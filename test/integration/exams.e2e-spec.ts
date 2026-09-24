@@ -106,15 +106,32 @@ describe('Exams & report cards (e2e, §11)', () => {
     expect(open.body.status).toBe('MARKS_ENTRY');
   });
 
-  it('enters marks with per-row validation (marks > total fails, others succeed)', async () => {
+  // WS-C: marks > total is a STRUCTURAL invariant (true for every row, and a UI prevents it), so it is
+  // rejected by the DTO as a 422 for the whole request — never dropped silently into a 200's errors[].
+  it('rejects the whole batch with 422 when any row has marks > total', async () => {
     const res = await post(`/api/v1/exams/${examId}/results/bulk`, {
       records: [
         { enrollmentId, subjectId: mathId, totalMarks: 100, marksObtained: 80 },
-        { enrollmentId, subjectId: englishId, totalMarks: 100, marksObtained: 150 }, // invalid
+        { enrollmentId, subjectId: englishId, totalMarks: 100, marksObtained: 150 }, // structurally invalid
+      ],
+    });
+    expect(res.status).toBe(422);
+    expect(res.body.error.code).toBe('VALIDATION_FAILED');
+    // Nothing persisted — a structural reject is all-or-nothing.
+    const results = await get(`/api/v1/exams/${examId}/results`);
+    expect(results.body).toHaveLength(0);
+  });
+
+  it('enters marks with per-row validation — a DATA-condition row fails, others succeed (200)', async () => {
+    const res = await post(`/api/v1/exams/${examId}/results/bulk`, {
+      records: [
+        { enrollmentId, subjectId: mathId, totalMarks: 100, marksObtained: 80 },
+        { enrollmentId, subjectId: randomUUID(), totalMarks: 100, marksObtained: 70 }, // subject not in class
       ],
     });
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({ succeeded: 1, failed: 1 });
+    expect(res.body.errors[0]).toMatchObject({ index: 1, code: 'VALIDATION_FAILED' });
   });
 
   it('blocks publish until every (student × subject) has a mark (RESULTS_INCOMPLETE)', async () => {

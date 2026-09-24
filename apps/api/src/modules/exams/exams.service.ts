@@ -78,6 +78,21 @@ export class ExamsService {
     if (exam.status === ExamStatus.PUBLISHED) {
       throw new AppError(ErrorCodes.INVALID_STATE_TRANSITION, HttpStatus.CONFLICT, 'Exam is PUBLISHED; use the correction endpoint');
     }
+    // WS-C: marks > total is a STRUCTURAL invariant (never valid for any row, and the UI prevents it), not a
+    // per-student data condition — so it fails the whole batch with a 422 up front, rather than being dropped
+    // into `errors[]` while the call returns 200. Data conditions (subject/enrolment/assignment) stay per-row.
+    const overMarked = dto.records
+      .map((r, index) => ({ r, index }))
+      .filter(({ r }) => !r.isAbsent && r.marksObtained != null && r.marksObtained > r.totalMarks);
+    if (overMarked.length > 0) {
+      throw new AppError(
+        ErrorCodes.VALIDATION_FAILED,
+        HttpStatus.UNPROCESSABLE_ENTITY,
+        'marksObtained cannot exceed totalMarks',
+        overMarked.map(({ r, index }) => ({ field: `records[${index}]`, issue: `${r.marksObtained} > ${r.totalMarks}` })),
+      );
+    }
+
     const term = await this.db.term.findFirst({ where: { id: exam.termId } });
     const subjectIds = new Set((await this.db.subject.findMany({ where: { classId: exam.classId } })).map((s) => s.id));
 

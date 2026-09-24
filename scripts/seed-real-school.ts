@@ -209,8 +209,17 @@ async function createAll(db: PrismaClient, ownerHash: string, staffHash: string)
       });
 
       const guardianName = `${pick(MALE, idx + 5)} ${last}`;
+      // Most guardians have a VERIFIED phone so SMS/broadcast reaches real recipients and can be tested;
+      // every 10th is left unverified on purpose, to exercise the withheld/unverified path (Obs-2).
+      const phoneVerified = idx % 10 !== 0;
       const parent = await db.parentProfile.create({
-        data: { schoolId: sid, fullName: guardianName, phone: `+92300${String(1000000 + idx).padStart(7, '0')}`, occupation: pick(['Businessman', 'Doctor', 'Engineer', 'Teacher', 'Shopkeeper'], idx) },
+        data: {
+          schoolId: sid,
+          fullName: guardianName,
+          phone: `+92300${String(1000000 + idx).padStart(7, '0')}`,
+          occupation: pick(['Businessman', 'Doctor', 'Engineer', 'Teacher', 'Shopkeeper'], idx),
+          ...(phoneVerified ? { phoneVerifiedAt: new Date('2026-04-05') } : {}),
+        },
       });
       await db.studentGuardian.create({ data: { schoolId: sid, studentId: student.id, parentId: parent.id, relation: 'FATHER', isPrimary: true } });
 

@@ -80,6 +80,7 @@ export const AuditActions = {
   PAYMENT_REVERSED: 'PAYMENT_REVERSED',
   GRADE_CHANGED_POST_PUBLISH: 'GRADE_CHANGED_POST_PUBLISH',
   TERM_DELETED: 'TERM_DELETED',
+  EXAM_DELETED: 'EXAM_DELETED',
   ATTENDANCE_EDITED_POST_WINDOW: 'ATTENDANCE_EDITED_POST_WINDOW',
   /** An admin replaced what a staff member recorded about themselves. It changes their pay,
    *  so the previous claim is preserved in `oldValue` — the row itself forgets. */

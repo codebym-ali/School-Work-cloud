@@ -3,12 +3,13 @@ import { ExamStatus } from '@prisma/client';
 import {
   AppError,
   assertCampusAccess,
+  AuditActions,
   ErrorCodes,
   restrictedCampusId,
   TenantContext,
   type RequestUser,
 } from '@common';
-import { TenantPrismaService } from '@database';
+import { AuditService, TenantPrismaService } from '@database';
 import type { BulkMarksDto, CreateExamDto, MarkRowDto } from './dto/exams.dto';
 
 export interface BulkResult {
@@ -23,6 +24,7 @@ export class ExamsService {
   constructor(
     private readonly tenantPrisma: TenantPrismaService,
     private readonly ctx: TenantContext,
+    private readonly audit: AuditService,
   ) {}
 
   private get db() {
@@ -62,6 +64,34 @@ export class ExamsService {
       },
       orderBy: { examDate: 'asc' },
     });
+  }
+
+  /**
+   * Delete an exam created by mistake (WS-D), mirroring delete-term. Refuses a PUBLISHED exam and one that
+   * already carries results — deleting either would destroy academic records. `getExam` asserts the exam
+   * exists and the caller's campus owns it.
+   */
+  async deleteExam(id: string) {
+    const exam = await this.getExam(id);
+    if (exam.status === ExamStatus.PUBLISHED) {
+      throw new AppError(ErrorCodes.CONFLICT, HttpStatus.CONFLICT, 'A published exam cannot be deleted');
+    }
+    const results = await this.db.examResult.count({ where: { examId: id } });
+    if (results > 0) {
+      throw new AppError(
+        ErrorCodes.CONFLICT,
+        HttpStatus.CONFLICT,
+        `"${exam.name}" still has ${results} result${results === 1 ? '' : 's'} — clear them before deleting`,
+      );
+    }
+    await this.db.examDefinition.delete({ where: { id } });
+    await this.audit.record({
+      action: AuditActions.EXAM_DELETED,
+      entityType: 'ExamDefinition',
+      entityId: id,
+      oldValue: { name: exam.name, termId: exam.termId, classId: exam.classId },
+    });
+    return { ok: true };
   }
 
   async openMarksEntry(id: string) {

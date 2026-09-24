@@ -46,6 +46,12 @@ export class ExamsController {
   @Post(':id/open-marks-entry')
   open(@Param('id') id: string) { return this.exams.openMarksEntry(id); }
 
+  // Remove an exam created by mistake. Refuses a published exam or one that already has results (409).
+  @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
+  @Delete(':id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  remove(@Param('id') id: string) { return this.exams.deleteExam(id); }
+
   @Roles('TEACHER', 'CAMPUS_ADMIN', 'OWNER_ADMIN')
   @Post(':id/results/bulk')
   @HttpCode(HttpStatus.OK)

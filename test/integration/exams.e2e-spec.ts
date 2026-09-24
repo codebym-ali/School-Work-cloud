@@ -187,4 +187,35 @@ describe('Exams & report cards (e2e, §11)', () => {
     expect((await del(`/api/v1/terms/${spare.body.id}`)).status).toBe(200);
     expect((await get('/api/v1/terms')).body.some((t: { id: string }) => t.id === spare.body.id)).toBe(false);
   });
+
+  // WS-D — an exam created by mistake must be removable, but never once it carries records.
+  describe('DELETE /exams/:id', () => {
+    const del = (p: string) =>
+      request(server()).delete(p).set('Host', host).set('Cookie', cookies).set('X-CSRF-Token', csrf);
+
+    it('removes a draft exam with no results (204)', async () => {
+      const draft = await post('/api/v1/exams', { termId, classId, name: 'Spare', examType: 'MONTHLY', weightagePercent: 10, examDate: '2026-08-01' });
+      expect(draft.status).toBe(201);
+      expect((await del(`/api/v1/exams/${draft.body.id}`)).status).toBe(204);
+      expect((await get(`/api/v1/exams?classId=${classId}`)).body.some((e: { id: string }) => e.id === draft.body.id)).toBe(false);
+    });
+
+    it('refuses to delete a published exam (409)', async () => {
+      const res = await del(`/api/v1/exams/${examId}`);
+      expect(res.status).toBe(409);
+      expect(res.body.error.code).toBe('CONFLICT');
+    });
+
+    it('refuses to delete an exam that already has results (409)', async () => {
+      const exam = await post('/api/v1/exams', { termId, classId, name: 'Marked', examType: 'MONTHLY', weightagePercent: 10, examDate: '2026-08-02' });
+      await post(`/api/v1/exams/${exam.body.id}/open-marks-entry`);
+      const marks = await post(`/api/v1/exams/${exam.body.id}/results/bulk`, {
+        records: [{ enrollmentId, subjectId: mathId, totalMarks: 100, marksObtained: 55 }],
+      });
+      expect(marks.body.succeeded).toBe(1);
+      const res = await del(`/api/v1/exams/${exam.body.id}`);
+      expect(res.status).toBe(409);
+      expect(res.body.error.message).toMatch(/result/i);
+    });
+  });
 });

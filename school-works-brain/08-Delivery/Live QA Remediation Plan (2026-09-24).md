@@ -8,6 +8,14 @@ status: proposed
 
 # Live QA Remediation Plan — fix the findings from the portal pass (2026-09-24)
 
+> **✅ EXECUTED 2026-09-24 — A–E done; F (re-seed) is the remaining ops step.**
+> A #1b Campus Hub "Needs a campus" + assign (`44158dd`, verified live: HR visible). B real name in `/auth/me`
+> + greetings (`60efde3`, verified: "Ayesha" / "Nadia Khan"). C canonical GR/Reg (`34d1c4b`, GR-0031 test).
+> D campus-admin collections + academic-year "joined" window (`3899951`, verified: Rs 86,500 tile). E badge
+> spacing was a **false positive** (get_page_text artifact — badges are visually spaced; no change).
+> Gates: **integration 1823 ✓ / 74 suites**, typecheck clean. F: run `pnpm db:seed-real -- --commit` to
+> refresh the demo (verified phones, HR model, GR format) — destructive, user-run.
+
 Resolves the findings in [[Live Portal QA — all entities (2026-09-24)]]. Each item is root-caused to a
 file, given the smallest correct fix (not a spot-patch), a regression guard, and an effort/risk. Ordered by
 **operational impact on a real Pakistani private school**, not by code size.

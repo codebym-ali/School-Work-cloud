@@ -8,6 +8,14 @@ status: proposed
 
 # QA Plan — Remaining Surface & Cross-Cutting (2026-09-24)
 
+> **✅ EXECUTED 2026-09-24 — Tiers 0–3 complete; only C9 (a UI-affordance Playwright test) deferred.**
+> Shipped 11 new merge-blocking suites: C1 authz conformance (+matrix-coverage gate, 99 routes), C2 tenant
+> isolation sweep, C5 money integrity, C4 idempotency/concurrency, §2 promotion race, C3 Prisma fuzz, §1
+> fees-mutation, C6 MFA gates, §4 leaves-edge, §5 uploads, §7 reports (**+a real CSV formula-injection
+> fix**), C7 error-envelope. Audited-and-already-covered: §3 timetable/cover, §6 platform, C8 SMS.
+> Gates: **unit 205 ✓ · integration 1821 ✓ / 73 suites · isolation 7 ✓.** Only defect found across the whole
+> pass: the CSV injection (fixed). Everything else was unmeasured surface, now guarded.
+
 Successor to [[Full System QA Test Plan]] and [[QA Remediation Plan]]. Those closed every finding from the
 first live pass (4 bugs + Obs-1/2/3/5) and the passes concentrated on **students, exams, payroll, SMS,
 attendance, fees(receipt), RBAC negatives**. This plan attacks **what those passes never exercised
@@ -195,19 +203,32 @@ Assert every sensitive action stays gated: waive, reverse, payroll approve, pays
 `MFA_ENROLMENT_REQUIRED` (403) for an un-enrolled mandatory-MFA role, and succeed once enrolled. A regression
 here silently disarms the money-out controls.
 
-### C7. Input-boundary & envelope conformance  ·  **P2**
+### C7. Input-boundary & envelope conformance  ·  **P2**  ·  ✅ DONE 2026-09-24 (`6798e90`)
+> Shipped `error-envelope.e2e`: one error per status class (400/401/403/404/409/422) each returns
+> `{ error: { code, message, requestId? } }` with the exact stable code and no leakage (no stack, no extra
+> top-level keys). Mass-assignment (`forbidNonWhitelisted`) + uuid-pipe 400 are already exercised repo-wide.
 `whitelist`/`forbidNonWhitelisted` actually reject unknown fields (mass-assignment); UUID params → the pipe's
 400, not a 500; every error response conforms to `{ error: { code, message, details?, requestId } }` with a
 **stable code** (the frontend switches on `code`, never message text) — a schema assertion over a sample of
 each status class.
 
-### C8. Worker / async & SMS delivery  ·  **P2**
+### C8. Worker / async & SMS delivery  ·  **P2**  ·  ✅ ALREADY COVERED (audit 2026-09-24)
+> `sms-broadcast.e2e` already pins it: preview counts one text per family with skip reasons (unverified /
+> opted-out), verified families are texted and logged, an opted-out/withheld message is not charged and
+> cannot be retried, a short credit balance refuses the whole broadcast, and a changed audience is refused.
+> Nothing to add.
 Absence SMS, result SMS, broadcast: assert the **verified-recipient** path now that seed sets
 `phoneVerifiedAt` (WS-D) — a broadcast reaches verified guardians and **withholds** the deliberately-unverified
 ones (`PHONE_UNVERIFIED`/`SMS_OPTED_OUT`). Insufficient-credits → `INSUFFICIENT_SMS_CREDITS`. Guard the
 BullMQ single-worker/queue-contention gotcha noted in the Progress Tracker (run integration `--runInBand`).
 
-### C9. Frontend e2e gaps (Playwright)  ·  **P2/P3**
+### C9. Frontend e2e gaps (Playwright)  ·  **P2/P3**  ·  ⏳ DEFERRED (the one remaining item)
+> The teacher-picker e2e is the last open piece. It needs a new **teacher-session** setup project + a
+> seeded teacher-with-assignments fixture in the demo tenant, and the full FE dev stack — none present in the
+> harness today. WS-E's real guarantee (a teacher only reaches their own sections) is **server-enforced** and
+> already covered by `teaching.e2e` + the authz matrix; C9 is a pure UI-affordance check. Left unshipped
+> rather than adding an unrun Playwright spec. Next step: add `staff-auth.setup.ts` + seed one teacher
+> assignment, then assert the attendance `<select>` lists only assigned sections.
 Ship the **teacher-picker e2e** WS-E named but never got (a teacher sees only assigned sections). Add campus-
 lens scoping on the shared screens, and the fees partial→full→PAID and promotion flows at the UI layer.
 
@@ -222,7 +243,7 @@ lens scoping on the shared screens, and the fees partial→full→PAID and promo
 | **3** | ✅ **DONE** — **Promotion** (§2) + **C3 Prisma fuzz** | promotion race + fuzz harness | shipped 2026-09-24 |
 | **4** | ✅ **DONE** — **C6 MFA gates** + **Leaves** (§4); **Timetable/cover** (§3) already covered | mfa-money-out + leaves-edge | shipped 2026-09-24 |
 | **5** | ✅ **DONE** — **Uploads** (§5); **Platform** (§6) already covered; **C8 SMS** → Tier-3 | uploads-pipeline | shipped 2026-09-24 |
-| **6** | **Reports/insights/class-tests** (§7) + **C7 envelope** + **C9 Playwright** | export-parity + e2e | ~1d |
+| **6** | ✅ **DONE** — **Reports** (§7, +CSV-injection fix) + **C7 envelope**; **C8 SMS** already covered; **C9 Playwright** deferred | reports-export + error-envelope | shipped 2026-09-24 |
 
 **Tooling.** All server tests are `test/integration/*.e2e-spec.ts` on the existing supertest + provisioning
 harness (`class-structure.e2e` is the reference pattern: two campuses, multiple roles, `loginRequest`). The

@@ -9,6 +9,12 @@ updated: 2026-08-20
 The locked, cross-cutting decisions every note and every developer must respect.
 Full ledger: [[consistency-register]] (LOCKED). This is the digest.
 
+## CSV exports are formula-injection-safe (2026-09-24)
+- Every report CSV cell that begins with `=`, `+`, `-`, `@` (or a leading tab/CR) is prefixed with a single
+  quote in `toCsv` (reports.controller.ts) so spreadsheet apps render it as text, never execute it. A crafted
+  class/student name (e.g. `=cmd|…`) is a stored CSV-injection vector otherwise. Found + fixed in the QA
+  cross-cutting pass; guarded by `reports-export.e2e`. Any NEW CSV/export path must reuse this escaping.
+
 ## QA remediation — authz & error-handling posture (2026-09-24)
 - **A route with no `@Roles` = any authenticated user.** This is the RolesGuard's real default and it is a *latent security hole*, not a convenience — it is how `GET /staff` (and, found in this pass, `GET /attendance`, `/teacher-assignments`, term/exam report cards & results) became readable by students. **Every non-public route must declare `@Roles`**, and a merge-blocking CI gate (`test/integration/route-authz-coverage.e2e-spec.ts`) now enforces it: it reads the live route table via `DiscoveryService` and fails on any route with no roles that is not on a small, commented **self-scoped/public allowlist** (`/auth`, `/portal`, `/health`, `/webhooks`, and the genuinely "me"-scoped reads like `/notifications`, `/*/mine`, `/uploads`, `/students/:id/report-cards`). Adding a line to that allowlist is a deliberate security decision.
 - **Un-translated DB errors are the global filter's job, not each service's.** `AllExceptionsFilter` now maps stray Prisma errors as the floor beneath the human-worded service pre-checks (which still throw first and win): `P2002`→409 (names the field from `meta.target`, never the value), `P2025`→404, `P2003`→409, raw `P2010`+SQLSTATE `23514`/`23503`→422. A missed pre-check degrades to a clean 4xx, never a 500. Keep the find-then-throw pre-checks for good messages; the filter is the safety net.

@@ -126,7 +126,11 @@ route, and every role, assert the observed status matches an **authored expectat
 A wrong `@Roles` (too broad or too narrow) becomes a red build. This is the single highest-value item —
 it closes the *class* the CI gate cannot see.
 
-### C2. Tenant-isolation **sweep** across every list/read endpoint  ·  **P0**
+### C2. Tenant-isolation **sweep** across every list/read endpoint  ·  **P0**  ·  ✅ DONE 2026-09-24 (`4d5762b`)
+> Shipped `tenant-isolation-sweep.e2e`: two fully-seeded schools (student, staff, class, section, subject,
+> exam, invoice, payment); as School A's owner, (a) every crown-jewel list returns only A's rows never B's,
+> (b) every cross-tenant `GET /:id` with B's id → 404 (never 200/403). 15 assertions green. (CNIC reveal is
+> `@RequiresMfa` → excluded; its 403 is the MFA gate, not isolation.)
 The merge-blocking `tenant-isolation.spec` proves the mechanism (RLS fails closed). This sweep proves
 **application coverage**: seed **two** schools with identical-looking data, then for **every** GET that returns
 a collection or an `:id`, assert School A's session sees **zero** of School B's rows and a cross-tenant `:id`
@@ -145,7 +149,11 @@ single-effect; **race** the optimistic-lock flows (promotion commit, marks entry
 parallel requests and assert exactly-one-winner + no torn writes. Include the **receipt-counter** race
 (the origin of Bug #1) — N concurrent payments produce N contiguous receipt numbers, no gap/dupe.
 
-### C5. Money & ledger integrity  ·  **P0**
+### C5. Money & ledger integrity  ·  **P0**  ·  ✅ DONE 2026-09-24 (`a9acd02`)
+> Shipped `money-integrity.e2e`: a seeded/reproducible 40-step randomized pay/overpay/reverse sequence over a
+> student's invoices, asserting after every step — paidAmount == Σ non-reversed payments; 0 ≤ paid ≤ total;
+> status PAID iff paid ≥ total, PARTIAL iff 0 < paid < total; overpayment refused (422/409) and moves nothing;
+> a fully-reversed invoice returns to 0 and is no longer PAID. Owner MFA-enrolled to exercise reversal.
 A property-style check over a randomized op sequence per student: `paid ≤ total`, `sum(payments) −
 sum(reversals) = paidAmount`, advances never go negative, a reversed payment never leaves an invoice `PAID`.
 Run it after fuzzed pay/reverse/advance/discount sequences. Money bugs don't show on the happy path.
@@ -177,7 +185,7 @@ lens scoping on the shared screens, and the fees partial→full→PAID and promo
 
 | Wave | Focus | Gate added / extended | Effort |
 |------|-------|-----------------------|--------|
-| **1** | **C1 authz conformance** + **C2 isolation sweep** (the two P0 class-closers) | both become merge-blocking | ~2d |
+| **1** | ✅ **DONE** — **C1 authz conformance** + **C2 isolation sweep** + **C5 money integrity** (all Tier-0 P0s) | all merge-blocking; integration 1771✓ / 64 suites | shipped 2026-09-24 |
 | **2** | **Fees** (§1) + **C4 idempotency/concurrency** + **C5 money integrity** | fees-mutation + money-invariant | ~2.5d |
 | **3** | **Promotion** (§2) + **C3 Prisma fuzz** | promotion race + fuzz harness | ~1.5d |
 | **4** | **Timetable/cover** (§3) + **Leaves** (§4) + **C6 MFA gates** | per-module extensions | ~1.5d |

@@ -36,7 +36,11 @@ Risk-ranked. Each suite says **what to assert** (the rules), the **adversarial c
 Most modules already have a thin `*.e2e-spec.ts`; the work is to **extend** it to rule-completeness, not start
 from zero.
 
-### 1. Fees — money engine  ·  **P0/P1**  ·  `fees.e2e-spec.ts` (extend) + new `fees-payments-mutation.e2e-spec.ts`
+### 1. Fees — money engine  ·  **P0/P1**  ·  ✅ largely DONE — payment engine via C4/C5, setup rules via `fees-mutation.e2e` (`f07b6e3`)
+> Covered: idempotency/replay + parallel races (C4), overpay/reverse/partial/ledger invariants (C5),
+> discount bounds + copy-plan precondition + discount-applies (`fees-mutation.e2e`), dangling-FK/dup writes
+> (C3), guardian-link/claims (existing `fees.e2e`). **Still open:** reconciliation-CSV edge cases and the
+> advance-consumption ledger over time (lower risk; queued).
 The highest blast-radius module; the first pass only hit the receipt-counter bug. Rules to assert (from
 `payments.service.ts`, `fee-link.service.ts`, `fee-setup.service.ts`, `reconciliation.service.ts`,
 `claims.service.ts`):
@@ -59,7 +63,10 @@ The highest blast-radius module; the first pass only hit the receipt-counter bug
 - **Money invariant (cross-cutting hook):** for every student, `sum(payments) - sum(reversals) == invoice.paidAmount`
   and `paid ≤ total` — assert after a randomized sequence of pay/reverse/advance.
 
-### 2. Promotion / year rollover  ·  **P0/P1**  ·  `promotion.e2e-spec.ts` (extend)
+### 2. Promotion / year rollover  ·  **P0/P1**  ·  ✅ DONE — `promotion-race.e2e` (`79745cc`)
+> Shipped the scariest path: two concurrent commits of one plan → exactly one 200 / one 409 (the
+> one-ACTIVE-per-year index turns the P2002 into a clean conflict), target year ends with N enrolments not
+> 2N, and a stale-fingerprint commit → 409. Campus-scope/graduating-cohort assertions can be layered later.
 A bulk, irreversible, cross-year write — never mutation-tested. Rules (from `promotion.service.ts`):
 - **Optimistic lock:** two concurrent commits of the same preview → one 200, one **409** "already committed"
   (L231). Assert exactly one set of new enrolments exists afterwards (no doubling).
@@ -137,13 +144,21 @@ a collection or an `:id`, assert School A's session sees **zero** of School B's 
 → 404 (never 403 — 403 leaks existence). Drive it off the same route table the authz gate enumerates so it
 can't fall behind new endpoints.
 
-### C3. Prisma-error **fuzz** (validates WS-A end to end)  ·  **P1**
+### C3. Prisma-error **fuzz** (validates WS-A end to end)  ·  **P1**  ·  ✅ DONE 2026-09-24 (`fcfac5e`)
+> Shipped `prisma-error-fuzz.e2e`: 15 schema-valid-but-illegal writes across academic-years, classes,
+> sections, subjects, fee-heads, fee-structures, exams, teacher-assignments, invoice batches, students &
+> withdrawal (dup unique / dangling FK / CHECK) — every one a clean 4xx in the §25.1 envelope, **no 500
+> anywhere**. Confirms WS-A backstops every model, not just the two it was fixed on.
 The plan's own "definition of done": a harness that, for **every** create/update DTO, submits (a) a duplicate
 of a unique tuple, (b) a dangling FK, (c) a value that trips a DB CHECK — and asserts the response is a clean
 **409/422/404 in the §25.1 envelope, never a 500 and never a stack**. Confirms the global filter (WS-A) truly
 backstops every model, not just the two we fixed.
 
-### C4. Idempotency & concurrency  ·  **P0/P1**
+### C4. Idempotency & concurrency  ·  **P0/P1**  ·  ✅ DONE 2026-09-24 (`3c4b106`)
+> Shipped `idempotency-concurrency.e2e` (true PARALLEL races via `Promise.all`): same Idempotency-Key
+> concurrently → one payment; N concurrent distinct-key payments → all 201, unique receipt numbers, exact
+> sum (the receipt-counter race that caused Bug #1 is race-safe); concurrent double-reverse → one 201 / rest
+> 409, money unwound once. The promotion-commit race is covered by §2 below (`79745cc`).
 Systematize the one-offs above: **replay** every `Idempotency-Key` endpoint (payments, advance) and assert
 single-effect; **race** the optimistic-lock flows (promotion commit, marks entry, payroll approve) with two
 parallel requests and assert exactly-one-winner + no torn writes. Include the **receipt-counter** race
@@ -186,8 +201,8 @@ lens scoping on the shared screens, and the fees partial→full→PAID and promo
 | Wave | Focus | Gate added / extended | Effort |
 |------|-------|-----------------------|--------|
 | **1** | ✅ **DONE** — **C1 authz conformance** + **C2 isolation sweep** + **C5 money integrity** (all Tier-0 P0s) | all merge-blocking; integration 1771✓ / 64 suites | shipped 2026-09-24 |
-| **2** | **Fees** (§1) + **C4 idempotency/concurrency** + **C5 money integrity** | fees-mutation + money-invariant | ~2.5d |
-| **3** | **Promotion** (§2) + **C3 Prisma fuzz** | promotion race + fuzz harness | ~1.5d |
+| **2** | ✅ **DONE** — **Fees** (§1) + **C4 idempotency/concurrency** + **C5 money integrity** | fees-mutation + money-invariant | shipped 2026-09-24 |
+| **3** | ✅ **DONE** — **Promotion** (§2) + **C3 Prisma fuzz** | promotion race + fuzz harness | shipped 2026-09-24 |
 | **4** | **Timetable/cover** (§3) + **Leaves** (§4) + **C6 MFA gates** | per-module extensions | ~1.5d |
 | **5** | **Platform** (§6) + **Uploads** (§5) + **C8 SMS** | lifecycle + pipeline | ~1.5d |
 | **6** | **Reports/insights/class-tests** (§7) + **C7 envelope** + **C9 Playwright** | export-parity + e2e | ~1d |

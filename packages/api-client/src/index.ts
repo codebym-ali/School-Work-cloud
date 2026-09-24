@@ -88,7 +88,7 @@ export function idemKey(): Record<string, string> {
 // ── Types ──────────────────────────────────────────────────────────────────
 /** `admissionsMode` is a school-level setting: DIRECT hides the enquiry pipeline entirely
  *  (the form IS the admission), PIPELINE restores lead → entry test → admit. */
-export interface Me { id: string; email: string; roles: string[]; campusId: string | null; modules: string[]; mfaEnabled: boolean; admissionsMode: 'DIRECT' | 'PIPELINE' }
+export interface Me { id: string; email: string; name?: string | null; roles: string[]; campusId: string | null; modules: string[]; mfaEnabled: boolean; admissionsMode: 'DIRECT' | 'PIPELINE' }
 /** Login either establishes a session, or (when the account has MFA on) hands back a short-lived
  *  `mfaToken` that must be exchanged for a session via `api.mfa.challenge`. */
 export type LoginResult =

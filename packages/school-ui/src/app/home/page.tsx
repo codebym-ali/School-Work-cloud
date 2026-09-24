@@ -150,7 +150,8 @@ export default function TeacherHome() {
       { n: hr.coverageGaps.length, text: `${plural(hr.coverageGaps.length, 'subject has', 'subjects have')} no teacher`, href: '/staff' },
     ] : []),
   ].filter((c) => c.n > 0 && canReach(me?.roles, c.href, me?.admissionsMode));
-  const firstName = (me?.email ?? '').split('@')[0].split('.')[0];
+  // Prefer the person's real name (staff-profile full name); fall back to the email local-part.
+  const firstName = me?.name?.trim() ? me.name.trim().split(/\s+/)[0] : (me?.email ?? '').split('@')[0].split('.')[0];
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
 

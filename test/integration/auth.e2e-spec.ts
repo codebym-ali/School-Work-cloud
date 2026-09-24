@@ -130,6 +130,10 @@ describe('Auth + tenancy pipeline (e2e)', () => {
       .set('Cookie', cookies);
     expect(me.status).toBe(200);
     expect(me.body.email).toBe(emailA);
+    // QA B: /auth/me carries `name` for the shell greeting — null when the user has no staff profile
+    // (a directly-seeded user), the staff-profile full name otherwise (verified live for a teacher).
+    expect(me.body).toHaveProperty('name');
+    expect(me.body.name).toBeNull();
   });
 
   it('rejects a token replayed on another tenant subdomain (TENANT_MISMATCH)', async () => {

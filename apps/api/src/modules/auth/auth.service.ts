@@ -587,7 +587,7 @@ export class AuthService {
     await this.resignAccess(user.id, res);
   }
 
-  async me(principal: RequestUser): Promise<{ id: string; email: string; roles: Role[]; campusId: string | null; modules: string[]; mfaEnabled: boolean; admissionsMode: SchoolSettings['admissionsMode'] }> {
+  async me(principal: RequestUser): Promise<{ id: string; email: string; name: string | null; roles: Role[]; campusId: string | null; modules: string[]; mfaEnabled: boolean; admissionsMode: SchoolSettings['admissionsMode'] }> {
     // SA5: a break-glass session has no tenant user row — synthesise a read-only "me" so the shell
     // loads (roles come from the token; every write is blocked by the BreakGlassReadonlyGuard).
     if (principal.breakGlass) {
@@ -595,6 +595,7 @@ export class AuthService {
       return {
         id: principal.userId,
         email: 'Vendor support · read-only',
+        name: 'Vendor support',
         roles: principal.roles,
         campusId: null,
         modules: [],
@@ -605,10 +606,14 @@ export class AuthService {
     const user = await this.db.user.findFirst({ where: { id: principal.userId } });
     if (!user) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'User not found');
     const modules = await this.access.enabledModulesForSelf();
+    // The person's display name for the shell greeting — a staff member's own record, so "Ayesha Farooq"
+    // instead of the email local-part "teacher1". The owner has no staff profile → null, and the UI falls
+    // back to the email prefix.
+    const staff = await this.db.staffProfile.findFirst({ where: { userId: user.id }, select: { fullName: true } });
     // Shipped on /auth/me (not a separate fetch) because the UI needs it to decide which
     // admissions surface to render at all — a later fetch would flash the wrong page first.
     const school = await this.db.school.findFirst({ where: { id: principal.schoolId } });
     const { admissionsMode } = parseSchoolSettings(school?.settings);
-    return { id: user.id, email: user.email, roles: user.roles, campusId: user.campusId, modules, mfaEnabled: user.mfaEnabled, admissionsMode };
+    return { id: user.id, email: user.email, name: staff?.fullName ?? null, roles: user.roles, campusId: user.campusId, modules, mfaEnabled: user.mfaEnabled, admissionsMode };
   }
 }

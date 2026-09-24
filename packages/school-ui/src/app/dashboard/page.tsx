@@ -227,7 +227,7 @@ export default function DashboardPage() {
         </h1>
         <p className="muted" style={{ margin: 0 }}>
           {v2 ? `${greeting()} · ` : ''}
-          {new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })} · {me?.email}
+          {new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })} · {me?.name?.trim() || me?.email}
         </p>
       </div>
 

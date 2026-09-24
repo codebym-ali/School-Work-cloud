@@ -1,5 +1,12 @@
 # QA Remediation Plan — ideal fix for all findings (2026-09-23)
 
+> **✅ EXECUTED 2026-09-24 — all five workstreams shipped, merge-gates green.**
+> A (Prisma→4xx filter) · B (route @Roles audit + CI gate) · C (marks>total 422) · D (delete-exam + verified
+> seed phones) · E (teacher picker scoped to my-classes). Verification: unit 205✓, **integration 1269✓ / 61
+> suites**, isolation 7✓, root+staff-web typecheck clean. Commits: `f579b79` (B), `e6aecb0` (A), `2e0f229` (C),
+> `1c4bfd3` (D), `49011a7` (E). Notable design calls recorded in the workstream bodies below (esp. B's
+> self-scoped allowlist and C's structural-vs-data-condition split → 422 in the service, not the DTO).
+
 Built from the live QA run (see [[Full System QA Test Plan]]). The guiding principle is **senior, not
 spot-patch**: every finding is treated as an instance of a *class* of defect, and each workstream ships
 (a) the systemic root-cause fix, (b) the point fixes where a friendly message adds value, and (c) a

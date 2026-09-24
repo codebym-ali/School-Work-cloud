@@ -11,7 +11,9 @@ overall: 6 of 7 milestones (GA) — full v1 domain built; M7 hardening complete
 > [!info] Living document — update at the **end of every phase**.
 > Procedure at the bottom. Related: [[Roadmap & Milestones]] · [[Testing & Quality]].
 
-**Last updated:** 2026-08-15 · **Stack:** Contabo VPS + Coolify + self-hosted Postgres 16 + Redis + Cloudflare R2 (see [[Deployment & Operations]]) · **Repo:** NestJS monorepo (`apps/api`, `apps/worker`, `libs/common`, `libs/database`).
+**Last updated:** 2026-09-24 · **Stack:** Contabo VPS + Coolify + self-hosted Postgres 16 + Redis + Cloudflare R2 (see [[Deployment & Operations]]) · **Repo:** NestJS monorepo (`apps/api`, `apps/worker`, `libs/common`, `libs/database`).
+
+> [!success] **QA Remediation Plan executed (2026-09-24)** — the five workstreams from a full live-QA pass all shipped: **A** every stray Prisma error (P2002/P2003/P2025 + raw CHECK/FK) now degrades to a clean 4xx in the global filter instead of a 500; **B** every staff-only route declares `@Roles` + a **new CI gate** (`route-authz-coverage.e2e`) fails the build on any non-public route missing `@Roles` (closed a real hole: a student could read a section register / teacher-assignments / report cards); **C** `marksObtained > totalMarks` is now a 422 batch reject, not a silent 200; **D** guarded `DELETE /exams/:id` + seed now sets `phoneVerifiedAt` on guardians so SMS/broadcast is testable; **E** teacher attendance picker scoped to `/teaching/my-classes`. Gates: **integration 1269✓ / 61 suites**, unit 205✓, isolation 7✓. See [[QA Remediation Plan]] + [[Full System QA Test Plan]].
 
 ## Milestone status
 

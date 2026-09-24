@@ -147,7 +147,11 @@ export class StaffService {
 
     const now = new Date();
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    const yearStart = new Date(now.getFullYear(), 0, 1);
+    // "This year" is the ACADEMIC session (Apr–Mar in a Pakistani school), not the calendar year — a
+    // teacher who joined in February belongs to the previous session, and the rest of the app already
+    // reckons "this year" this way (leave quotas, promotion). Fall back to the calendar year if unset.
+    const currentYear = await this.db.academicYear.findFirst({ where: { isCurrent: true }, select: { startDate: true } });
+    const yearStart = currentYear ? new Date(currentYear.startDate) : new Date(now.getFullYear(), 0, 1);
 
     const [headcount, joinersThisMonth, joinersThisYear, staff] = await Promise.all([
       this.db.staffProfile.count({ where: staffWhere }),

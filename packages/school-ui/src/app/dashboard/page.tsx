@@ -105,17 +105,24 @@ const greeting = () => {
  * for both means either a tiny count or an overflowing total.
  */
 function Stat({ href, icon, tone, value, caption, money }: {
-  href: string; icon: IconName; tone: Tone; value: ReactNode; caption: string; money?: boolean;
+  href?: string; icon: IconName; tone: Tone; value: ReactNode; caption: string; money?: boolean;
 }) {
-  return (
-    <Link href={href} className={`stat metric-link is-${tone}${money ? ' stat--money' : ''}`}>
+  const cls = `stat is-${tone}${money ? ' stat--money' : ''}`;
+  const inner = (
+    <>
       <span className={`ico is-${tone}`}><Icon name={icon} size={20} /></span>
       <span className="stat-text">
         <span className="value">{value}</span>
         <span className="caption">{caption}</span>
       </span>
-    </Link>
+    </>
   );
+  // A role entitled to the NUMBER always sees it; it is a link only when the role can open the destination
+  // (otherwise it would dead-end on "Not authorized"). This is how a campus admin sees their campus's
+  // collections total without a link to the owner-only Fees screen. (QA #5.)
+  return href
+    ? <Link href={href} className={`${cls} metric-link`}>{inner}</Link>
+    : <div className={cls}>{inner}</div>;
 }
 
 export default function DashboardPage() {
@@ -155,10 +162,11 @@ export default function DashboardPage() {
   if (err) return <p className="error">Couldn&apos;t load the dashboard.</p>;
   if (!data) return <p className="muted">Loading…</p>;
 
-  // Show a tile only when the metric is role-visible AND the role can open its destination —
-  // otherwise it dead-ends on the "Not authorized" screen (e.g. Collections → /fees for a
-  // campus admin, who sees the financial metric but has no Fees access).
-  const visible = (t: Tile) => data.visible.includes(t.key) && canReach(me?.roles, t.href, me?.admissionsMode);
+  // Show a tile whenever the metric is role-visible; it becomes a LINK only when the role can also open its
+  // destination (otherwise it would dead-end on "Not authorized"). This is how a campus admin sees their
+  // campus's collections total — the figure renders, but not as a link to the owner-only Fees screen. (QA #5.)
+  const visible = (t: Tile) => data.visible.includes(t.key);
+  const reachable = (t: Tile) => canReach(me?.roles, t.href, me?.admissionsMode);
   const val = (t: Tile) => data[t.key] as number | null;
   const isAlert = (t: Tile) => {
     const v = val(t);
@@ -276,7 +284,7 @@ export default function DashboardPage() {
                 {tiles.map((t) => (
                   <Stat
                     key={t.key}
-                    href={t.href}
+                    href={reachable(t) ? t.href : undefined}
                     icon={t.icon}
                     tone={toneOf(t)}
                     value={display(t)}

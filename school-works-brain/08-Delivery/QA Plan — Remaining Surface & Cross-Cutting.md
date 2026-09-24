@@ -115,7 +115,11 @@ must match the subdomain (L396). Assert **platform tables are non-tenant** (no `
 These are **suite-level gates**, most of them merge-blocking once green. This is where a senior pass earns its
 keep — the bugs here are systemic.
 
-### C1. Authorization **conformance** matrix (roles are *correct*, not just *present*)  ·  **P0**
+### C1. Authorization **conformance** matrix (roles are *correct*, not just *present*)  ·  **P0**  ·  ✅ DONE 2026-09-24 (`49413fc`)
+> Shipped: `route-authz-matrix-coverage.e2e` (reads the live route table, fails on any role-gated route with
+> no permission-matrix row) + filled **99** previously-unmeasured routes into `permission-matrix.ts`.
+> `matrix-conformance` now runs **1102 assertions, all green** — every encoded allow/deny holds against the
+> live guard. Shared allowlist/normaliser extracted to `support/authz-open-by-design.ts`.
 WS-B's `route-authz-coverage` gate proves every route **declares** `@Roles`; it does **not** prove the set is
 right. Build a **role × route** conformance sweep (extend `matrix-conformance.e2e-spec.ts`): for every
 route, and every role, assert the observed status matches an **authored expectation table** (allow / 403).

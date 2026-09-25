@@ -58,6 +58,22 @@ e2e · D. Fleet-overview stale-snapshot fix (console shows "5 schools" vs 1 live
 
 ---
 
+## Execution log
+
+### Wave 1 started 2026-09-25
+- **Exams — teacher marks-entry unblock: ✅ verified live.** After assigning a teacher to a Grade-6-A
+  subject (done via Classes as the ops admin), `teacher1`'s **Exams & Results → Marks entry** changed from
+  "You aren't assigned to teach any subject" to a working picker showing **"Grade 6 — A · Computer"**. The
+  assignment → marks-entry path works end to end.
+- **NEW FINDING (config gap, P2):** the demo's **grade scale is empty for 2026-27** ("No bands yet"), so a
+  full exams → report-card run can't assign grades. **Fixed at source:** seed now creates a standard A+…F
+  scale. Existing demo needs a re-seed (or a manual scale) to generate report cards live.
+- **Full exams → marks → publish → report-card:** business logic is covered by `exams.e2e` (create/open/
+  marks/publish/completeness-gate/generate + marks>total 422). Full live click-through is pending the
+  re-seed (grade scale + verified phones) and an unhidden browser pane (below).
+- **⚠️ Environment blocker:** the browser pane is minimized/hidden — screenshots time out and multi-field
+  forms need repeated retries, making deep live click-throughs slow. Bring the pane forward for Waves 1–3.
+
 ## The executable plan (waves)
 
 ### Wave 1 — P0 (≈ half a day)

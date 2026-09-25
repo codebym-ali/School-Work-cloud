@@ -105,6 +105,19 @@ async function createAll(db: PrismaClient, ownerHash: string, staffHash: string)
   });
   await db.term.create({ data: { schoolId: sid, academicYearId: year.id, name: 'Term 1', startDate: new Date('2026-04-01'), endDate: new Date('2026-09-30') } });
 
+  // A standard grade scale so report cards can be generated out of the box (empty scale → no grade letter).
+  // (QA 2026-09-25.)
+  await db.gradeScale.createMany({
+    data: [
+      { label: 'A+', minPercent: 90, maxPercent: 100, gradePoint: 4.0 },
+      { label: 'A', minPercent: 80, maxPercent: 89.99, gradePoint: 3.7 },
+      { label: 'B', minPercent: 70, maxPercent: 79.99, gradePoint: 3.0 },
+      { label: 'C', minPercent: 60, maxPercent: 69.99, gradePoint: 2.0 },
+      { label: 'D', minPercent: 50, maxPercent: 59.99, gradePoint: 1.0 },
+      { label: 'F', minPercent: 0, maxPercent: 49.99, gradePoint: 0.0 },
+    ].map((b) => ({ ...b, schoolId: sid, academicYearId: year.id })),
+  });
+
   const mkUser = async (email: string, roles: Role[], hash: string, campusId: string | null) =>
     db.user.create({ data: { schoolId: sid, email, roles, status: 'ACTIVE', passwordHash: hash, passwordChangedAt: new Date(), campusId } });
 

@@ -121,6 +121,9 @@ async function createAll(db: PrismaClient, ownerHash: string, staffHash: string)
     // zero staff. So HR is a campus-bound STAFF member WITH the HR_MANAGER capability. (QA 2026-09-24.)
     { email: 'hr@demo.pk', roles: ['STAFF', 'HR_MANAGER'], type: 'ADMIN', designation: 'HR Manager', campusBound: true, name: 'Sadia Sheikh' },
     { email: 'admissions@demo.pk', roles: ['ADMISSION_CONTROLLER'], type: 'ADMIN', designation: 'Admission Officer', campusBound: true, name: 'Bilal Qureshi' },
+    // The owner's deputy — school-wide (no campus), a base STAFF identity with the OPERATIONS_ADMIN
+    // capability, so the deputy entity is testable out of the box. (QA 2026-09-25.)
+    { email: 'ops@demo.pk', roles: ['STAFF', 'OPERATIONS_ADMIN'], type: 'ADMIN', designation: 'Operations Admin', campusBound: false, name: 'Kamran Rashid' },
   ];
   const teacherNames = ['Ayesha Farooq', 'Usman Raza', 'Hira Ansari', 'Saad Baig', 'Maryam Javed'];
   teacherNames.forEach((name, i) =>

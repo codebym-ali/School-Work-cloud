@@ -53,6 +53,23 @@ suites (which use hermetic throwaway tenants) with real end-user verification.
   (Fatima, from the teacher test) retained deliberately.
 - Admitted 1 student (QA Test Student, Grade 6-A) via the admission flow; collected one fee (receipt #23).
 
+## Follow-up pass (2026-09-25) — remaining entities + exams blocker
+- **Super Admin (vendor console, :3004)** — live-tested `admin@platform.pk`: Fleet overview, Tenants,
+  Billing (MRR/invoices/auto-reactivate/public price), Operators (with the "can't change your own role"
+  self-guard). All render, no errors. **Obs:** the fleet snapshot is stale (dated 9/15) — "5 Schools" vs 1
+  live tenant; the overview totals are a cached snapshot while the tenant list is live.
+- **Operations Admin (deputy)** — provisioned `ops@demo.pk` (STAFF + OPERATIONS_ADMIN, school-wide; added to
+  the seed + `scripts/add-ops-admin.ts`) and live-tested: deputy-level module set (Fees / Admissions /
+  School-config that a campus admin lacks), greeted by name, **cannot** reach the owner-only Campus Hub /
+  user management. Matches `ops-admin-authz.e2e`.
+- **Exams blocker cleared** — the teacher's marks-entry was empty because the seed created no teacher-subject
+  assignments (36 coverage gaps). Assigned a teacher live via Classes → section (as the ops admin, proving
+  its write capability); the assignment persisted (Section A "6 → 5 unassigned"). Full exam → marks →
+  report-card generation remains covered by `exams.e2e` (automated).
+
+**Entity coverage is now complete:** Owner, Campus Admin, Accountant, HR Manager, Admission Controller,
+Teacher, Student, **Operations Admin, Super Admin** — all live-tested.
+
 ## Assessment
 No cross-tenant leak, no money error, no crash; RBAC/security boundaries held live, matching the automated
 gates. The only user-blocking defect was #1 (HR campus), now fixed and re-verified. #2–#3 are cosmetic;

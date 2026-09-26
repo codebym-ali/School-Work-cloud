@@ -46,6 +46,24 @@ export const envSchema = z.object({
     .transform((s) => s.toLowerCase() === 'true'),
   COOKIE_DOMAIN: z.string().default('localhost'),
 
+  /**
+   * Reverse-proxy trust boundary (§22, audit 2.3) — decides what Express believes about `req.ip`
+   * and `req.protocol`, which the §29 rate limiter and the §31 audit trail both read. Getting this
+   * wrong is a security bug in BOTH directions: too permissive lets a client forge `X-Forwarded-For`
+   * (spoof their IP, evade the login limiter, poison the audit log); too strict collapses every
+   * client into one IP bucket (the proxy's) and records the proxy IP everywhere.
+   *
+   * Values (passed through `parseTrustProxy`):
+   *   - `uniquelocal` (default) — trust `X-Forwarded-For` only when the immediate peer is a private
+   *     address (RFC-1918 / fc00::/7). This is the docker-internal Caddy/Traefik in prod, and it is
+   *     immune to hop-count drift AND ignores a forged header from a public client. Recommended.
+   *   - a number (`1`) — trust exactly N hops from the socket. Use only if the proxy is on a public
+   *     IP and the hop count is fixed.
+   *   - a comma list of CIDRs — trust exactly those edges (e.g. Cloudflare's ranges if orange-clouded).
+   *   - `false` — no proxy; `req.ip` is the raw socket peer (local dev talking to the API directly).
+   */
+  TRUST_PROXY: z.string().default('uniquelocal'),
+
   // 32-byte base64 AES-256-GCM master key (replaces AWS KMS on this stack, §32).
   ENCRYPTION_MASTER_KEY: z
     .string()
@@ -145,9 +163,60 @@ export const envSchema = z.object({
         + '.env copied to a server is the usual cause.',
     });
   }
+
+  // ⚠️ **Refuse to start production with session cookies that lack the Secure flag (audit 2.2).**
+  // COOKIE_SECURE defaults to false for local dev over http; the same failure mode as the limiter
+  // above — a dev `.env` copied to a server via `env_file` — would silently ship `access_token` and
+  // `refresh_token` without `Secure`, so any downgrade or MITM can read a session. A Secure cookie
+  // also cannot be SENT over plain http, so this only holds once TLS terminates at the edge; the
+  // crash is the forcing function that makes an operator confirm both are true together.
+  if (env.NODE_ENV === 'production' && !env.COOKIE_SECURE) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['COOKIE_SECURE'],
+      message:
+        'refusing to start: COOKIE_SECURE=false while NODE_ENV=production ships session cookies '
+        + 'without the Secure flag (audit 2.2). Set COOKIE_SECURE=true and terminate TLS at the edge '
+        + '— a dev .env copied to a server is the usual cause.',
+    });
+  }
+
+  // ⚠️ **Refuse to start production with the proxy trust boundary disabled (audit 2.3).**
+  // Behind Caddy/Traefik, `trust proxy=false` makes `req.ip` the proxy's address for EVERY request:
+  // the §29 IP limiter collapses to one shared bucket (5 bad logins lock out a whole school) and the
+  // §31 audit trail records the proxy IP instead of the actor. Any non-false value is accepted here;
+  // its correctness (hops vs CIDRs) is a deploy decision documented on the field above.
+  if (env.NODE_ENV === 'production' && ['false', '0', ''].includes(env.TRUST_PROXY.trim().toLowerCase())) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['TRUST_PROXY'],
+      message:
+        'refusing to start: TRUST_PROXY is disabled while NODE_ENV=production, which collapses every '
+        + 'client into one IP-keyed rate-limit bucket and records the proxy IP in the audit trail (§29, '
+        + '§31, audit 2.3). Set TRUST_PROXY=uniquelocal (docker-internal proxy) or the trusted hop count.',
+    });
+  }
 });
 
 export type Env = z.infer<typeof envSchema>;
+
+/**
+ * Translate `TRUST_PROXY` (a string, so it survives env files and Coolify secrets) into the value
+ * Express's `app.set('trust proxy', …)` expects (blueprint §22, audit 2.3):
+ *   - 'false'/'true'      → boolean (false = raw socket peer; true = trust all — dev only)
+ *   - a pure integer      → number of hops from the socket to trust
+ *   - anything else       → passed through as-is: Express `compileTrust` understands the presets
+ *                           ('loopback' | 'linklocal' | 'uniquelocal') and a comma-separated CIDR list.
+ * Keeping the parse here (not in main.ts) means the API and any other bootstrap share one definition.
+ */
+export function parseTrustProxy(value: string): boolean | number | string {
+  const t = value.trim();
+  const lower = t.toLowerCase();
+  if (lower === 'false' || lower === '') return false;
+  if (lower === 'true') return true;
+  if (/^\d+$/.test(t)) return Number(t);
+  return t;
+}
 
 /** Validate `process.env` and return the typed, coerced config. Throws on failure. */
 export function validateEnv(raw: Record<string, unknown>): Env {

@@ -5,7 +5,7 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
-import { ENV, initSentry, loadDotenv, type Env } from '@common';
+import { ENV, initSentry, loadDotenv, parseTrustProxy, type Env } from '@common';
 
 async function bootstrap(): Promise<void> {
   loadDotenv(); // dev: populate process.env from .env before config validation
@@ -15,6 +15,15 @@ async function bootstrap(): Promise<void> {
   app.useLogger(app.get(PinoLogger));
   const env = app.get<Env>(ENV);
   const isProd = env.NODE_ENV === 'production';
+
+  // Proxy trust boundary (§22, audit 2.3) — MUST precede any routing/guards so `req.ip` and
+  // `req.protocol` are correct where the §29 rate limiter and §31 audit trail read them. Behind the
+  // Caddy/Traefik edge this makes the limiter key per real client and the audit log record the real IP.
+  // Set on the underlying Express instance (not typed on INestApplication).
+  (app.getHttpAdapter().getInstance() as { set(k: string, v: unknown): void }).set(
+    'trust proxy',
+    parseTrustProxy(env.TRUST_PROXY),
+  );
 
   app.setGlobalPrefix('api/v1');
   app.use(cookieParser());

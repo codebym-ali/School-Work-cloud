@@ -35,6 +35,7 @@
     "db:seed": "ts-node prisma/seed.ts",
     "db:clean-demo": "ts-node scripts/purge-demo-testdata.ts",
     "db:seed-real": "ts-node scripts/seed-real-school.ts",
+    "db:reencrypt": "ts-node scripts/reencrypt-fields-v2.ts",
     "test": "pnpm test:unit && pnpm test:integration && pnpm test:isolation",
     "test:unit": "jest --selectProjects unit --passWithNoTests",
     "test:integration": "jest --selectProjects integration --runInBand --forceExit",
@@ -64,7 +65,7 @@
     "jsonwebtoken": "^9.0.3",
     "nestjs-cls": "^4.4.1",
     "nestjs-pino": "^4.1.0",
-    "nodemailer": "^9.0.6",
+    "nodemailer": "^9.1.0",
     "otplib": "^12.0.1",
     "pdfkit": "^0.19.1",
     "pg": "^8.22.0",
@@ -108,5 +109,15 @@
     "ts-node": "^10.9.2",
     "tsconfig-paths": "^4.2.0",
     "typescript": "^5.5.4"
+  },
+  "pnpm": {
+    "//overrides": "Security: pin patched versions of transitive deps flagged by `pnpm audit` (audit 3.2). multer is a DEAD transitive (uploads use presigned S3 PUT — no FileInterceptor/multipart in the API), so the 2.x bump has no runtime path. postcss/browserslist are build-time (next); js-yaml is prod-disabled (Swagger); lodash is @nestjs/config-internal.",
+    "overrides": {
+      "multer": "^2.1.0",
+      "lodash": "^4.18.0",
+      "js-yaml": "^4.3.1",
+      "postcss": "^8.5.12",
+      "browserslist": "^4.28.7"
+    }
   }
 }

@@ -316,7 +316,7 @@ export class StudentsService {
         where: { id: created.studentId },
         // Both forms of the same id: the HASH verifies a login attempt, the CIPHERTEXT lets an
         // admin read the number back (audited). Neither can substitute for the other.
-        data: { userId: user.id, cnicHash: this.hashCnic(dto.cnic), cnicEnc: this.crypto.encrypt(dto.cnic) },
+        data: { userId: user.id, cnicHash: this.hashCnic(dto.cnic), cnicEnc: this.crypto.encrypt(dto.cnic, this.ctx.requireSchoolId()) },
       });
       loginProvisioned = true;
     }
@@ -498,7 +498,7 @@ export class StudentsService {
       newValue: { fullName: student.fullName, grNumber: student.grNumber },
     });
 
-    return { cnic: this.crypto.decrypt(row.cnicEnc) };
+    return { cnic: this.crypto.decrypt(row.cnicEnc, this.ctx.requireSchoolId()) };
   }
 
   /**
@@ -543,7 +543,7 @@ export class StudentsService {
 
     await this.db.student.update({
       where: { id },
-      data: { cnicHash: hash, cnicEnc: this.crypto.encrypt(cnic) },
+      data: { cnicHash: hash, cnicEnc: this.crypto.encrypt(cnic, this.ctx.requireSchoolId()) },
     });
 
     // Mirrors the admission path exactly, so a login created later is indistinguishable from

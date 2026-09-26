@@ -152,11 +152,23 @@ Senior-team remediation batch — the safely-fixable items from the prioritized 
 - [x] **Vendor snapshot query (P1)** — verified already correct: `platform.service.ts:166` reads
       `findFirst({ orderBy: { capturedAt: 'desc' } })`. Stale figure was data freshness (nightly job), self-heals.
 
-### Still open after this batch (not dev-box-fixable / decision-gated)
-- **Merge + push** the security/hardening branch to `main`/origin (decision-gated — outward action).
-- **Audit 3.1** per-tenant encryption keys (HKDF-over-schoolId) — architectural, do before storing real PII.
-- **Audit 3.2** transitive-dependency CVEs — `pnpm audit` + reviewed bumps (risk of breakage; needs its own PR).
+### Phase 0/1 implemented (2026-09-26)
+- [x] **Merge + push** — security/hardening branch fast-forwarded into `main` and pushed to origin.
+- [x] **Audit 3.2 — transitive CVEs** — `pnpm audit` cut **68 → 33**: `next` 14.2.15→^14.2.34 (all 5 apps),
+      `nodemailer`→^9.1.0, `pnpm.overrides` for `multer` (dead transitive — presigned uploads, no
+      FileInterceptor), `lodash`, `js-yaml`→^4.3.1, `postcss`, `browserslist`. All 5 Next apps build green;
+      `pnpm verify` green. **Residual is the Next 14→15 major** (deferred): the remaining critical is a
+      *Windows-host-only* RCE — **prod is Linux, not affected**; the RSC-DoS high also needs Next 15.
+- [x] **Audit 3.1 — per-tenant encryption keys** — `FieldEncryption` now derives a per-scope key via
+      **HKDF-SHA256(masterKey, salt=scopeId)** and writes a **v2** wire; v1 (master-key) still decrypts so a
+      migration runs without downtime. `scopeId` = schoolId for tenant data (student CNIC), operator id for
+      platform_users (no tenant). Callers updated (auth, platform-auth, students, guardians). Re-encryption
+      migration `scripts/reencrypt-fields-v2.ts` (`pnpm db:reencrypt`, dry-run by default). Proven: 7 unit
+      (round-trip, cross-scope isolation, v1 back-comp) + **4 MFA integration suites / 30 tests on real PG**.
+
+### Still open (execution / VPS-bound)
 - **QA breadth** — the un-exercised P1/P2 flows (§1) and the §2 automated niceties.
+- **Next 14 → 15** major upgrade (its own initiative; residual CVEs, prod not currently exposed).
 - **M7 → GA (VPS-bound)** — deploy, DR drill, load/soak, external pen-test, pilot (§5).
 
 ---

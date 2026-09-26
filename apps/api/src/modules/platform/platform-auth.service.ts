@@ -112,7 +112,7 @@ export class PlatformAuthService {
     }
     const usedRecovery = await this.consumeRecoveryCode(user.id, dto.code);
     if (!usedRecovery) {
-      const secret = this.crypto.decrypt(user.mfaSecretEnc);
+      const secret = this.crypto.decrypt(user.mfaSecretEnc, user.id);
       if (!authenticator.verify({ token: dto.code, secret })) {
         throw new AppError(ErrorCodes.MFA_INVALID, HttpStatus.UNAUTHORIZED, 'Invalid MFA code');
       }
@@ -179,7 +179,7 @@ export class PlatformAuthService {
     const secret = authenticator.generateSecret();
     await this.platform.platformUser.update({
       where: { id: user.id },
-      data: { mfaSecretEnc: this.crypto.encrypt(secret), mfaEnabled: false },
+      data: { mfaSecretEnc: this.crypto.encrypt(secret, user.id), mfaEnabled: false },
     });
     const otpauthUrl = authenticator.keyuri(user.email, 'SchoolMS Platform', secret);
     return { otpauthUrl, secret };
@@ -191,7 +191,7 @@ export class PlatformAuthService {
     if (!user?.mfaSecretEnc) {
       throw new AppError(ErrorCodes.MFA_INVALID, HttpStatus.UNPROCESSABLE_ENTITY, 'Start MFA setup first');
     }
-    const secret = this.crypto.decrypt(user.mfaSecretEnc);
+    const secret = this.crypto.decrypt(user.mfaSecretEnc, user.id);
     if (!authenticator.verify({ token: dto.code, secret })) {
       throw new AppError(ErrorCodes.MFA_INVALID, HttpStatus.UNPROCESSABLE_ENTITY, 'Invalid MFA code');
     }

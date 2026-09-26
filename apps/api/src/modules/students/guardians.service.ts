@@ -82,7 +82,7 @@ export class GuardiansService {
         // CREATE only — a LINK must never rewrite an existing parent's record from a form filled
         // in about a different child.
         occupation: res.occupation ?? null,
-        cnicEnc: res.cnic ? this.crypto.encrypt(res.cnic) : null,
+        cnicEnc: res.cnic ? this.crypto.encrypt(res.cnic, this.sid) : null,
       },
     });
     return parent.id;

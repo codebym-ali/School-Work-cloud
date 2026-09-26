@@ -259,7 +259,7 @@ export class AuthService {
     // the feature, and it is tried first so a code is consumed rather than rejected as a bad TOTP.
     const usedRecovery = await this.consumeRecoveryCode(user.id, dto.code);
     if (!usedRecovery) {
-      const secret = this.crypto.decrypt(user.mfaSecretEnc);
+      const secret = this.crypto.decrypt(user.mfaSecretEnc, user.schoolId);
       if (!authenticator.verify({ token: dto.code, secret })) {
         throw new AppError(ErrorCodes.MFA_INVALID, HttpStatus.UNAUTHORIZED, 'Invalid MFA code');
       }
@@ -475,7 +475,7 @@ export class AuthService {
     const secret = authenticator.generateSecret();
     await this.db.user.update({
       where: { id: user.id },
-      data: { mfaSecretEnc: this.crypto.encrypt(secret), mfaEnabled: false },
+      data: { mfaSecretEnc: this.crypto.encrypt(secret, user.schoolId), mfaEnabled: false },
     });
     // Restarting setup turns MFA OFF until the new secret is verified, so the token must stop
     // vouching for enrolment now, not in fifteen minutes.
@@ -489,7 +489,7 @@ export class AuthService {
     if (!user?.mfaSecretEnc) {
       throw new AppError(ErrorCodes.MFA_INVALID, HttpStatus.UNPROCESSABLE_ENTITY, 'Start MFA setup first');
     }
-    const secret = this.crypto.decrypt(user.mfaSecretEnc);
+    const secret = this.crypto.decrypt(user.mfaSecretEnc, user.schoolId);
     if (!authenticator.verify({ token: dto.code, secret })) {
       throw new AppError(ErrorCodes.MFA_INVALID, HttpStatus.UNPROCESSABLE_ENTITY, 'Invalid MFA code');
     }
@@ -573,7 +573,7 @@ export class AuthService {
     if (!user?.passwordHash || !user.mfaSecretEnc || !(await this.passwords.verify(user.passwordHash, dto.password))) {
       throw new AppError(ErrorCodes.INVALID_CREDENTIALS, HttpStatus.UNAUTHORIZED, 'Password or code invalid');
     }
-    const secret = this.crypto.decrypt(user.mfaSecretEnc);
+    const secret = this.crypto.decrypt(user.mfaSecretEnc, user.schoolId);
     if (!authenticator.verify({ token: dto.code, secret })) {
       throw new AppError(ErrorCodes.MFA_INVALID, HttpStatus.UNAUTHORIZED, 'Invalid MFA code');
     }

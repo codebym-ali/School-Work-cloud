@@ -6,7 +6,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { api, type AdmissionsSummary, type Dashboard, type NotificationItem, type StaffDaySummary } from '@sw/api-client';
 import { useMe, useCampusLens } from '@sw/session';
-import { canReach } from '@sw/roles';
+import { canReach, roleLabels } from '@sw/roles';
 import { useFeatureFlag } from '@school/lib/feature-flags';
 
 /**
@@ -235,7 +235,9 @@ export default function DashboardPage() {
         </h1>
         <p className="muted" style={{ margin: 0 }}>
           {v2 ? `${greeting()} · ` : ''}
-          {new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })} · {me?.name?.trim() || me?.email}
+          {/* Staff show their own name; the owner has no staff profile (name === null), so fall back to
+              the role label ("School Admin") rather than the raw email address, then email as a last resort. */}
+          {new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })} · {me?.name?.trim() || roleLabels(me?.roles)[0] || me?.email}
         </p>
       </div>
 

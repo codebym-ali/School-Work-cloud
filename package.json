@@ -36,6 +36,7 @@
     "db:clean-demo": "ts-node scripts/purge-demo-testdata.ts",
     "db:seed-real": "ts-node scripts/seed-real-school.ts",
     "db:reencrypt": "ts-node scripts/reencrypt-fields-v2.ts",
+    "db:seed-bulk": "ts-node scripts/seed-bulk.ts",
     "test": "pnpm test:unit && pnpm test:integration && pnpm test:isolation",
     "test:unit": "jest --selectProjects unit --passWithNoTests",
     "test:integration": "jest --selectProjects integration --runInBand --forceExit",

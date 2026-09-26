@@ -61,30 +61,30 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # MinIO is the S3 backend for the storage/PDF integration tests (report-card,
-      # certificate, upload pipeline). It can't be a `services:` entry because that block
-      # can't set the required `server /data` command, so start it here and wait for health.
       # MinIO is the S3 backend for the storage/PDF integration tests (report-card, certificate,
       # upload pipeline). It cannot be a `services:` entry because that block cannot set the
-      # required `server /data` command, so it is started here.
+      # required `server /data` command, so it is started here and we wait for health.
       #
-      # ⚠️ Pulled from quay.io, pinned to a release tag. DO NOT switch this to Docker Hub: in 2025
-      # MinIO withdrew their Docker Hub org, so `minio/minio` and `minio/mc` are permanently gated
-      # there — an anonymous pull fails on every tag with `pull access denied for minio/minio,
-      # repository does not exist or may require 'docker login'`. quay.io/minio/minio carries the same
-      # tags and needs no login; it is the source the whole ecosystem moved to.
+      # ⚠️ Image is pgsty/minio (an AGPL fork built from the same Dockerfile → identical binary,
+      # `server /data`, and /minio/health/ready), NOT minio/minio. Around 2026-09-24 MinIO archived
+      # the community edition and revoked anonymous access on EVERY channel at once:
+      #   • Docker Hub  minio/minio       → `pull access denied ... may require 'docker login'`
+      #   • quay.io     minio/minio       → anonymous token carries an EMPTY access array, so the
+      #                                     registry then answers `unauthorized: access to the
+      #                                     requested resource is not authorized` on every tag
+      #   • dl.min.io   community binary  → HTTP 410 Gone
+      # So there is no anonymous minio/minio pull left to fall back to — do not "fix" this back to
+      # quay.io or Docker Hub minio/minio; both are gated. pgsty/minio's anonymous Docker Hub token
+      # does carry `pull`, so it works without a login.
       #
-      # Pinned to an explicit RELEASE tag, not `:latest`: a moving tag makes the S3 backend drift
-      # under CI and turns an upstream change into a mystery red run. Bump this deliberately.
-      #
-      # quay.io's token/auth service has brief blips that surface as `unauthorized: access to the
-      # requested resource is not authorized` — transient, but long enough to outlast a 3-try loop
-      # (~30s). So the retry is 5 attempts with a longer backoff (~10..50s) to ride the blip out;
-      # the readiness probe prints the container log on failure so the reason is in the step that failed.
+      # Pinned by tag AND digest: the digest makes a third-party image immutable (supply-chain), the
+      # tag documents intent. Bump both together, deliberately. The 5-attempt backoff now covers only
+      # Docker Hub's shared-IP anonymous rate limit; the readiness probe prints the container log on
+      # failure so the reason is in the step that failed.
       - name: Start MinIO (S3-compatible object storage)
         run: |
           set -euo pipefail
-          MINIO_IMAGE=quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+          MINIO_IMAGE=pgsty/minio:RELEASE.2026-08-04T00-00-00Z@sha256:b6bfe7239bfc83fb90d31612d9704d86039dd714f7904b3f1ad68f211e602372
           for attempt in 1 2 3 4 5; do
             if docker pull -q "$MINIO_IMAGE"; then break; fi
             echo "pull attempt $attempt failed; retrying in $((attempt * 10))s" >&2

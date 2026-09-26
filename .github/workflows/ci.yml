@@ -68,27 +68,28 @@ jobs:
       # upload pipeline). It cannot be a `services:` entry because that block cannot set the
       # required `server /data` command, so it is started here.
       #
-      # ⚠️ Pulled from Docker Hub, pinned to a release tag. This used to pull `quay.io/minio/minio`
-      # to dodge Docker Hub's shared-IP rate limit — but MinIO gated their quay.io repo, so that pull
-      # now fails on EVERY run with `unauthorized: access to the requested resource is not authorized`
-      # (not the transient `toomanyrequests` quay.io was chosen to avoid). Docker Hub's `minio/minio`
-      # is still the public source — it is what local `docker compose` runs — so we pull it from there.
+      # ⚠️ Pulled from quay.io, pinned to a release tag. DO NOT switch this to Docker Hub: in 2025
+      # MinIO withdrew their Docker Hub org, so `minio/minio` and `minio/mc` are permanently gated
+      # there — an anonymous pull fails on every tag with `pull access denied for minio/minio,
+      # repository does not exist or may require 'docker login'`. quay.io/minio/minio carries the same
+      # tags and needs no login; it is the source the whole ecosystem moved to.
       #
       # Pinned to an explicit RELEASE tag, not `:latest`: a moving tag makes the S3 backend drift
       # under CI and turns an upstream change into a mystery red run. Bump this deliberately.
       #
-      # The retry/backoff loop stays, now covering Docker Hub's rate limit (the reason for the original
-      # quay.io move); the readiness probe prints the container log on failure so the reason is in the
-      # step that failed.
+      # quay.io's token/auth service has brief blips that surface as `unauthorized: access to the
+      # requested resource is not authorized` — transient, but long enough to outlast a 3-try loop
+      # (~30s). So the retry is 5 attempts with a longer backoff (~10..50s) to ride the blip out;
+      # the readiness probe prints the container log on failure so the reason is in the step that failed.
       - name: Start MinIO (S3-compatible object storage)
         run: |
           set -euo pipefail
-          MINIO_IMAGE=minio/minio:RELEASE.2025-09-07T16-13-09Z
-          for attempt in 1 2 3; do
+          MINIO_IMAGE=quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+          for attempt in 1 2 3 4 5; do
             if docker pull -q "$MINIO_IMAGE"; then break; fi
-            echo "pull attempt $attempt failed; retrying in $((attempt * 5))s" >&2
-            sleep $((attempt * 5))
-            [ "$attempt" = 3 ] && { echo "could not pull the MinIO image" >&2; exit 1; }
+            echo "pull attempt $attempt failed; retrying in $((attempt * 10))s" >&2
+            [ "$attempt" = 5 ] && { echo "could not pull the MinIO image" >&2; exit 1; }
+            sleep $((attempt * 10))
           done
           docker run -d --name minio -p 9000:9000             -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin             "$MINIO_IMAGE" server /data
           echo "waiting for MinIO to be ready…"

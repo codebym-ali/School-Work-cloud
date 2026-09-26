@@ -10,11 +10,16 @@ import { ErrorCodes } from './error-codes';
  * any un-translated Prisma error becoming a 500. These tests pin that mapping: a missed service pre-check
  * must degrade to a clean 4xx in the §25.1 envelope, never a 500 or a leaked stack.
  */
+/** The §25.1 error envelope the filter writes — enough of it for these assertions. */
+type ErrorBody = {
+  error: { code: string; message: string; details?: Array<{ field: string; issue: string }> };
+};
+
 describe('AllExceptionsFilter', () => {
   const cls = { getId: () => 'req-1', get: () => undefined } as unknown as ClsService;
   const filter = new AllExceptionsFilter(cls);
 
-  const run = (exception: unknown): { status: number; body: any } => {
+  const run = (exception: unknown): { status: number; body: ErrorBody } => {
     let status = 0;
     let body: unknown;
     const res = {
@@ -34,7 +39,7 @@ describe('AllExceptionsFilter', () => {
       }),
     } as unknown as ArgumentsHost;
     filter.catch(exception, host);
-    return { status, body: body as any };
+    return { status, body: body as ErrorBody };
   };
 
   const knownError = (code: string, meta?: Record<string, unknown>) =>

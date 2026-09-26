@@ -381,7 +381,10 @@ describe('Class structure — section subjects & teacher assignments (e2e)', () 
       const offCsrf = csrfOf(offCookies);
       const admit = async (fullName: string) => authed('post', '/api/v1/students', offCookies, offCsrf).send({
         fullName, gender: 'MALE', dateOfBirth: '2014-05-10', campusId: campusA, classId: classA, sectionId: sectionA,
-        guardian: { mode: 'CREATE', fullName: `G ${fullName}`, phone: `+9230012${Math.floor(Math.random() * 100000)}`, relation: 'FATHER' },
+        // padStart: a PK mobile is `+923` + 9 digits, so the suffix must be exactly 5 digits. A bare
+        // `Math.random()*100000` drops below 5 digits ~10% of the time → a too-short number that
+        // normalizePkPhone rejects → the admit 422s and this spec flakes (~1 run in 5). Pad it.
+        guardian: { mode: 'CREATE', fullName: `G ${fullName}`, phone: `+9230012${String(Math.floor(Math.random() * 100000)).padStart(5, '0')}`, relation: 'FATHER' },
       });
       const today = new Date().toISOString().slice(0, 10);
 

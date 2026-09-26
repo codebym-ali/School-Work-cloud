@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { use, useCallback, useEffect, useState } from 'react';
 import { api, ApiError, type FeeLinkView } from '@/lib/api';
 
 const METHOD_LABEL: Record<string, string> = {
@@ -24,11 +24,12 @@ const today = () => new Date().toISOString().slice(0, 10);
  * It shows the child's first name only. That is not an oversight — the link travels by SMS and
  * gets forwarded, so the page must be safe to open in a group chat.
  */
-// `params` is a plain object on Next 14 — `Promise` + `use()` is the Next 15 shape, and it
-// typechecked happily while crashing the page at runtime with "An unsupported type was passed
-// to use()". Caught in the browser, not by tsc.
-export default function GuardianFeeLinkPage({ params }: { params: { token: string } }) {
-  const { token } = params;
+// Next 15: `params` is a `Promise`, unwrapped in a client component with React's `use()`. (On
+// Next 14 it was a plain object and `use()` crashed the page at runtime — but the whole app is
+// on Next 15 now, and the sync `{ token: string }` shape no longer satisfies the generated
+// PageProps, so it fails the typed-routes check at build.)
+export default function GuardianFeeLinkPage({ params }: { params: Promise<{ token: string }> }) {
+  const { token } = use(params);
 
   const [view, setView] = useState<FeeLinkView | null>(null);
   const [gone, setGone] = useState<string | null>(null);

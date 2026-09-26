@@ -132,6 +132,12 @@ setup('provision the QA world', async () => {
   await hire('teacherA', 'teacher@qa.pk', campusA.id, 'TEACHER', ['TEACHER'], 'Tariq Teacher', 40000);
   await hire('admA', 'admissions.a@qa.pk', campusA.id, 'CLERK', ['ADMISSION_CONTROLLER'], 'Adeel Admissions');
   await hire('admB', 'admissions.b@qa.pk', campusB.id, 'CLERK', ['ADMISSION_CONTROLLER'], 'Bushra Admissions');
+  // AssignCampus fixture (C-AssignCampus): a mis-configured login — a campus-scoped role with no
+  // campus. No screen produces this state; its campus is nulled below with the other DB-only facts.
+  await hire('orphan', 'orphan.teacher@qa.pk', campusA.id, 'TEACHER', ['TEACHER'], 'Orphan Teacher');
+  // C9 fixture: the teacher marks attendance, and the picker is fed by their TeacherAssignments — so
+  // give Tariq the QA One A register to mark. oneA already holds admitted students.
+  await call(owner, 'post', '/teacher-assignments', { staffId: staffIds.teacherA, academicYearId: year.id, sectionId: oneA.sectionId });
 
   const acctASecret = await enrol(await login(host, 'accountant.a@qa.pk', 'staff'));
   const acctBSecret = await enrol(await login(host, 'accountant.b@qa.pk', 'staff'));
@@ -164,6 +170,9 @@ setup('provision the QA world', async () => {
     }
     await prisma.parentProfile.update({ where: { id: optedOut.parentId }, data: { phoneVerifiedAt: new Date(), smsOptOut: true } });
     await prisma.studentEnrollment.updateMany({ where: { schoolId }, data: { startedAt: new Date('2026-04-01') } });
+    // Strand the orphan teacher: a TEACHER with no campus is the exact state the "Needs a campus"
+    // control repairs. Only a DB write (a deleted campus, a bad import) reaches it — a screen cannot.
+    await prisma.user.updateMany({ where: { schoolId, email: 'orphan.teacher@qa.pk' }, data: { campusId: null } });
   } finally {
     await prisma.$disconnect();
   }
@@ -195,6 +204,8 @@ setup('provision the QA world', async () => {
       campusB: { id: campusBStudent.studentId, name: campusBStudent.name },
     },
     phones: { optedOut: optedOut.phone },
+    teacherSection: { sectionId: oneA.sectionId, label: 'QA One A' },
+    campusLessUser: { email: 'orphan.teacher@qa.pk' },
   };
   mkdirSync('test/e2e/.auth', { recursive: true });
   writeFileSync(WORLD_FILE, JSON.stringify(out, null, 2));

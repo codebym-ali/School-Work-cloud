@@ -30,6 +30,10 @@ export interface QaWorld {
   staffIds: Record<string, string>;
   students: Record<'paid' | 'owingWaive' | 'owingWithdraw' | 'noDues' | 'optedOut' | 'campusB', { id: string; name: string }>;
   phones: { optedOut: string };
+  /** The section the QA teacher is assigned to mark (C9 attendance-picker scoping). */
+  teacherSection: { sectionId: string; label: string };
+  /** A campus-scoped login with no campus — the "Needs a campus" repair control (AssignCampus). */
+  campusLessUser: { email: string };
 }
 
 export const world = (): QaWorld => JSON.parse(readFileSync(WORLD_FILE, 'utf8')) as QaWorld;

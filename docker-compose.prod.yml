@@ -63,10 +63,13 @@ services:
     restart: unless-stopped
     # Ingress via Traefik: /api/* → this service, Host preserved so the API's
     # TenantResolutionMiddleware still resolves the school from the subdomain.
+    # Served on the TLS entrypoint (websecure); http is redirected to https at the edge.
     labels:
       - traefik.enable=true
       - traefik.http.routers.api.rule=PathPrefix(`/api`)
-      - traefik.http.routers.api.entrypoints=web
+      - traefik.http.routers.api.entrypoints=websecure
+      - traefik.http.routers.api.tls=true
+      - traefik.http.routers.api.tls.certresolver=le
       - traefik.http.routers.api.priority=100
       - traefik.http.services.api.loadbalancer.server.port=3000
 
@@ -98,27 +101,56 @@ services:
       retries: 5
       start_period: 20s
     restart: unless-stopped
-    # Catch-all router (lower priority than the API's /api prefix).
+    # Catch-all router (lower priority than the API's /api prefix). TLS entrypoint; http redirects.
     labels:
       - traefik.enable=true
       - traefik.http.routers.web.rule=PathPrefix(`/`)
-      - traefik.http.routers.web.entrypoints=web
+      - traefik.http.routers.web.entrypoints=websecure
+      - traefik.http.routers.web.tls=true
+      - traefik.http.routers.web.tls.certresolver=le
       - traefik.http.routers.web.priority=1
       - traefik.http.services.web.loadbalancer.server.port=3001
 
   # Edge router (blueprint §33). Path-routes on one origin: /api → api, / → web, and
   # forwards the original Host so multi-tenant subdomain resolution works end-to-end.
-  # For TLS in prod, add a websecure :443 entrypoint + a certresolver (Let's Encrypt).
+  #
+  # TLS (audit 2.2) — closes the "cleartext / Secure-cookie can't be sent" gap:
+  #   • websecure :443 entrypoint + a Let's Encrypt certresolver ('le')
+  #   • all http (:80) is 301-redirected to https, so nothing is ever served in cleartext
+  # This makes COOKIE_SECURE=true actually work (a Secure cookie cannot travel over http).
+  #
+  # ⚠️ CHALLENGE TYPE — the TLS-ALPN challenge below issues a cert per hostname as each host is
+  # first requested, which fits the apex + reserved subdomains. The multi-tenant role hosts are
+  # TWO labels deep (owner.<school>.schoolworks.com), which a single wildcard cannot cover, so for
+  # the tenant fleet use a **DNS-01 wildcard** instead (needs your DNS provider's API token):
+  #   - --certificatesresolvers.le.acme.dnschallenge=true
+  #   - --certificatesresolvers.le.acme.dnschallenge.provider=cloudflare
+  #   and pass CF_DNS_API_TOKEN in the environment. On Coolify, its built-in Traefik does this for
+  # you (set the wildcard there); this block is the self-hosted/standalone path. See deploy/Caddyfile
+  # for the on-demand-TLS alternative that mints per-host certs without a wildcard.
   traefik:
     image: traefik:v3.5
     command:
       - --providers.docker=true
       - --providers.docker.exposedbydefault=false
       - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
+      # Redirect every plaintext request to https (permanent) — no cleartext path remains.
+      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entrypoints.web.http.redirections.entrypoint.scheme=https
+      - --entrypoints.web.http.redirections.entrypoint.permanent=true
+      # Let's Encrypt (ACME). Email + persisted account/cert store; TLS-ALPN challenge by default.
+      - --certificatesresolvers.le.acme.email=${ACME_EMAIL:-admin@schoolworks.com}
+      - --certificatesresolvers.le.acme.storage=/letsencrypt/acme.json
+      - --certificatesresolvers.le.acme.tlschallenge=true
     ports:
       - '80:80'
+      - '443:443'
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      # acme.json holds issued certs + the ACME account key — persist it or you re-issue (and hit
+      # Let's Encrypt rate limits) on every restart.
+      - letsencrypt:/letsencrypt
     depends_on:
       - api
       - web
@@ -196,3 +228,4 @@ volumes:
   walarchive:
   redisdata:
   miniodata:
+  letsencrypt:

@@ -133,6 +133,32 @@ Both fixed, tested (215 unit + 4 integration), typecheck + lint clean, API boots
       without `Secure`. **Hard dependency (audit 2.2): TLS must terminate at the edge** (Caddy on-demand /
       Traefik `:443` + certresolver) — a Secure cookie cannot travel over plain http.
 
+## 8. Additional hardening implemented (2026-09-26)
+Senior-team remediation batch — the safely-fixable items from the prioritized issue list. All verified
+(typecheck + lint + 215 unit tests green; live-checked where noted).
+- [x] **TLS at the edge (audit 2.2)** — `docker-compose.prod.yml` Traefik now has a `websecure :443`
+      entrypoint, a Let's Encrypt certresolver (`le`), and a permanent `:80→:443` redirect, so nothing is
+      served in cleartext and `COOKIE_SECURE=true` works. `ACME_EMAIL` added to `.env.example`; `docker compose
+      config` validates. Tenant-fleet wildcard needs DNS-01 (documented inline; Coolify's Traefik or
+      `deploy/Caddyfile` on-demand TLS are the alternatives).
+- [x] **CSRF constant-time compare (audit 4.1)** — `csrf.guard.ts` now hashes both tokens and uses
+      `crypto.timingSafeEqual` instead of `!==`. Live-verified: matching → passes, wrong/missing → 403.
+- [x] **PII log-redaction drift (audit 3.3)** — `logger.config.ts` refactored to a `SENSITIVE_BODY_KEYS`
+      list redacted at the body root **and** one nesting level (catches `guardian.cnic` etc.); added CSRF
+      header, MFA `code`/`otp`/`totp`/`token`, `bForm`, extra phone/financial keys. Drift-resistant.
+- [x] **Owner greeting (P2)** — dashboard subtitle falls back to the role label ("School Admin") instead of
+      the raw email when the owner has no staff profile. Live-verified on owner-web.
+- [x] **Node pin (P1)** — `.nvmrc` = 22 (dev box was on v26; CI/prod use 22). Aligns local with CI.
+- [x] **Vendor snapshot query (P1)** — verified already correct: `platform.service.ts:166` reads
+      `findFirst({ orderBy: { capturedAt: 'desc' } })`. Stale figure was data freshness (nightly job), self-heals.
+
+### Still open after this batch (not dev-box-fixable / decision-gated)
+- **Merge + push** the security/hardening branch to `main`/origin (decision-gated — outward action).
+- **Audit 3.1** per-tenant encryption keys (HKDF-over-schoolId) — architectural, do before storing real PII.
+- **Audit 3.2** transitive-dependency CVEs — `pnpm audit` + reviewed bumps (risk of breakage; needs its own PR).
+- **QA breadth** — the un-exercised P1/P2 flows (§1) and the §2 automated niceties.
+- **M7 → GA (VPS-bound)** — deploy, DR drill, load/soak, external pen-test, pilot (§5).
+
 ---
 
 ### Quick "definition of done" for the remaining QA

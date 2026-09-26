@@ -1,8 +1,20 @@
 import { CanActivate, ExecutionContext, HttpStatus, Injectable } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
+import { createHash, timingSafeEqual } from 'node:crypto';
 import type { Request } from 'express';
 import { AppError, ErrorCodes, IS_PUBLIC } from '@common';
 import { ACCESS_COOKIE, CSRF_COOKIE } from '../auth.cookies';
+
+/**
+ * Constant-time string compare (audit 4.1). `timingSafeEqual` requires equal-length buffers, so
+ * both sides are hashed to a fixed 32 bytes first — this also lets us compare without leaking the
+ * raw length. A plain `!==` short-circuits on the first differing byte, leaking a timing signal.
+ */
+function safeEqual(a: string, b: string): boolean {
+  const ha = createHash('sha256').update(a).digest();
+  const hb = createHash('sha256').update(b).digest();
+  return timingSafeEqual(ha, hb);
+}
 
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
@@ -31,7 +43,7 @@ export class CsrfGuard implements CanActivate {
 
     const header = req.header('x-csrf-token');
     const cookie = cookies[CSRF_COOKIE];
-    if (!header || !cookie || header !== cookie) {
+    if (!header || !cookie || !safeEqual(header, cookie)) {
       throw new AppError(ErrorCodes.CSRF_INVALID, HttpStatus.FORBIDDEN, 'CSRF token missing or invalid');
     }
     return true;

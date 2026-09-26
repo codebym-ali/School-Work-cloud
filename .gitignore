@@ -51,3 +51,4 @@ graphify-out/
 
 # Local seed login credentials (contains passwords) — never commit
 SEED-CREDENTIALS.md
+LOGIN-DETAILS.md

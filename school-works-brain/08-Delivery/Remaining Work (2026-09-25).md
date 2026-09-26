@@ -166,10 +166,36 @@ Senior-team remediation batch — the safely-fixable items from the prioritized 
       migration `scripts/reencrypt-fields-v2.ts` (`pnpm db:reencrypt`, dry-run by default). Proven: 7 unit
       (round-trip, cross-scope isolation, v1 back-comp) + **4 MFA integration suites / 30 tests on real PG**.
 
+## 9. Phase 2 — QA breadth verified live (2026-09-26)
+API-driven against the running demo (correct role per flow). **Zero real defects found** — every
+initial red was correct RBAC, correct validation, or a stale-ID harness issue.
+**P1 (all pass):**
+- [x] **Timetable** — build a slot; a teacher double-book is rejected **409 CONFLICT** with a named
+      message ("Ayesha Farooq already teaches Grade 6-A in period 1 that day").
+- [x] **Cover** — FREE/BUSY `suggestions` (`{date, periodNo, timetableKnown, suggestions}`) + arrange (201).
+- [x] **Bell schedule** — create a wing schedule + compose a day (rows: teaching/break).
+- [x] **Year-end promotion** — target year (owner-only creation, correct) + **plan preview** returns a
+      fingerprint (commit is fingerprint-guarded).
+- [x] **Defaulters — reminders** — `{queued:2, skipped:{cannotText:1}}`: SMS to verified phones, correctly
+      skips an unverified one.
+- [x] **Reports — PDF** — `class-strength?format=pdf` → `application/pdf` (CSV already covered).
+
+**P2 (all pass):**
+- [x] **Performance drill-down** — campus → class → student, all 200.
+- [x] **Holidays / calendar** — declare a closure (201) + it appears in the calendar.
+- [x] **School settings** — read + toggle + restore (**owner-only**; campus admin correctly **403**).
+- [x] **Subjects merge** — dry-run preview (`renamed:3`, repoint counts) with no write; no-op/no-match
+      correctly rejected.
+
 ### Still open (execution / VPS-bound)
-- **QA breadth** — the un-exercised P1/P2 flows (§1) and the §2 automated niceties.
-- **Next 14 → 15** major upgrade (its own initiative; residual CVEs, prod not currently exposed).
+- **§2 automated niceties** — C9 teacher-picker Playwright e2e (needs a teacher-session fixture), fees
+      reconciliation-CSV edge cases, AssignCampus FE e2e (authoring NEW tests, not live verification).
+- **Vendor console** full tenant lifecycle — needs a throwaway tenant + a platform operator credential.
+- **Next 14 → 15** major upgrade (its own initiative; residual CVEs, prod Linux not currently exposed).
 - **M7 → GA (VPS-bound)** — deploy, DR drill, load/soak, external pen-test, pilot (§5).
+
+> Note: the live verification left demo artifacts (a 2027-28 academic year, a 2027 holiday, timetable
+> slots, a cover, a wing bell schedule). Harmless; `pnpm db:seed-real -- --commit` resets to clean.
 
 ---
 

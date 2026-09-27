@@ -276,7 +276,11 @@ function effectiveRoles(userRoles: string[] | undefined): string[] {
  * is branded "HR Manager", not one of each). Keyed on the first role the user holds.
  */
 const ROLE_INFO: { role: Role; label: string; landing: string; title?: string }[] = [
-  { role: 'OWNER_ADMIN', label: 'School Admin', landing: '/dashboard' },
+  // "Owner", not "School Admin" (Owner Dashboard Redesign Plan, B4, 2026-09-27). The enum, the code
+  // and the URL (/owner-login) all say owner; the UI alone said "School Admin", one word from
+  // "Campus Admin" and from the vendor console at /admin — the collision the Owner Login Plan O5
+  // warned about. Relabelled toward the unambiguous word.
+  { role: 'OWNER_ADMIN', label: 'Owner', landing: '/dashboard' },
   // The owner's operational deputy — sits directly below the owner and lands on the same dashboard.
   { role: 'OPERATIONS_ADMIN', label: 'Ops Admin', landing: '/dashboard' },
   { role: 'CAMPUS_ADMIN', label: 'Campus Admin', landing: '/dashboard' },

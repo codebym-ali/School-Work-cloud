@@ -164,11 +164,14 @@ test.describe('staff attendance', () => {
 
   test('the dashboard leads with what is NOT known, not just with absences', async ({ page }) => {
     await gotoApp(page);
-    const card = page.locator('.card').filter({ hasText: 'Staff today' });
+    // The owner-home redesign (2026-09-27) turned the "Staff today" panel into the "Staff at work"
+    // headline card; what is under test — that it leads with the unmarked, or says no register — holds.
+    const card = page.locator('.oh-kpi').filter({ hasText: 'Staff at work' });
     // Skipped rather than failed on a non-working day: the card correctly says so instead of
     // reporting every member of staff as absent, and that is the behaviour under test below.
     await expect(card).toBeVisible();
     const text = (await card.innerText()).toLowerCase();
-    expect(text.includes('not marked') || text.includes('no register today')).toBe(true);
+    // Either the unmarked are named, the day is closed, or it says outright that nobody is unknown.
+    expect(text.includes('not marked') || text.includes('no register today') || text.includes('everyone accounted for')).toBe(true);
   });
 });

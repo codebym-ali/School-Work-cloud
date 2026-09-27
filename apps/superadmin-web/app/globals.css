@@ -465,6 +465,10 @@ tr:last-child td { border-bottom: 0; }
 .toast { padding: 10px 12px; border-radius: var(--r-md); font-size: 14px; margin-bottom: 14px; }
 .toast.ok { background: var(--ok-tint); color: var(--ok-ink); }
 .toast.err { background: var(--danger-tint); color: var(--danger-ink); }
+/* Waiting-on-a-person notices (the 2-step sign-in reminder, the school-closed banner). This was
+   referenced by the shell but never defined, so both banners rendered as plain unstyled text. */
+.toast.warn { background: var(--warn-tint); color: var(--warn-ink); border: 1px solid #fcd9b8; line-height: 1.5; }
+.toast.warn a { color: var(--warn-ink); }
 .small { padding: 6px 10px; font-size: 13px; }
 .inline-form { display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-end; }
 /* ── Forms ───────────────────────────────────────────────────────────────────

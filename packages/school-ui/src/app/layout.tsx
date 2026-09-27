@@ -11,7 +11,6 @@ import type { Campus } from '@sw/api-client';
 import { NotificationBell } from '@school/components/notification-bell';
 import { COLLAPSIBLE_GROUPS, groupedNav, hasAnyRole, isSchoolWideAdmin, navItemFor, needsHomeLink, panelLabel, roleLabels, servesRoute, usesPersonalShell, MFA_REQUIRED_ROLES, type AppName } from '@sw/roles';
 import { TeacherSidebarNav, TeacherTabs } from '@school/components/teacher-tabs';
-import { useFeatureFlag } from '@school/lib/feature-flags';
 
 /**
  * `app` names the door this shell is rendering in (Front-End Instance Separation Plan, Phase 4).
@@ -34,9 +33,6 @@ export default function AppLayout({ children, app }: { children: React.ReactNode
   // Below 720px the sidebar becomes a slide-over drawer (CSS drives the breakpoint; this
   // only tracks open/closed, so desktop is unaffected).
   const [navOpen, setNavOpen] = useState(false);
-  // B2 nav curation, gated with the same pilot flag as owner-home v2 (?ff=ownerHomeV2): daily-use
-  // groups first, configure-once groups (School structure, Administration) collapsed by default.
-  const v2 = useFeatureFlag('ownerHomeV2');
   // Campus lens (owner with >1 campus only). Fetched here so it persists across every screen.
   const [lensCampuses, setLensCampuses] = useState<Campus[]>([]);
   const [lensCampusId, setLensCampusId] = useState<string | null>(null);
@@ -106,7 +102,10 @@ export default function AppLayout({ children, app }: { children: React.ReactNode
 
   // Show only the screens this role can use, grouped into sidebar categories;
   // gate the routed page centrally.
-  const nav = groupedNav(me.roles, me.admissionsMode, v2)
+  // Curated order is the default since the Owner Dashboard Redesign (Phase 1, 2026-09-27): daily-use
+  // groups first, configure-once groups (School structure, Administration) collapsed. It was the
+  // B2 pilot behind ?ff=ownerHomeV2; the flag is retired.
+  const nav = groupedNav(me.roles, me.admissionsMode, true)
     .map((g) => ({ ...g, items: g.items.filter((i) => servesRoute(app, i.href, me.admissionsMode)) }))
     .filter((g) => g.items.length > 0);
   const current = navItemFor(pathname);
@@ -190,9 +189,9 @@ export default function AppLayout({ children, app }: { children: React.ReactNode
                     {n.label}
                   </Link>
                 ));
-                // B2: in v2, configure-once groups collapse to cut the wall of links. They open
-                // automatically when the current page lives inside them, so you always see where you are.
-                if (v2 && COLLAPSIBLE_GROUPS.includes(group)) {
+                // Configure-once groups collapse to cut the wall of links. They open automatically
+                // when the current page lives inside them, so you always see where you are.
+                if (COLLAPSIBLE_GROUPS.includes(group)) {
                   const activeInGroup = items.some((n) => pathname.startsWith(n.href));
                   return (
                     <details key={group} className="nav-group nav-group--collapsible" open={activeInGroup || undefined}>
@@ -265,7 +264,9 @@ export default function AppLayout({ children, app }: { children: React.ReactNode
               (MfaEnrolledGuard), so the banner names what is actually locked — a warning that states
               a real consequence is read; one that could be ignored forever teaches people to ignore
               red. Routine work is deliberately NOT in the list, because it is not locked. */}
-          {needsMfa && pathname !== '/security' && (
+          {/* Not on /dashboard: there it is a row in "Needs your attention", with its own button —
+              one reminder in the place the owner acts, not the same sentence twice on one screen. */}
+          {needsMfa && pathname !== '/security' && pathname !== '/dashboard' && (
             <div className="toast warn">
               <strong>Add an extra sign-in step to protect money and staff records.</strong>{' '}
               Until you set it up, you can&apos;t reverse a payment, waive a fee, see a full ID number,

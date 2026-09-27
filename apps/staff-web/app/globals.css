@@ -485,6 +485,10 @@ tr:last-child td { border-bottom: 0; }
 .toast { padding: 10px 12px; border-radius: var(--r-md); font-size: 14px; margin-bottom: 14px; }
 .toast.ok { background: var(--ok-tint); color: var(--ok-ink); }
 .toast.err { background: var(--danger-tint); color: var(--danger-ink); }
+/* Waiting-on-a-person notices (the 2-step sign-in reminder, the school-closed banner). This was
+   referenced by the shell but never defined, so both banners rendered as plain unstyled text. */
+.toast.warn { background: var(--warn-tint); color: var(--warn-ink); border: 1px solid #fcd9b8; line-height: 1.5; }
+.toast.warn a { color: var(--warn-ink); }
 .small { padding: 6px 10px; font-size: 13px; }
 .inline-form { display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-end; }
 /* ── Forms ───────────────────────────────────────────────────────────────────
@@ -811,3 +815,84 @@ input.invalid, select.invalid { border-color: var(--danger); }
    day — so the day becomes a chooser and the grid becomes a list. */
 .day-chips { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; }
 .day-chips .chip { min-height: 40px; min-width: 44px; justify-content: center; }
+
+/* ── Owner home (Owner Dashboard Redesign Plan, Phase 1 — 2026-09-27) ─────────────────────────
+   The dashboard's own vocabulary, prefixed `oh-` so it cannot restyle any other screen. Light
+   cards with a small serif title replace the navy header band every panel carried (research:
+   Tufte's data-ink — a dark bar per card competes with the one number the card is for).
+   ⚠️ Kept identical in owner-web and staff-web: both serve /dashboard (owner / ops admin in one,
+   campus admin / accountant in the other). */
+.oh { display: flex; flex-direction: column; gap: 22px; max-width: 1200px; }
+.oh-status { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; font-size: 14px; }
+.oh-pill { display: inline-flex; align-items: center; gap: 8px; padding: 5px 12px; border-radius: var(--r-pill); font-size: 13px; font-weight: 500; }
+.oh-pill.is-ok { background: var(--ok-tint); color: var(--ok-ink); }
+.oh-pill.is-neutral { background: #e7ecf3; color: #3d4656; }
+.oh-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); }
+.oh-scope { margin-left: auto; font-weight: 400; }
+.oh-hero h1 { margin: 0 0 6px; font-size: 30px; line-height: 1.2; color: var(--brand); }
+.oh-hero p { margin: 0; font-size: 17px; line-height: 1.6; color: #3d4656; max-width: 72ch; }
+.oh-hero .is-ok { color: var(--ok-ink); }
+.oh-hero .is-danger { color: var(--danger-ink); }
+.oh-card { background: var(--card); border-radius: var(--r-lg); padding: 20px 22px; box-shadow: var(--shadow-card); }
+.oh-card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.oh-card-head h2 { margin: 0; font-family: var(--font-heading); font-size: 19px; color: var(--brand); }
+.oh-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; }
+.oh-kpi { display: flex; flex-direction: column; gap: 8px; text-decoration: none; color: var(--ink); border: 1px solid transparent; transition: border-color .15s ease, box-shadow .15s ease; }
+a.oh-kpi:hover { border-color: var(--brand); text-decoration: none; }
+a.oh-kpi:focus-visible { outline: 3px solid var(--brand); outline-offset: 2px; }
+.oh-kpi-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.oh-kpi-title { font-size: 14px; font-weight: 500; color: var(--muted); }
+.oh-kpi-value { font-family: var(--font-heading); font-size: 28px; font-weight: 700; line-height: 1.15; color: var(--ink); }
+.oh-kpi-value small { font-size: 17px; font-weight: 600; color: var(--muted); }
+.oh-kpi-value.is-ok { color: var(--ok-ink); }
+.oh-kpi-value.is-danger { color: var(--danger-ink); }
+.oh-kpi-value.is-warn { color: var(--warn-ink); font-size: 22px; }
+.oh-kpi-value.is-neutral { color: #3d4656; font-size: 22px; }
+.oh-kpi-sub { font-size: 13px; color: var(--muted); }
+.oh-kpi-sub.is-ok { color: var(--ok-ink); font-weight: 500; }
+.oh-kpi-sub.is-warn { color: var(--warn-ink); font-weight: 500; }
+.oh-kpi-go { font-size: 13px; font-weight: 500; color: var(--brand); }
+.oh-ico { width: 32px; height: 32px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; flex: none; }
+.oh-ico.lg { width: 40px; height: 40px; border-radius: 10px; }
+.oh-ico.is-ok { background: var(--ok-tint); color: var(--ok-ink); }
+.oh-ico.is-danger { background: var(--danger-tint); color: var(--danger-ink); }
+.oh-ico.is-warn { background: var(--warn-tint); color: var(--warn-ink); }
+.oh-ico.is-info { background: var(--info-tint); color: var(--info-ink); }
+.oh-ico.is-neutral { background: #e7ecf3; color: #3d4656; }
+.oh-meter { height: 8px; background: #e7ecf3; border-radius: var(--r-pill); overflow: hidden; }
+.oh-meter > span { display: block; height: 100%; border-radius: inherit; }
+.oh-meter > .is-ok { background: var(--ok); }
+.oh-row { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: 16px; align-items: start; }
+.oh-list { list-style: none; margin: 0; padding: 0; }
+.oh-list li { display: flex; align-items: center; gap: 14px; padding: 12px 0; border-bottom: 1px solid #edf0f5; }
+.oh-list li:last-child { border-bottom: 0; }
+.oh-list-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.oh-list-text .t { font-size: 15px; font-weight: 500; }
+.oh-list-text .s { font-size: 13px; color: var(--muted); }
+.oh-btn { flex: none; min-height: 40px; padding: 0 14px; display: inline-flex; align-items: center; justify-content: center; border-radius: var(--r-md); border: 1px solid #c9d3e1; background: var(--card); color: var(--brand); font-size: 14px; font-weight: 500; text-decoration: none; white-space: nowrap; }
+.oh-btn:hover { background: var(--brand-tint); text-decoration: none; }
+.oh-btn.is-primary { background: var(--brand); border-color: var(--brand); color: #fff; }
+.oh-btn.is-primary:hover { background: var(--brand-dark); }
+.oh-allclear { display: flex; align-items: center; gap: 8px; margin: 4px 0 0; }
+.oh-more { margin-top: 8px; }
+.oh-note { margin: 8px 0 0; font-size: 13px; }
+.oh-adm { display: flex; flex-wrap: wrap; gap: 8px 24px; margin: 0; font-size: 15px; }
+.oh-quick { display: flex; flex-wrap: wrap; gap: 10px; }
+.oh-quick a { min-height: 44px; padding: 0 18px; display: inline-flex; align-items: center; border-radius: var(--r-pill); background: var(--card); border: 1px solid #d6dde8; color: var(--brand); font-size: 14px; font-weight: 500; text-decoration: none; }
+.oh-quick a:hover { border-color: var(--brand); text-decoration: none; }
+.oh-skel { border-radius: var(--r-lg); background: linear-gradient(90deg, #e3e9f2 25%, #eef2f8 50%, #e3e9f2 75%); background-size: 200% 100%; animation: oh-shimmer 1.2s infinite linear; }
+@keyframes oh-shimmer { to { background-position: -200% 0; } }
+@media (prefers-reduced-motion: reduce) { .oh-skel { animation: none; } }
+@media (max-width: 720px) {
+  .oh { gap: 16px; }
+  .oh-hero h1 { font-size: 23px; }
+  .oh-hero p { font-size: 15px; }
+  .oh-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .oh-card { padding: 14px; }
+  .oh-kpi-value { font-size: 21px; }
+  .oh-kpi-value small { font-size: 14px; }
+  .oh-kpi-value.is-warn, .oh-kpi-value.is-neutral { font-size: 17px; }
+  .oh-row { grid-template-columns: minmax(0, 1fr); }
+  .oh-list li { flex-wrap: wrap; }
+  .oh-list li .oh-btn { flex-basis: 100%; min-height: 44px; }
+}

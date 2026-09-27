@@ -257,6 +257,7 @@ export const PERMISSION_MATRIX: MatrixRow[] = [
   // TEACHER session seeing only their own periods.
   { label: 'class-strength report', method: 'get', path: '/api/v1/reports/class-strength', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT'], scopeGated: true },
   { label: 'dashboard', method: 'get', path: '/api/v1/dashboard', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT'] },
+  { label: 'dashboard collection by class', method: 'get', path: '/api/v1/dashboard/collection-by-class', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT'] },
   // STUDENT-only. STUDENT isn't one of the seeded matrix roles, so allow:[] asserts every
   // seeded admin/staff role is denied (the STUDENT positive path is in student-portal.e2e).
   { label: 'student portal', method: 'get', path: '/api/v1/portal/overview', allow: [] },

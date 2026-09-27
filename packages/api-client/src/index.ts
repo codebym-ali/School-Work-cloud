@@ -116,11 +116,20 @@ export interface Dashboard {
   monthBilledPaid: number;
   /** Cash received last month up to the same day — the fair comparison for a month in progress. */
   lastMonthToDate: number;
+  /** Payments dated today (reversals excluded) and how many there were (Phase 3). */
+  todayCollections: number;
+  todayPayments: number;
   /** Is the school running today (weekly off + holiday calendar, per open campus)? When closed,
    *  `todayAttendanceExpected` is 0: nobody is expected on a closed day. */
   schoolDay: { open: boolean; reason: string | null };
   /** Metric keys this role should see — the UI renders only these cards (role-shaping). */
   visible: string[];
+}
+/** This month's invoices per class (waived excluded), lowest `percentPaid` first. `percentPaid` is null
+ *  only for a class with nothing billed. The classes sum to the dashboard's `monthBilled`/`monthBilledPaid`. */
+export interface ClassCollection {
+  month: string;
+  classes: Array<{ classId: string; name: string; order: number; billed: number; paid: number; percentPaid: number | null }>;
 }
 /** `unmarked` is not a status: it is the registers nobody has filled in, and it is what stops a
  *  part-to-whole chart implying the whole school has been accounted for. */
@@ -893,6 +902,9 @@ export const api = {
   },
   /** Owner may pass the selected campus lens; campus-bound users are scoped to their own campus server-side. */
   dashboard: (campusId?: string) => apiGet<Dashboard>(campusId ? '/dashboard?campusId=' + encodeURIComponent(campusId) : '/dashboard'),
+  /** This month's fees paid per class, lowest share first (Owner Dashboard Phase 3). */
+  collectionByClass: (campusId?: string) =>
+    apiGet<ClassCollection>(campusId ? '/dashboard/collection-by-class?campusId=' + encodeURIComponent(campusId) : '/dashboard/collection-by-class'),
   users: {
     list: () => apiGet<ManagedUser[]>('/users'),
     create: (body: { email: string; roles: string[]; campusId?: string; password: string }) => apiPost<ManagedUser>('/users', body),

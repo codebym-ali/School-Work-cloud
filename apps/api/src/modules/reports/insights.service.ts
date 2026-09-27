@@ -134,6 +134,16 @@ export class DashboardService {
     // alarming early and always pleasing late tells the owner nothing.
     const lastMonthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
     const lastMonthCutoff = new Date(Math.min(lastMonthStart.getTime() + (now.getTime() - monthStart.getTime()), monthStart.getTime()));
+    // Today's cash (Phase 3) — the figure owners in this market check first (research: "fee collected
+    // today" leads 8 of 10 regional owner dashboards). Payments DATED today, reversals excluded, the
+    // same rules as the month total so the two can never disagree.
+    const dayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    const today = await this.db.feePayment.aggregate({
+      _sum: { amountPaid: true },
+      _count: { _all: true },
+      where: { paidAt: { gte: dayStart }, reversal: null, ...(eff ? { invoice: { enrollment: { campusId: eff } } } : {}) },
+    });
+
     const lastMonthToDate = await this.db.feePayment.aggregate({
       _sum: { amountPaid: true },
       where: { paidAt: { gte: lastMonthStart, lt: lastMonthCutoff }, reversal: null, ...(eff ? { invoice: { enrollment: { campusId: eff } } } : {}) },
@@ -230,6 +240,8 @@ export class DashboardService {
       monthBilled,
       monthBilledPaid,
       lastMonthToDate: Number(lastMonthToDate._sum.amountPaid ?? 0),
+      todayCollections: Number(today._sum.amountPaid ?? 0),
+      todayPayments: today._count._all,
       schoolDay: { open: schoolDay.open, reason: schoolDay.reason },
       pendingLeaves,
       failedSmsCount,
@@ -240,6 +252,65 @@ export class DashboardService {
       attendanceBreakdown,
       visible: [...visible],
     };
+  }
+
+  /**
+   * How much of THIS month's fees each class has paid — worst first (Owner Dashboard Phase 3).
+   *
+   * The owner's question is "which classes are behind?", so the list is sorted by the share paid,
+   * lowest first; the page shows the bottom few. Same basis as the dashboard bar (`monthBilled`):
+   * this month's own invoices, WAIVED excluded — and since the database forbids paying an invoice
+   * beyond its total (`chk_paid_le_total`), the classes sum exactly to the school-wide bar.
+   *
+   * Summed in JS from one narrow `findMany` (amounts + the enrolment's class) rather than `groupBy`
+   * or raw SQL — raw SQL would bypass the tenant extension, and the row count is one invoice per
+   * student for one month, which is small even for a large school.
+   *
+   * A class name repeats across campuses ("Grade 1" at two campuses), so in the whole-school view the
+   * campus is named whenever the school has more than one.
+   */
+  async collectionByClass(campusId?: string) {
+    void this.ctx.requireSchoolId();
+    const eff = effectiveCampusFilter(this.ctx.user, campusId);
+    const now = new Date();
+    const month = now.getUTCMonth() + 1;
+    const year = now.getUTCFullYear();
+
+    const invoices = await this.db.feeInvoice.findMany({
+      where: { month, year, status: { not: 'WAIVED' }, ...(eff ? { enrollment: { campusId: eff } } : {}) },
+      select: { totalAmount: true, paidAmount: true, enrollment: { select: { classId: true } } },
+    });
+    const sums = new Map<string, { billed: number; paid: number }>();
+    for (const inv of invoices) {
+      const s = sums.get(inv.enrollment.classId) ?? { billed: 0, paid: 0 };
+      s.billed += Number(inv.totalAmount);
+      s.paid += Number(inv.paidAmount); // never above totalAmount: chk_paid_le_total
+      sums.set(inv.enrollment.classId, s);
+    }
+
+    const classes = sums.size
+      ? await this.db.class.findMany({
+          where: { id: { in: [...sums.keys()] } },
+          select: { id: true, name: true, order: true, campus: { select: { name: true } } },
+        })
+      : [];
+    const multiCampus = !eff && new Set(classes.map((c) => c.campus.name)).size > 1;
+
+    const rows = classes.map((c) => {
+      const s = sums.get(c.id)!;
+      const billed = Math.round(s.billed * 100) / 100;
+      const paid = Math.round(s.paid * 100) / 100;
+      return {
+        classId: c.id,
+        name: multiCampus ? `${c.name} · ${c.campus.name}` : c.name,
+        order: c.order,
+        billed,
+        paid,
+        percentPaid: billed > 0 ? Math.round((paid / billed) * 100) : null,
+      };
+    });
+    rows.sort((a, b) => (a.percentPaid ?? 101) - (b.percentPaid ?? 101) || a.order - b.order || a.name.localeCompare(b.name));
+    return { month: `${year}-${String(month).padStart(2, '0')}`, classes: rows };
   }
 }
 

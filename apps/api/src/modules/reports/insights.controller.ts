@@ -18,6 +18,13 @@ export class DashboardController {
   get(@Query() q: DashboardQueryDto) {
     return this.dashboard.get(q.campusId);
   }
+
+  // Owner Dashboard Phase 3. Its own route, not a field of `get()`: the notification bell reuses
+  // `get()` on every refresh, and a per-class breakdown has no business running that often.
+  @Get('collection-by-class')
+  collectionByClass(@Query() q: DashboardQueryDto) {
+    return this.dashboard.collectionByClass(q.campusId);
+  }
 }
 
 /**

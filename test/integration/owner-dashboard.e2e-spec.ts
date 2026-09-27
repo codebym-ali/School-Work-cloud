@@ -35,6 +35,7 @@ describe('Owner dashboard — Phase 2 fields (e2e)', () => {
   let owner: string[];
   let csrf: string;
   const enrolments: Array<{ studentId: string; enrollmentId: string }> = [];
+  let admit: (dto: object) => request.Test;
 
   const sub = `odb-${randomUUID().slice(0, 8)}`;
   const host = `${sub}.localhost`;
@@ -83,7 +84,7 @@ describe('Owner dashboard — Phase 2 fields (e2e)', () => {
     const classId = (await post('/api/v1/classes', { campusId, name: 'Grade 3', order: 3 })).body.id;
     const sectionId = (await post('/api/v1/sections', { classId, name: 'A' })).body.id;
 
-    const { admit } = await admissionController(app, platform, schoolId, host, campusId);
+    admit = (await admissionController(app, platform, schoolId, host, campusId)).admit;
     for (const [i, name] of ['Amna Tariq', 'Bilal Aslam'].entries()) {
       const res = await admit({
         fullName: name, gender: i ? 'MALE' : 'FEMALE', dateOfBirth: '2017-03-10', campusId, classId, sectionId,
@@ -136,11 +137,64 @@ describe('Owner dashboard — Phase 2 fields (e2e)', () => {
     expect(typeof after.lastMonthToDate).toBe('number');
   });
 
+  it("today's cash counts payments dated today only", async () => {
+    const before = await dashboard();
+    const b = enrolments[1];
+    const inv = await platform.feeInvoice.findFirstOrThrow({ where: { studentId: b.studentId, status: 'PARTIAL' } });
+    const ownerId = (await platform.user.findFirstOrThrow({ where: { schoolId, email } })).id;
+    const pay = (receiptNo: number, amount: number, paidAt: Date) => platform.feePayment.create({
+      data: { schoolId, invoiceId: inv.id, receiptNo, amountPaid: amount, method: 'CASH', collectedById: ownerId, paidAt },
+    });
+    await pay(900001, 1000, new Date());
+    await pay(900002, 500, new Date());
+    await pay(900003, 700, daysAgo(1)); // yesterday: part of the month, not of today
+
+    const after = await dashboard();
+    expect(after.todayCollections - before.todayCollections).toBe(1500);
+    expect(after.todayPayments - before.todayPayments).toBe(2);
+  });
+
+  it('fees paid by class: lowest share first, waived excluded, and the classes sum to the school bar', async () => {
+    const classId = (await post('/api/v1/classes', { campusId, name: 'Grade 4', order: 4 })).body.id;
+    const sectionId = (await post('/api/v1/sections', { classId, name: 'A' })).body.id;
+    const res = await admit({
+      fullName: 'Chanda Riaz', gender: 'FEMALE', dateOfBirth: '2016-02-02', campusId, classId, sectionId,
+      // Dated in the past like the others: `expected` counts enrolments with startedAt ≤ today 00:00
+      // UTC, so a child admitted mid-day today is not yet expected (pre-existing rule).
+      admissionDate: daysAgo(30).toISOString().slice(0, 10),
+      guardian: { mode: 'CREATE', fullName: 'Parent C', phone: '+923001234509', relation: 'MOTHER' },
+    });
+    expect(res.status).toBe(201);
+    const enrollment = await platform.studentEnrollment.findFirstOrThrow({ where: { studentId: res.body.studentId, status: 'ACTIVE' } });
+    // Fully paid. (An overpayment cannot exist on an invoice: chk_paid_le_total.)
+    await platform.feeInvoice.create({
+      data: {
+        schoolId, studentId: res.body.studentId, enrollmentId: enrollment.id, totalAmount: 4000, paidAmount: 4000,
+        status: 'PAID', dueDate: daysAgo(1), month: now.getUTCMonth() + 1, year: now.getUTCFullYear(),
+      },
+    });
+
+    const r = await request(server()).get('/api/v1/dashboard/collection-by-class').set('Host', host).set('Cookie', owner);
+    expect(r.status).toBe(200);
+    const byName = Object.fromEntries(r.body.classes.map((c: { name: string }) => [c.name, c]));
+    // Grade 3 this month: Bilal's 5,000 bill with 1,000 paid (Amna's 7,000 is waived — not billed).
+    expect(byName['Grade 3']).toMatchObject({ billed: 5000, paid: 1000, percentPaid: 20 });
+    expect(byName['Grade 4']).toMatchObject({ billed: 4000, paid: 4000, percentPaid: 100 });
+    // Worst first — the card's whole point is "which classes are behind".
+    expect(r.body.classes[0].name).toBe('Grade 3');
+    expect(r.body.month).toBe(`${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`);
+    // The per-class figures are the school figure, split — no class-only rounding or filter drift.
+    const d = await dashboard();
+    const sum = (k: 'billed' | 'paid') => r.body.classes.reduce((n: number, c: Record<string, number>) => n + c[k], 0);
+    expect(sum('billed')).toBe(d.monthBilled);
+    expect(sum('paid')).toBe(d.monthBilledPaid);
+  });
+
   it('a working day is open and expects every enrolled child', async () => {
     await setWeeklyOff([]);
     const d = await dashboard();
     expect(d.schoolDay).toEqual({ open: true, reason: null });
-    expect(d.todayAttendanceExpected).toBe(2);
+    expect(d.todayAttendanceExpected).toBe(3) // Amna, Bilal and (from the by-class case) Chanda;
   });
 
   it('a weekly-off day is closed and expects nobody — no "2 not yet" on a day with no register', async () => {
@@ -181,7 +235,7 @@ describe('Owner dashboard — Phase 2 fields (e2e)', () => {
       const north = await platform.holiday.create({ data: { schoolId, date: today, name: 'North only', campusId: northId } });
       const d = await dashboard();
       expect(d.schoolDay.open).toBe(true);
-      expect(d.todayAttendanceExpected).toBe(2);
+      expect(d.todayAttendanceExpected).toBe(3) // Amna, Bilal and (from the by-class case) Chanda;
       await platform.holiday.delete({ where: { id: north.id } });
     } finally {
       await platform.holiday.deleteMany({ where: { schoolId, date: today } });

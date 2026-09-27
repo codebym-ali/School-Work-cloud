@@ -4,7 +4,7 @@ import { Icon, type IconName } from '@sw/ui';
 import { CollectionsTrend } from '@school/components/charts';
 import { useEffect, useState, type ReactNode } from 'react';
 import Link from 'next/link';
-import { api, type AdmissionsSummary, type Dashboard, type NotificationItem, type StaffDaySummary } from '@sw/api-client';
+import { api, type AdmissionsSummary, type ClassCollection, type Dashboard, type NotificationItem, type StaffDaySummary } from '@sw/api-client';
 import { useMe, useCampusLens } from '@sw/session';
 import { canReach, MFA_REQUIRED_ROLES } from '@sw/roles';
 import { moneyShort, percentOf } from '@school/lib/money';
@@ -46,7 +46,9 @@ const greeting = () => {
  * An unknown kind still renders (neutral, "Open") — a new server kind must never silently vanish.
  */
 const KIND: Partial<Record<NotificationItem['kind'], { tone: Tone; icon: IconName; action: string; rank: number }>> = {
-  DEFAULTERS: { tone: 'danger', icon: 'fees', action: 'See who owes', rank: 0 },
+  // Opens the Defaulters screen with everyone textable ticked and its confirmation already showing
+  // (Phase 3) — the send is still one deliberate press on a screen that states the SMS cost.
+  DEFAULTERS: { tone: 'danger', icon: 'fees', action: 'Send reminders', rank: 0 },
   SMS_FAILED: { tone: 'danger', icon: 'message', action: 'Review', rank: 1 },
   CLAIMS_PENDING: { tone: 'warn', icon: 'fee-claims', action: 'Review payments', rank: 3 },
   SALARIES_TO_PAY: { tone: 'warn', icon: 'payslips', action: 'Open payroll', rank: 4 },
@@ -60,6 +62,8 @@ const KIND: Partial<Record<NotificationItem['kind'], { tone: Tone; icon: IconNam
 
 /** Shown at once; the rest sit behind "Show N more" — a list of twelve alerts is read as none. */
 const ATTENTION_CAP = 5;
+/** Classes shown in the "fees paid by class" card before "Show all". The question is who is behind. */
+const CLASS_CAP = 5;
 
 interface AttentionRow { key: string; tone: Tone; icon: IconName; text: string; sub?: string; action: string; href: string; rank: number; primary?: boolean }
 
@@ -103,6 +107,8 @@ export default function DashboardPage() {
   // Derived server-side (N2) so the bell and this list cannot phrase the same fact two ways.
   const [attention, setAttention] = useState<NotificationItem[]>([]);
   const [showAll, setShowAll] = useState(false);
+  const [byClass, setByClass] = useState<ClassCollection | null>(null);
+  const [allClasses, setAllClasses] = useState(false);
   const [err, setErr] = useState(false);
 
   useEffect(() => {
@@ -112,6 +118,8 @@ export default function DashboardPage() {
     // Fails silently for a role the API denies, so that card simply doesn't render.
     api.staffAttendance.daySummary().then(setStaff).catch(() => {});
     api.notifications.list().then((r) => setAttention(r.items)).catch(() => {});
+    // Separate call (Phase 3): the bell reuses `/dashboard`, and this breakdown should not ride along.
+    api.collectionByClass(lens.campusId ?? undefined).then(setByClass).catch(() => setByClass(null));
     // Every admissions figure counts Inquiry rows — meaningless in a DIRECT school, so not fetched.
     if (me?.admissionsMode === 'PIPELINE') api.admissions.summary().then(setAdm).catch(() => {});
   }, [me?.admissionsMode, lens.campusId]);
@@ -173,7 +181,8 @@ export default function DashboardPage() {
         ? `${defaulters} student${defaulters === 1 ? ' owes' : 's owe'} ${moneyShort(owed)}`
         : a.text;
       const sub = a.kind === 'DEFAULTERS' && text !== a.text ? 'All past their fee due date' : undefined;
-      return { key: a.id, tone: k.tone, icon: k.icon, text, sub, action: k.action, href: a.href, rank: k.rank };
+      const href = a.kind === 'DEFAULTERS' ? '/defaulters?remind=all' : a.href;
+      return { key: a.id, tone: k.tone, icon: k.icon, text, sub, action: k.action, href, rank: k.rank };
     });
   if (needsMfa) {
     // Was a plain-text banner in the shell that read as decoration — and the reason "Appoint" looked
@@ -195,6 +204,16 @@ export default function DashboardPage() {
   // ── The one sentence ─────────────────────────────────────────────────────────────────────────
   // Built only from facts this role may see, in words, with every number carrying its context.
   const sentence: ReactNode[] = [];
+  // Today's cash first when there is any — the figure owners in this market check first. Silent at
+  // zero: "Rs 0 today" at 8 a.m. is not news, and a closed day has no counter open.
+  const todayCash = data.todayCollections ?? 0;
+  if (shows('monthCollections') && todayCash > 0) {
+    sentence.push(
+      <span key="t">
+        Today <strong className="is-ok">{moneyShort(todayCash)}</strong> came in from {data.todayPayments} payment{data.todayPayments === 1 ? '' : 's'}.{' '}
+      </span>,
+    );
+  }
   if (shows('monthCollections')) {
     sentence.push(
       <span key="m">
@@ -255,6 +274,7 @@ export default function DashboardPage() {
             ) : (
               <span className="oh-kpi-sub">No fees billed yet for {monthName}</span>
             )}
+            {todayCash > 0 && <span className="oh-kpi-sub is-ok">{moneyShort(todayCash)} today</span>}
             {delta !== null && (
               <span className={`oh-kpi-sub ${delta > 0 ? 'is-ok' : delta < 0 ? 'is-warn' : ''}`}>
                 {delta > 0 ? '▲' : delta < 0 ? '▼' : '='} {Math.abs(delta)}% vs last month by this date
@@ -359,6 +379,38 @@ export default function DashboardPage() {
           </section>
         )}
       </div>
+
+      {byClass && byClass.classes.some((c) => c.percentPaid !== null) && (() => {
+        const billedClasses = byClass.classes.filter((c) => c.percentPaid !== null);
+        const shown = allClasses ? billedClasses : billedClasses.slice(0, CLASS_CAP);
+        return (
+          <section className="oh-card" aria-labelledby="oh-class-h">
+            <div className="oh-card-head">
+              <h2 id="oh-class-h">Fees paid by class · {monthName}</h2>
+              <span className="muted">{allClasses ? 'all classes' : 'lowest first'}</span>
+            </div>
+            {/* Sorted worst first by the API; one hue for every bar (a ranking, not a status), with
+                the weakest classes' percentage in amber so "who is behind" reads without the bars. */}
+            <ul className="oh-classes">
+              {shown.map((c) => (
+                <li key={c.classId}>
+                  <span className="oh-class-name">{c.name}</span>
+                  <span className="oh-meter oh-class-bar" role="img" aria-label={`${c.name}: ${c.percentPaid}% of this month's fees paid`}>
+                    <span className="is-brand" style={{ width: `${c.percentPaid}%` }} />
+                  </span>
+                  <span className={`oh-class-pct${(c.percentPaid ?? 0) < 50 ? ' is-warn' : ''}`}>{c.percentPaid}%</span>
+                  <span className="oh-class-amt muted">{moneyShort(c.paid, 'short')} of {moneyShort(c.billed, 'short')}</span>
+                </li>
+              ))}
+            </ul>
+            {billedClasses.length > CLASS_CAP && (
+              <button type="button" className="ghost small oh-more" onClick={() => setAllClasses((v) => !v)}>
+                {allClasses ? 'Show the lowest 5' : `Show all ${billedClasses.length} classes`}
+              </button>
+            )}
+          </section>
+        );
+      })()}
 
       {adm && (
         <section className="oh-card" aria-labelledby="oh-adm-h">

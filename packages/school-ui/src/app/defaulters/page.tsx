@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, ApiError, type Defaulter } from '@sw/api-client';
 import { hasAnyRole } from '@sw/roles';
 import { useMe } from '@sw/session';
@@ -42,6 +42,44 @@ export default function DefaultersPage() {
   useEffect(() => { load(); }, [load]);
 
   const textable = useMemo(() => (rows ?? []).filter((r) => r.guardian?.canText), [rows]);
+
+  /**
+   * `?remind=all` — the owner home's "Send reminders" button (Owner Dashboard Phase 3).
+   *
+   * It lands HERE, on the confirmation this screen already has, rather than texting from the dashboard:
+   * a one-tap mass SMS from a home screen would skip the one step that says how many families and how
+   * many credits. So the intent only pre-ticks everyone who can be texted and opens that dialog; nothing
+   * is sent until Send is pressed. Read from `location` once (not `useSearchParams`, which needs a
+   * Suspense boundary to build), then removed from the URL so a reload does not reopen it.
+   *
+   * ⚠️ **The intent stays live until the dialog closes — it is not applied "once".** Every list load
+   * ends by clearing the selection (`load`), and the list can load twice (React's dev double-effect, or
+   * a filter change). Applied once, the second load wiped the ticks AFTER the dialog had opened, and it
+   * read "Text 0 families?". Re-applied on every load while live, the selection always matches the list.
+   */
+  const intentRead = useRef(false);
+  const [remindAll, setRemindAll] = useState(false);
+  useEffect(() => {
+    if (intentRead.current) return;
+    intentRead.current = true;
+    const url = new URL(window.location.href);
+    if (url.searchParams.get('remind') !== 'all') return;
+    url.searchParams.delete('remind');
+    window.history.replaceState(null, '', url.pathname + url.search + url.hash);
+    setRemindAll(true);
+  }, []);
+  useEffect(() => {
+    if (!remindAll || rows === null) return;
+    if (textable.length > 0) {
+      setPicked(new Set(textable.map((r) => r.student.id)));
+      setConfirming(true);
+    } else {
+      if (rows.length > 0) setMsg({ ok: false, text: 'Nobody on this list can be texted — their numbers are unverified or opted out. Call them instead.' });
+      setRemindAll(false);
+    }
+  }, [remindAll, rows, textable]);
+  /** Every way out of the dialog also ends the remind intent, so a later reload cannot reopen it. */
+  const closeDialog = () => { setConfirming(false); setRemindAll(false); };
   const total = (rows ?? []).reduce((n, r) => n + r.outstanding, 0);
   const allPicked = textable.length > 0 && textable.every((r) => picked.has(r.student.id));
 
@@ -60,7 +98,7 @@ export default function DefaultersPage() {
         res.skipped.cannotText > 0 ? `${res.skipped.cannotText} could not be texted` : '',
       ].filter(Boolean);
       setMsg({ ok: true, text: `${res.queued} reminder${res.queued === 1 ? '' : 's'} queued.${notes.length ? ` ${notes.join('; ')}.` : ''}` });
-      setConfirming(false);
+      closeDialog();
       setPicked(new Set());
     } catch (e) {
       setMsg({ ok: false, text: e instanceof ApiError ? e.message : 'Could not send reminders. Nothing was sent.' });
@@ -144,8 +182,8 @@ export default function DefaultersPage() {
 
       {confirming && (
         <div role="dialog" aria-modal="true" aria-label="Send fee reminders"
-          onClick={(e) => { if (e.target === e.currentTarget && !busy) setConfirming(false); }}
-          onKeyDown={(e) => { if (e.key === 'Escape' && !busy) setConfirming(false); }}
+          onClick={(e) => { if (e.target === e.currentTarget && !busy) closeDialog(); }}
+          onKeyDown={(e) => { if (e.key === 'Escape' && !busy) closeDialog(); }}
           style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.45)', zIndex: 60, display: 'grid', placeItems: 'center', padding: 16 }}>
           <div className="card stack" style={{ width: 'min(460px, 100%)', gap: 12, background: '#fff' }} onClick={(e) => e.stopPropagation()}>
             <h2 style={{ margin: 0, fontSize: 17 }}>Text {picked.size} {picked.size === 1 ? 'family' : 'families'}?</h2>
@@ -154,7 +192,7 @@ export default function DefaultersPage() {
               About {picked.size} SMS from your credits. A family already reminded today will not be texted again.
             </p>
             <div className="row" style={{ gap: 8, justifyContent: 'flex-end' }}>
-              <button type="button" className="ghost" disabled={busy} onClick={() => setConfirming(false)}>Cancel</button>
+              <button type="button" className="ghost" disabled={busy} onClick={closeDialog}>Cancel</button>
               <button type="button" disabled={busy} onClick={send} autoFocus>{busy ? 'Sending…' : `Send ${picked.size}`}</button>
             </div>
           </div>

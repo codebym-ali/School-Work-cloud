@@ -896,3 +896,17 @@ a.oh-kpi:focus-visible { outline: 3px solid var(--brand); outline-offset: 2px; }
   .oh-list li { flex-wrap: wrap; }
   .oh-list li .oh-btn { flex-basis: 100%; min-height: 44px; }
 }
+
+/* Owner home Phase 3 — "fees paid by class": a ranked list, one hue (a ranking, not a status). */
+.oh-meter > .is-brand { background: var(--brand); }
+.oh-classes { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.oh-classes li { display: grid; grid-template-columns: minmax(90px, 1.3fr) minmax(0, 3fr) 48px minmax(110px, 1.2fr); align-items: center; gap: 12px; font-size: 14px; }
+.oh-class-name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.oh-class-pct { font-weight: 700; text-align: right; font-variant-numeric: tabular-nums; }
+.oh-class-pct.is-warn { color: var(--warn-ink); }
+.oh-class-amt { font-size: 13px; font-variant-numeric: tabular-nums; }
+@media (max-width: 720px) {
+  .oh-classes li { grid-template-columns: minmax(0, 1fr) 44px; row-gap: 4px; }
+  .oh-classes .oh-class-bar { grid-column: 1 / -1; grid-row: 2; }
+  .oh-classes .oh-class-amt { grid-column: 1 / -1; grid-row: 3; }
+}

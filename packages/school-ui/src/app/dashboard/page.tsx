@@ -7,7 +7,7 @@ import Link from 'next/link';
 import { api, type AdmissionsSummary, type Dashboard, type NotificationItem, type StaffDaySummary } from '@sw/api-client';
 import { useMe, useCampusLens } from '@sw/session';
 import { canReach, MFA_REQUIRED_ROLES } from '@sw/roles';
-import { moneyShort } from '@school/lib/money';
+import { moneyShort, percentOf } from '@school/lib/money';
 
 /**
  * The owner's home (Owner Dashboard Redesign Plan, Phase 1 — 2026-09-27). Also the landing page of
@@ -134,13 +134,10 @@ export default function DashboardPage() {
   const monthName = MONTHS[new Date().getMonth()];
 
   // ── Is the school running today? ─────────────────────────────────────────────────────────────
-  // Phase 1 reads it from the staff day summary, which already applies the weekly-off days and the
-  // holiday calendar. The student figures on the API do NOT yet (their "expected" counts every
-  // enrolment every day), so on a closed day this page must not repeat them as "320 not yet" —
-  // Phase 2 moves the rule into the dashboard API itself (`schoolDay`).
-  const knownDay = staff !== null;
-  const closed = knownDay && !staff.workingDay;
-  const closedWhy = staff?.holidayName ?? 'weekly off';
+  // From the dashboard API itself (Phase 2): weekly off + holiday calendar, per open campus. On a
+  // closed day the API expects nobody, so the page cannot nag about a register that cannot be taken.
+  const closed = !data.schoolDay.open;
+  const closedWhy = (data.schoolDay.reason ?? 'weekly off').toLowerCase() === 'weekly off' ? 'weekly off' : data.schoolDay.reason;
 
   // ── Students ─────────────────────────────────────────────────────────────────────────────────
   const expected = data.todayAttendanceExpected ?? 0;
@@ -153,19 +150,30 @@ export default function DashboardPage() {
   // ── Money ────────────────────────────────────────────────────────────────────────────────────
   const collected = data.monthCollections ?? 0;
   const trend = data.collectionsTrend ?? [];
-  const lastMonth = trend.length > 1 ? trend[trend.length - 2].collected : 0;
   const earlierAllZero = trend.slice(0, -1).every((p) => p.collected <= 0);
   const defaulters = data.defaulterCount ?? 0;
+  const owed = data.outstandingTotal ?? 0;
+  // Share of THIS month's fees that is paid (null when nothing was billed yet — no base to share).
+  const paidPct = percentOf(data.monthBilledPaid ?? 0, data.monthBilled ?? 0);
+  // Month-to-date against last month to the same day; silent when last month had nothing to compare.
+  const lastToDate = data.lastMonthToDate ?? 0;
+  const delta = lastToDate > 0 ? Math.round(((collected - lastToDate) / lastToDate) * 100) : null;
 
   // ── Needs attention ──────────────────────────────────────────────────────────────────────────
   const needsMfa = !!me && !me.mfaEnabled && me.roles.some((r) => (MFA_REQUIRED_ROLES as readonly string[]).includes(r));
   const rows: AttentionRow[] = attention
     .filter((a) => reach(a.href))
     // The status line already says the school is shut; the same fact twice is noise.
-    .filter((a) => !(a.kind === 'SCHOOL_CLOSED' && knownDay))
+    .filter((a) => a.kind !== 'SCHOOL_CLOSED')
     .map((a) => {
       const k = KIND[a.kind] ?? { tone: a.severity === 'warn' ? 'warn' as Tone : 'info' as Tone, icon: 'alert' as IconName, action: 'Open', rank: 20 };
-      return { key: a.id, tone: k.tone, icon: k.icon, text: a.text, action: k.action, href: a.href, rank: k.rank };
+      // The bell says "144 fee defaulters."; here the row can say what that costs. Only without a
+      // campus lens: the list is school-wide, the amount would otherwise be one campus's.
+      const text = a.kind === 'DEFAULTERS' && !lens.campusId && shows('defaulterCount') && owed > 0
+        ? `${defaulters} student${defaulters === 1 ? ' owes' : 's owe'} ${moneyShort(owed)}`
+        : a.text;
+      const sub = a.kind === 'DEFAULTERS' && text !== a.text ? 'All past their fee due date' : undefined;
+      return { key: a.id, tone: k.tone, icon: k.icon, text, sub, action: k.action, href: a.href, rank: k.rank };
     });
   if (needsMfa) {
     // Was a plain-text banner in the shell that read as decoration — and the reason "Appoint" looked
@@ -188,10 +196,19 @@ export default function DashboardPage() {
   // Built only from facts this role may see, in words, with every number carrying its context.
   const sentence: ReactNode[] = [];
   if (shows('monthCollections')) {
-    sentence.push(<span key="m">So far in {monthName} you have collected <strong className="is-ok">{moneyShort(collected)}</strong>. </span>);
+    sentence.push(
+      <span key="m">
+        So far in {monthName} you have collected <strong className="is-ok">{moneyShort(collected)}</strong>
+        {paidPct !== null ? <> — {paidPct}% of this month&apos;s fees are paid</> : null}.{' '}
+      </span>,
+    );
   }
   if (shows('defaulterCount') && defaulters > 0) {
-    sentence.push(<span key="d"><strong className="is-danger">{defaulters} student{defaulters === 1 ? ' is' : 's are'}</strong> past their fee due date. </span>);
+    sentence.push(
+      <span key="d">
+        <strong className="is-danger">{defaulters} student{defaulters === 1 ? '' : 's'}</strong> still owe{defaulters === 1 ? 's' : ''} {moneyShort(owed)}.{' '}
+      </span>,
+    );
   }
   if (shows('todayAttendancePercent')) {
     if (closed) sentence.push(<span key="a">No classes today, so there is no register to take.</span>);
@@ -211,11 +228,11 @@ export default function DashboardPage() {
   return (
     <div className="oh">
       <div className="oh-status">
-        {knownDay && (closed ? (
+        {closed ? (
           <span className="oh-pill is-neutral"><Icon name="calendar" size={14} /> School closed · {closedWhy}</span>
         ) : (
           <span className="oh-pill is-ok"><span className="oh-dot" aria-hidden="true" /> School open today</span>
-        ))}
+        )}
         <span className="muted">{new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</span>
         {activeCampus && <span className="badge oh-scope">{activeCampus}</span>}
       </div>
@@ -228,16 +245,30 @@ export default function DashboardPage() {
       <div className="oh-kpis">
         {shows('monthCollections') && (
           <Kpi title={`Fees collected · ${monthName}`} icon="fees" tone="ok" value={moneyShort(collected)} href={reach('/fees') ? '/fees' : undefined}>
-            {/* Phase 2 adds the month's billed total and a bar against it; until then the only honest
-                context is last month's figure, and only when there was one. */}
-            <span className="oh-kpi-sub">{lastMonth > 0 ? `Last month: ${moneyShort(lastMonth)}` : 'Collected this month so far'}</span>
+            {/* A bar only against a real base: this month's own bills. Nothing billed yet is said in
+                words — an empty bar would read as "nobody paid". */}
+            {paidPct !== null ? (
+              <>
+                <Meter pct={paidPct} tone="ok" label={`${paidPct}% of this month's fees paid`} />
+                <span className="oh-kpi-sub">{paidPct}% of {moneyShort(data.monthBilled)} billed is paid</span>
+              </>
+            ) : (
+              <span className="oh-kpi-sub">No fees billed yet for {monthName}</span>
+            )}
+            {delta !== null && (
+              <span className={`oh-kpi-sub ${delta > 0 ? 'is-ok' : delta < 0 ? 'is-warn' : ''}`}>
+                {delta > 0 ? '▲' : delta < 0 ? '▼' : '='} {Math.abs(delta)}% vs last month by this date
+              </span>
+            )}
           </Kpi>
         )}
         {shows('defaulterCount') && (
           <Kpi title="Still owed" icon="alert" tone={defaulters > 0 ? 'danger' : 'ok'}
-               value={defaulters > 0 ? `${defaulters} student${defaulters === 1 ? '' : 's'}` : 'Nobody'}
+               value={defaulters > 0 ? moneyShort(owed) : 'Nothing overdue'}
                href={reach('/defaulters') ? '/defaulters' : undefined}>
-            <span className="oh-kpi-sub">{defaulters > 0 ? 'are past their fee due date' : 'is past their fee due date'}</span>
+            <span className="oh-kpi-sub">
+              {defaulters > 0 ? `${defaulters} student${defaulters === 1 ? ' is' : 's are'} past their fee due date` : 'Every fee due so far is paid'}
+            </span>
             {defaulters > 0 && reach('/defaulters') && <span className="oh-kpi-go">See who owes →</span>}
           </Kpi>
         )}

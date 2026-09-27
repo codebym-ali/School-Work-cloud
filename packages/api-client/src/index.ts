@@ -107,6 +107,18 @@ export interface Dashboard {
   attendanceBreakdown: AttendanceBreakdown | null;
   /** Six months of collections, oldest first. Financial, so every dashboard role gets it. */
   collectionsTrend: CollectionPoint[];
+  /** Σ unpaid balance on overdue invoices — the SAME predicate as `defaulterCount`, so the count and
+   *  the amount always describe one set of students (Owner Dashboard Phase 2). */
+  outstandingTotal: number;
+  /** This month's invoices (waived excluded) and how much of THEM is paid — "74% of September's fees
+   *  paid", which is not the same question as cash received this month. */
+  monthBilled: number;
+  monthBilledPaid: number;
+  /** Cash received last month up to the same day — the fair comparison for a month in progress. */
+  lastMonthToDate: number;
+  /** Is the school running today (weekly off + holiday calendar, per open campus)? When closed,
+   *  `todayAttendanceExpected` is 0: nobody is expected on a closed day. */
+  schoolDay: { open: boolean; reason: string | null };
   /** Metric keys this role should see — the UI renders only these cards (role-shaping). */
   visible: string[];
 }

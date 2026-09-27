@@ -94,6 +94,39 @@ export function workingDaysBetween(
 }
 
 /**
+ * Is the school running today, across a set of campuses? (Owner Dashboard Redesign Plan, Phase 2.)
+ *
+ * The same rule the register applies per campus (`nonWorkingReason` in the attendance service):
+ * a weekly-off day closes everything and wins the tie; a holiday with `campusId: null` closes every
+ * campus; a campus holiday closes only that campus. The dashboard needs it over MANY campuses at
+ * once, so it returns which campuses are shut — the whole-school view must count only the children
+ * on campuses that are open, or a one-campus closure reads as "300 registers not marked".
+ *
+ * `open` is true while at least one campus is working. With no campuses at all (a school still
+ * being set up) only the weekly-off and school-wide rules can apply.
+ */
+export function schoolDayStatus(
+  date: Date,
+  weeklyOffDays: readonly string[],
+  holidays: ReadonlyArray<{ campusId: string | null; name: string }>,
+  campusIds: readonly string[],
+): { open: boolean; reason: string | null; closedCampusIds: string[] } {
+  const WEEK = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'];
+  if (weeklyOffDays.includes(WEEK[date.getUTCDay()])) {
+    return { open: false, reason: 'Weekly off', closedCampusIds: [...campusIds] };
+  }
+  const schoolWide = holidays.find((h) => h.campusId === null);
+  if (schoolWide) return { open: false, reason: schoolWide.name, closedCampusIds: [...campusIds] };
+
+  const closed = campusIds.filter((id) => holidays.some((h) => h.campusId === id));
+  if (campusIds.length > 0 && closed.length === campusIds.length) {
+    const names = [...new Set(holidays.filter((h) => h.campusId && closed.includes(h.campusId)).map((h) => h.name))];
+    return { open: false, reason: names.length === 1 ? names[0] : 'Holiday', closedCampusIds: closed };
+  }
+  return { open: true, reason: null, closedCampusIds: closed };
+}
+
+/**
  * Did this attendance status mean the student was not in school that day?
  *
  * Used to seed the "absent" box when a teacher enters class-test marks. `ABSENT` and `ON_LEAVE`

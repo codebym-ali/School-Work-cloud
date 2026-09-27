@@ -1,4 +1,40 @@
-import { attendancePercentFromStatuses, checkInStatus, isPastLocalTime, localHhMm, workingDaysBetween } from './attendance';
+import { attendancePercentFromStatuses, checkInStatus, isPastLocalTime, localHhMm, schoolDayStatus, workingDaysBetween } from './attendance';
+
+describe('schoolDayStatus', () => {
+  const SUNDAY = new Date('2026-09-27T00:00:00Z');
+  const MONDAY = new Date('2026-09-28T00:00:00Z');
+  const campuses = ['c1', 'c2'];
+
+  it('a weekly-off day closes every campus, and wins over a holiday on the same day', () => {
+    expect(schoolDayStatus(SUNDAY, ['SUNDAY'], [{ campusId: null, name: 'Eid' }], campuses))
+      .toEqual({ open: false, reason: 'Weekly off', closedCampusIds: ['c1', 'c2'] });
+  });
+
+  it('an ordinary working day is open with nothing closed', () => {
+    expect(schoolDayStatus(MONDAY, ['SUNDAY'], [], campuses)).toEqual({ open: true, reason: null, closedCampusIds: [] });
+  });
+
+  it('a school-wide holiday closes everything and names itself', () => {
+    expect(schoolDayStatus(MONDAY, ['SUNDAY'], [{ campusId: null, name: 'Iqbal Day' }], campuses))
+      .toEqual({ open: false, reason: 'Iqbal Day', closedCampusIds: ['c1', 'c2'] });
+  });
+
+  it('one campus shut, another open: the school is open and the shut campus is named', () => {
+    expect(schoolDayStatus(MONDAY, ['SUNDAY'], [{ campusId: 'c2', name: 'Local strike' }], campuses))
+      .toEqual({ open: true, reason: null, closedCampusIds: ['c2'] });
+  });
+
+  it('every campus shut by its own holiday: closed, with the shared name or a generic one', () => {
+    expect(schoolDayStatus(MONDAY, ['SUNDAY'], [{ campusId: 'c1', name: 'Rain' }, { campusId: 'c2', name: 'Rain' }], campuses).reason).toBe('Rain');
+    expect(schoolDayStatus(MONDAY, ['SUNDAY'], [{ campusId: 'c1', name: 'Rain' }, { campusId: 'c2', name: 'Strike' }], campuses))
+      .toMatchObject({ open: false, reason: 'Holiday' });
+  });
+
+  it('a school with no campuses yet is still subject to the weekly off', () => {
+    expect(schoolDayStatus(SUNDAY, ['SUNDAY'], [], []).open).toBe(false);
+    expect(schoolDayStatus(MONDAY, ['SUNDAY'], [], []).open).toBe(true);
+  });
+});
 
 /** Local wall-clock Date for today at HH:MM — `checkInStatus` reads local hours by design
  *  (`dayStartTime` is a wall-clock setting; prod runs TZ=Asia/Karachi). */

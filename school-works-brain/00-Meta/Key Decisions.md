@@ -1752,3 +1752,10 @@ works, re-implemented over the planner.
 - **`.toast.warn` was never defined** in any of the 5 apps — the MFA reminder and the school-closed banner rendered as plain text (why "Appoint Ops Admin" looked broken: it 403s `MFA_ENROLMENT_REQUIRED`). Defined in all five. On `/dashboard` the MFA reminder is an action-list row instead of the banner.
 - **Money on the owner home is lakh/crore** (`moneyShort()`: arithmetic, not `Intl` compact — engine output differs; rounds before choosing the unit so 99,99,999 reads "1 crore"). Ledger screens keep full rupees + 2 decimals.
 - ⚠️ Closed-day detection is borrowed from the staff day summary until Phase 2: the dashboard API's student `expected` still counts every enrolment on weekly-offs/holidays (`insights.service.ts`).
+
+## Owner home Phase 2 — money context + school day in the dashboard API (2026-09-27)
+- `outstandingTotal` and `defaulterCount` share ONE `overdueWhere` object, so the amount and the count always describe the same students. Summed with two Prisma aggregates (total, paid), never raw SQL (the tenant extension must not be bypassed).
+- The collected card's bar is `monthBilledPaid ÷ monthBilled` — this month's own invoices, WAIVED excluded — NOT cash received ÷ bills: cash received includes arrears and advances, so that ratio mixes two questions.
+- Comparison is month-to-date vs last month to the same day (`lastMonthToDate`); a full-month comparison always reads as a crash early in the month.
+- `schoolDayStatus()` (`libs/common`) is the register's per-campus rule applied across campuses: weekly off wins, a school-wide holiday closes all, a campus holiday closes only that campus; `open` while any campus works. Closed ⇒ `todayAttendanceExpected = 0`; closed campuses' children are excluded. This supersedes Phase 1's borrowing of the staff register's `workingDay`.
+- Notification `severity`/`actionLabel` stay client-side (the dashboard's `KIND` map). Known cost: the bell's `NotificationsService` reuses `DashboardService.get()` and now runs ~5 extra aggregates per refresh.

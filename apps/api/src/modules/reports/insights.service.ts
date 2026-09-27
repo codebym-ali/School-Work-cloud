@@ -11,6 +11,8 @@ import {
   keysetOlderThan,
   toKeysetPage,
   KEYSET_ORDER,
+  parseSchoolSettings,
+  schoolDayStatus,
 } from '@common';
 import { TenantPrismaService } from '@database';
 
@@ -98,11 +100,55 @@ export class DashboardService {
     }
     const collectionsTrend: CollectionPoint[] = [...buckets].map(([month, collected]) => ({ month, collected }));
 
+    // ⚠️ ONE predicate for "owes money", shared by the count and the amount below. Two filters that
+    // merely look alike would let the card say "144 students" beside a rupee total that is really
+    // about 150 — a dashboard whose two numbers disagree is trusted for neither.
+    const overdueWhere: Prisma.FeeInvoiceWhereInput = {
+      status: { in: ['PENDING', 'PARTIAL', 'OVERDUE'] }, dueDate: { lt: now }, ...(eff ? { enrollment: { campusId: eff } } : {}),
+    };
     const defaulters = await this.db.feeInvoice.findMany({
-      where: { status: { in: ['PENDING', 'PARTIAL', 'OVERDUE'] }, dueDate: { lt: now }, ...(eff ? { enrollment: { campusId: eff } } : {}) },
+      where: overdueWhere,
       select: { studentId: true },
       distinct: ['studentId'],
     });
+
+    // ── Owner Dashboard Phase 2: context for the money figures ────────────────────────────────
+    // Two aggregates, not raw SQL: Prisma cannot sum `total - paid` in one expression, and a raw
+    // query would bypass the tenant extension — the one thing never hand-rolled here.
+    const owed = await this.db.feeInvoice.aggregate({ _sum: { totalAmount: true, paidAmount: true }, where: overdueWhere });
+    const outstandingTotal = Math.max(0, Number(owed._sum.totalAmount ?? 0) - Number(owed._sum.paidAmount ?? 0));
+
+    // "Billed this month" = THIS month's invoices (waived ones excluded — nobody is asked to pay
+    // them), and how much of THOSE has been paid. Deliberately not "collected ÷ billed": collected
+    // is all cash received this month, arrears and advances included, so dividing it by this
+    // month's bills mixes two different questions into one percentage.
+    const billed = await this.db.feeInvoice.aggregate({
+      _sum: { totalAmount: true, paidAmount: true },
+      where: { month: now.getUTCMonth() + 1, year: now.getUTCFullYear(), status: { not: 'WAIVED' }, ...(eff ? { enrollment: { campusId: eff } } : {}) },
+    });
+    const monthBilled = Number(billed._sum.totalAmount ?? 0);
+    const monthBilledPaid = Number(billed._sum.paidAmount ?? 0);
+
+    // Month-to-DATE against last month to the SAME day. Against last month's full total, the 3rd of
+    // every month would read as a collapse and the 28th as a boom — a comparison that is always
+    // alarming early and always pleasing late tells the owner nothing.
+    const lastMonthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
+    const lastMonthCutoff = new Date(Math.min(lastMonthStart.getTime() + (now.getTime() - monthStart.getTime()), monthStart.getTime()));
+    const lastMonthToDate = await this.db.feePayment.aggregate({
+      _sum: { amountPaid: true },
+      where: { paidAt: { gte: lastMonthStart, lt: lastMonthCutoff }, reversal: null, ...(eff ? { invoice: { enrollment: { campusId: eff } } } : {}) },
+    });
+
+    // ── Is the school running today? ─────────────────────────────────────────────────────────
+    // Returned to every dashboard role (it is not sensitive) so the page never has to borrow the
+    // answer from the staff register. Same rule as the register itself (`schoolDayStatus`).
+    const day = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    const settings = parseSchoolSettings((await this.db.school.findFirst({ where: { id: this.ctx.requireSchoolId() } }))?.settings ?? {});
+    const campusIds = eff
+      ? [eff]
+      : (await this.db.campus.findMany({ where: { isActive: true }, select: { id: true } })).map((c) => c.id);
+    const holidaysToday = await this.db.holiday.findMany({ where: { date: day }, select: { campusId: true, name: true } });
+    const schoolDay = schoolDayStatus(day, settings.weeklyOffDays, holidaysToday, campusIds);
 
     // Ops metrics: admins only (an ACCOUNTANT neither sees nor triggers these queries).
     let attendanceBreakdown: AttendanceBreakdown | null = null;
@@ -112,7 +158,6 @@ export class DashboardService {
     let pendingLeaves: number | null = null;
     let failedSmsCount: number | null = null;
     if (isAdmin) {
-      const day = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
       const todayRecords = await this.db.attendanceRecord.findMany({
         where: { date: day, ...(eff ? { enrollment: { campusId: eff } } : {}) },
         select: { status: true },
@@ -127,12 +172,17 @@ export class DashboardService {
       // So the coverage travels WITH it and is displayed beside it, never folded into it. Folding
       // would produce a different lie (a school that has marked half its registers is not "50%
       // attendance"), and hiding it leaves the reassuring one.
-      const expectedToday = await this.db.studentEnrollment.count({
+      // ⚠️ Only children on a campus that is OPEN today are expected. This counted every enrolment
+      // every day, so on a Sunday the owner was told "0 of 320 marked · 320 not yet" — a nag about a
+      // register that cannot be taken. A closed day expects nobody; a one-campus closure removes
+      // just that campus's children.
+      const expectedToday = !schoolDay.open ? 0 : await this.db.studentEnrollment.count({
         where: {
           status: 'ACTIVE',
           student: { deletedAt: null },
           startedAt: { lte: day },
           ...(eff ? { campusId: eff } : {}),
+          ...(schoolDay.closedCampusIds.length ? { NOT: { campusId: { in: schoolDay.closedCampusIds } } } : {}),
         },
       });
       todayAttendanceMarked = todayRecords.length;
@@ -175,6 +225,12 @@ export class DashboardService {
       todayAttendanceExpected,
       monthCollections: Number(collections._sum.amountPaid ?? 0),
       defaulterCount: defaulters.length,
+      // Financial context (Phase 2) — same audience as `monthCollections`, so an accountant gets it.
+      outstandingTotal,
+      monthBilled,
+      monthBilledPaid,
+      lastMonthToDate: Number(lastMonthToDate._sum.amountPaid ?? 0),
+      schoolDay: { open: schoolDay.open, reason: schoolDay.reason },
       pendingLeaves,
       failedSmsCount,
       // Financial, so an ACCOUNTANT gets it: it is the same money as `monthCollections`, only

@@ -305,6 +305,11 @@ export class SetStudentCnicDto {
   cnic!: string;
 }
 
+// Declared before the query class: decorators run at class definition, so a later const is in its TDZ.
+// The shared PaginationQuery convention: "field:asc" | "field:desc".
+export const STUDENT_SORTS = ['name:asc', 'name:desc', 'gr:asc', 'gr:desc', 'joined:asc', 'joined:desc'] as const;
+export type StudentSort = (typeof STUDENT_SORTS)[number];
+
 export class StudentSearchQuery extends PaginationQuery {
   /** name (trigram), exact GR, or guardian phone. */
   @IsOptional() @IsString()
@@ -330,6 +335,38 @@ export class StudentSearchQuery extends PaginationQuery {
    */
   @IsOptional() @IsBooleanString()
   missingGuardian?: string;
+
+  /**
+   * Whole-list sort (Owner UX 1b). With server paging a header click used to reorder only the 25
+   * rows in hand — a "sorted" list whose page 2 started over from A. Narrows the base `sort` string.
+   */
+  @IsOptional() @IsIn(STUDENT_SORTS)
+  override sort?: StudentSort = undefined;
+
+  /** Today's register (school day, UTC date as the register stores it). PRESENT includes late and
+   *  half-day — the child was at school, same rule as the dashboard. UNMARKED = no record yet. */
+  @IsOptional() @IsIn(['PRESENT', 'ABSENT', 'ON_LEAVE', 'LATE', 'UNMARKED'])
+  today?: 'PRESENT' | 'ABSENT' | 'ON_LEAVE' | 'LATE' | 'UNMARKED';
+
+  /** Joined (enrolment started) since the 1st of this month. */
+  @IsOptional() @IsBooleanString()
+  newThisMonth?: string;
+
+  /** Has an unpaid invoice past its due date — the dashboard's defaulter predicate, verbatim. */
+  @IsOptional() @IsBooleanString()
+  feeDefaulter?: string;
+}
+
+/** Scope for the hub's KPI strip — the same Campus ▸ Class ▸ Section as the list. */
+export class StudentSummaryQuery {
+  @IsOptional() @IsUUID()
+  campusId?: string;
+
+  @IsOptional() @IsUUID()
+  classId?: string;
+
+  @IsOptional() @IsUUID()
+  sectionId?: string;
 }
 
 export class AddGuardianDto extends GuardianResolutionDto {

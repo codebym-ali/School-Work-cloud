@@ -58,6 +58,7 @@ export interface MatrixRow {
  */
 export const PERMISSION_MATRIX: MatrixRow[] = [
   { label: 'list students', method: 'get', path: '/api/v1/students', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ADMISSION_CONTROLLER'], scopeGated: true },
+  { label: 'students hub summary (KPI strip)', method: 'get', path: '/api/v1/students/summary', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ADMISSION_CONTROLLER'], scopeGated: true },
   // Creating a student is admission-controller-only (segregation of duties); owner/campus are read-only here.
   { label: 'create student', method: 'post', path: '/api/v1/students', body: {}, allow: ['ADMISSION_CONTROLLER'] },
   { label: 'import students (CSV)', method: 'post', path: '/api/v1/students/import', body: {}, allow: ['ADMISSION_CONTROLLER'] },

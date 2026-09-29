@@ -23,6 +23,20 @@ Full ledger: [[consistency-register]] (LOCKED). This is the digest.
 - Staff attendance marking is unchanged here (Owner UX plan Phase 1c revisits it).
 - Guarded by `permission-matrix` (owner → 403), `attendance.e2e`, and the Playwright `attendance.spec.ts`.
 
+## Owner Students hub: one where-builder for list AND KPI counts (2026-09-29, Owner UX 1b)
+- `StudentsService.buildWhere` is the single filter behind `GET /students` and `GET /students/summary`. Every KPI
+  tile is a `count` over it with the tile's own filter (`today`, `newThisMonth`, `feeDefaulter`,
+  `missingGuardian`), so "12 absent" always opens onto those 12. The defaulter predicate is the dashboard's,
+  verbatim (unpaid invoice past due) — the hub and the owner home both say 144 on the demo.
+- **Server sort, not client:** `sort=name|gr|joined:asc|desc` (the `PaginationQuery` "field:dir" convention),
+  `id` as the stable tie-break. With server paging, a header sort must be server-side or page 2 restarts at A.
+- A student who has LEFT has no ACTIVE enrolment, so a non-seated status filter (Withdrawn, Struck off,
+  Graduated) scopes by any enrolment in the campus/class — "Withdrawn at Main Campus" used to match nobody.
+- Row signals (today's mark, year-to-date attendance, 3-month test average, fee standing) are computed for the
+  page in hand in four batched queries, never per row.
+- The owner sees the hub; office roles keep the working list (same route, branched on role). The hub stays
+  mounted under an open profile so "Back" returns to the list exactly as left.
+
 ## Surface-styled buttons hover as surfaces (2026-09-29)
 - The global `button:hover:not(:disabled)` (specificity 0,2,1) out-ranked `.metric-link` (0,1,0) and
   `.chip:hover` (0,2,0), so stat cards and chips that are `<button>`s turned navy on hover with dark text —

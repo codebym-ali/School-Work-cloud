@@ -5,7 +5,7 @@
  */
 export { KpiStrip, type KpiTileSpec } from './kpi-strip';
 export { ScopeBar, useScope, type Scope, type ScopeState } from './scope-bar';
-export { DataTable, type Column, type ServerPaging } from './data-table';
+export { DataTable, type Column, type ServerPaging, type ServerSort } from './data-table';
 export { RowActions, type RowAction } from './row-actions';
 export { DetailDrawer } from './detail-drawer';
 export { StatusPill, type Tone } from './status-pill';

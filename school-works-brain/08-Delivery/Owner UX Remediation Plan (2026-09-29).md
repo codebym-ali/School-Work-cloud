@@ -51,6 +51,34 @@ the two risks first, then builds one reusable **Owner Oversight pattern**, then 
     API needs a `sort` param so sorting covers the whole list. Student list rows also lack class-section and
     father's name (S4-3) — needs the list payload extended.
 
+- **Phase 1b — ✅ DONE 2026-09-29, verified live.** Owner Students hub + Performance tab.
+  - **API:** `GET /students` gains `sort` (`name|gr|joined:asc|desc`, whole-list), hub filters (`today`,
+    `newThisMonth`, `feeDefaulter`), and row fields (class/section/campus names, primary guardian, today's
+    mark, year-to-date attendance %, 3-month test average, fee standing + outstanding). New
+    `GET /students/summary` (KPI strip) counts over the SAME where-builder. `/reports/performance/classes/:id`
+    takes an optional `sectionId`. Withdrawn/left students are now findable by campus/class.
+  - **UI** (`app/students/owner-hub.tsx`, `owner-performance.tsx`; owner only — office roles keep their list):
+    7 clickable KPI tiles (active · present today · absent · on leave · new this month · fee defaulters ·
+    missing guardian), scope bar + search-as-you-type, table (initials, "s/o Father", Class — Section,
+    GR, today, attendance, test avg, fees pill; status/gender/reg/added optional), ⋯ menu, bulk CSV export
+    (formula-safe), drawer (status + today, 3 stats, results-by-month chart, subject bars, guardians,
+    record; delete stays behind the typed confirmation). Performance tab: school view (average, classes
+    below pass / falling / not assessed, worst-first table → click drills into the class), class view
+    (average, at-risk count, A+…F distribution, top 5 with GR, at-risk = <50% · down 10+ · <75% attendance).
+    `DataTable` gains `serverSort`; table headers are sentence case.
+  - **Live** (demo, 320 students): KPIs 320 / 144 defaulters (= dashboard) / 320 unmarked; defaulter tile →
+    144 rows all "Overdue", toggles back; GR desc page 2 starts GR-0295; search "Maryam" → 11; no office
+    buttons for the owner; profile → Back keeps tile + search; Grade 6 1-month ▼4, 6 at risk, distribution,
+    section B narrows to 20; drawer chart Aug → Sept, focus returns to the row; 375px: no page scroll, 2-col
+    KPIs, full-width drawer. 18 class tests were recorded on the local demo (Grade 6 A/B, Grade 3 A) through
+    the class-test API to exercise the views — the demo seed has none.
+  - **Found + fixed during verification:** duplicate names in the top 5 (GR added), monthly chart came
+    newest-first (now chronological), Back from a profile reset the list (hub now stays mounted).
+  - *Tests:* new `students-hub.e2e-spec` 6/6 (row fields, cross-page sort, bad sort 400, summary = filters,
+    section scope, section-scoped performance); `performance-reports` + `students-numbering` green.
+  - **Carry-forward:** no class-test seed data in `prisma/seed.ts`; "Send SMS" / "Move section" bulk actions
+    from §1.2 are not built (owner is read-only; SMS broadcast lives on the SMS screen).
+
 ## Design principles (the bar every screen is judged against)
 1. **Oversee, don't operate.** Owner screens answer "how is my school doing and where must I act?" first;
    records come second, and editing is for the role that owns the record.

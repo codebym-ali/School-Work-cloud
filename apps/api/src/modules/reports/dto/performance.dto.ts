@@ -7,6 +7,12 @@ export class StudentPerformanceQuery {
   range?: PerformanceRange;
 }
 
+/** Level 2 — optionally narrowed to one section, so the Students hub's scope bar means the same thing here. */
+export class ClassStudentsQuery extends StudentPerformanceQuery {
+  @IsOptional() @IsUUID()
+  sectionId?: string;
+}
+
 export class ClassPerformanceQuery extends StudentPerformanceQuery {
   /** Ignored for a campus-bound admin — their own campus is forced in the service. */
   @IsOptional() @IsUUID()

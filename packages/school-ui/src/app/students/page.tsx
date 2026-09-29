@@ -13,6 +13,7 @@ import { StudentFeesCard } from './student-fees-card';
 import { hasAnyRole } from '@sw/roles';
 import { GuardiansCard } from './guardians-card';
 import { WithdrawalCard } from './withdrawal';
+import { OwnerStudentsHub } from './owner-hub';
 
 export default function StudentsPage() {
   return (
@@ -49,6 +50,7 @@ function StudentsInner() {
   const [moveFor, setMoveFor] = useState<Student | null>(null);
   const [statusFilter, setStatusFilter] = useState('');
   const [missingGuardian, setMissingGuardian] = useState(false);
+  const [hubReload, setHubReload] = useState(0);
 
   async function load() {
     const qs = new URLSearchParams();
@@ -66,9 +68,10 @@ function StudentsInner() {
     apiGet<Campus[]>('/campuses').then(setCampuses).catch(() => {});
     apiGet<Klass[]>('/classes').then(setClasses).catch(() => {});
     apiGet<Section[]>('/sections').then(setSections).catch(() => {});
-    load().catch(() => {});
+    // The owner's hub loads its own list; the office list below is not rendered for them.
+    if (me && !isOwner) load().catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lens.campusId, classId, sectionId, statusFilter, missingGuardian]);
+  }, [lens.campusId, classId, sectionId, statusFilter, missingGuardian, me, isOwner]);
 
   // Push a new filter into the URL so the view is shareable and the effect reloads.
   // Campus is the shell lens now; only the class/section drill lives in the URL.
@@ -99,6 +102,30 @@ function StudentsInner() {
   const activeClass = classes.find((c) => c.id === classId);
   const activeSection = sections.find((s) => s.id === sectionId);
   const hasFilter = Boolean(campusId || classId || sectionId);
+
+  // Until we know who is looking, render neither view — the owner must never flash the office list.
+  if (!me) return <p className="muted">Loading…</p>;
+
+  // The owner gets the oversight hub (Owner UX 1b); the office roles keep this working list.
+  // ⚠️ The hub stays MOUNTED (hidden) under an open profile, so "← Back" returns to the list exactly as
+  // it was left — tile, search, sort and page — instead of a fresh first page.
+  if (isOwner) {
+    return (
+      <div className="stack">
+        {detailId && <StudentProfile id={detailId} classes={classes} sections={sections} onBack={() => setDetailId(null)} />}
+        {/* Inline display, not `hidden`: `.stack { display: flex }` would override the attribute. */}
+        <div className="stack" style={detailId ? { display: 'none' } : undefined}>
+          {msg && <div className={`toast ${msg.ok ? 'ok' : 'err'}`}>{msg.text}</div>}
+          {deleteFor && (
+            <DeleteStudentDialog student={deleteFor} onClose={() => setDeleteFor(null)}
+              onDone={(text) => { setDeleteFor(null); setMsg({ ok: true, text }); setHubReload((k) => k + 1); }}
+              onError={(text) => setMsg({ ok: false, text })} />
+          )}
+          <OwnerStudentsHub onOpenProfile={setDetailId} onDelete={(s) => { setMsg(null); setDeleteFor(s); }} reloadKey={hubReload} />
+        </div>
+      </div>
+    );
+  }
 
   if (detailId) return <StudentProfile id={detailId} classes={classes} sections={sections} onBack={() => setDetailId(null)} />;
 

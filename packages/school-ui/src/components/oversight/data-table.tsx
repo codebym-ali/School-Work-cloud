@@ -15,6 +15,17 @@ export interface Column<T> {
   /** Can't be hidden (the identity column). */
   pinned?: boolean;
   width?: string;
+  /** With `serverSort`: the column sorts the WHOLE list on the server (its key is sent as the field). */
+  serverSortable?: boolean;
+}
+
+/**
+ * Supply with `serverPaging` when the API can sort. Then only `serverSortable` columns sort, and a header
+ * click asks the server — a client sort over one page is a list whose page 2 starts again from A.
+ */
+export interface ServerSort {
+  sort: { key: string; dir: SortDir } | null;
+  onSortChange: (sort: { key: string; dir: SortDir } | null) => void;
 }
 
 /** Supply when the SERVER pages: `rows` is then only the current page. */
@@ -30,7 +41,7 @@ export interface ServerPaging {
  *
  * - Sorting is by header button with `aria-sort`; empty values sink to the bottom either way.
  * - Paging shows "Showing 1–25 of 312" — client-side by default, or `serverPaging` for server-paged APIs
- *   (then sorting reorders the page in hand — say so in the column, or sort on the server).
+ *   (pair it with `serverSort` so a header sorts the whole list, not the page in hand).
  * - Columns can be shown/hidden, so a dense table stays readable on a laptop.
  * - Selection (checkboxes) raises a bulk-action bar; `bulkActions` renders its buttons.
  * - `onRowClick` makes the whole row open the record (mouse or Enter); clicks on controls inside the row
@@ -38,8 +49,9 @@ export interface ServerPaging {
  */
 export function DataTable<T>({
   columns, rows, rowKey, caption, loading = false, empty, onRowClick, rowLabel,
-  pageSize = 25, serverPaging, initialSort, selectable = false, bulkActions, noun = 'results', toolbar,
+  pageSize = 25, serverPaging, serverSort, initialSort, selectable = false, bulkActions, noun = 'results', toolbar,
 }: {
+  serverSort?: ServerSort;
   columns: Column<T>[];
   rows: T[];
   rowKey: (row: T) => string;
@@ -59,7 +71,9 @@ export function DataTable<T>({
   /** Rendered at the left of the toolbar row (e.g. a status filter). */
   toolbar?: ReactNode;
 }) {
-  const [sort, setSort] = useState<{ key: string; dir: SortDir } | null>(initialSort ?? null);
+  const [localSort, setLocalSort] = useState<{ key: string; dir: SortDir } | null>(initialSort ?? null);
+  const sort = serverSort ? serverSort.sort : localSort;
+  const canSort = (c: Column<T>) => (serverSort ? !!c.serverSortable : !!c.sortValue);
   const [page, setPage] = useState(1);
   const [hidden, setHidden] = useState<Set<string>>(() => new Set(columns.filter((c) => c.defaultHidden).map((c) => c.key)));
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -80,7 +94,8 @@ export function DataTable<T>({
   }, [colsOpen]);
 
   const shown = columns.filter((c) => !hidden.has(c.key));
-  const sortCol = sort ? columns.find((c) => c.key === sort.key && c.sortValue) : undefined;
+  // Server-sorted rows arrive in order; re-sorting them locally would only fight the server.
+  const sortCol = sort && !serverSort ? columns.find((c) => c.key === sort.key && c.sortValue) : undefined;
   const sorted = sortCol && sort ? sortRows(rows, sortCol.sortValue!, sort.dir) : rows;
   const slice = serverPaging
     ? serverPage(sorted, serverPaging.page, serverPaging.pageSize, serverPaging.total)
@@ -99,7 +114,9 @@ export function DataTable<T>({
     return n;
   });
 
-  const cycleSort = (key: string) => setSort((s) => (s?.key !== key ? { key, dir: 'asc' } : s.dir === 'asc' ? { key, dir: 'desc' } : null));
+  const next = (s: { key: string; dir: SortDir } | null, key: string) =>
+    (s?.key !== key ? { key, dir: 'asc' as SortDir } : s.dir === 'asc' ? { key, dir: 'desc' as SortDir } : null);
+  const cycleSort = (key: string) => (serverSort ? serverSort.onSortChange(next(serverSort.sort, key)) : setLocalSort((s) => next(s, key)));
   const hideable = columns.filter((c) => !c.pinned);
   const colSpan = shown.length + (selectable ? 1 : 0);
 
@@ -150,10 +167,10 @@ export function DataTable<T>({
               )}
               {shown.map((c) => {
                 const active = sort?.key === c.key;
-                const ariaSort = active ? (sort!.dir === 'asc' ? 'ascending' : 'descending') : c.sortValue ? 'none' : undefined;
+                const ariaSort = active ? (sort!.dir === 'asc' ? 'ascending' : 'descending') : canSort(c) ? 'none' : undefined;
                 return (
                   <th key={c.key} scope="col" aria-sort={ariaSort} style={{ width: c.width, textAlign: c.align }}>
-                    {c.sortValue ? (
+                    {canSort(c) ? (
                       <button type="button" className={`ov-sort${active ? ' is-active' : ''}`} onClick={() => cycleSort(c.key)}>
                         {c.header}
                         <span className="ov-sort-ind" aria-hidden>{active ? (sort!.dir === 'asc' ? '▲' : '▼') : '↕'}</span>

@@ -306,7 +306,30 @@ export interface Student { id: string; fullName: string; grNumber: string; regis
   /** Derived, like `hasGuardian`: nothing outstanding on the admission record. */
   recordComplete: boolean;
   /** Narrower than `recordComplete`: the mandatory admission DOCUMENTS are in hand. */
-  documentsComplete: boolean }
+  documentsComplete: boolean;
+  /** The ACTIVE enrolment (at most one) with its names, so a row reads "Grade 6 — A · Main Campus". */
+  enrollments?: StudentListEnrollment[];
+  /** Primary guardian — "Ahmed · s/o Tariq". */
+  primaryGuardian?: { fullName: string; relation: string } | null;
+  /** Owner hub signals (Owner UX 1b), computed for the page in hand. */
+  todayStatus?: AttendanceStatus | null;
+  /** Year to date, the shared attendance rule. null = nothing recorded yet. */
+  attendancePercent?: number | null;
+  /** Class-test average over the last 3 months. null = not tested. */
+  performancePercent?: number | null;
+  feeStatus?: 'CLEAR' | 'DUE' | 'OVERDUE';
+  outstanding?: number }
+export type AttendanceStatus = 'PRESENT' | 'ABSENT' | 'LATE' | 'HALF_DAY' | 'ON_LEAVE';
+export interface StudentListEnrollment {
+  id: string; classId: string; sectionId: string; campusId: string; rollNumber: number | null; startedAt: string;
+  class: { name: string }; section: { name: string }; campus: { name: string };
+}
+/** GET /students/summary — the Students hub KPI strip for one scope. */
+export interface StudentSummary {
+  active: number;
+  today: { schoolDayOpen: boolean; closedReason: string | null; present: number; absent: number; onLeave: number; late: number; unmarked: number; presentPercent: number | null };
+  newThisMonth: number; withdrawn: number; feeDefaulters: number; missingGuardian: number;
+}
 export interface StudentDetail extends StudentRecordFields {
   id: string; fullName: string; grNumber: string; registrationNo: string | null; gender: string; dateOfBirth: string; isActive: boolean;
   /** Human labels for what is still outstanding — deliberately narrow, so it can reach zero. */
@@ -930,8 +953,8 @@ export const api = {
   performance: {
     byClass: (range: PerformanceRange, campusId?: string) =>
       apiGet<ClassPerformance[]>(`/reports/performance/classes?range=${range}${campusId ? `&campusId=${campusId}` : ''}`),
-    byStudent: (classId: string, range: PerformanceRange) =>
-      apiGet<ClassStudents>(`/reports/performance/classes/${classId}?range=${range}`),
+    byStudent: (classId: string, range: PerformanceRange, sectionId?: string) =>
+      apiGet<ClassStudents>(`/reports/performance/classes/${classId}?range=${range}${sectionId ? `&sectionId=${sectionId}` : ''}`),
     forStudent: (studentId: string, range: PerformanceRange) =>
       apiGet<StudentPerformance>(`/reports/performance/students/${studentId}?range=${range}`),
   },
@@ -1223,6 +1246,11 @@ export const api = {
     summary: () => apiGet<AdmissionsSummary>('/inquiries/summary'),
   },
   students: {
+    /** The Students hub KPI strip for a Campus ▸ Class ▸ Section scope (Owner UX 1b). */
+    summary: (scope: { campusId?: string; classId?: string; sectionId?: string } = {}) => {
+      const q = new URLSearchParams(Object.entries(scope).filter(([, v]) => v) as [string, string][]).toString();
+      return apiGet<StudentSummary>(`/students/summary${q ? `?${q}` : ''}`);
+    },
     // Direct admission — ADMISSION_CONTROLLER only. A 422 AGE_OUT_OF_RANGE is retried with ageOverride.
     admit: (body: DirectAdmissionBody) => apiPost<AdmissionResult>('/students', body),
     /** Record or replace the CNIC after admission; provisions the portal login if absent.

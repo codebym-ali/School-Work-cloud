@@ -1,8 +1,14 @@
 import { HttpStatus, Inject, Injectable } from '@nestjs/common';
 import { createHmac } from 'node:crypto';
-import { Prisma, StudentStatus, type GuardianRelation, type StudentDocumentType } from '@prisma/client';
+import { Prisma, StudentStatus, type AttendanceStatus, type GuardianRelation, type StudentDocumentType } from '@prisma/client';
 import {
   AppError,
+  attendancePercentFromStatuses,
+  parseSchoolSettings,
+  rangeStart,
+  schoolDayStatus,
+  summarisePerformance,
+  type ScoredTest,
   assertCampusAccess,
   AuditActions,
   computeAge,
@@ -24,7 +30,7 @@ import { AuditService, TenantPrismaService } from '@database';
 import { AccessService } from '../access/access.service';
 import { SetupService } from '../setup/setup.service';
 import { GuardiansService } from './guardians.service';
-import type { ChangeStudentStatusDto, CreateStudentDto, GuardianResolutionDto, SetStudentDocumentDto, StudentSearchQuery, UpdateGuardianContactDto, UpdateStudentDto } from './dto/student.dto';
+import type { ChangeStudentStatusDto, CreateStudentDto, GuardianResolutionDto, SetStudentDocumentDto, StudentSearchQuery, StudentSort, StudentSummaryQuery, UpdateGuardianContactDto, UpdateStudentDto } from './dto/student.dto';
 
 export interface CreateStudentCoreInput {
   fullName: string;
@@ -354,18 +360,30 @@ export class StudentsService {
   }
 
   // ── Directory ────────────────────────────────────────────────────────────────
-  async search(q: StudentSearchQuery): Promise<Paginated<unknown>> {
+  /**
+   * The ONE where-builder behind both the list and the hub's KPI counts. A tile that says "12 absent
+   * today" must open onto exactly those 12 — two filters that merely look alike drift apart.
+   */
+  private buildWhere(q: Omit<StudentSearchQuery, 'page' | 'pageSize' | 'sort'>, now = new Date()): Prisma.StudentWhereInput {
     const where: Prisma.StudentWhereInput = { deletedAt: null };
     if (q.status) where.status = q.status === 'INACTIVE' ? { not: StudentStatus.ACTIVE } : q.status;
 
     // Campus scoping (§22.8, P1.7): a campus-bound admin's campus is FORCED here,
     // overriding any client-supplied `campusId`; OWNER_ADMIN keeps the client filter.
     const campusId = effectiveCampusFilter(this.ctx.user, q.campusId);
-    const enroll: Prisma.StudentEnrollmentWhereInput = { status: 'ACTIVE' };
+    // ⚠️ A student who has LEFT has no ACTIVE enrolment, so "Withdrawn at Main Campus" matched nobody.
+    // For a status that ends the seat, scope by the enrolment they held instead (any status).
+    const leftStatus = q.status && q.status !== StudentStatus.ACTIVE && q.status !== StudentStatus.SUSPENDED && q.status !== StudentStatus.RESTRICTED;
+    const enroll: Prisma.StudentEnrollmentWhereInput = leftStatus ? {} : { status: 'ACTIVE' };
     if (campusId) enroll.campusId = campusId;
     if (q.classId) enroll.classId = q.classId;
     if (q.sectionId) enroll.sectionId = q.sectionId;
-    if (campusId || q.classId || q.sectionId) where.enrollments = { some: enroll };
+    // Owner hub filters (Owner UX 1b) — the same predicates `summary()` counts with.
+    const hub = StudentsService.hubPredicates(now);
+    if (q.today) enroll.attendanceRecords = hub.today[q.today];
+    if (q.newThisMonth === 'true') enroll.startedAt = hub.joinedSince;
+    if (q.feeDefaulter === 'true') where.invoices = { some: hub.overdueInvoice };
+    if (campusId || q.classId || q.sectionId || q.today || q.newThisMonth === 'true') where.enrollments = { some: enroll };
     // The chase list for students admitted without a guardian (§8) — they receive no SMS at
     // all, so being able to find them is what keeps "record it later" from meaning "never".
     if (q.missingGuardian === 'true') where.guardians = { none: {} };
@@ -381,20 +399,164 @@ export class StudentsService {
         ];
       }
     }
+    return where;
+  }
 
+  /** Predicates shared by the list filters and the KPI counts. Dates are UTC, as the register stores them. */
+  private static hubPredicates(now: Date) {
+    const day = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    const on = (status: Prisma.EnumAttendanceStatusFilter | AttendanceStatus): Prisma.AttendanceRecordListRelationFilter =>
+      ({ some: { date: day, status } });
+    return {
+      day,
+      today: {
+        // Late and half-day ride with present: the child was at school (the dashboard's rule).
+        PRESENT: on({ in: ['PRESENT', 'LATE', 'HALF_DAY'] }),
+        ABSENT: on('ABSENT'),
+        ON_LEAVE: on('ON_LEAVE'),
+        LATE: on('LATE'),
+        UNMARKED: { none: { date: day } },
+      } satisfies Record<NonNullable<StudentSearchQuery['today']>, Prisma.AttendanceRecordListRelationFilter>,
+      joinedSince: { gte: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)) },
+      // The dashboard's defaulter predicate, verbatim — so the hub and the home page agree.
+      overdueInvoice: { status: { in: ['PENDING', 'PARTIAL', 'OVERDUE'] }, dueDate: { lt: now } } satisfies Prisma.FeeInvoiceWhereInput,
+    };
+  }
+
+  private static orderBy(sort?: StudentSort): Prisma.StudentOrderByWithRelationInput[] {
+    const [key = 'name', d] = (sort ?? 'name:asc').split(':');
+    const dir = d === 'desc' ? 'desc' : 'asc';
+    // `id` last: a stable tie-break, or two equal names can swap between pages and one is never seen.
+    const primary: Prisma.StudentOrderByWithRelationInput =
+      key === 'gr' ? { grNumber: dir } : key === 'joined' ? { createdAt: dir } : { fullName: dir };
+    return [primary, { id: 'asc' }];
+  }
+
+  /**
+   * Per-row signals for the page in hand: today's mark, attendance % this year, recent test average
+   * and fee standing. Four batched queries over ≤100 ids — never one per row.
+   */
+  private async rowSignals(studentIds: string[], enrollmentIds: string[]) {
+    const now = new Date();
+    const { day } = StudentsService.hubPredicates(now);
+    const empty = () => ({ todayStatus: null, attendancePercent: null, performancePercent: null, feeStatus: 'CLEAR' as const, outstanding: 0 });
+    if (!studentIds.length) return () => empty();
+
+    const [marks, today, scores, invoices] = await Promise.all([
+      // The ACTIVE enrolment is this academic year's, so its records ARE the year to date.
+      this.db.attendanceRecord.groupBy({ by: ['enrollmentId', 'status'], where: { enrollmentId: { in: enrollmentIds } }, _count: { _all: true } }),
+      this.db.attendanceRecord.findMany({ where: { enrollmentId: { in: enrollmentIds }, date: day }, select: { enrollmentId: true, status: true, session: true } }),
+      this.db.classTestScore.findMany({
+        where: { enrollmentId: { in: enrollmentIds }, classTest: { testDate: { gte: rangeStart('3m', now) } } },
+        select: { enrollmentId: true, marksObtained: true, isAbsent: true, classTest: { select: { totalMarks: true, testDate: true } } },
+      }),
+      this.db.feeInvoice.findMany({
+        where: { studentId: { in: studentIds }, status: { in: ['PENDING', 'PARTIAL', 'OVERDUE'] } },
+        select: { studentId: true, totalAmount: true, paidAmount: true, dueDate: true },
+      }),
+    ]);
+
+    const statuses = new Map<string, string[]>();
+    for (const m of marks) {
+      const list = statuses.get(m.enrollmentId) ?? [];
+      for (let i = 0; i < m._count._all; i++) list.push(m.status);
+      statuses.set(m.enrollmentId, list);
+    }
+    // Morning wins over evening: it is the register the office means by "today".
+    const todayBy = new Map<string, AttendanceStatus>();
+    for (const t of [...today].sort((a, b) => (a.session === 'MORNING' ? -1 : 1) - (b.session === 'MORNING' ? -1 : 1))) {
+      if (!todayBy.has(t.enrollmentId)) todayBy.set(t.enrollmentId, t.status);
+    }
+    const scored = new Map<string, ScoredTest[]>();
+    for (const s of scores) {
+      const list = scored.get(s.enrollmentId) ?? [];
+      list.push({ marksObtained: s.marksObtained == null ? null : Number(s.marksObtained), totalMarks: Number(s.classTest.totalMarks), isAbsent: s.isAbsent, testDate: s.classTest.testDate });
+      scored.set(s.enrollmentId, list);
+    }
+    const fees = new Map<string, { outstanding: number; overdue: boolean }>();
+    for (const inv of invoices) {
+      const f = fees.get(inv.studentId) ?? { outstanding: 0, overdue: false };
+      f.outstanding += Math.max(0, Number(inv.totalAmount) - Number(inv.paidAmount));
+      if (inv.dueDate < now) f.overdue = true;
+      fees.set(inv.studentId, f);
+    }
+
+    return (studentId: string, enrollmentId?: string) => {
+      const f = fees.get(studentId);
+      return {
+        todayStatus: enrollmentId ? todayBy.get(enrollmentId) ?? null : null,
+        attendancePercent: enrollmentId ? attendancePercentFromStatuses(statuses.get(enrollmentId) ?? []) : null,
+        performancePercent: enrollmentId ? summarisePerformance(scored.get(enrollmentId) ?? []).percent : null,
+        // OVERDUE = the dashboard's defaulter; DUE = billed, not yet late; CLEAR = nothing owed.
+        feeStatus: (f && f.outstanding > 0 ? (f.overdue ? 'OVERDUE' : 'DUE') : 'CLEAR') as 'OVERDUE' | 'DUE' | 'CLEAR',
+        outstanding: Math.round((f?.outstanding ?? 0) * 100) / 100,
+      };
+    };
+  }
+
+  /**
+   * The Students hub KPI strip (Owner UX 1b) for one Campus ▸ Class ▸ Section scope. Every figure is a
+   * `count` over `buildWhere` with the tile's own filter — the exact query the tile opens.
+   */
+  async summary(scope: StudentSummaryQuery) {
+    const now = new Date();
+    const count = (extra: Partial<StudentSearchQuery>) => this.db.student.count({ where: this.buildWhere({ ...scope, ...extra }, now) });
+
+    // Is the school open today? An "unmarked" count on a Sunday is a nag about a register that cannot be taken.
+    const { day } = StudentsService.hubPredicates(now);
+    const campusId = effectiveCampusFilter(this.ctx.user, scope.campusId);
+    const settings = parseSchoolSettings((await this.db.school.findFirst({ where: { id: this.ctx.requireSchoolId() } }))?.settings ?? {});
+    const campusIds = campusId ? [campusId] : (await this.db.campus.findMany({ where: { isActive: true }, select: { id: true } })).map((c) => c.id);
+    const holidays = await this.db.holiday.findMany({ where: { date: day }, select: { campusId: true, name: true } });
+    const schoolDay = schoolDayStatus(day, settings.weeklyOffDays, holidays, campusIds);
+
+    const active = { status: StudentStatus.ACTIVE };
+    const [total, present, absent, onLeave, late, unmarked, newThisMonth, withdrawn, feeDefaulters, missingGuardian] = await Promise.all([
+      count(active),
+      count({ ...active, today: 'PRESENT' }),
+      count({ ...active, today: 'ABSENT' }),
+      count({ ...active, today: 'ON_LEAVE' }),
+      count({ ...active, today: 'LATE' }),
+      schoolDay.open ? count({ ...active, today: 'UNMARKED' }) : Promise.resolve(0),
+      count({ ...active, newThisMonth: 'true' }),
+      count({ status: StudentStatus.WITHDRAWN }),
+      count({ ...active, feeDefaulter: 'true' }),
+      count({ ...active, missingGuardian: 'true' }),
+    ]);
+    const marked = present + absent + onLeave;
+    return {
+      active: total,
+      today: {
+        schoolDayOpen: schoolDay.open, closedReason: schoolDay.reason,
+        present, absent, onLeave, late, unmarked,
+        // Over the students actually marked, with the coverage beside it — never a % over a half-kept register.
+        presentPercent: marked ? Math.round((present / marked) * 100) : null,
+      },
+      newThisMonth, withdrawn, feeDefaulters, missingGuardian,
+    };
+  }
+
+  async search(q: StudentSearchQuery): Promise<Paginated<unknown>> {
+    const where = this.buildWhere(q);
     const { skip, take } = toSkipTake(q);
     const [rows, total] = await Promise.all([
       this.db.student.findMany({
         where,
         skip,
         take,
-        orderBy: { fullName: 'asc' },
+        orderBy: StudentsService.orderBy(q.sort),
         include: {
           enrollments: {
             where: { status: 'ACTIVE' },
-            select: { id: true, classId: true, sectionId: true, campusId: true, rollNumber: true },
+            select: {
+              id: true, classId: true, sectionId: true, campusId: true, rollNumber: true, startedAt: true,
+              // Names ride on the row so a list reads "Grade 6 — A" without the client joining three lookups.
+              class: { select: { name: true } }, section: { select: { name: true } }, campus: { select: { name: true } },
+            },
             take: 1,
           },
+          // The primary guardian only — "Ahmed · s/o Tariq" is how a Pakistani school tells two Ahmeds apart.
+          guardians: { where: { isPrimary: true }, take: 1, select: { relation: true, parent: { select: { fullName: true } } } },
           // Presence only — a count, not the guardian rows, so the directory payload doesn't
           // grow just to answer "is anyone contactable for this child?".
           _count: { select: { guardians: true } },
@@ -407,8 +569,11 @@ export class StudentsService {
     ]);
     // `hasGuardian` is surfaced on every row so the UI can flag a student nobody can be
     // contacted about — without it, admitting without a guardian is an invisible dead end.
-    const data = rows.map(({ _count, documents, ...s }) => ({
+    const signals = await this.rowSignals(rows.map((r) => r.id), rows.flatMap((r) => r.enrollments.map((e) => e.id)));
+    const data = rows.map(({ _count, documents, guardians, ...s }) => ({
       ...s,
+      primaryGuardian: guardians[0] ? { fullName: guardians[0].parent.fullName, relation: guardians[0].relation } : null,
+      ...signals(s.id, s.enrollments[0]?.id),
       hasGuardian: _count.guardians > 0,
       documentsComplete: MANDATORY_DOCUMENTS.every((t) => documents.some((d) => d.type === t && d.received)),
       // Same shape as `hasGuardian`: a derived flag the directory can badge, so an incomplete

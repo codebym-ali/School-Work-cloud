@@ -97,7 +97,7 @@ export class PerformanceService {
   }
 
   /** One row per student in a class — the second level of the drill-down. */
-  async byStudent(classId: string, range: PerformanceRange) {
+  async byStudent(classId: string, range: PerformanceRange, sectionId?: string) {
     const { from, prevFrom } = this.window(range);
     const klass = await this.db.class.findFirst({
       where: { id: classId, ...this.campusFilter() },
@@ -106,7 +106,7 @@ export class PerformanceService {
     if (!klass) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'Class not found');
 
     const rows = await this.db.classTestScore.findMany({
-      where: { classTest: { testDate: { gte: prevFrom }, section: { classId } } },
+      where: { classTest: { testDate: { gte: prevFrom }, section: { classId, ...(sectionId ? { id: sectionId } : {}) } } },
       select: {
         marksObtained: true, isAbsent: true,
         enrollment: { select: { id: true, student: { select: { id: true, fullName: true, grNumber: true } } } },
@@ -138,7 +138,7 @@ export class PerformanceService {
 
     // Every ACTIVE student appears, tested or not — a child nobody assessed is a finding.
     const enrolled = await this.db.studentEnrollment.findMany({
-      where: { classId, status: 'ACTIVE', student: { deletedAt: null } },
+      where: { classId, ...(sectionId ? { sectionId } : {}), status: 'ACTIVE', student: { deletedAt: null } },
       select: { student: { select: { id: true, fullName: true, grNumber: true } } },
     });
 

@@ -25,6 +25,7 @@ import {
   CreateStudentDto,
   ImportStudentsDto,
   StudentSearchQuery,
+  StudentSummaryQuery,
   UpdateGuardianContactDto,
   UpdateGuardianDto,
   SetStudentDocumentDto,
@@ -47,6 +48,12 @@ export class StudentsController {
   @Get()
   search(@Query() q: StudentSearchQuery) {
     return this.students.search(q);
+  }
+
+  /** The Students hub KPI strip (Owner UX 1b) — declared before `:id` so "summary" is never read as an id. */
+  @Get('summary')
+  summary(@Query() q: StudentSummaryQuery) {
+    return this.students.summary(q);
   }
 
   /** Existing-parent lookup by phone for the admit "link?" step (§8). */

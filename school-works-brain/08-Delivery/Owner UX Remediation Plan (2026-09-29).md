@@ -28,6 +28,29 @@ the two risks first, then builds one reusable **Owner Oversight pattern**, then 
     marked" card → light `#eef2f8` with AA-passing text; hovered "28 Mon" chip → light; selected chip →
     white on navy.
 
+- **Phase 1a — ✅ DONE 2026-09-29, verified live.** Shared building blocks in
+  `packages/school-ui/src/components/oversight/` (barrel `@school/components/oversight`) + pure list logic in
+  `lib/table.ts` (9 unit tests: natural/stable sort, empties sink both ways, clamped paging, range label).
+  Styles: one `ov-` block, identical in owner-web + staff-web `globals.css`; every surface-styled `<button>`
+  carries its own `button.ov-x:hover:not(:disabled)` rule (the Phase 0.2 lesson).
+  - `KpiStrip` — clickable tiles (real buttons, `aria-pressed`), skeleton when loading (never a false 0).
+  - `useScope` + `ScopeBar` — Campus ▸ Class ▸ Section, URL-synced (`?campus&class&section`), seeded from the
+    campus lens, campus-bound users fixed to their campus, real counts from `Section.enrolled`, section
+    disabled with "Choose a class first", Clear.
+  - `DataTable` — sort (`aria-sort`, cycles asc/desc/off), client or server paging with "Showing 1–25 of N",
+    column show/hide, selection + bulk bar (indeterminate select-all), row click / Enter opens the record,
+    clicks on inner controls don't.
+  - `RowActions` (⋯ menu, full keyboard, danger last + separated), `DetailDrawer` (modal dialog, focus
+    trap/return, Escape/backdrop, scroll lock, full-width on phones), `StatusPill`, `EmptyState`.
+  - **Live** (dev-only `/ui-kit`, real data, 320 students): KPI totals are server counts; cascade + URL sync +
+    reload-restore + Clear; empty state; sort + page 2 ("Showing 26–50 of 320"); drawer via keyboard shows
+    "GR-0090 · Grade 3 — A · Main Campus"; menu keyboard/Escape/outside-click; bulk "25 selected"; Gender
+    column toggles ("Female", sentence case); hovered KPI stays white with navy border (label 5.98:1,
+    value 7.09:1); at 375px: 2-column KPIs, no page scroll, full-width drawer.
+  - **Carry-forward to 1b:** with SERVER paging a header sort only reorders the page in hand — the students
+    API needs a `sort` param so sorting covers the whole list. Student list rows also lack class-section and
+    father's name (S4-3) — needs the list payload extended.
+
 ## Design principles (the bar every screen is judged against)
 1. **Oversee, don't operate.** Owner screens answer "how is my school doing and where must I act?" first;
    records come second, and editing is for the role that owns the record.

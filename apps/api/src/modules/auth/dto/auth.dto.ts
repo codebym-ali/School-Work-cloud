@@ -67,6 +67,12 @@ export class ForgotPasswordDto {
   email!: string;
 }
 
+/** The owner's display name (Owner UX Phase 2). Empty clears it. */
+export class SetMyNameDto {
+  @IsString() @Length(0, 120)
+  fullName!: string;
+}
+
 export class ResetPasswordDto {
   @IsString()
   token!: string;

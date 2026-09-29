@@ -58,6 +58,8 @@ export interface MatrixRow {
  */
 export const PERMISSION_MATRIX: MatrixRow[] = [
   { label: 'list students', method: 'get', path: '/api/v1/students', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ADMISSION_CONTROLLER'], scopeGated: true },
+  // The owner's own display name (Owner UX Phase 2) — staff names are HR's record, so owner-only.
+  { label: 'set my display name (owner)', method: 'patch', path: '/api/v1/auth/me/name', body: {}, allow: ['OWNER_ADMIN'] },
   { label: 'attendance overview (owner, read-only)', method: 'get', path: '/api/v1/attendance/overview', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'], scopeGated: true },
   { label: 'students hub summary (KPI strip)', method: 'get', path: '/api/v1/students/summary', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ADMISSION_CONTROLLER'], scopeGated: true },
   // Creating a student is admission-controller-only (segregation of duties); owner/campus are read-only here.

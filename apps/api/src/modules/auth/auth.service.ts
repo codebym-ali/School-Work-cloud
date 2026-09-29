@@ -614,6 +614,18 @@ export class AuthService {
     // admissions surface to render at all — a later fetch would flash the wrong page first.
     const school = await this.db.school.findFirst({ where: { id: principal.schoolId } });
     const { admissionsMode } = parseSchoolSettings(school?.settings);
-    return { id: user.id, email: user.email, name: staff?.fullName ?? null, roles: user.roles, campusId: user.campusId, modules, mfaEnabled: user.mfaEnabled, admissionsMode };
+    // Staff name first (HR owns it); otherwise the account's own name — how an owner gets one (Owner UX Phase 2).
+    return { id: user.id, email: user.email, name: staff?.fullName ?? user.fullName ?? null, roles: user.roles, campusId: user.campusId, modules, mfaEnabled: user.mfaEnabled, admissionsMode };
+  }
+
+  /**
+   * The owner sets their own display name (Owner UX Phase 2). Self-scoped: it can only ever write the
+   * caller's row. Staff names are NOT set here — they belong to the HR record (StaffProfile.fullName).
+   * An empty string clears it, and the header falls back to the role.
+   */
+  async setMyName(principal: RequestUser, fullName: string): Promise<{ name: string | null }> {
+    const name = fullName.trim().replace(/\s+/g, ' ') || null;
+    await this.db.user.update({ where: { id: principal.userId }, data: { fullName: name } });
+    return { name };
   }
 }

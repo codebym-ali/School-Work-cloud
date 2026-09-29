@@ -97,6 +97,15 @@ describe('Students hub (e2e, Owner UX 1b)', () => {
     expect(names).toEqual(['Zara Ali', 'Sana Butt', 'Bilal Khan', 'Ahmed Butt']);
   });
 
+  it('lets the owner set the display name the header shows (Owner UX Phase 2)', async () => {
+    const patch = (fullName: string) =>
+      request(server()).patch('/api/v1/auth/me/name').set('Host', host).set('Cookie', cookies).set('X-CSRF-Token', csrfOf(cookies)).send({ fullName });
+    expect((await get('/api/v1/auth/me')).body.name).toBeNull(); // an owner has no staff record to borrow a name from
+    expect((await patch('  Muhammad   Ali ')).body).toEqual({ name: 'Muhammad Ali' });
+    expect((await get('/api/v1/auth/me')).body.name).toBe('Muhammad Ali');
+    expect((await patch('')).body).toEqual({ name: null }); // empty clears it
+  });
+
   it('rejects a sort it does not know', async () => {
     expect((await get('/api/v1/students?sort=cnicHash:asc')).status).toBe(400);
   });

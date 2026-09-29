@@ -139,8 +139,21 @@ the two risks first, then builds one reusable **Owner Oversight pattern**, then 
     Browser specs asserting "PAID"/"PENDING"/"WAIVED" updated.
   - **Dates:** 15 `toLocaleDateString()` calls pinned to `'en-GB'` (DD/MM/YYYY on any browser locale).
   - Dev badge: the Next.js indicator exists only under `next dev`; production builds do not render it.
-  - **Carry-forward:** owner display name (needs a field + settings form); one-primary-button audit; weekday
-    date picker; density pass on older tables.
+  - **Remaining items — ✅ DONE 2026-09-29, verified live:**
+    - **Owner display name:** `users.full_name` (migration `20260929120000_user_full_name`, additive);
+      `PATCH /auth/me/name` owner-only (staff names stay HR's record); `/auth/me` = staff name ?? user name;
+      "Your name" card on Security. Live: "  Muhammad   Ali " saved as "Muhammad Ali", header
+      "Muhammad Ali · Owner", email in the tooltip. Test in `students-hub.e2e`; matrix row added.
+    - **One primary per screen:** swept all 26 owner routes for filled buttons; only Exams had three — "Add
+      term" and "Generate" are now secondary, "Create exam" the one primary. Selected tabs/chips are states.
+    - **Weekday date control:** `components/date-field.tsx` — native picker + "Mon, 29/09/2026" readout
+      (aria-describedby) + ‹ › day steppers bounded by min/max. Used on the student register, staff register
+      and report filters (steppers only for single-day filters). Live: Tue 29 → Mon 28 → Sun 27 "Weekly off";
+      Next disabled on today. Found + fixed: staff tile said "In today" on past dates; report filters wrapped
+      the control in a `<label>` (buttons leaked into the input's name); Back/Forward between two reports
+      reused the first one's filters (ReportView now keyed).
+    - **Density:** measured older tables — fee rows median 43px, no in-table control over 140×36px; the
+      175px status selects were the old staff register, replaced in 1c. No change needed.
   - ⚠️ `owner-gaps.spec.ts` tests 1 and 3 sign in as `accountant@demo.pk` / `campusadmin@demo.pk`, which exist
     only after `scripts/seed-test-users.ts` — they fail on a stack seeded with `pnpm db:seed` alone.
 

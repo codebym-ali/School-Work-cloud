@@ -5,12 +5,13 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  Patch,
   Post,
   Req,
   Res,
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
-import { CurrentUser, Public, RateLimit, type RequestUser } from '@common';
+import { CurrentUser, Public, RateLimit, Roles, type RequestUser } from '@common';
 import { AuthService } from './auth.service';
 import { REFRESH_COOKIE } from './auth.cookies';
 import {
@@ -22,6 +23,7 @@ import {
   MfaChallengeDto,
   MfaVerifyDto,
   ResetPasswordDto,
+  SetMyNameDto,
 } from './dto/auth.dto';
 
 /** Auth endpoints (blueprint §24 Auth). Cookies are set via passthrough Response. */
@@ -152,5 +154,12 @@ export class AuthController {
   @Get('me')
   me(@CurrentUser() user: RequestUser) {
     return this.auth.me(user);
+  }
+
+  /** The owner's display name for the header (Owner UX Phase 2). Owner-only: staff names are HR's record. */
+  @Roles('OWNER_ADMIN')
+  @Patch('me/name')
+  setMyName(@CurrentUser() user: RequestUser, @Body() dto: SetMyNameDto) {
+    return this.auth.setMyName(user, dto.fullName);
   }
 }

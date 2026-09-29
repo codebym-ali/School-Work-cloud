@@ -722,6 +722,9 @@ model User {
   campusId            String?    @map("campus_id") @db.Uuid
   campus              Campus?    @relation(fields: [campusId, schoolId], references: [id, schoolId])
   email               String
+  /// The person's name for an account with no staff profile — chiefly the school OWNER, whose header
+  /// otherwise showed a login email (Owner UX Phase 2). Staff names still live on StaffProfile.fullName.
+  fullName            String?    @map("full_name")
   phone               String?
   passwordHash        String?    @map("password_hash") // null while INVITED
   roles               Role[]

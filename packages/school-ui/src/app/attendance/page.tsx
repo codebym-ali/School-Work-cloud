@@ -5,6 +5,7 @@ import { api, apiGet, apiPost, ApiError, type Campus, type Enrollment, type Klas
 import { sectionLabeller } from '@school/lib/labels';
 import { useCampusLens, useMe } from '@sw/session';
 import { AttendanceOverviewPanel } from './owner-overview';
+import { DateField } from '@school/components/date-field';
 
 /** Roles that mark attendance across the school; everyone else marking is a teacher scoped to their own
  *  sections. Drives whether the section picker is fed by the school-wide list or by /teaching/my-classes. */
@@ -318,10 +319,9 @@ function AttendanceRegister({ embedded = false }: { embedded?: boolean }) {
             {pickerOptions.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
           </select>
         </div>
-        <div><label>Date</label>
+        <div><label htmlFor="att-date">Date</label>
           {/* The backfill bound is a MARKING rule; a viewer may look at any past day. */}
-          <input type="date" value={date} min={readOnly ? undefined : earliest()} max={today()}
-            onChange={(e) => setDate(e.target.value)} />
+          <DateField id="att-date" value={date} min={readOnly ? undefined : earliest()} max={today()} onChange={setDate} />
         </div>
         {!readOnly && <button className="ghost" onClick={() => loadRoster()} disabled={!sectionId}>Load roster</button>}
       </div>

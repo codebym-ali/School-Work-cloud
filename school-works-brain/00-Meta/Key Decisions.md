@@ -32,6 +32,10 @@ Full ledger: [[consistency-register]] (LOCKED). This is the digest.
   "Male"; non-enum strings pass through). Dates in the school app use `toLocaleDateString('en-GB')` — never
   locale-less, which shows MM/DD/YYYY on a US-locale browser.
 - Sidebar active state = longest matching href on a segment boundary; never `startsWith` alone.
+- Dates are picked with `DateField` (`@school/components/date-field`): the native input for access, plus the
+  school's own reading "Mon, 29/09/2026". Label it with a sibling `<label htmlFor>`, never a wrapping one.
+- An owner's name lives on `users.full_name` (set on Security); staff names stay on `StaffProfile.fullName`.
+- One filled (primary) button per screen; everything else `ghost`.
 
 ## Report files carry dates as dates (2026-09-29, Owner UX 1d)
 - Every CSV/PDF export goes through `fileRow` in `reports.controller.ts`: a `Date` at midnight UTC → `YYYY-MM-DD`,

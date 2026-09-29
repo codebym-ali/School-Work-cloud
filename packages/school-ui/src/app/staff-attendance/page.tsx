@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { api, ApiError, type StaffDaySummary, type StaffRegisterRow } from '@sw/api-client';
 import { useCampusLens, useMe } from '@sw/session';
 import { hasAnyRole } from '@sw/roles';
+import { DateField } from '@school/components/date-field';
 import { DataTable, EmptyState, KpiStrip, StatusPill, type Column, type KpiTileSpec, type Tone } from '@school/components/oversight';
 
 /**
@@ -92,7 +93,8 @@ export default function StaffAttendancePage() {
   const num = (v: number | undefined) => (v === undefined ? undefined : String(v));
   const pick = (f: Filter) => setStatus((cur) => (cur === f ? '' : f));
   const tiles: KpiTileSpec[] = [
-    { key: 'in', label: 'In today', icon: 'check-circle', tone: 'ok',
+    // "today" only when it IS today — stepping back to Monday must not keep saying "In today".
+    { key: 'in', label: date === today() ? 'In today' : 'In that day', icon: 'check-circle', tone: 'ok',
       value: !s ? undefined : !s.workingDay ? 'Closed' : markedCount === 0 ? '—' : `${Math.round((inToday / markedCount) * 100)}%`,
       sub: !s ? undefined : !s.workingDay ? (s.holidayName ?? 'Weekly off') : `${inToday} of ${s.totalStaff} staff${s.late ? ` · ${s.late} late` : ''}`,
       active: status === '', onClick: () => setStatus(''), hint: 'Everyone on the register' },
@@ -145,10 +147,10 @@ export default function StaffAttendancePage() {
                 : 'View only — the office records staff attendance.'}
           </p>
         </div>
-        <label className="ov-field" style={{ minWidth: 0 }}>
-          <span>Date</span>
-          <input type="date" max={today()} value={date} onChange={(e) => e.target.value && setDate(e.target.value)} />
-        </label>
+        <div className="ov-field" style={{ minWidth: 0 }}>
+          <label htmlFor="staff-att-date" style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>Date</label>
+          <DateField id="staff-att-date" value={date} max={today()} onChange={setDate} />
+        </div>
       </div>
 
       {msg && <div className={`toast ${msg.ok ? 'ok' : 'err'}`} role="status">{msg.text}</div>}

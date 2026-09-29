@@ -73,6 +73,36 @@ function RecoveryCodes({ codes, onDismiss, email }: { codes: string[]; onDismiss
   );
 }
 
+/**
+ * The owner's display name (Owner UX Phase 2). The header said "owner@demo.pk" because an owner has no staff
+ * record to take a name from; this is where they give one. Reloads so the shell picks it up everywhere.
+ */
+function OwnerNameCard({ current }: { current: string }) {
+  const [name, setName] = useState(current);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const changed = name.trim() !== current.trim();
+  async function save() {
+    setBusy(true); setErr(null);
+    try { await api.setMyName(name); window.location.reload(); }
+    catch (e) { setErr(e instanceof ApiError ? e.message : 'Could not save your name.'); setBusy(false); }
+  }
+  return (
+    <form className="card stack" onSubmit={(e) => { e.preventDefault(); if (changed) void save(); }}>
+      <div>
+        <h2 style={{ margin: 0, fontSize: 17 }}>Your name</h2>
+        <p className="muted" style={{ margin: '2px 0 0', fontSize: 13 }}>Shown at the top of every screen, e.g. “Muhammad Ali · Owner”.</p>
+      </div>
+      <div className="row" style={{ gap: 8, justifyContent: 'flex-start', flexWrap: 'wrap' }}>
+        <label htmlFor="owner-name" className="sr-only">Your name</label>
+        <input id="owner-name" value={name} maxLength={120} onChange={(e) => setName(e.target.value)} placeholder="Full name" style={{ maxWidth: 320 }} autoComplete="name" />
+        <button type="submit" disabled={busy || !changed}>{busy ? 'Saving…' : 'Save name'}</button>
+      </div>
+      {err && <div className="toast err" role="alert">{err}</div>}
+    </form>
+  );
+}
+
 export default function SecurityPage() {
   const me = useMe();
   const [otpauthUrl, setOtpauthUrl] = useState<string | null>(null);
@@ -148,6 +178,7 @@ export default function SecurityPage() {
       <h1>Security</h1>
       <p className="muted" style={{ margin: 0 }}>{me?.email}</p>
       {msg && <div className={`toast ${msg.ok ? 'ok' : 'err'}`}>{msg.text}</div>}
+      {me?.roles.includes('OWNER_ADMIN') && <OwnerNameCard current={me.name ?? ''} />}
 
       {codes && <RecoveryCodes codes={codes} onDismiss={() => setCodes(null)} email={me?.email ?? 'account'} />}
 

@@ -283,7 +283,8 @@ function TermsCard({ years, terms, onCreate, onDelete }: {
         <div><label>Name</label><input value={form.name ?? ''} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Term 1" /></div>
         <div><label>Start</label><input type="date" value={form.startDate ?? ''} onChange={(e) => setForm({ ...form, startDate: e.target.value })} /></div>
         <div><label>End</label><input type="date" value={form.endDate ?? ''} onChange={(e) => setForm({ ...form, endDate: e.target.value })} /></div>
-        <button onClick={() => onCreate(form)} disabled={!form.academicYearId || !form.name || !form.startDate || !form.endDate}>Add term</button>
+        {/* Secondary: one primary action per screen (Owner UX Phase 2) — creating an exam is this screen's job. */}
+        <button className="ghost" onClick={() => onCreate(form)} disabled={!form.academicYearId || !form.name || !form.startDate || !form.endDate}>Add term</button>
       </div>
     </div>
   );
@@ -540,7 +541,7 @@ function ReportCardsCard({ terms, onAction }: { terms: Term[]; onAction: ActionF
             <option value="">Select…</option>{terms.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
           </select>
         </div>
-        <button onClick={() => onAction(async () => { await apiPost(`/terms/${termId}/report-cards/generate`); await load(); }, 'Report cards generated')} disabled={!termId}>Generate</button>
+        <button className="ghost" onClick={() => onAction(async () => { await apiPost(`/terms/${termId}/report-cards/generate`); await load(); }, 'Report cards generated')} disabled={!termId}>Generate</button>
       </div>
       {cards && (cards.length === 0 ? <p className="muted">No report cards generated yet.</p> : (
         <table>

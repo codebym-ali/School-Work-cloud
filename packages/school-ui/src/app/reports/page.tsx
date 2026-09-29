@@ -8,6 +8,7 @@ import { hasAnyRole, type Role } from '@sw/roles';
 import { Icon, type IconName } from '@sw/ui';
 import { StudentPicker } from '@school/components/student-picker';
 import { SearchableSelect } from '@school/components/searchable-select';
+import { DateField } from '@school/components/date-field';
 import { DataTable, EmptyState, type Column } from '@school/components/oversight';
 import { moneyExact, moneyShort } from '@school/lib/money';
 
@@ -164,7 +165,8 @@ export default function ReportsPage() {
 
   if (!me) return <p className="muted">Loading…</p>;
   const spec = reports.find((r) => r.key === open);
-  if (spec) return <ReportView spec={spec} onBack={() => go(null)} />;
+  // Keyed: Back/Forward between two reports must not carry one report's filters into the other.
+  if (spec) return <ReportView key={spec.key} spec={spec} onBack={() => go(null)} />;
   return <Gallery reports={reports} live={live} onOpen={go} />;
 }
 
@@ -306,8 +308,10 @@ function ReportView({ spec, onBack }: { spec: ReportSpec; onBack: () => void }) 
       <form className="ov-card ov-filters" onSubmit={(e) => { e.preventDefault(); void run(); }} aria-label="Report filters">
         {spec.params.length === 0 && <p className="ov-sub" style={{ margin: 0 }}>This report has no filters — it covers the current academic year.</p>}
         {spec.params.map((p) => (
-          <label key={p} className="ov-field" htmlFor={`rep-${p}`}>
-            <span>{LABEL[p]}{spec.required?.includes(p) ? '' : ' (optional)'}</span>
+          // A div with a real <label> for the field — not a wrapping <label>, which folded the date control's
+          // ‹ › buttons and readout into the input's accessible name.
+          <div key={p} className="ov-field">
+            <label htmlFor={`rep-${p}`}>{LABEL[p]}{spec.required?.includes(p) ? '' : ' (optional)'}</label>
             {p === 'student' ? (
               <StudentPicker id={`rep-${p}`} value={student} onChange={setStudent} />
             ) : p === 'section' ? (
@@ -321,9 +325,9 @@ function ReportView({ spec, onBack }: { spec: ReportSpec; onBack: () => void }) 
             ) : p === 'minDays' ? (
               <input id={`rep-${p}`} type="number" min={0} inputMode="numeric" placeholder="0" value={values.minDays ?? ''} onChange={(e) => set('minDays', e.target.value)} />
             ) : (
-              <input id={`rep-${p}`} type="date" max={today()} value={values[p] ?? ''} onChange={(e) => set(p, e.target.value)} />
+              <DateField id={`rep-${p}`} value={values[p] ?? ''} max={today()} onChange={(v) => set(p, v)} stepper={p === 'date'} />
             )}
-          </label>
+          </div>
         ))}
         {spec.params.length > 0 && (
           <div className="ov-filters-go">

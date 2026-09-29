@@ -13,6 +13,21 @@ Attendance, Reports and Students (owner-web). The core diagnosis: **the owner is
 tools instead of an oversight experience**, on top of a design system that isn't finished. The plan fixes
 the two risks first, then builds one reusable **Owner Oversight pattern**, then polishes the system under it.
 
+## Execution log
+- **Phase 0 — ✅ DONE 2026-09-29, verified live.**
+  - **0.1 Owner read-only attendance:** owner removed from `POST /attendance/bulk` + `PATCH /attendance/:id`;
+    service `isAdmin` now = campus admin + Ops Admin (it had omitted the Ops Admin); owner page renders
+    read-only (View-only note, status pills, no P/A/L/½, no Save, no Load-roster, any past date viewable,
+    unrecorded students shown as **Not marked**). *Live:* owner POST → **403 "Insufficient role"**; register
+    auto-loads 20 students as pills; 25 Sep shows 17 present · 1 absent · 1 late · 1 on leave.
+    *Tests:* integration 1240 ✓ (8 suites incl. permission matrix, owner-403 + Ops-Admin-can-correct);
+    Playwright `attendance.spec.ts` rewritten to guard the owner read-only view — 3/3 ✓ live.
+  - **0.2 Unreadable hover:** root cause was CSS specificity — global `button:hover` (0,2,1) beat
+    `.metric-link` (0,1,0) and `.chip:hover` (0,2,0), painting button-cards/chips navy under dark text. Fixed
+    with `button.metric-link:hover` / `button.chip:hover` (0,3,1) in all five apps. *Live:* hovered "Not
+    marked" card → light `#eef2f8` with AA-passing text; hovered "28 Mon" chip → light; selected chip →
+    white on navy.
+
 ## Design principles (the bar every screen is judged against)
 1. **Oversee, don't operate.** Owner screens answer "how is my school doing and where must I act?" first;
    records come second, and editing is for the role that owns the record.

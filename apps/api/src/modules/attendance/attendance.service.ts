@@ -1113,8 +1113,14 @@ export class AttendanceService {
   }
 }
 
+/**
+ * The CORRECTION roles for student attendance: campus admin and the owner's deputy (Ops Admin). They may
+ * mark any section, override a holiday and correct beyond the teacher's window (audited). The owner is
+ * deliberately NOT here — marking is the class teacher's job and the owner's view is read-only (Owner UX
+ * plan, Phase 0.1); the route gate refuses the owner before this is ever reached.
+ */
 function isAdmin(user: RequestUser): boolean {
-  return user.roles.includes('OWNER_ADMIN') || user.roles.includes('CAMPUS_ADMIN');
+  return user.roles.includes('CAMPUS_ADMIN') || user.roles.includes('OPERATIONS_ADMIN');
 }
 /**
  * Is this date in a month that has already closed? (G5)

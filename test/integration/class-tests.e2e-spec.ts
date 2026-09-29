@@ -25,6 +25,8 @@ describe('Class tests (e2e, §11 extension)', () => {
   let ownerCookies: string[];
   let teacherCookies: string[];
   let otherTeacherCookies: string[];
+  /** Campus admin — writes the register fixtures (the owner is read-only for attendance, Owner UX 0.1). */
+  let adminCookies: string[];
   let sectionId: string;
   let mathsId: string;
   let scienceId: string;
@@ -95,6 +97,14 @@ describe('Class tests (e2e, §11 extension)', () => {
 
     teacherCookies = await makeTeacher(teacher.email, teacher.password, campusId, mathsId, year.id);
     otherTeacherCookies = await makeTeacher(other.email, other.password, campusId, scienceId, year.id);
+
+    await platform.user.create({
+      data: {
+        schoolId, campusId, email: 'campadmin@ct.pk', roles: ['CAMPUS_ADMIN'] as never, status: 'ACTIVE',
+        passwordHash: await argon2.hash('Campus!Secret12', { type: argon2.argon2id }),
+      },
+    });
+    adminCookies = await login('campadmin@ct.pk', 'Campus!Secret12');
   });
 
   afterAll(async () => {
@@ -197,7 +207,7 @@ describe('Class tests (e2e, §11 extension)', () => {
       send('post', '/api/v1/attendance/bulk', {
         sectionId, date: today(), session: 'MORNING', allowHolidayOverride: true,
         records: [{ enrollmentId, status }],
-      }, ownerCookies);
+      }, adminCookies);
 
     beforeAll(async () => {
       attTestId = await makeTest('Attendance-aware quiz');
@@ -273,7 +283,7 @@ describe('Class tests (e2e, §11 extension)', () => {
       await send('post', '/api/v1/attendance/bulk', {
         sectionId, date: pastIso, session: 'MORNING', allowHolidayOverride: true,
         records: [{ enrollmentId, status: 'PRESENT' }],
-      }, ownerCookies);
+      }, adminCookies);
 
       const res = await get(`/api/v1/class-tests/${backdated}`, teacherCookies);
       expect(res.body.attendance[enrollmentId]).toBe('PRESENT'); // the test day, not today

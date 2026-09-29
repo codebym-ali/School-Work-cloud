@@ -15,7 +15,14 @@ const STATUSES = ['PRESENT', 'ABSENT', 'LATE', 'HALF_DAY'];
 /** Short codes for the register. A paper register in a Pakistani school already reads P / A / L,
  *  so these are the marks a teacher is transcribing rather than a new vocabulary to learn. */
 const STATUS_SHORT: Record<string, string> = { PRESENT: 'P', ABSENT: 'A', LATE: 'L', HALF_DAY: '½' };
-const STATUS_LABEL: Record<string, string> = { PRESENT: 'Present', ABSENT: 'Absent', LATE: 'Late', HALF_DAY: 'Half day' };
+const STATUS_LABEL: Record<string, string> = { PRESENT: 'Present', ABSENT: 'Absent', LATE: 'Late', HALF_DAY: 'Half day', ON_LEAVE: 'On leave', NOT_MARKED: 'Not marked' };
+/** Who may WRITE a student register (Owner UX plan, Phase 0.1): the class teacher marks; campus admin and
+ *  the Ops Admin correct. The owner is read-only — mirrors the API gate on POST /attendance/bulk. */
+const MARKING_ROLES = ['TEACHER', 'CAMPUS_ADMIN', 'OPERATIONS_ADMIN'];
+/** A read-only register shows a child with no record as "Not marked" — never assumed present. */
+const NOT_MARKED = 'NOT_MARKED';
+/** Read-only status pill tone — the app's one status colour language. */
+const STATUS_TONE: Record<string, string> = { PRESENT: 'ok', ABSENT: 'bad', LATE: 'warn', HALF_DAY: 'warn', ON_LEAVE: '', NOT_MARKED: '' };
 const today = () => new Date().toISOString().slice(0, 10);
 /** Mirrors the server's `attendanceBackfillDays` (default 7). Bounding the picker means the
  *  rule is visible as a disabled date rather than discovered as a rejected save. */
@@ -35,8 +42,8 @@ const earliest = () => {
  * strip that gets ignored. A partly-marked day is called out separately from an untouched one
  * because they are different problems — one was interrupted, the other never started.
  */
-function CoverageStrip({ days, selected, onPick }: {
-  days: DayCoverage[]; selected: string; onPick: (date: string) => void;
+function CoverageStrip({ days, selected, onPick, readOnly = false }: {
+  days: DayCoverage[]; selected: string; onPick: (date: string) => void; readOnly?: boolean;
 }) {
   if (!days.length) return null;
   const gaps = days.filter((d) => d.working && d.marked < d.expected).length;
@@ -80,7 +87,9 @@ function CoverageStrip({ days, selected, onPick }: {
       </div>
       {gaps > 0 && (
         <p className="muted" style={{ margin: 0, fontSize: 12 }}>
-          Click a day to fill it in. Absences on past days are recorded but parents aren&apos;t texted.
+          {readOnly
+            ? 'Click a day to view its register. Days marked ⚠ have not been fully marked by the class teacher yet.'
+            : <>Click a day to fill it in. Absences on past days are recorded but parents aren&apos;t texted.</>}
         </p>
       )}
     </div>
@@ -109,6 +118,10 @@ export default function AttendancePage() {
   // /teaching/my-classes (not the school-wide list) is defence in depth over the server scoping AND
   // clearer UX — no scrolling past sections they cannot mark, no picking one that would 403 on save.
   const schoolWide = !!me && me.roles.some((r) => SCHOOL_WIDE_ATTENDANCE_ROLES.includes(r));
+  // Owner UX plan, Phase 0.1: only the class teacher marks; campus admin / Ops Admin correct. Anyone else
+  // who can open this page (the owner) gets a READ-ONLY register — the API refuses their writes anyway.
+  const canMark = !!me && me.roles.some((r) => MARKING_ROLES.includes(r));
+  const readOnly = !!me && !canMark;
 
   useEffect(() => {
     if (me && !schoolWide) {
@@ -148,13 +161,18 @@ export default function AttendancePage() {
     }
   }
   useEffect(() => { loadCoverage().catch(() => {}); }, [sectionId, session]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Read-only viewers are looking, not marking: the register follows the section/date picker directly
+  // instead of waiting on a "Load roster" click.
+  useEffect(() => { if (readOnly && sectionId) loadRoster().catch(() => {}); }, [readOnly, sectionId, date]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function loadRoster(d: string = date) {
     if (!sectionId) return;
     const enr = await apiGet<{ data: Enrollment[] }>(`/enrollments?sectionId=${sectionId}&status=ACTIVE`);
     const existing = await apiGet<Array<{ enrollmentId: string; status: string }>>(`/attendance?sectionId=${sectionId}&date=${d}`);
     const m: Record<string, string> = {};
-    for (const e of enr.data) m[e.id] = 'PRESENT';
+    // Marking defaults everyone to PRESENT (the teacher flips the exceptions). A READ-ONLY view must not:
+    // a child with no record is "Not marked", never shown as present.
+    for (const e of enr.data) m[e.id] = readOnly ? NOT_MARKED : 'PRESENT';
     for (const a of existing) m[a.enrollmentId] = a.status;
     // Set marks BEFORE rows: the editable table renders on `rows.length > 0`, so seeding
     // marks first ensures the <select>s never render (and can't be changed then clobbered)
@@ -205,6 +223,11 @@ export default function AttendancePage() {
   return (
     <div className="stack">
       <h1>Attendance</h1>
+      {readOnly && (
+        <p className="muted" style={{ margin: 0 }}>
+          View only. Class teachers mark attendance; your campus admin or Ops Admin makes corrections.
+        </p>
+      )}
       {msg && <div className={`toast ${msg.ok ? 'ok' : 'err'}`}>{msg.text}</div>}
 
       {/* Surfaced, not enforced: this names the sections still outstanding and lets the reader
@@ -233,7 +256,7 @@ export default function AttendancePage() {
           </div>
         </div>
       )}
-      {date !== today() && (
+      {!readOnly && date !== today() && (
         <div className="toast warn">
           You&apos;re marking <b>{new Date(date).toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })}</b>,
           not today. Absences will be recorded but <b>parents won&apos;t be texted</b> for a past date.
@@ -248,13 +271,14 @@ export default function AttendancePage() {
           </select>
         </div>
         <div><label>Date</label>
-          <input type="date" value={date} min={earliest()} max={today()}
+          {/* The backfill bound is a MARKING rule; a viewer may look at any past day. */}
+          <input type="date" value={date} min={readOnly ? undefined : earliest()} max={today()}
             onChange={(e) => setDate(e.target.value)} />
         </div>
-        <button className="ghost" onClick={() => loadRoster()} disabled={!sectionId}>Load roster</button>
+        {!readOnly && <button className="ghost" onClick={() => loadRoster()} disabled={!sectionId}>Load roster</button>}
       </div>
 
-      <CoverageStrip days={coverage} selected={date} onPick={(d) => { setDate(d); loadRoster(d); }} />
+      <CoverageStrip days={coverage} selected={date} readOnly={readOnly} onPick={(d) => { setDate(d); loadRoster(d); }} />
 
       {rows.length > 0 && (
         <>
@@ -281,6 +305,9 @@ export default function AttendancePage() {
                       <td data-label="GR">{r.student?.grNumber}</td>
                       <td data-label="Student"><span className="who-name">{r.student?.fullName}</span></td>
                       <td>
+                        {readOnly ? (
+                          <span className={`badge ${STATUS_TONE[mark] ?? ''}`}>{STATUS_LABEL[mark] ?? mark}</span>
+                        ) : (
                         <div className="marks" role="group" aria-label={`Attendance for ${r.student?.fullName ?? 'student'}`}>
                           {STATUSES.map((sTatus) => (
                             <button
@@ -295,6 +322,7 @@ export default function AttendancePage() {
                             </button>
                           ))}
                         </div>
+                        )}
                       </td>
                     </tr>
                   );
@@ -315,8 +343,10 @@ export default function AttendancePage() {
               {tally.PRESENT ?? 0} present · {tally.ABSENT ?? 0} absent
               {tally.LATE ? ` · ${tally.LATE} late` : ''}
               {tally.HALF_DAY ? ` · ${tally.HALF_DAY} half-day` : ''}
+              {tally.ON_LEAVE ? ` · ${tally.ON_LEAVE} on leave` : ''}
+              {tally[NOT_MARKED] ? ` · ${tally[NOT_MARKED]} not marked` : ''}
             </span>
-            <button onClick={save}>Save attendance</button>
+            {!readOnly && <button onClick={save}>Save attendance</button>}
           </div>
         </>
       )}

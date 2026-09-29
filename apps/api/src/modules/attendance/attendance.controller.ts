@@ -18,7 +18,10 @@ export class AttendanceController {
 
   // Ownership (teacher assigned to section) is enforced inside the service, because
   // guards run before the withTenant tx and cannot read tenant data under RLS.
-  @Roles('TEACHER', 'CAMPUS_ADMIN', 'OWNER_ADMIN')
+  // ⚠️ No OWNER_ADMIN (Owner UX plan, Phase 0.1): marking is the class teacher's job; campus admin and the
+  // Ops Admin (who satisfies CAMPUS_ADMIN via the role hierarchy) are the correction roles. The owner's
+  // attendance view is read-only — an owner rewriting a child's register blurs who is accountable for it.
+  @Roles('TEACHER', 'CAMPUS_ADMIN')
   @Post('bulk')
   @HttpCode(HttpStatus.OK)
   markBulk(@Body() dto: MarkAttendanceDto) {
@@ -75,7 +78,8 @@ export class AttendanceController {
     return this.attendance.query(q);
   }
 
-  @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
+  // Correction (reason required, audited) — campus admin / Ops Admin only; the owner reads, it doesn't edit.
+  @Roles('CAMPUS_ADMIN')
   @Patch(':id')
   patch(@Param('id') id: string, @Body() dto: PatchAttendanceDto) {
     return this.attendance.patch(id, dto);

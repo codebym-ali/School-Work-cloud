@@ -9,6 +9,27 @@ updated: 2026-08-20
 The locked, cross-cutting decisions every note and every developer must respect.
 Full ledger: [[consistency-register]] (LOCKED). This is the digest.
 
+## The owner does NOT mark student attendance (2026-09-29)
+- **Policy:** the **class teacher** marks the student register; **campus admin** and the **Ops Admin** are the
+  correction roles (the `PATCH /attendance/:id` correction requires a reason and is audited). The **owner is
+  read-only** — an owner rewriting a child's attendance (which texts parents and becomes the child's record)
+  blurs who is accountable for it.
+- **Enforced in three places:** `@Roles` on `POST /attendance/bulk` (`TEACHER, CAMPUS_ADMIN`) and
+  `PATCH /attendance/:id` (`CAMPUS_ADMIN`) — Ops Admin passes via the role hierarchy; the attendance service's
+  `isAdmin` = campus admin + Ops Admin (it previously *omitted* Ops Admin, so the deputy passed the gate but
+  was treated as a teacher inside); and the shared Attendance page renders read-only for non-marking roles.
+- **Read-only must be truthful:** the marking UI defaults unrecorded students to Present; the read-only
+  view shows them as **"Not marked"**, never assumed present.
+- Staff attendance marking is unchanged here (Owner UX plan Phase 1c revisits it).
+- Guarded by `permission-matrix` (owner → 403), `attendance.e2e`, and the Playwright `attendance.spec.ts`.
+
+## Surface-styled buttons hover as surfaces (2026-09-29)
+- The global `button:hover:not(:disabled)` (specificity 0,2,1) out-ranked `.metric-link` (0,1,0) and
+  `.chip:hover` (0,2,0), so stat cards and chips that are `<button>`s turned navy on hover with dark text —
+  unreadable. Fixed with `button.metric-link:hover` / `button.chip:hover` (0,3,1) rules in every app's
+  `globals.css`. **Any new component that styles a `<button>` as a card/chip must add its own
+  `button.x:hover:not(:disabled)` rule** or it inherits the navy.
+
 ## CSV exports are formula-injection-safe (2026-09-24)
 - Every report CSV cell that begins with `=`, `+`, `-`, `@` (or a leading tab/CR) is prefixed with a single
   quote in `toCsv` (reports.controller.ts) so spreadsheet apps render it as text, never execute it. A crafted

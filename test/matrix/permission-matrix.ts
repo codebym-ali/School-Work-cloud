@@ -121,7 +121,9 @@ export const PERMISSION_MATRIX: MatrixRow[] = [
   { label: 'create academic year', method: 'post', path: '/api/v1/academic-years', body: {}, allow: ['OWNER_ADMIN'] },
   { label: 'list inquiries', method: 'get', path: '/api/v1/inquiries', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ADMISSION_CONTROLLER'], scopeGated: true },
   { label: 'admissions summary', method: 'get', path: '/api/v1/inquiries/summary', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ADMISSION_CONTROLLER'] },
-  { label: 'mark attendance', method: 'post', path: '/api/v1/attendance/bulk', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'TEACHER'], scopeGated: true },
+  // Owner is READ-ONLY for student attendance (Owner UX plan, Phase 0.1): the teacher marks, campus admin /
+  // Ops Admin correct. This row now asserts the owner is refused (403).
+  { label: 'mark attendance', method: 'post', path: '/api/v1/attendance/bulk', body: {}, allow: ['CAMPUS_ADMIN', 'TEACHER'], scopeGated: true },
   // Which registers are still unmarked is OVERSIGHT, not self-service: it names colleagues who
   // are behind. A teacher gets their own coverage strip instead.
   { label: 'unmarked registers today', method: 'get', path: '/api/v1/attendance/unmarked-today', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'], scopeGated: true },
@@ -403,7 +405,7 @@ export const PERMISSION_MATRIX: MatrixRow[] = [
   // ── Attendance (query + coverage are staff reads; patch is admin) ──
   { label: 'read attendance', method: 'get', path: '/api/v1/attendance', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ADMISSION_CONTROLLER', 'ACCOUNTANT', 'TEACHER'], scopeGated: true },
   { label: 'attendance coverage', method: 'get', path: '/api/v1/attendance/coverage', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ADMISSION_CONTROLLER', 'ACCOUNTANT', 'TEACHER'], scopeGated: true },
-  { label: 'correct an attendance mark', method: 'patch', path: '/api/v1/attendance/00000000-0000-0000-0000-000000000000', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'], scopeGated: true },
+  { label: 'correct an attendance mark', method: 'patch', path: '/api/v1/attendance/00000000-0000-0000-0000-000000000000', body: {}, allow: ['CAMPUS_ADMIN'], scopeGated: true },
   // ── Enrollment / promotion (two-step plan → commit) ──
   { label: 'plan a promotion', method: 'post', path: '/api/v1/promotions/plan', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'], scopeGated: true },
   { label: 'commit a promotion', method: 'post', path: '/api/v1/promotions/commit', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'], scopeGated: true },

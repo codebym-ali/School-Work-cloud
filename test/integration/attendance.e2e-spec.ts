@@ -35,6 +35,9 @@ describe('Attendance + absence SMS (e2e, §9/§14)', () => {
   let campusId: string;
   let enrollmentId: string;
   let studentId: string;
+  /** Campus admin — a CORRECTION role for student attendance. The owner is read-only (Owner UX plan 0.1),
+   *  so every admin-powered mark in this spec (holiday override, beyond-window backfill) runs as this. */
+  let adminCookies: string[];
 
   const sub = `att-${randomUUID().slice(0, 8)}`;
   const host = `${sub}.localhost`;
@@ -46,6 +49,9 @@ describe('Attendance + absence SMS (e2e, §9/§14)', () => {
   const post = (p: string, b: object) =>
     request(server()).post(p).set('Host', host).set('Cookie', cookies).set('X-CSRF-Token', csrf).send(b);
   const get = (p: string) => request(server()).get(p).set('Host', host).set('Cookie', cookies);
+  const mark = (b: object) =>
+    request(server()).post('/api/v1/attendance/bulk').set('Host', host).set('Cookie', adminCookies)
+      .set('X-CSRF-Token', csrfOf(adminCookies)).send(b);
 
   const daysAgo = (n: number) => new Date(Date.now() - n * 86400000).toISOString().slice(0, 10);
   const pastNonSunday = () => {
@@ -120,6 +126,15 @@ describe('Attendance + absence SMS (e2e, §9/§14)', () => {
       where: { id: enrollmentId },
       data: { startedAt: new Date(Date.now() - 30 * 86400000) },
     });
+
+    const adminPassword = 'Campus!Secret12';
+    await platform.user.create({
+      data: {
+        schoolId, campusId, email: 'campadmin@att.pk', roles: ['CAMPUS_ADMIN'] as never, status: 'ACTIVE',
+        passwordHash: await argon2.hash(adminPassword, { type: argon2.argon2id }),
+      },
+    });
+    adminCookies = (await loginRequest(server(), host, 'campadmin@att.pk', adminPassword)).headers['set-cookie'] as unknown as string[];
   });
 
   /** The backfill bound only applies to non-admins, so proving it needs a real teacher who is
@@ -330,7 +345,7 @@ describe('Attendance + absence SMS (e2e, §9/§14)', () => {
    */
   it('a closure declared for an already-marked day keeps the attendance', async () => {
     const day = recentWorkingDay(1);
-    await post('/api/v1/attendance/bulk', {
+    await mark({
       sectionId, date: day, session: 'MORNING', allowHolidayOverride: true,
       records: [{ enrollmentId, status: 'PRESENT' }],
     });
@@ -348,32 +363,66 @@ describe('Attendance + absence SMS (e2e, §9/§14)', () => {
 
     // But the day is now closed, so marking it again needs the admin override — the same
     // treatment as a weekly off. A teacher gets the closed-day refusal.
-    const blocked = await request(server()).post('/api/v1/attendance/bulk')
-      .set('Host', host).set('Cookie', cookies).set('X-CSRF-Token', csrf)
-      .send({ sectionId, date: day, session: 'MORNING', records: [{ enrollmentId, status: 'ABSENT' }] });
+    const blocked = await mark({ sectionId, date: day, session: 'MORNING', records: [{ enrollmentId, status: 'ABSENT' }] });
     expect(blocked.status).toBe(422);
 
     await request(server()).delete(`/api/v1/holidays/${closure.body.id}`)
       .set('Host', host).set('Cookie', cookies).set('X-CSRF-Token', csrf);
   });
 
+  /**
+   * Owner UX plan, Phase 0.1 — who may write a child's register. The class teacher marks; campus admin and
+   * the Ops Admin correct; the OWNER only reads. An owner overwriting attendance (which texts parents and
+   * becomes the child's record) blurs who is accountable for it.
+   */
+  describe('who may mark student attendance', () => {
+    it('refuses the owner (403) — the owner view is read-only', async () => {
+      const res = await post('/api/v1/attendance/bulk', {
+        sectionId, date: todayStr, session: 'MORNING', records: [{ enrollmentId, status: 'PRESENT' }],
+      });
+      expect(res.status).toBe(403);
+    });
+
+    it('still lets the owner READ the register', async () => {
+      expect((await get(`/api/v1/attendance?sectionId=${sectionId}&date=${todayStr}`)).status).toBe(200);
+    });
+
+    it('lets the Ops Admin (the deputy) correct it, with admin powers', async () => {
+      const password = 'Ops!Secret12Aa';
+      await platform.user.create({
+        data: {
+          schoolId, email: 'ops@att.pk', roles: ['STAFF', 'OPERATIONS_ADMIN'] as never, status: 'ACTIVE', campusId: null,
+          passwordHash: await argon2.hash(password, { type: argon2.argon2id }),
+        },
+      });
+      const ops = (await loginRequest(server(), host, 'ops@att.pk', password)).headers['set-cookie'] as unknown as string[];
+      // A far-past day: only an ADMIN may go beyond the teacher's backfill window — so this proves the
+      // deputy is treated as an admin in the service, not merely admitted by the route gate.
+      const res = await request(server()).post('/api/v1/attendance/bulk')
+        .set('Host', host).set('Cookie', ops).set('X-CSRF-Token', csrfOf(ops))
+        .send({ sectionId, date: daysAgo(21), session: 'MORNING', allowHolidayOverride: true, records: [{ enrollmentId, status: 'PRESENT' }] });
+      expect(res.status).toBe(200);
+      expect(res.body.succeeded).toBe(1);
+    });
+  });
+
   it('rejects a future date (422)', async () => {
     const future = new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10);
-    const res = await post('/api/v1/attendance/bulk', {
+    const res = await mark({
       sectionId, date: future, session: 'MORNING', records: [{ enrollmentId, status: 'PRESENT' }],
     });
     expect(res.status).toBe(422);
   });
 
   it('rejects marking on a weekly-off (Sunday) without override (422)', async () => {
-    const res = await post('/api/v1/attendance/bulk', {
+    const res = await mark({
       sectionId, date: pastSunday(), session: 'MORNING', records: [{ enrollmentId, status: 'PRESENT' }],
     });
     expect(res.status).toBe(422);
   });
 
   it('marks a student ABSENT (partial-failure contract) and queues an absence SMS', async () => {
-    const res = await post('/api/v1/attendance/bulk', {
+    const res = await mark({
       sectionId, date: todayStr, session: 'MORNING', allowHolidayOverride: true,
       records: [{ enrollmentId, status: 'ABSENT' }],
     });
@@ -414,7 +463,7 @@ describe('Attendance + absence SMS (e2e, §9/§14)', () => {
   });
 
   it('is idempotent: resubmitting the same ABSENT value queues no new absence', async () => {
-    const res = await post('/api/v1/attendance/bulk', {
+    const res = await mark({
       sectionId, date: todayStr, session: 'MORNING', allowHolidayOverride: true,
       records: [{ enrollmentId, status: 'ABSENT' }],
     });
@@ -435,7 +484,7 @@ describe('Attendance + absence SMS (e2e, §9/§14)', () => {
   it('records a backdated absence but does NOT text the guardian', async () => {
     const logsBefore = await platform.smsLog.count({ where: { schoolId, templateKey: 'ABSENCE' } });
 
-    const res = await post('/api/v1/attendance/bulk', {
+    const res = await mark({
       sectionId, date: absentDate, session: 'MORNING', records: [{ enrollmentId, status: 'ABSENT' }],
     });
     expect(res.status).toBe(200);
@@ -469,7 +518,7 @@ describe('Attendance + absence SMS (e2e, §9/§14)', () => {
 
     // The same far-past date is accepted for an ADMIN — the bound is a teacher rule, not a
     // school-wide freeze, so corrections remain possible with oversight.
-    const admin = await post('/api/v1/attendance/bulk', {
+    const admin = await mark({
       sectionId, date: daysAgo(20), session: 'MORNING', allowHolidayOverride: true,
       records: [{ enrollmentId, status: 'PRESENT' }],
     });
@@ -510,7 +559,7 @@ describe('Attendance + absence SMS (e2e, §9/§14)', () => {
     // The enrolment was created during setup (today), so any earlier date predates it. Without
     // this guard, backfilling invents a record of a child who had not joined the school.
     const beforeJoining = daysAgo(40); // enrolment starts 30 days ago (see beforeAll)
-    const res = await post('/api/v1/attendance/bulk', {
+    const res = await mark({
       sectionId, date: beforeJoining, session: 'MORNING', allowHolidayOverride: true,
       records: [{ enrollmentId, status: 'PRESENT' }],
     });

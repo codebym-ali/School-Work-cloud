@@ -11,6 +11,7 @@ import { admissionController } from './support/admission';
 import { SMS_QUEUE } from '../../apps/api/src/modules/comms/sms/sms.types';
 import { destroyTenant } from './support/tenant';
 import { loginRequest } from './support/login';
+import { opsAdminSession } from './support/ops-admin';
 import { enrolMfa } from './support/mfa';
 
 /**
@@ -37,6 +38,11 @@ describe('M6 — HR, payroll, documents, reports, promotion (e2e)', () => {
   const csrfOf = (c: string[]) => (c.find((x) => x.startsWith('csrf=')) ?? '').split(';')[0].slice(5);
   const post = (p: string, b: object = {}) =>
     request(server()).post(p).set('Host', host).set('Cookie', cookies).set('X-CSRF-Token', csrf).send(b);
+  // The office keeps the staff register (Owner UX 1c): the owner is refused, so staff marks go through a
+  // school-wide Ops Admin, created on first use.
+  let opsSession: ReturnType<typeof opsAdminSession> | undefined;
+  const staffMark = async (b: object) =>
+    (await (opsSession ??= opsAdminSession(app, platform, schoolId, host))).post('/api/v1/staff-attendance/bulk', b);
   const get = (p: string) => request(server()).get(p).set('Host', host).set('Cookie', cookies);
   const del = (p: string) =>
     request(server()).delete(p).set('Host', host).set('Cookie', cookies).set('X-CSRF-Token', csrf);
@@ -209,7 +215,7 @@ describe('M6 — HR, payroll, documents, reports, promotion (e2e)', () => {
       });
       await post(`/api/v1/staff/${staff.body.staffId}/salary-structures`, { basic: 30000, effectiveFrom: '2026-04-01' });
       for (const d of absenceDays) {
-        await post('/api/v1/staff-attendance/bulk', {
+        await staffMark({
           date: d, session: 'MORNING', records: [{ staffId: staff.body.staffId, status: 'ABSENT' }],
         });
       }

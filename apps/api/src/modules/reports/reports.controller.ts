@@ -109,11 +109,13 @@ export class ReportsController {
     if (format === 'csv') {
       res.setHeader('Content-Type', 'text/csv');
       res.setHeader('Content-Disposition', `attachment; filename="${slug(title)}.csv"`);
-      res.send(toCsv(rows));
+      res.send(toCsv(rows.map(fileRow)));
       return;
     }
     if (format === 'pdf') {
-      const buf = await this.reports.pdf(title, rows);
+      // A printed page is read by a person: "GR number", not `grNumber`. (CSV keeps the field names — a
+      // spreadsheet someone has built on top of an export must not break because a heading was reworded.)
+      const buf = await this.reports.pdf(title, rows.map(fileRow).map(readableKeys));
       res.setHeader('Content-Type', 'application/pdf');
       res.setHeader('Content-Disposition', `attachment; filename="${slug(title)}.pdf"`);
       res.send(buf);
@@ -125,6 +127,28 @@ export class ReportsController {
 
 function today(): string {
   return new Date().toISOString().slice(0, 10);
+}
+
+/**
+ * Values as a file should carry them.
+ *
+ * ⚠️ A `Date` went through `String()` and came out as "Mon Aug 10 2026 05:00:00 GMT+0500 (Pakistan Standard
+ * Time)" — in the server's zone, unsortable, and wrong by a day for anyone west of it. A date-only value
+ * (midnight UTC: due dates, register days) is written YYYY-MM-DD; a moment (a receipt's paidAt) as ISO 8601.
+ */
+function fileRow(row: Row): Row {
+  const out: Row = {};
+  for (const [k, v] of Object.entries(row)) {
+    out[k] = v instanceof Date
+      ? (v.getUTCHours() === 0 && v.getUTCMinutes() === 0 && v.getUTCSeconds() === 0 ? v.toISOString().slice(0, 10) : v.toISOString().slice(0, 16).replace('T', ' ') + ' UTC')
+      : v;
+  }
+  return out;
+}
+
+const PDF_HEADING: Record<string, string> = { grNumber: 'GR no.', receiptNo: 'Receipt no.', transactionRef: 'Reference', activeStudents: 'Students', marksObtained: 'Marks', totalMarks: 'Out of', amountPaid: 'Amount', paidAt: 'Paid at', dueDate: 'Due', oldestDue: 'Oldest due', name: 'Student' };
+function readableKeys(row: Row): Row {
+  return Object.fromEntries(Object.entries(row).map(([k, v]) => [PDF_HEADING[k] ?? k.replace(/([A-Z])/g, ' $1').replace(/^./, (c) => c.toUpperCase()), v]));
 }
 
 function slug(title: string): string {

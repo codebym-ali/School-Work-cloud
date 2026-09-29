@@ -6,7 +6,7 @@ import { api, apiGet, apiPost, ApiError, type Campus, type ImportResult, type Kl
 import { useCampusLens } from '@sw/session';
 import { classLabeller } from '@school/lib/labels';
 import { hasModule, useMe } from '@sw/session';
-import { STATUS_TRANSITIONS, STUDENT_STATUS, statusStyle } from '@sw/ui';
+import { STATUS_TRANSITIONS, STUDENT_STATUS, statusStyle, humanizeStatus } from '@sw/ui';
 import { MoveStudentDialog } from '@school/components/move-student-dialog';
 import { DirectAdmission } from '../admissions/direct-admission';
 import { StudentFeesCard } from './student-fees-card';
@@ -236,7 +236,7 @@ function StudentsInner() {
                     </span>
                   )}
                 </td>
-                <td>{s.gender}</td>
+                <td>{humanizeStatus(s.gender)}</td>
                 <td><StatusPill status={s.status} /></td>
                 <td style={{ textAlign: 'right' }}>
                   <div className="row" style={{ gap: 6, justifyContent: 'flex-end' }}>
@@ -564,7 +564,7 @@ function RecordCard({ student, onSaved }: { student: StudentDetail; onSaved: () 
           <Row
             k="Parent declaration"
             v={student.declarationAcceptedAt
-              ? `${student.declarationVersion ?? 'accepted'} - ${student.declarationAcceptedBy ?? 'unnamed'} on ${new Date(student.declarationAcceptedAt).toLocaleDateString()}`
+              ? `${student.declarationVersion ?? 'accepted'} - ${student.declarationAcceptedBy ?? 'unnamed'} on ${new Date(student.declarationAcceptedAt).toLocaleDateString('en-GB')}`
               : null}
           />
         </div>
@@ -785,7 +785,7 @@ function StudentProfile({ id, classes, sections, onBack }: { id: string; classes
                   <span className="badge" style={{ fontSize: 13 }}>GR: {s.grNumber}</span>
                 </div>
                 <div className="stack" style={{ gap: 4 }}>
-                  <Row k="Gender" v={s.gender} />
+                  <Row k="Gender" v={humanizeStatus(s.gender)} />
                   <Row k="Date of birth" v={s.dateOfBirth?.slice(0, 10)} />
                   <CnicRow student={s} onSaved={load} />
                   <Row
@@ -832,7 +832,7 @@ function StudentProfile({ id, classes, sections, onBack }: { id: string; classes
                 <Row k="Class" v={className(active.classId)} />
                 <Row k="Section" v={sectionName(active.sectionId)} />
                 <Row k="Roll number" v={active.rollNumber ?? '—'} />
-                <Row k="Status" v={active.status} />
+                <Row k="Status" v={humanizeStatus(active.status)} />
               </div>
             ) : <p className="muted" style={{ margin: 0, fontSize: 13 }}>No enrollment.</p>}
           </div>
@@ -1035,7 +1035,7 @@ function DocumentsCard({ studentId, onSaved }: { studentId: string; onSaved: () 
 
               {r.received && r.receivedAt && (
                 <span className="muted" style={{ fontSize: 12 }}>
-                  received {new Date(r.receivedAt).toLocaleDateString()}
+                  received {new Date(r.receivedAt).toLocaleDateString('en-GB')}
                 </span>
               )}
 

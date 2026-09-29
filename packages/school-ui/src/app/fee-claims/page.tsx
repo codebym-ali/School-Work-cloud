@@ -169,7 +169,7 @@ export default function FeeClaimsPage() {
                                 refuses it. Showing the date instead of a button that will be
                                 rejected is the difference between a rule and a trap. */}
                             <button className="small" disabled={busy === c.id || notYetCleared(c)}
-                              title={notYetCleared(c) ? `Clears on ${new Date(c.clearsOn!).toLocaleDateString()}` : undefined}
+                              title={notYetCleared(c) ? `Clears on ${new Date(c.clearsOn!).toLocaleDateString('en-GB')}` : undefined}
                               onClick={() => run(c.id, async () => {
                                 const res = await api.feeSetup.verifyClaim(c.id);
                                 setMsg({ ok: true, text: `Verified — receipt #${res.receiptNo} issued` });

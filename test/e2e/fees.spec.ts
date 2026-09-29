@@ -100,7 +100,7 @@ test.describe('fees', () => {
     const row = page.locator('tbody tr', { hasText: studentName });
     await expect(row).toBeVisible();
     await expect(row).toContainText('Rs 5,000');
-    await expect(row.locator('.badge')).toContainText('PENDING');
+    await expect(row.locator('.badge')).toContainText('Pending');
 
     // Partial payment of Rs 2,000 → PARTIAL.
     await row.getByRole('button', { name: 'Collect' }).click();
@@ -110,7 +110,7 @@ test.describe('fees', () => {
     expect((await (await payReq1).postDataJSON()).amountPaid).toBe(2000);
     await expect(page.locator('.toast.ok')).toContainText('Payment recorded');
     const rowAfterPartial = page.locator('tbody tr', { hasText: studentName });
-    await expect(rowAfterPartial.locator('.badge')).toContainText('PARTIAL');
+    await expect(rowAfterPartial.locator('.badge')).toContainText('Partial');
     await expect(rowAfterPartial).toContainText('Rs 2,000'); // paid column
 
     // Collect the remainder (Collect prefills the outstanding 3,000) → PAID.
@@ -119,6 +119,6 @@ test.describe('fees', () => {
     await rowAfterPartial.getByRole('button', { name: 'Save' }).click();
     expect((await (await payReq2).postDataJSON()).amountPaid).toBe(3000);
     await expect(page.locator('.toast.ok')).toContainText('Payment recorded');
-    await expect(page.locator('tbody tr', { hasText: studentName }).locator('.badge')).toContainText('PAID');
+    await expect(page.locator('tbody tr', { hasText: studentName }).locator('.badge')).toContainText('Paid');
   });
 });

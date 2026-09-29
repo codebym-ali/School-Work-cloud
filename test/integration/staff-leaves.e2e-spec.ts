@@ -9,6 +9,7 @@ import { AppModule } from '../../apps/api/src/app.module';
 import { ProvisioningService } from '../../apps/api/src/modules/platform/provisioning.service';
 import { destroyTenant } from './support/tenant';
 import { loginRequest } from './support/login';
+import { opsAdminSession } from './support/ops-admin';
 
 /**
  * Staff & teacher leave (§10) — the rules that decide **pay**.
@@ -50,6 +51,11 @@ describe('Staff leave — quota, pay and the register (e2e, §10)', () => {
     return r;
   };
   const post = (p: string, b: object = {}) => authed('post', p, ownerCookies, ownerCsrf).send(b);
+  // The office keeps the staff register (Owner UX 1c): the owner is refused, so staff marks go through a
+  // school-wide Ops Admin, created on first use.
+  let opsSession: ReturnType<typeof opsAdminSession> | undefined;
+  const staffMark = async (b: object) =>
+    (await (opsSession ??= opsAdminSession(app, platform, schoolId, host))).post('/api/v1/staff-attendance/bulk', b);
   const get = (p: string) => authed('get', p, ownerCookies);
   const login = async (e: string, pw: string) => {
     const res = await loginRequest(server(), host, e, pw);
@@ -226,7 +232,7 @@ describe('Staff leave — quota, pay and the register (e2e, §10)', () => {
   // ── approving settles the register ─────────────────────────────────────────
   it('corrects a day already marked ABSENT to ON_LEAVE when the leave is approved', async () => {
     const date = `${PAST}-07`;
-    const marked = await post('/api/v1/staff-attendance/bulk', {
+    const marked = await staffMark({
       date, session: 'MORNING', records: [{ staffId, status: 'ABSENT' }],
     });
     expect(marked.body.succeeded).toBe(1);
@@ -244,7 +250,7 @@ describe('Staff leave — quota, pay and the register (e2e, §10)', () => {
 
   it('never overwrites a day the person was actually present', async () => {
     const date = `${PAST}-07`;
-    await post('/api/v1/staff-attendance/bulk', { date, session: 'MORNING', records: [{ staffId, status: 'PRESENT' }] });
+    await staffMark({ date, session: 'MORNING', records: [{ staffId, status: 'PRESENT' }] });
 
     const leave = await file({ staffId, leaveType: 'CASUAL', fromDate: date, toDate: `${PAST}-08`, reason: 'Range covers a day worked' });
     expect((await approve(leave.body.id)).body.attendanceCorrected).toBe(0);

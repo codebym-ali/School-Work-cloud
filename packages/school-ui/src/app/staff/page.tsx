@@ -10,7 +10,7 @@ import {
 import { useMe } from '@sw/session';
 import { hasAnyRole } from '@sw/roles';
 import { SalaryPanel } from './salary-panel';
-import { Metric, MetricFilter } from '@sw/ui';
+import { Metric, MetricFilter, humanizeStatus } from '@sw/ui';
 import { useCampusLens } from '@sw/session';
 
 type Msg = { ok: boolean; text: string } | null;
@@ -572,7 +572,7 @@ function StaffRow({ member, isOwner, assignments, classes, sections, subjects, c
           {member.designation} · {member.employeeCode}{member.fullName && ` · ${member.user.email}`}
         </span>
         <span className="badge">{member.staffType.charAt(0) + member.staffType.slice(1).toLowerCase()}</span>
-        <span className={`badge ${member.user.status === 'ACTIVE' ? 'ok' : member.user.status === 'INVITED' ? 'warn' : 'bad'}`}>{member.user.status}</span>
+        <span className={`badge ${member.user.status === 'ACTIVE' ? 'ok' : member.user.status === 'INVITED' ? 'warn' : 'bad'}`}>{humanizeStatus(member.user.status)}</span>
         <div className="row" style={{ gap: 8, marginLeft: 'auto' }}>
           {canSalary && (
             <button className="ghost small" onClick={() => setSalaryOpen((v) => !v)}>

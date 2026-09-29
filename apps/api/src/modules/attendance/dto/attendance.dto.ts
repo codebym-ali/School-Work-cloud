@@ -48,6 +48,15 @@ export class MarkAttendanceDto {
 }
 
 /** Query behind the backfill completeness strip: the last `days` days for one section. */
+/** Owner overview scope (Owner UX 1c) — the same Campus ▸ Class ▸ Section as the Students hub. */
+export class AttendanceOverviewQuery {
+  @IsOptional() @IsUUID() campusId?: string;
+  @IsOptional() @IsUUID() classId?: string;
+  @IsOptional() @IsUUID() sectionId?: string;
+  /** Heatmap width: a fortnight by default, a month at most. */
+  @IsOptional() @Type(() => Number) @IsInt() @Min(7) @Max(31) days?: number;
+}
+
 export class AttendanceCoverageQuery {
   @IsUUID() sectionId!: string;
   @IsEnum(AttendanceSession) session!: AttendanceSession;

@@ -37,6 +37,18 @@ export default function AppLayout({ children, app }: { children: React.ReactNode
   const [lensCampuses, setLensCampuses] = useState<Campus[]>([]);
   const [lensCampusId, setLensCampusId] = useState<string | null>(null);
 
+  // The two-step sign-in reminder strip, dismissed per viewer for 7 days. A convenience only: storage may be
+  // blocked, in which case the strip simply shows (the Security badge carries the reminder either way).
+  const MFA_DISMISS_KEY = 'sw.mfaStrip.dismissedUntil';
+  const [mfaDismissed, setMfaDismissed] = useState(false);
+  useEffect(() => {
+    try { setMfaDismissed(Number(window.localStorage.getItem(MFA_DISMISS_KEY) ?? 0) > Date.now()); } catch { /* storage blocked */ }
+  }, []);
+  const dismissMfa = () => {
+    setMfaDismissed(true);
+    try { window.localStorage.setItem(MFA_DISMISS_KEY, String(Date.now() + 7 * 86400000)); } catch { /* storage blocked */ }
+  };
+
   // Close on navigation — otherwise the drawer covers the page you just opened.
   useEffect(() => { setNavOpen(false); }, [pathname]);
 
@@ -108,6 +120,14 @@ export default function AppLayout({ children, app }: { children: React.ReactNode
   const nav = groupedNav(me.roles, me.admissionsMode, true)
     .map((g) => ({ ...g, items: g.items.filter((i) => servesRoute(app, i.href, me.admissionsMode)) }))
     .filter((g) => g.items.length > 0);
+  /**
+   * Exactly ONE active item (Owner UX Phase 2). `pathname.startsWith(href)` lit up `/staff` on
+   * `/staff-attendance` and `/students` beside anything that merely began with those letters, so the sidebar
+   * could claim two places at once. The active item is the LONGEST href that matches on a segment boundary.
+   */
+  const activeHref = nav.flatMap((g) => g.items.map((i) => i.href))
+    .filter((h) => pathname === h || pathname.startsWith(`${h}/`))
+    .sort((a, b) => b.length - a.length)[0] ?? null;
   const current = navItemFor(pathname);
   const authorized = !current || hasAnyRole(me.roles, current.roles);
   const needsMfa = !me.mfaEnabled && me.roles.some((r) => (MFA_REQUIRED_ROLES as readonly string[]).includes(r));
@@ -158,11 +178,14 @@ export default function AppLayout({ children, app }: { children: React.ReactNode
             * on the *entire* dashboard rather than on one profile page you have to go looking for.
             * Rendered above the shell switch, so the teacher panel and the admin panel both get it.
             */}
-          <div className="role-chips">
-            {roleLabels(me.roles).map((label) => (
-              <span key={label} className="role-chip">{label}</span>
-            ))}
-          </div>
+          {/* Only the hats the brand does NOT already name — an owner saw "Owner" twice, stacked (Phase 2). */}
+          {roleLabels(me.roles).filter((l) => l !== panelLabel(me.roles)).length > 0 && (
+            <div className="role-chips">
+              {roleLabels(me.roles).filter((l) => l !== panelLabel(me.roles)).map((label) => (
+                <span key={label} className="role-chip">{label}</span>
+              ))}
+            </div>
+          )}
           {teacherShell ? (
             <TeacherSidebarNav roles={me.roles} admissionsMode={me.admissionsMode} />
           ) : (
@@ -184,7 +207,7 @@ export default function AppLayout({ children, app }: { children: React.ReactNode
               )}
               {nav.map(({ group, items }) => {
                 const links = items.map((n) => (
-                  <Link key={n.href} href={n.href} className={pathname.startsWith(n.href) ? 'active' : ''}>
+                  <Link key={n.href} href={n.href} className={n.href === activeHref ? 'active' : ''} aria-current={n.href === activeHref ? 'page' : undefined}>
                     <span className="nav-icon"><Icon name={n.icon} size={18} /></span>
                     {n.label}
                   </Link>
@@ -192,7 +215,7 @@ export default function AppLayout({ children, app }: { children: React.ReactNode
                 // Configure-once groups collapse to cut the wall of links. They open automatically
                 // when the current page lives inside them, so you always see where you are.
                 if (COLLAPSIBLE_GROUPS.includes(group)) {
-                  const activeInGroup = items.some((n) => pathname.startsWith(n.href));
+                  const activeInGroup = items.some((n) => n.href === activeHref);
                   return (
                     <details key={group} className="nav-group nav-group--collapsible" open={activeInGroup || undefined}>
                       <summary className="group-label">{group}</summary>
@@ -230,7 +253,12 @@ export default function AppLayout({ children, app }: { children: React.ReactNode
                 </select>
               </label>
             )}
-            <div className="who topbar-desktop">{me.email} · {roleLabels(me.roles).join(' · ')}</div>
+            {/* The PERSON, as colleagues say it: "Muhammad Ali · Owner". The email is a login, not a name —
+                kept in the tooltip for the rare "which account am I in?" (Phase 2). */}
+            <div className="who topbar-desktop" title={me.email}>
+              {/* No name on record (an owner has no staff profile) → the role alone, never the login email. */}
+              {me.name?.trim() ? <><strong>{me.name.trim()}</strong> · {roleLabels(me.roles).join(' · ')}</> : <strong>{roleLabels(me.roles).join(' · ')}</strong>}
+            </div>
             <div className="row" style={{ gap: 8 }}>
               {/* Beside Security, not on a dashboard — see the note on the closure banner below.
                   Renders nothing at all when there is nothing to say. */}
@@ -238,7 +266,11 @@ export default function AppLayout({ children, app }: { children: React.ReactNode
               {/* Hidden in the phone shell: identity, Security and Sign out all live under the
                   Me tab there, and repeating them costs ~50px of an 812px screen. The bell stays —
                   it is the one thing in this bar that is time-sensitive. */}
-              <Link className="ghost small topbar-desktop" href="/security" style={{ textDecoration: 'none' }}><Icon name="lock" size={15} /> Security</Link>
+              <Link className="ghost small topbar-desktop security-link" href="/security" style={{ textDecoration: 'none' }}
+                aria-label={needsMfa ? 'Security — two-step sign-in not set up' : 'Security'}>
+                <Icon name="lock" size={15} /> Security
+                {needsMfa && <span className="badge-dot" aria-hidden />}
+              </Link>
               <button className="ghost small topbar-desktop" onClick={async () => { await api.logout().catch(() => {}); router.replace('/login'); }}>
                 Sign out
               </button>
@@ -266,12 +298,15 @@ export default function AppLayout({ children, app }: { children: React.ReactNode
               red. Routine work is deliberately NOT in the list, because it is not locked. */}
           {/* Not on /dashboard: there it is a row in "Needs your attention", with its own button —
               one reminder in the place the owner acts, not the same sentence twice on one screen. */}
-          {needsMfa && pathname !== '/security' && pathname !== '/dashboard' && (
-            <div className="toast warn">
-              <strong>Add an extra sign-in step to protect money and staff records.</strong>{' '}
-              Until you set it up, you can&apos;t reverse a payment, waive a fee, see a full ID number,
-              approve salaries, or change who can do what. Everything else works normally.{' '}
-              <Link href="/security" style={{ fontWeight: 600 }}>Set it up — about a minute →</Link>
+          {/* Phase 2: a SLIM strip, dismissible for 7 days — the full paragraph on every page was the
+              loudest thing on screen and pushed the page's own content down. The badge on Security keeps
+              the reminder alive while the strip is dismissed. */}
+          {needsMfa && !mfaDismissed && pathname !== '/security' && pathname !== '/dashboard' && (
+            <div className="mfa-strip" role="status">
+              <Icon name="lock" size={15} />
+              <span><strong>Turn on two-step sign-in</strong> to unlock refunds, waivers, salary approval and ID numbers.</span>
+              <Link href="/security">Set it up</Link>
+              <button type="button" className="mfa-strip-close" aria-label="Dismiss for 7 days" onClick={dismissMfa}>×</button>
             </div>
           )}
           {authorized ? children : (

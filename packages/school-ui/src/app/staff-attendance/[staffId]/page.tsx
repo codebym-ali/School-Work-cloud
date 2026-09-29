@@ -116,7 +116,7 @@ export default function StaffAttendanceHistory() {
               <tbody>
                 {visibleRows.map((r) => (
                   <tr key={r.id}>
-                    <td>{new Date(r.date).toLocaleDateString()}</td>
+                    <td>{new Date(r.date).toLocaleDateString('en-GB')}</td>
                     <td><span className={`badge ${attendanceBadge(r.status)}`}>{humanizeStatus(r.status)}</span></td>
                     <td>{time(r.checkIn)}</td>
                     <td className="muted">{MARKED_BY[r.source] ?? r.source}</td>

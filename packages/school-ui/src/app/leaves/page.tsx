@@ -1,5 +1,6 @@
 'use client';
 
+import { humanizeStatus } from '@sw/ui';
 import { useCallback, useEffect, useState } from 'react';
 import { api, ApiError, type LeaveBalance, type StaffLeaveRow, type StudentLeaveRow } from '@sw/api-client';
 
@@ -192,7 +193,7 @@ export default function LeavesPage() {
                   {r.sub && <span className="muted" style={{ fontSize: 12, marginLeft: 8 }}>{r.sub}</span>}
                   <div className="muted" style={{ fontSize: 13 }}>{r.range}</div>
                 </div>
-                <span className={`badge ${badgeFor(r.status)}`}>{r.status}</span>
+                <span className={`badge ${badgeFor(r.status)}`}>{humanizeStatus(r.status)}</span>
               </div>
 
               <p style={{ margin: 0, fontSize: 14 }}>{r.reason}</p>

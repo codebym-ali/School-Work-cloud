@@ -234,7 +234,7 @@ export function DirectAdmission({
       {/* Student */}
       <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(200px,1fr))' }}>
         <div><label>Full name</label><input value={f.fullName ?? ''} onChange={(e) => set('fullName', e.target.value)} /></div>
-        <div><label>Gender</label><select value={f.gender} onChange={(e) => set('gender', e.target.value)}><option>MALE</option><option>FEMALE</option><option>OTHER</option></select></div>
+        <div><label>Gender</label><select value={f.gender} onChange={(e) => set('gender', e.target.value)}><option value="MALE">Male</option><option value="FEMALE">Female</option><option value="OTHER">Other</option></select></div>
         <div><label>Date of birth</label><input type="date" value={f.dateOfBirth ?? ''} onChange={(e) => set('dateOfBirth', e.target.value)} /></div>
         <div><label>CNIC / B-Form (optional)</label><input value={f.cnic ?? ''} onChange={(e) => set('cnic', e.target.value)} placeholder="12345-1234567-1" /></div>
         <div><label>Roll number (optional)</label><input type="number" min={1} value={f.rollNumber ?? ''} onChange={(e) => set('rollNumber', e.target.value)} placeholder="auto" /></div>
@@ -453,7 +453,7 @@ function GuardianSection({ value, onChange, index, onRemove }: {
         )}
         <div><label>Relation</label>
           <select value={value.relation} onChange={(e) => onChange({ ...value, relation: e.target.value })}>
-            <option>FATHER</option><option>MOTHER</option><option>GUARDIAN</option>
+            <option value="FATHER">Father</option><option value="MOTHER">Mother</option><option value="GUARDIAN">Guardian</option>
           </select>
         </div>
       </div>

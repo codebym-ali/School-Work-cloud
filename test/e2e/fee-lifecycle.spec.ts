@@ -160,7 +160,7 @@ test.describe('fee lifecycle — browser', () => {
 
     const row = invoiceRow(page);
     await expect(row).toContainText('Rs 6,000');
-    await expect(row.locator('.badge')).toContainText('PENDING');
+    await expect(row.locator('.badge')).toContainText('Pending');
   });
 
   test('FEE-LC-2 · the method dropdown offers exactly what the school accepts', async ({ page }) => {
@@ -226,7 +226,7 @@ test.describe('fee lifecycle — browser', () => {
 
       await expect(page.locator('.toast.ok')).toContainText('Payment recorded');
       const after = page.locator('tbody tr', { hasText: studentName });
-      await expect(after.locator('.badge')).toContainText(i === IMMEDIATE.length - 1 ? 'PAID' : 'PARTIAL');
+      await expect(after.locator('.badge')).toContainText(i === IMMEDIATE.length - 1 ? 'Paid' : 'Partial');
     }
   });
 
@@ -265,8 +265,8 @@ test.describe('fee lifecycle — browser', () => {
     // ⚠️ Scoped to the PAID row, not just "this student's row". The cheque case above bills a second
     // invoice for the same child, so a name-only locator now finds two — and would assert PAID
     // against the fresh, deliberately unpaid one.
-    const row = invoiceRow(page).filter({ has: page.locator('.badge', { hasText: 'PAID' }) }).first();
-    await expect(row.locator('.badge')).toContainText('PAID');
+    const row = invoiceRow(page).filter({ has: page.locator('.badge', { hasText: 'Paid' }) }).first();
+    await expect(row.locator('.badge')).toContainText('Paid');
     // Either the button is gone, or the server refuses with 409. Both are correct; silently
     // accepting a seventh payment is not.
     const collect = row.getByRole('button', { name: 'Collect' });

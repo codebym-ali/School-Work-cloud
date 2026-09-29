@@ -179,7 +179,7 @@ export default function PayrollPage() {
                       <td>
                         {p.paidAt ? (
                           <span className="badge ok" title={p.paymentRef ?? undefined}>
-                            {new Date(p.paidAt).toLocaleDateString()} · {METHOD_LABEL[p.paymentMethod ?? ''] ?? 'Paid'}
+                            {new Date(p.paidAt).toLocaleDateString('en-GB')} · {METHOD_LABEL[p.paymentMethod ?? ''] ?? 'Paid'}
                             {p.paidBy && <> · by {p.paidBy === me?.email ? 'you' : p.paidBy}</>}
                           </span>
                         ) : open.status !== 'APPROVED' ? (

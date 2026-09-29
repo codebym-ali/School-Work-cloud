@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { api, apiGet, apiPost, ApiError, type Campus, type Enrollment, type Klass, type Section, type TeacherClass, type UnmarkedRegisters } from '@sw/api-client';
 import { sectionLabeller } from '@school/lib/labels';
 import { useCampusLens, useMe } from '@sw/session';
+import { AttendanceOverviewPanel } from './owner-overview';
 
 /** Roles that mark attendance across the school; everyone else marking is a teacher scoped to their own
  *  sections. Drives whether the section picker is fed by the school-wide list or by /teaching/my-classes. */
@@ -96,7 +97,51 @@ function CoverageStrip({ days, selected, onPick, readOnly = false }: {
   );
 }
 
+/**
+ * The owner gets an Overview (Owner UX 1c) beside the read-only register; every marking role gets the
+ * register exactly as before. The owner never marks — the Overview is the oversight view.
+ */
 export default function AttendancePage() {
+  const me = useMe();
+  const ownerView = !!me && me.roles.includes('OWNER_ADMIN') && !me.roles.some((r) => MARKING_ROLES.includes(r));
+  const [tab, setTab] = useState<'overview' | 'register'>(() =>
+    (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('view') === 'register') ? 'register' : 'overview');
+  // Remounts the register so it re-reads ?sectionId&date when a heatmap cell or attention row opens one.
+  const [registerKey, setRegisterKey] = useState(0);
+
+  if (!me) return <p className="muted">Loading…</p>;
+  if (!ownerView) return <AttendanceRegister />;
+
+  const go = (next: 'overview' | 'register', params: Record<string, string> = {}) => {
+    const url = new URL(window.location.href);
+    for (const k of ['view', 'sectionId', 'date']) url.searchParams.delete(k);
+    if (next === 'register') url.searchParams.set('view', 'register');
+    for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
+    window.history.replaceState(window.history.state, '', url);
+    setRegisterKey((k) => k + 1);
+    setTab(next);
+  };
+
+  return (
+    <div className="oh">
+      <div className="ov-head">
+        <div>
+          <h1 style={{ margin: 0 }}>Attendance</h1>
+          <p className="ov-lede">View only — class teachers mark the register; your campus admin or Ops Admin makes corrections.</p>
+        </div>
+        <div className="ov-tabs" role="tablist" aria-label="Attendance view">
+          <button type="button" role="tab" aria-selected={tab === 'overview'} className={`ov-tab${tab === 'overview' ? ' is-active' : ''}`} onClick={() => go('overview')}>Overview</button>
+          <button type="button" role="tab" aria-selected={tab === 'register'} className={`ov-tab${tab === 'register' ? ' is-active' : ''}`} onClick={() => go('register')}>Register</button>
+        </div>
+      </div>
+      {tab === 'overview'
+        ? <AttendanceOverviewPanel onOpenRegister={(sectionId, date) => go('register', { sectionId, date })} />
+        : <AttendanceRegister key={registerKey} embedded />}
+    </div>
+  );
+}
+
+function AttendanceRegister({ embedded = false }: { embedded?: boolean }) {
   const [classes, setClasses] = useState<Klass[]>([]);
   const [campuses, setCampuses] = useState<Campus[]>([]);
   const [sections, setSections] = useState<Section[]>([]);
@@ -136,6 +181,9 @@ export default function AttendancePage() {
     const params = new URLSearchParams(window.location.search);
     const sid = params.get('sectionId');
     if (sid) setSectionId(sid);
+    // …and a day (the owner overview's heatmap opens one register on one date).
+    const d = params.get('date');
+    if (d && /^\d{4}-\d{2}-\d{2}$/.test(d) && d <= today()) setDate(d);
     // Arrived from the dashboard's "N registers not marked today" chip: show WHICH ones, or the
     // chip is a number that points at a page where you still have to go looking.
     if (params.get('unmarked')) {
@@ -222,8 +270,8 @@ export default function AttendancePage() {
 
   return (
     <div className="stack">
-      <h1>Attendance</h1>
-      {readOnly && (
+      {!embedded && <h1>Attendance</h1>}
+      {readOnly && !embedded && (
         <p className="muted" style={{ margin: 0 }}>
           View only. Class teachers mark attendance; your campus admin or Ops Admin makes corrections.
         </p>

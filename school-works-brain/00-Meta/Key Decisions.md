@@ -20,8 +20,36 @@ Full ledger: [[consistency-register]] (LOCKED). This is the digest.
   was treated as a teacher inside); and the shared Attendance page renders read-only for non-marking roles.
 - **Read-only must be truthful:** the marking UI defaults unrecorded students to Present; the read-only
   view shows them as **"Not marked"**, never assumed present.
-- Staff attendance marking is unchanged here (Owner UX plan Phase 1c revisits it).
+- **Extended to staff attendance (Phase 1c):** `POST /staff-attendance/bulk` is `@Roles('CAMPUS_ADMIN')` — the
+  office (campus admin, Ops Admin via the hierarchy) keeps the staff register; owner and HR read it. These rows
+  move salaries, so the person who marks them is the one accountable for the register, not the one who approves
+  pay. A school with no campus admin appoints an Ops Admin (or relies on self check-in). Integration suites that
+  put rows on the staff register use `test/integration/support/ops-admin.ts` (a school-wide Ops Admin).
 - Guarded by `permission-matrix` (owner → 403), `attendance.e2e`, and the Playwright `attendance.spec.ts`.
+
+## Enum values in sentence case, via one helper (2026-09-29, Owner UX Phase 2)
+- Never render a raw enum (`PAID`, `HALF_DAY`, `MALE`): use `humanizeStatus` from `@sw/ui` ("Paid", "Half day",
+  "Male"; non-enum strings pass through). Dates in the school app use `toLocaleDateString('en-GB')` — never
+  locale-less, which shows MM/DD/YYYY on a US-locale browser.
+- Sidebar active state = longest matching href on a segment boundary; never `startsWith` alone.
+
+## Report files carry dates as dates (2026-09-29, Owner UX 1d)
+- Every CSV/PDF export goes through `fileRow` in `reports.controller.ts`: a `Date` at midnight UTC → `YYYY-MM-DD`,
+  any other moment → ISO `YYYY-MM-DD HH:mm UTC`. `String(date)` had produced a server-zone sentence that no
+  spreadsheet sorts and that is a day off west of the server. PDFs get readable headings; **CSV keeps field
+  names** so a spreadsheet built on an export does not break when a label is reworded.
+
+## Owner attendance overview: honest by construction (2026-09-29, Owner UX 1c)
+- `GET /attendance/overview` (owner + campus admin, campus-forced for campus-bound users) returns today's KPIs,
+  every register with its **class teacher** (homeroom `TeacherAssignment`, `subjectId` null; the cover teacher
+  wins when there is one), a sections × 14-day heatmap, chronic absentees and sections under 85%.
+- "Present" = PRESENT + LATE + HALF_DAY over the records that exist (the dashboard's rule), coverage beside it.
+  One session (the school's first) so two-session schools are not double-counted.
+- Closed days (weekly off / holiday, per campus) are **closed**, never gaps. A past open day with no records
+  is "not marked" (red outline); today before it is marked is "pending" (grey outline).
+- **Chronic absentee** = the latest run of ABSENT marks, 3+ school days, on days the register was taken.
+  ON_LEAVE is skipped (authorised) — it neither breaks nor extends a run.
+- "Below threshold" is judged over the fortnight, not one morning: a single bad day is noise.
 
 ## Owner Students hub: one where-builder for list AND KPI counts (2026-09-29, Owner UX 1b)
 - `StudentsService.buildWhere` is the single filter behind `GET /students` and `GET /students/summary`. Every KPI

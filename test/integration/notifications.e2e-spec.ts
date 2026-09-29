@@ -9,6 +9,7 @@ import { AppModule } from '../../apps/api/src/app.module';
 import { ProvisioningService } from '../../apps/api/src/modules/platform/provisioning.service';
 import { destroyTenant } from './support/tenant';
 import { loginRequest } from './support/login';
+import { opsAdminSession } from './support/ops-admin';
 
 /**
  * "What changed for me" (Notifications Plan, N0).
@@ -42,6 +43,11 @@ describe('Notifications — derived, self-scoped (e2e, N0)', () => {
   const csrfOf = (c: string[]) => (c.find((x) => x.startsWith('csrf=')) ?? '').split(';')[0].slice(5);
   const post = (p: string, b: object = {}) =>
     request(server()).post(p).set('Host', host).set('Cookie', ownerCookies).set('X-CSRF-Token', ownerCsrf).send(b);
+  // The office keeps the staff register (Owner UX 1c): the owner is refused, so staff marks go through a
+  // school-wide Ops Admin, created on first use.
+  let opsSession: ReturnType<typeof opsAdminSession> | undefined;
+  const staffMark = async (b: object) =>
+    (await (opsSession ??= opsAdminSession(app, platform, schoolId, host))).post('/api/v1/staff-attendance/bulk', b);
   const login = async (e: string, pw: string) => {
     const res = await loginRequest(server(), host, e, pw);
     return res.headers['set-cookie'] as unknown as string[];
@@ -169,7 +175,7 @@ describe('Notifications — derived, self-scoped (e2e, N0)', () => {
 
   it('warns about an absence, because that is how a wrong one gets corrected before payday', async () => {
     const day = recentWorkingDay();
-    await post('/api/v1/staff-attendance/bulk', {
+    await staffMark({
       date: day, session: 'MORNING', records: [{ staffId, status: 'ABSENT' }],
     });
     const items = await notify(teacherCookies);
@@ -180,7 +186,7 @@ describe('Notifications — derived, self-scoped (e2e, N0)', () => {
   it('says nothing about an absence too old to dispute', async () => {
     // Months back. Still on the register, still deducted long ago — but telling someone now is
     // noise, and a feed that never forgets is a feed nobody opens.
-    await post('/api/v1/staff-attendance/bulk', {
+    await staffMark({
       date: `${PAST}-06`, session: 'MORNING', records: [{ staffId, status: 'ABSENT' }],
     });
     expect(await kinds(teacherCookies)).not.toContain('MARKED_ABSENT');
@@ -188,7 +194,7 @@ describe('Notifications — derived, self-scoped (e2e, N0)', () => {
 
   it('drops the absence notice when the office corrects it to ON_LEAVE', async () => {
     const day = recentWorkingDay();
-    await post('/api/v1/staff-attendance/bulk', {
+    await staffMark({
       date: day, session: 'MORNING', records: [{ staffId, status: 'ABSENT' }],
     });
     expect(await kinds(teacherCookies)).toContain('MARKED_ABSENT');

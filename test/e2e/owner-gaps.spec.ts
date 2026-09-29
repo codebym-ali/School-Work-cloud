@@ -45,21 +45,25 @@ test.describe('owner gaps — screens match the API', () => {
   });
 
   test('every report runs without typing an id', async ({ page }) => {
+    // Phase 1d: a gallery of report cards grouped by category; each opens its own view (`?report=key`).
     await gotoApp(page, '/reports');
-    const select = page.locator('#rep-key');
-    const keys = await select.locator('option').evaluateAll((os) => os.map((o) => (o as HTMLOptionElement).value));
-    expect(keys.length).toBeGreaterThanOrEqual(7);
+    const titles = await page.locator('button.ov-rcard .ov-rcard-title').allInnerTexts();
+    expect(titles.length).toBeGreaterThanOrEqual(7);
+    const keys = ['class-strength', 'attendance-register', 'daily-collection', 'defaulters', 'fee-ledger', 'exam-summary', 'sms-usage'];
 
     for (const key of keys) {
-      await select.selectOption(key);
+      // A report with no required choice runs as soon as it opens — catch that request.
+      const auto = page.waitForResponse((r) => r.url().includes(`/reports/${key}`) && r.request().method() === 'GET', { timeout: 8000 }).catch(() => null);
+      await gotoApp(page, `/reports?report=${key}`);
+      await expect(page.getByRole('button', { name: '← All reports' })).toBeVisible();
       // No input on the page may ask for a raw id.
       await expect(page.locator('input[placeholder*="id" i], label:text-matches("(student|section|exam)Id", "i")')).toHaveCount(0);
 
       if (key === 'fee-ledger') {
         const box = page.locator('#rep-student');
-        // Typed as a person would, by name — "Moeez" is the demo tenant's seeded student (seed-test-users).
-        await box.pressSequentially('Moe');
-        // Scoped to the picker's listbox: the Report <select> above has options of its own.
+        // Typed as a person would, by name. "Ahmed" is in the BASE demo seed; "Moeez" came from the optional
+        // seed-test-users script, so the step failed on any stack where that had not been run.
+        await box.pressSequentially('Ahm');
         const option = page.locator('#rep-student-list').getByRole('option').first();
         await expect(option).toBeVisible();
         await option.click();
@@ -67,16 +71,23 @@ test.describe('owner gaps — screens match the API', () => {
       for (const id of ['#rep-section', '#rep-exam']) {
         const s = page.locator(id);
         if (await s.count()) {
-          await expect(s.locator('option').nth(1)).toBeAttached();
-          await s.selectOption({ index: 1 });
+          // A searchable combobox (not a native <select>): open it and take the first option, as a person would.
+          await s.click();
+          const first = page.getByRole('listbox').getByRole('option').first();
+          await expect(first).toBeVisible();
+          await first.click();
         }
       }
 
-      const view = page.getByRole('button', { name: 'View' });
-      await expect(view, `${key}: View should be enabled once choices are made`).toBeEnabled();
-      const res = page.waitForResponse((r) => r.url().includes(`/reports/${key}`) && r.request().method() === 'GET');
-      await view.click();
-      expect((await res).status(), `${key} report`).toBe(200);
+      const run = page.getByRole('button', { name: /^(Run report|Update)$/ });
+      if (await run.count()) {
+        await expect(run, `${key}: Run should be enabled once choices are made`).toBeEnabled();
+        const res = page.waitForResponse((r) => r.url().includes(`/reports/${key}`) && r.request().method() === 'GET');
+        await run.click();
+        expect((await res).status(), `${key} report`).toBe(200);
+      } else {
+        expect((await auto)?.status(), `${key} report (runs on open)`).toBe(200);
+      }
       // Asserted by what the report SHOWS, not by the absence of an error style: the two-factor banner and
       // Next.js's route announcer both match the generic error selectors.
       await expect(page.locator('table').or(page.getByText('Nothing to report for these choices.'))).toBeVisible();

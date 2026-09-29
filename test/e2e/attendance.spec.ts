@@ -19,7 +19,11 @@ test.describe('attendance (owner view)', () => {
 
     await page.getByRole('link', { name: 'Attendance', exact: true }).click();
     await page.waitForURL('**/attendance');
-    await expect(page.getByText('View only. Class teachers mark attendance', { exact: false })).toBeVisible();
+    await expect(page.getByText('View only — class teachers mark the register', { exact: false })).toBeVisible();
+
+    // Phase 1c: the owner lands on the Overview (KPIs, who is behind, the heatmap); the register is a tab.
+    await expect(page.getByRole('heading', { name: /Last \d+ days by section/ })).toBeVisible();
+    await page.getByRole('tab', { name: 'Register' }).click();
 
     // Selecting a section loads the register directly — there is no "Load roster" step for a viewer.
     await page.locator('label:text-is("Section") + select').selectOption({ label: `${className} — ${sectionName}` });
@@ -32,5 +36,14 @@ test.describe('attendance (owner view)', () => {
     // No P / A / L / ½ buttons, and nothing to save.
     await expect(row.getByRole('button')).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Save attendance' })).toHaveCount(0);
+  });
+
+  test('the owner reads the staff register but cannot record it (Phase 1c)', async ({ page }) => {
+    await gotoApp(page);
+    await page.goto('/staff-attendance');
+    await expect(page.getByText('View only — the office records staff attendance.')).toBeVisible();
+    await expect(page.getByRole('group', { name: 'Staff today' })).toBeVisible();
+    await expect(page.locator('button.ov-mark')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /Mark .* present/ })).toHaveCount(0);
   });
 });

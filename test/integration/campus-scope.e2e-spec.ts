@@ -543,7 +543,7 @@ describe('Campus scoping (e2e, §22.8 / P1.7)', () => {
     it('shows the fee ledger by period and balance, with no invoice id', async () => {
       const res = await authed('get', `/api/v1/reports/fee-ledger?studentId=${studentA}`, acctCookies);
       expect(res.status).toBe(200);
-      expect(res.body[0]).toMatchObject({ period: '7/2026' });
+      expect(res.body[0]).toMatchObject({ period: 'Jul 2026' });
       expect(res.body[0]).toHaveProperty('balance');
       expect(res.body[0]).not.toHaveProperty('invoiceId');
     });

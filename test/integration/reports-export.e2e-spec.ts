@@ -11,6 +11,7 @@ import { SMS_QUEUE } from '../../apps/api/src/modules/comms/sms/sms.types';
 import { admissionController } from './support/admission';
 import { destroyTenant } from './support/tenant';
 import { loginRequest } from './support/login';
+import { opsAdminSession } from './support/ops-admin';
 
 /**
  * Report exports (QA plan §7): a CSV export must (a) carry exactly the rows the JSON view carries
@@ -24,6 +25,8 @@ describe('Report exports — parity & CSV-injection safety (e2e, §28)', () => {
   let schoolId: string;
   let cookies: string[];
   let csrf: string;
+  let plainSection: string;
+  let plainEnrolment: string;
   const host = `rpt-${randomUUID().slice(0, 6)}.localhost`;
   const email = 'owner@rpt.pk';
   const password = 'Owner!Secret12';
@@ -54,9 +57,10 @@ describe('Report exports — parity & CSV-injection safety (e2e, §28)', () => {
     const plainClass = (await post('/api/v1/classes', { campusId: prov.campusId, name: 'Grade 2', order: 2 })).body.id;
     const evilSec = (await post('/api/v1/sections', { classId: evilClass, name: 'A' })).body.id;
     const plainSec = (await post('/api/v1/sections', { classId: plainClass, name: 'A' })).body.id;
+    plainSection = plainSec;
     const { admit } = await admissionController(app, platform, schoolId, host, prov.campusId);
     await admit({ fullName: 'C One', gender: 'MALE', dateOfBirth: '2018-05-10', campusId: prov.campusId, classId: evilClass, sectionId: evilSec, guardian: { mode: 'CREATE', fullName: 'G1', phone: '03007650001', relation: 'FATHER' } });
-    await admit({ fullName: 'C Two', gender: 'MALE', dateOfBirth: '2018-05-10', campusId: prov.campusId, classId: plainClass, sectionId: plainSec, guardian: { mode: 'CREATE', fullName: 'G2', phone: '03007650002', relation: 'FATHER' } });
+    plainEnrolment = (await admit({ fullName: 'C Two', gender: 'MALE', dateOfBirth: '2018-05-10', campusId: prov.campusId, classId: plainClass, sectionId: plainSec, guardian: { mode: 'CREATE', fullName: 'G2', phone: '03007650002', relation: 'FATHER' } })).body.enrollmentId;
   }, 120_000);
 
   afterAll(async () => {
@@ -87,5 +91,27 @@ describe('Report exports — parity & CSV-injection safety (e2e, §28)', () => {
     expect(csv).toContain("'=1+1");
     for (const line of csv.split('\n')) expect(line.startsWith('=1+1')).toBe(false);
     expect(csv).not.toMatch(/(^|,)=1\+1(,|$)/m); // no unguarded =1+1 in any field position
+  });
+
+  it('writes dates in files as dates — never a server-zone Date.toString()', async () => {
+    const day = new Date().toISOString().slice(0, 10);
+    const ops = await opsAdminSession(app, platform, schoolId, host);
+    const mark = await ops.post('/api/v1/attendance/bulk', {
+      sectionId: plainSection, date: day, session: 'MORNING', allowHolidayOverride: true,
+      records: [{ enrollmentId: plainEnrolment, status: 'PRESENT' }],
+    });
+    expect(mark.body.failed).toBe(0);
+    const csv = (await get(`/api/v1/reports/attendance-register?sectionId=${plainSection}&from=${day}&to=${day}&format=csv`)).text;
+    // Was "Mon Sep 28 2026 05:00:00 GMT+0500 (Pakistan Standard Time)": unsortable, zone-dependent, a day off in the west.
+    expect(csv.split('\n')[1]).toMatch(new RegExp(`^${day},`));
+    expect(csv).not.toMatch(/GMT|Standard Time/);
+  });
+
+  it('prints readable column headings in the PDF (the CSV keeps its field names)', async () => {
+    const csv = (await get('/api/v1/reports/class-strength?format=csv')).text;
+    expect(csv.split('\n')[0]).toBe('class,section,activeStudents');
+    const pdf = await get('/api/v1/reports/class-strength?format=pdf');
+    expect(pdf.status).toBe(200);
+    expect(pdf.headers['content-type']).toContain('application/pdf');
   });
 });

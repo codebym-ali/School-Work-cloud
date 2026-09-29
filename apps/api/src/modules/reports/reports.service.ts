@@ -3,6 +3,7 @@ import { effectiveCampusFilter, PdfService, restrictedCampusId, TenantContext } 
 import { TenantPrismaService } from '@database';
 
 type Row = Record<string, unknown>;
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 /**
  * The seven reports (blueprint §28). Each returns an array of flat rows; the
@@ -64,7 +65,8 @@ export class ReportsService {
   async feeLedger(studentId: string): Promise<Row[]> {
     const invoices = await this.db.feeInvoice.findMany({ where: { studentId, ...this.campusEnrollmentFilter }, include: { payments: true }, orderBy: { createdAt: 'asc' } });
     return invoices.map((i) => ({
-      period: i.month ? `${i.month}/${i.year}` : String(i.year), total: Number(i.totalAmount), paid: Number(i.paidAmount),
+      // "Aug 2026", as the challan and the parent say it — not "8/2026".
+      period: i.month ? `${MONTHS[i.month - 1]} ${i.year}` : String(i.year), total: Number(i.totalAmount), paid: Number(i.paidAmount),
       balance: Math.max(Math.round((Number(i.totalAmount) - Number(i.paidAmount)) * 100) / 100, 0),
       status: i.status, dueDate: i.dueDate, payments: i.payments.length,
     }));
@@ -115,15 +117,27 @@ export class ReportsService {
     const eff = effectiveCampusFilter(this.ctx.user, campusId);
     const invoices = await this.db.feeInvoice.findMany({
       where: { status: { in: ['PENDING', 'PARTIAL', 'OVERDUE'] }, dueDate: { lt: cutoff }, ...(eff ? { enrollment: { campusId: eff } } : {}) },
-      include: { student: { select: { fullName: true, grNumber: true } } },
+      include: {
+        student: { select: { fullName: true, grNumber: true } },
+        enrollment: { select: { class: { select: { name: true } }, section: { select: { name: true } } } },
+      },
+      orderBy: { dueDate: 'asc' },
     });
-    const byStudent = new Map<string, Row & { outstanding: number }>();
+    type Defaulter = Row & { outstanding: number; invoices: number; oldestDue: Date };
+    const byStudent = new Map<string, Defaulter>();
     for (const inv of invoices) {
-      const cur = (byStudent.get(inv.studentId) as (Row & { outstanding: number }) | undefined) ?? { name: inv.student.fullName, grNumber: inv.student.grNumber, outstanding: 0 };
+      // The class the bill was raised in — "Grade 6 — A" is how the office finds the family.
+      const cur = byStudent.get(inv.studentId) ?? {
+        name: inv.student.fullName, grNumber: inv.student.grNumber,
+        class: `${inv.enrollment.class.name} — ${inv.enrollment.section.name}`,
+        outstanding: 0, invoices: 0, oldestDue: inv.dueDate,
+      };
       cur.outstanding = Math.round((cur.outstanding + Number(inv.totalAmount) - Number(inv.paidAmount)) * 100) / 100;
+      cur.invoices += 1;
       byStudent.set(inv.studentId, cur);
     }
-    return [...byStudent.values()];
+    // Who owes most first — "who owes fees and how much?" is answered at the top of the list, not by sorting it.
+    return [...byStudent.values()].sort((a, b) => b.outstanding - a.outstanding || String(a.name).localeCompare(String(b.name)));
   }
 
   async examSummary(examId: string): Promise<Row[]> {

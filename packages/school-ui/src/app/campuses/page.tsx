@@ -1,5 +1,6 @@
 'use client';
 
+import { humanizeStatus } from '@sw/ui';
 import { useEffect, useState } from 'react';
 import { api, apiGet, apiPost, apiDelete, ApiError, type Campus, type ManagedUser } from '@sw/api-client';
 import { useMe } from '@sw/session';
@@ -204,7 +205,7 @@ export default function CampusesPage() {
                           </td>
                         )}
                         <td>{u.email}</td>
-                        <td><span className={`badge ${u.status === 'ACTIVE' ? 'ok' : 'bad'}`}>{u.status}</span></td>
+                        <td><span className={`badge ${u.status === 'ACTIVE' ? 'ok' : 'bad'}`}>{humanizeStatus(u.status)}</span></td>
                         {isOwner && (
                           <td style={{ textAlign: 'right' }}>
                             <span className="row" style={{ gap: 6, justifyContent: 'flex-end' }}>
@@ -260,7 +261,7 @@ export default function CampusesPage() {
           <table>
             <tbody>
               {schoolWide.map((u) => (
-                <tr key={u.id}><td>{u.email}</td><td>{roleLabels(u.roles).join(', ')}</td><td><span className={`badge ${u.status === 'ACTIVE' ? 'ok' : 'bad'}`}>{u.status}</span></td></tr>
+                <tr key={u.id}><td>{u.email}</td><td>{roleLabels(u.roles).join(', ')}</td><td><span className={`badge ${u.status === 'ACTIVE' ? 'ok' : 'bad'}`}>{humanizeStatus(u.status)}</span></td></tr>
               ))}
             </tbody>
           </table>

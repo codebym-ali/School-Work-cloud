@@ -1,5 +1,6 @@
 'use client';
 
+import { humanizeStatus } from '@sw/ui';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import {
@@ -261,7 +262,7 @@ function TermsCard({ years, terms, onCreate, onDelete }: {
                   <td>{t.name}</td>
                   <td className="muted">{yearName(t.academicYearId)}</td>
                   <td className="muted" style={{ fontSize: 12 }}>
-                    {new Date(t.startDate).toLocaleDateString()} – {new Date(t.endDate).toLocaleDateString()}
+                    {new Date(t.startDate).toLocaleDateString('en-GB')} – {new Date(t.endDate).toLocaleDateString('en-GB')}
                   </td>
                   <td style={{ textAlign: 'right' }}>
                     <button className="ghost small" disabled={busy === t.id}
@@ -343,7 +344,7 @@ function ExamRow({
         <td>{exam.examType}</td>
         <td>{exam.weightagePercent}%</td>
         <td>{exam.examDate.slice(0, 10)}</td>
-        <td><span className={`badge ${badge(exam.status)}`}>{exam.status}</span></td>
+        <td><span className={`badge ${badge(exam.status)}`}>{humanizeStatus(exam.status)}</span></td>
         <td>
           <span className="inline-form">
             {exam.status === 'DRAFT' && <button className="ghost small" onClick={() => act(() => apiPost(`/exams/${exam.id}/open-marks-entry`), 'Marks entry opened')}>Open marks entry</button>}

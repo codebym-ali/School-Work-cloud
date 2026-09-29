@@ -7,7 +7,7 @@ import type { Inquiry } from '@sw/api-client';
 import { hasModule, useMe } from '@sw/session';
 import { classLabeller } from '@school/lib/labels';
 import { canReach, isSchoolWideAdmin } from '@sw/roles';
-import { Metric, MetricFilter } from '@sw/ui';
+import { Metric, MetricFilter, humanizeStatus } from '@sw/ui';
 import { useCampusLens } from '@sw/session';
 import { DirectAdmission } from './direct-admission';
 
@@ -262,7 +262,7 @@ function InquiryRow({
         <td>{inquiry.guardianName}</td>
         <td>{inquiry.guardianPhone}</td>
         <td>{className(inquiry.desiredClassId)}</td>
-        <td><span className={`badge ${badge(inquiry.status)}`}>{inquiry.status}</span></td>
+        <td><span className={`badge ${badge(inquiry.status)}`}>{humanizeStatus(inquiry.status)}</span></td>
         <td className="muted">
           {inquiry.entryTest
             ? `Scheduled ${new Date(inquiry.entryTest.scheduledAt).toLocaleString()}${inquiry.entryTest.score != null ? ` · score ${inquiry.entryTest.score}` : ''}`
@@ -371,13 +371,13 @@ function AdmitForm({
       <h2 style={{ margin: 0, fontSize: 17 }}>Admit {inquiry.studentName}</h2>
       <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(200px,1fr))' }}>
         <div><label>Full name</label><input value={f.fullName ?? ''} onChange={(e) => set('fullName', e.target.value)} /></div>
-        <div><label>Gender</label><select value={f.gender} onChange={(e) => set('gender', e.target.value)}><option>MALE</option><option>FEMALE</option><option>OTHER</option></select></div>
+        <div><label>Gender</label><select value={f.gender} onChange={(e) => set('gender', e.target.value)}><option value="MALE">Male</option><option value="FEMALE">Female</option><option value="OTHER">Other</option></select></div>
         <div><label>Date of birth</label><input type="date" value={f.dateOfBirth ?? ''} onChange={(e) => set('dateOfBirth', e.target.value)} /></div>
         <div><label>Class</label><select value={f.classId ?? ''} onChange={(e) => setF({ ...f, classId: e.target.value, sectionId: '' })}><option value="">Select…</option>{classes.map((c) => <option key={c.id} value={c.id}>{classLabel(c)}</option>)}</select></div>
         <div><label>Section</label><select value={f.sectionId ?? ''} onChange={(e) => set('sectionId', e.target.value)}><option value="">Select…</option>{classSections.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></div>
         <div><label>Guardian name</label><input value={f.guardianName ?? ''} onChange={(e) => set('guardianName', e.target.value)} /></div>
         <div><label>Guardian phone</label><input value={f.guardianPhone ?? ''} onChange={(e) => set('guardianPhone', e.target.value)} /></div>
-        <div><label>Relation</label><select value={f.relation} onChange={(e) => set('relation', e.target.value)}><option>FATHER</option><option>MOTHER</option><option>GUARDIAN</option></select></div>
+        <div><label>Relation</label><select value={f.relation} onChange={(e) => set('relation', e.target.value)}><option value="FATHER">Father</option><option value="MOTHER">Mother</option><option value="GUARDIAN">Guardian</option></select></div>
         <div><label>GR number (optional)</label><input value={f.grNumber ?? ''} onChange={(e) => set('grNumber', e.target.value)} /></div>
       </div>
       <div className="inline-form">

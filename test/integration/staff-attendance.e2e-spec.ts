@@ -9,6 +9,7 @@ import { AppModule } from '../../apps/api/src/app.module';
 import { ProvisioningService } from '../../apps/api/src/modules/platform/provisioning.service';
 import { destroyTenant } from './support/tenant';
 import { loginRequest } from './support/login';
+import { opsAdminSession } from './support/ops-admin';
 
 /**
  * Staff attendance marking (§9/§13).
@@ -30,6 +31,9 @@ describe('Staff attendance marking (e2e)', () => {
   let adminCookies: string[]; // CAMPUS_ADMIN bound to campus A
   let adminCsrf: string;
   let ownerUserId: string;
+  /** The office marks staff attendance (Owner UX 1c) — a school-wide Ops Admin, since staff sit on two campuses. */
+  let ops: Awaited<ReturnType<typeof opsAdminSession>>;
+  let markerUserId: string;
 
   let staffA: string; // campus A, joined long ago
   let staffB: string; // campus B
@@ -62,7 +66,7 @@ describe('Staff attendance marking (e2e)', () => {
   const iso = (d: Date) => d.toISOString().slice(0, 10);
 
   const mark = (staffId: string, status: string, date = workingDay(), extra: object = {}) =>
-    ownerPost('/api/v1/staff-attendance/bulk', { date, session: 'MORNING', records: [{ staffId, status }], ...extra });
+    ops.post('/api/v1/staff-attendance/bulk', { date, session: 'MORNING', records: [{ staffId, status }], ...extra });
 
   async function createStaff(email: string, campusId: string, joinedAt: string): Promise<string> {
     const res = await ownerPost('/api/v1/staff', {
@@ -109,6 +113,8 @@ describe('Staff attendance marking (e2e)', () => {
     });
     adminCookies = await login(admin.email, admin.password);
     adminCsrf = csrfOf(adminCookies);
+    ops = await opsAdminSession(app, platform, schoolId, host);
+    markerUserId = (await platform.user.findFirstOrThrow({ where: { schoolId, roles: { has: 'OPERATIONS_ADMIN' as never } } })).id;
   });
 
   afterAll(async () => {
@@ -125,6 +131,14 @@ describe('Staff attendance marking (e2e)', () => {
     await platform.payrollRun.deleteMany({ where: { schoolId } });
   });
 
+  it('refuses the owner: the office keeps the staff register (Owner UX 1c)', async () => {
+    const res = await ownerPost('/api/v1/staff-attendance/bulk', { date: workingDay(), session: 'MORNING', records: [{ staffId: staffA, status: 'PRESENT' }] });
+    expect(res.status).toBe(403);
+    // …but still reads it.
+    const read = await authed('get', `/api/v1/staff-attendance?date=${workingDay()}`, ownerCookies);
+    expect(read.status).toBe(200);
+  });
+
   it('records attendance with provenance — who marked it, and how', async () => {
     const res = await mark(staffA, 'PRESENT');
     expect(res.status).toBe(200);
@@ -133,7 +147,7 @@ describe('Staff attendance marking (e2e)', () => {
     const row = await platform.staffAttendance.findFirstOrThrow({ where: { staffId: staffA } });
     // Provenance is the whole point: these rows move salaries, so "who says so" must survive.
     expect(row.source).toBe('ADMIN');
-    expect(row.markedById).toBe(ownerUserId);
+    expect(row.markedById).toBe(markerUserId);
   });
 
   it('refuses a future date outright', async () => {
@@ -213,7 +227,7 @@ describe('Staff attendance marking (e2e)', () => {
     expect(audit).not.toBeNull();
     // The row now says ABSENT/ADMIN, so only the audit entry remembers the original claim.
     expect(audit!.oldValue).toMatchObject({ status: 'PRESENT', source: 'SELF' });
-    expect(audit!.userId).toBe(ownerUserId);
+    expect(audit!.userId).toBe(markerUserId);
   });
 
   it('does NOT audit an ordinary admin correction of an admin-marked day', async () => {
@@ -581,7 +595,7 @@ describe('Staff attendance marking (e2e)', () => {
       },
     });
 
-    const res = await ownerPost('/api/v1/staff-attendance/bulk', {
+    const res = await ops.post('/api/v1/staff-attendance/bulk', {
       date: day, session: 'MORNING',
       records: [{ staffId: staffA, status: 'ABSENT' }, { staffId: staffB, status: 'ABSENT' }],
     });

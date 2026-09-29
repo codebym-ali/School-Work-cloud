@@ -163,7 +163,7 @@ export default function DefaultersPage() {
                   <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}><strong>{rs(r.outstanding)}</strong></td>
                   <td>
                     <span className={`badge ${r.daysOverdue >= 60 ? 'bad' : r.daysOverdue >= 30 ? 'warn' : ''}`}>{r.daysOverdue} days</span>
-                    <div className="muted" style={{ fontSize: 12 }}>since {new Date(r.oldestDueDate).toLocaleDateString()}</div>
+                    <div className="muted" style={{ fontSize: 12 }}>since {new Date(r.oldestDueDate).toLocaleDateString('en-GB')}</div>
                   </td>
                   <td>
                     {r.guardian ? <>{r.guardian.name}<div className="muted" style={{ fontSize: 12 }}>{r.guardian.relation.toLowerCase()}</div></>

@@ -10,6 +10,7 @@ import { ProvisioningService } from '../../apps/api/src/modules/platform/provisi
 import { destroyTenant } from './support/tenant';
 import { admissionController } from './support/admission';
 import { loginRequest } from './support/login';
+import { opsAdminSession } from './support/ops-admin';
 import { enrolMfa } from './support/mfa';
 
 /**
@@ -49,6 +50,11 @@ describe('Cover (e2e) — who may mark when the teacher is away', () => {
   const csrfOf = (c: string[]) => (c.find((x) => x.startsWith('csrf=')) ?? '').split(';')[0].slice(5);
   const post = (p: string, b: object = {}) =>
     request(server()).post(p).set('Host', host).set('Cookie', ownerCookies).set('X-CSRF-Token', ownerCsrf).send(b);
+  // The office keeps the staff register (Owner UX 1c): the owner is refused, so staff marks go through a
+  // school-wide Ops Admin, created on first use.
+  let opsSession: ReturnType<typeof opsAdminSession> | undefined;
+  const staffMark = async (b: object) =>
+    (await (opsSession ??= opsAdminSession(app, platform, schoolId, host))).post('/api/v1/staff-attendance/bulk', b);
   const del = (p: string) =>
     request(server()).delete(p).set('Host', host).set('Cookie', ownerCookies).set('X-CSRF-Token', ownerCsrf);
   const get = (p: string, c = ownerCookies) => request(server()).get(p).set('Host', host).set('Cookie', c);
@@ -284,7 +290,7 @@ describe('Cover (e2e) — who may mark when the teacher is away', () => {
   // ── C1: start from who is away, and from a whole absence ──────────────────
   describe('who is away (C1)', () => {
     const markStaff = (status: string, date = DAY) =>
-      post('/api/v1/staff-attendance/bulk', {
+      staffMark({
         date, session: 'MORNING', allowHolidayOverride: true,
         records: [{ staffId: absentStaffId, status }],
       });
@@ -443,7 +449,7 @@ describe('Cover (e2e) — who may mark when the teacher is away', () => {
     });
 
     it('puts the away and the busy last, but never hides them', async () => {
-      await post('/api/v1/staff-attendance/bulk', {
+      await staffMark({
         date: DAY, session: 'MORNING', allowHolidayOverride: true,
         records: [{ staffId: absentStaffId, status: 'ABSENT' }],
       });
@@ -463,7 +469,7 @@ describe('Cover (e2e) — who may mark when the teacher is away', () => {
       await post(`/api/v1/staff-leaves/${leave.body.id}/approve`);
       expect(byCode((await suggest()).body, 'EMP-SUB')).toMatchObject({ status: 'AWAY' });
 
-      await post('/api/v1/staff-attendance/bulk', {
+      await staffMark({
         date: DAY, session: 'MORNING', allowHolidayOverride: true,
         records: [{ staffId: subStaffId, status: 'PRESENT' }],
       });
@@ -736,7 +742,7 @@ describe('Cover (e2e) — who may mark when the teacher is away', () => {
       });
 
       it('shows an away teacher only the classes this admin could arrange', async () => {
-        await post('/api/v1/staff-attendance/bulk', {
+        await staffMark({
           date: DAY, session: 'MORNING', allowHolidayOverride: true,
           records: [{ staffId: absentStaffId, status: 'ABSENT' }, { staffId: farStaffId, status: 'ABSENT' }],
         });

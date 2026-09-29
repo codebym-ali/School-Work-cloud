@@ -33,7 +33,7 @@ test.describe('FEE · corrections on the student profile', () => {
     await page.getByRole('button', { name: 'Waive the balance' }).click();
     await expect(page.getByText('Waived. The invoice is closed.')).toBeVisible();
     await page.getByRole('button', { name: 'Done' }).click();
-    await expect(fees.getByText('WAIVED')).toBeVisible();
+    await expect(fees.getByText('Waived')).toBeVisible();
     await expect(fees.getByText('Nothing outstanding')).toBeVisible();
     await context.close();
   });

@@ -1,5 +1,6 @@
 'use client';
 
+import { humanizeStatus } from '@sw/ui';
 import { useCallback, useEffect, useState } from 'react';
 import {
   api, apiGet, apiPost, ApiError, idemKey,
@@ -110,7 +111,7 @@ export default function FeesPage() {
         paidOn: new Date().toISOString().slice(0, 10),
         ...(pay.proofFileKey ? { proofFileKey: pay.proofFileKey } : {}),
       });
-      const clears = claim.clearsOn ? new Date(claim.clearsOn).toLocaleDateString() : null;
+      const clears = claim.clearsOn ? new Date(claim.clearsOn).toLocaleDateString('en-GB') : null;
       setMsg({
         ok: true,
         text: clears
@@ -235,7 +236,7 @@ export default function FeesPage() {
               <td>{i.month ? `${i.month}/${i.year}` : i.year}</td>
               <td>Rs {Number(i.totalAmount).toLocaleString()}</td>
               <td>Rs {Number(i.paidAmount).toLocaleString()}</td>
-              <td><span className={`badge ${badge(i.status)}`}>{i.status}</span></td>
+              <td><span className={`badge ${badge(i.status)}`}>{humanizeStatus(i.status)}</span></td>
               <td>
                 {canPayments && i.status !== 'PAID' && i.status !== 'WAIVED' && (
                   paying === i.id ? (

@@ -3,6 +3,7 @@ import { Roles, STAFF_ROLES } from '@common';
 import { AttendanceService } from './attendance.service';
 import {
   AttendanceCoverageQuery,
+  AttendanceOverviewQuery,
   AttendanceQuery,
   MarkAttendanceDto,
   MarkStaffAttendanceDto,
@@ -62,6 +63,13 @@ export class AttendanceController {
     return this.attendance.unmarkedToday();
   }
 
+  /** The owner's read-only attendance overview (Owner UX 1c): KPIs, registers + teacher, heatmap, attention. */
+  @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
+  @Get('overview')
+  overview(@Query() q: AttendanceOverviewQuery) {
+    return this.attendance.overview(q);
+  }
+
   /** Which of the last N days this section is marked for — powers the backfill strip. */
   // Staff only (never a student/guardian): the service scopes to the caller's campus/assignment (§22.8).
   @Roles(...STAFF_ROLES)
@@ -90,7 +98,10 @@ export class AttendanceController {
 export class StaffAttendanceController {
   constructor(private readonly attendance: AttendanceService) {}
 
-  @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
+  // ⚠️ No OWNER_ADMIN (Owner UX plan, Phase 1c): the office keeps the staff register — campus admin, and
+  // the Ops Admin via the role hierarchy. The owner oversees it read-only; these rows move salaries, and
+  // who marked them must be the person accountable for the register, not the person who signs the pay.
+  @Roles('CAMPUS_ADMIN')
   @Post('bulk')
   @HttpCode(HttpStatus.OK)
   markBulk(@Body() dto: MarkStaffAttendanceDto) {

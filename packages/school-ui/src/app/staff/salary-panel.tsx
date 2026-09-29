@@ -38,7 +38,7 @@ export function SalaryPanel({ staffId, onMsg }: { staffId: string; onMsg: (ok: b
     setBusy(true);
     try {
       await api.salaries.create(staffId, { basic: value, effectiveFrom: from });
-      onMsg(true, `Salary of ${rs(value)} saved, from ${new Date(from).toLocaleDateString()}.`);
+      onMsg(true, `Salary of ${rs(value)} saved, from ${new Date(from).toLocaleDateString('en-GB')}.`);
       setAdding(false); setAmount('');
       load();
     } catch (e) {
@@ -68,7 +68,7 @@ export function SalaryPanel({ staffId, onMsg }: { staffId: string; onMsg: (ok: b
               return (
                 <div key={h.id} className="row" style={{ justifyContent: 'space-between', padding: '5px 0', borderBottom: '1px dashed var(--border, #e2e8f0)', opacity: i === 0 ? 1 : 0.6, fontVariantNumeric: 'tabular-nums' }}>
                   <span>
-                    From {new Date(h.effectiveFrom).toLocaleDateString()}
+                    From {new Date(h.effectiveFrom).toLocaleDateString('en-GB')}
                     {i === 0 && <span className="badge ok" style={{ marginLeft: 6 }}>current</span>}
                     {(extra > 0 || fixed > 0) && (
                       <div className="muted" style={{ fontSize: 12 }}>

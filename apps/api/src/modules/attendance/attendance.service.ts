@@ -442,6 +442,184 @@ export class AttendanceService {
     };
   }
 
+  /**
+   * The owner's attendance overview (Owner UX 1c): today's picture, every register with the person
+   * responsible for it, a sections × days heatmap, and who needs attention. Read-only by construction.
+   *
+   * ⚠️ Same arithmetic as the dashboard and the Students hub: "present" = PRESENT + LATE + HALF_DAY
+   * (the child was at school), as a share of the records that EXIST — with coverage reported beside it,
+   * never folded in. One session (the school's first) so a two-session school is not double-counted.
+   */
+  async overview(q: { campusId?: string; classId?: string; sectionId?: string; days?: number }) {
+    const schoolId = this.ctx.requireSchoolId();
+    const school = await this.db.school.findFirst({ where: { id: schoolId } });
+    const settings = parseSchoolSettings(school?.settings ?? {});
+    const session = settings.attendanceSessions[0];
+    const academicYearId = await this.setup.requireCurrentYearId();
+    const days = Math.min(Math.max(q.days ?? 14, 7), 31);
+
+    const today = new Date(startOfDay(new Date()));
+    const from = new Date(today.getTime() - (days - 1) * 86400000);
+    const dates = Array.from({ length: days }, (_, i) => new Date(from.getTime() + i * 86400000));
+    const iso = (d: Date) => d.toISOString().slice(0, 10);
+
+    // Campus scoping (§22.8): a campus-bound admin is FORCED to their campus.
+    const restricted = restrictedCampusId(this.ctx.user);
+    const campusId = restricted ?? q.campusId;
+    const sections = await this.db.section.findMany({
+      where: {
+        isActive: true,
+        ...(q.sectionId ? { id: q.sectionId } : {}),
+        class: { ...(campusId ? { campusId } : {}), ...(q.classId ? { id: q.classId } : {}) },
+      },
+      select: { id: true, name: true, class: { select: { id: true, name: true, order: true, campusId: true, campus: { select: { name: true } } } } },
+    });
+    const sectionIds = sections.map((s) => s.id);
+
+    const [enrolled, records, holidays, homeroom] = await Promise.all([
+      this.db.studentEnrollment.groupBy({
+        by: ['sectionId'],
+        where: { sectionId: { in: sectionIds }, academicYearId, status: 'ACTIVE', student: { deletedAt: null } },
+        _count: { _all: true },
+      }),
+      this.db.attendanceRecord.findMany({
+        where: { date: { gte: from, lte: today }, session, enrollment: { sectionId: { in: sectionIds }, academicYearId } },
+        select: { date: true, status: true, enrollmentId: true, enrollment: { select: { sectionId: true } } },
+      }),
+      this.db.holiday.findMany({ where: { date: { gte: from, lte: today } }, select: { date: true, campusId: true, name: true } }),
+      // The class teacher = the homeroom assignment (subjectId null) for this year.
+      this.db.teacherAssignment.findMany({
+        where: { sectionId: { in: sectionIds }, academicYearId, subjectId: null },
+        select: { sectionId: true, staff: { select: { fullName: true, user: { select: { email: true } } } } },
+      }),
+    ]);
+    const heads = new Map(enrolled.map((e) => [e.sectionId, e._count._all]));
+    const teacherOf = new Map(homeroom.map((h) => [h.sectionId, h.staff.fullName ?? h.staff.user.email]));
+    const coveredBy = await this.cover.coveredByBySection(sectionIds, today);
+
+    const closedReason = (d: Date, campus: string): string | null => {
+      if (settings.weeklyOffDays.includes(WEEKDAYS[d.getUTCDay()])) return 'Weekly off';
+      const h = holidays.find((x) => startOfDay(x.date) === d.getTime() && (x.campusId === null || x.campusId === campus));
+      return h ? h.name : null;
+    };
+
+    // Bucket once: section → day → statuses.
+    const bucket = new Map<string, Map<string, string[]>>();
+    for (const r of records) {
+      const byDay = bucket.get(r.enrollment.sectionId) ?? new Map<string, string[]>();
+      const k = iso(r.date);
+      (byDay.get(k) ?? byDay.set(k, []).get(k)!).push(r.status);
+      bucket.set(r.enrollment.sectionId, byDay);
+    }
+    const tally = (statuses: string[]) => ({
+      present: statuses.filter((s) => s === 'PRESENT' || s === 'LATE' || s === 'HALF_DAY').length,
+      absent: statuses.filter((s) => s === 'ABSENT').length,
+      onLeave: statuses.filter((s) => s === 'ON_LEAVE').length,
+      late: statuses.filter((s) => s === 'LATE').length,
+    });
+    const pct = (present: number, marked: number) => (marked ? Math.round((present / marked) * 100) : null);
+
+    const todayKey = iso(today);
+    const rows = sections
+      .filter((s) => (heads.get(s.id) ?? 0) > 0) // an empty section cannot be behind on anything
+      .map((s) => {
+        const expected = heads.get(s.id) ?? 0;
+        const cells = dates.map((d) => {
+          const k = iso(d);
+          const st = bucket.get(s.id)?.get(k) ?? [];
+          const closed = closedReason(d, s.class.campusId);
+          const t = tally(st);
+          return { date: k, closed, marked: st.length, present: t.present, expected, percent: pct(t.present, st.length) };
+        });
+        const todayCell = cells[cells.length - 1]!;
+        const todayTally = tally(bucket.get(s.id)?.get(todayKey) ?? []);
+        const open = cells.filter((c) => !c.closed);
+        const periodPresent = open.reduce((a, c) => a + c.present, 0);
+        const periodMarked = open.reduce((a, c) => a + c.marked, 0);
+        return {
+          sectionId: s.id,
+          classId: s.class.id,
+          className: s.class.name,
+          sectionName: s.name,
+          campusName: s.class.campus.name,
+          order: s.class.order,
+          teacher: teacherOf.get(s.id) ?? null,
+          coveredBy: coveredBy.get(s.id) ?? null,
+          expected,
+          today: { closed: todayCell.closed, marked: todayCell.marked, ...todayTally, percent: todayCell.percent },
+          periodPercent: pct(periodPresent, periodMarked),
+          cells,
+        };
+      })
+      .sort((a, b) => a.order - b.order || a.className.localeCompare(b.className) || a.sectionName.localeCompare(b.sectionName));
+
+    const openToday = rows.filter((r) => !r.today.closed);
+    const sum = (f: (r: (typeof rows)[number]) => number) => openToday.reduce((a, r) => a + f(r), 0);
+    const marked = sum((r) => r.today.marked);
+    const present = sum((r) => r.today.present);
+
+    // Chronic absentees: the latest run of consecutive ABSENT marks on days the register was taken.
+    // Leave breaks nothing and counts nothing — it is authorised; only unexplained absence is chronic.
+    const byEnrolment = new Map<string, Array<{ d: string; s: string }>>();
+    for (const r of records) {
+      const list = byEnrolment.get(r.enrollmentId) ?? [];
+      list.push({ d: iso(r.date), s: r.status });
+      byEnrolment.set(r.enrollmentId, list);
+    }
+    const streaks: Array<{ enrollmentId: string; days: number; since: string }> = [];
+    for (const [enrollmentId, list] of byEnrolment) {
+      const ordered = list.filter((x) => x.s !== 'ON_LEAVE').sort((a, b) => b.d.localeCompare(a.d));
+      let n = 0;
+      for (const x of ordered) { if (x.s === 'ABSENT') n++; else break; }
+      if (n >= 3) streaks.push({ enrollmentId, days: n, since: ordered[n - 1]!.d });
+    }
+    const chronicPeople = streaks.length
+      ? await this.db.studentEnrollment.findMany({
+        where: { id: { in: streaks.map((s) => s.enrollmentId) } },
+        select: { id: true, sectionId: true, student: { select: { id: true, fullName: true, grNumber: true } } },
+      })
+      : [];
+    const rowOf = new Map(rows.map((r) => [r.sectionId, r]));
+    const chronic = streaks
+      .map((s) => {
+        const e = chronicPeople.find((p) => p.id === s.enrollmentId);
+        const r = e ? rowOf.get(e.sectionId) : undefined;
+        return e && r ? {
+          studentId: e.student.id, fullName: e.student.fullName, grNumber: e.student.grNumber,
+          className: r.className, sectionName: r.sectionName, sectionId: r.sectionId, days: s.days, since: s.since,
+        } : null;
+      })
+      .filter((x): x is NonNullable<typeof x> => x !== null)
+      .sort((a, b) => b.days - a.days || a.fullName.localeCompare(b.fullName));
+
+    const threshold = 85;
+    return {
+      date: todayKey,
+      days: dates.map(iso),
+      session,
+      markByTime: settings.attendanceMarkByTime,
+      /** Past the school's own mark-by time — the UI calls an unmarked register "late" only after it. */
+      due: isPastLocalTime(new Date(), settings.attendanceMarkByTime, settings.timezone),
+      threshold,
+      today: {
+        open: openToday.length > 0,
+        expected: sum((r) => r.expected),
+        marked,
+        present,
+        absent: sum((r) => r.today.absent),
+        onLeave: sum((r) => r.today.onLeave),
+        late: sum((r) => r.today.late),
+        percent: pct(present, marked),
+        registers: openToday.length,
+        registersUnmarked: openToday.filter((r) => r.today.marked < r.expected).length,
+      },
+      sections: rows.map(({ order: _o, ...r }) => r),
+      chronic,
+      /** Over the period, not one day — a single bad morning is noise; a fortnight is a pattern. */
+      belowThreshold: rows.filter((r) => r.periodPercent !== null && r.periodPercent < threshold).map((r) => r.sectionId),
+    };
+  }
+
   async query(q: AttendanceQuery) {
     const where: Prisma.AttendanceRecordWhereInput = {};
     if (q.date) where.date = new Date(q.date);

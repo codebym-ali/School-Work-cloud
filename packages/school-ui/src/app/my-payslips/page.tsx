@@ -56,7 +56,7 @@ export default function MyPayslips() {
                   <td data-label="Net pay" style={{ textAlign: 'right' }}><strong>{rs(p.netPay)}</strong></td>
                   <td data-label="Status">
                     {p.state === 'PAID'
-                      ? <span className="badge ok">Paid {p.paidAt ? new Date(p.paidAt).toLocaleDateString() : ''}</span>
+                      ? <span className="badge ok">Paid {p.paidAt ? new Date(p.paidAt).toLocaleDateString('en-GB') : ''}</span>
                       : <span className="badge warn">Approved · not paid yet</span>}
                   </td>
                   <td data-label="" style={{ textAlign: 'right' }}><button className="ghost small" onClick={() => openPdf(p.id)}>PDF</button></td>

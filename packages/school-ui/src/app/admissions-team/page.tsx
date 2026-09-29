@@ -1,5 +1,6 @@
 'use client';
 
+import { humanizeStatus } from '@sw/ui';
 import { useCallback, useEffect, useState } from 'react';
 import { api, ApiError, type CampusAdmissionOfficer, type ManagedUser } from '@sw/api-client';
 import { useMe } from '@sw/session';
@@ -109,7 +110,7 @@ export default function AdmissionsTeamPage() {
               <div className="row" style={{ justifyContent: 'flex-start', gap: 8, alignItems: 'center' }}>
                 <span className="badge ok">Admission officer</span>
                 <b>{c.officer.email}</b>
-                {c.officer.status !== 'ACTIVE' && <span className="badge bad">{c.officer.status}</span>}
+                {c.officer.status !== 'ACTIVE' && <span className="badge bad">{humanizeStatus(c.officer.status)}</span>}
               </div>
             ) : (
               <p className="muted" style={{ margin: 0, fontSize: 13 }}>

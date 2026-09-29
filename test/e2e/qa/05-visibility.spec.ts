@@ -61,9 +61,10 @@ test.describe('REP · reports', () => {
   test('REP-02 a required choice blocks View and says what is missing; REP-03 students are found by name', async ({ browser }) => {
     const w = world();
     const { page, context } = await signIn(browser, 'owner');
+    // Phase 1d: reports are cards in a gallery; each opens its own view.
     await page.goto('/reports');
-    await page.locator('#rep-key').selectOption('fee-ledger');
-    await expect(page.getByRole('button', { name: 'View' })).toBeDisabled();
+    await page.locator('button.ov-rcard', { hasText: 'Fee ledger' }).click();
+    await expect(page.getByRole('button', { name: 'Run report' })).toBeDisabled();
     await expect(page.getByText('Choose a student first.')).toBeVisible();
 
     await page.locator('#rep-student').pressSequentially(w.students.owingWaive.name.slice(0, 4));
@@ -71,8 +72,8 @@ test.describe('REP · reports', () => {
     await expect(option).toBeVisible();
     await expect(option).toContainText('QA One');
     await option.click();
-    await expect(page.getByRole('button', { name: 'View' })).toBeEnabled();
-    await page.getByRole('button', { name: 'View' }).click();
+    await expect(page.getByRole('button', { name: 'Run report' })).toBeEnabled();
+    await page.getByRole('button', { name: 'Run report' }).click();
     await expect(page.locator('table')).toBeVisible();
     await context.close();
   });
@@ -80,11 +81,12 @@ test.describe('REP · reports', () => {
   test('REP-01 every report runs from pickers, with no id typed', async ({ browser }) => {
     const { page, context } = await signIn(browser, 'owner');
     await page.goto('/reports');
-    await expect(page.locator('#rep-key option').nth(6)).toBeAttached();
-    const keys = await page.locator('#rep-key option').evaluateAll((os) => os.map((o) => (o as HTMLOptionElement).value));
-    expect(keys.length).toBeGreaterThanOrEqual(7);
+    await expect(page.locator('button.ov-rcard').nth(6)).toBeAttached();
+    const keys = ['class-strength', 'attendance-register', 'daily-collection', 'defaulters', 'fee-ledger', 'exam-summary', 'sms-usage'];
     for (const key of keys) {
-      await page.locator('#rep-key').selectOption(key);
+      const auto = page.waitForResponse((r) => r.url().includes(`/reports/${key}`) && r.request().method() === 'GET', { timeout: 8000 }).catch(() => null);
+      await page.goto(`/reports?report=${key}`);
+      await expect(page.getByRole('button', { name: '← All reports' })).toBeVisible();
       await expect(page.locator('label', { hasText: /Id\b/ })).toHaveCount(0);
       if (key === 'fee-ledger') {
         await page.locator('#rep-student').pressSequentially('Sara');
@@ -98,11 +100,15 @@ test.describe('REP · reports', () => {
           await s.selectOption({ index: 1 });
         }
       }
-      const view = page.getByRole('button', { name: 'View' });
-      if (!(await view.isEnabled())) continue; // exam-summary with no exam in this school — noted above
-      const res = page.waitForResponse((r) => r.url().includes(`/reports/${key}`) && r.request().method() === 'GET');
-      await view.click();
-      expect((await res).status(), key).toBe(200);
+      const run = page.getByRole('button', { name: /^(Run report|Update)$/ });
+      if (await run.count()) {
+        if (!(await run.isEnabled())) continue; // exam-summary with no exam in this school — noted above
+        const res = page.waitForResponse((r) => r.url().includes(`/reports/${key}`) && r.request().method() === 'GET');
+        await run.click();
+        expect((await res).status(), key).toBe(200);
+      } else {
+        expect((await auto)?.status(), `${key} (runs on open)`).toBe(200);
+      }
       await expect(page.locator('table').or(page.getByText('Nothing to report for these choices.'))).toBeVisible();
     }
     await context.close();

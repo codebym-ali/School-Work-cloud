@@ -1,5 +1,6 @@
 'use client';
 
+import { humanizeStatus } from '@sw/ui';
 import { useCallback, useEffect, useState } from 'react';
 import { api, apiGet, ApiError, type Invoice, type Paged, type Payment, type StudentDetail } from '@sw/api-client';
 import { FEE_ADVANCE_ROLES, FEE_REVERSE_WAIVE_ROLES, hasAnyRole } from '@sw/roles';
@@ -89,7 +90,7 @@ export function StudentFeesCard({ student }: { student: StudentDetail }) {
                   <td>{i.month ? `${i.month}/${i.year}` : i.year}</td>
                   <td>{rs(i.totalAmount)}</td>
                   <td>{rs(i.paidAmount)}</td>
-                  <td><span className={`badge ${i.status === 'PAID' ? 'ok' : i.status === 'OVERDUE' ? 'bad' : i.status === 'WAIVED' ? '' : 'warn'}`}>{i.status}</span></td>
+                  <td><span className={`badge ${i.status === 'PAID' ? 'ok' : i.status === 'OVERDUE' ? 'bad' : i.status === 'WAIVED' ? '' : 'warn'}`}>{humanizeStatus(i.status)}</span></td>
                   <td>
                     {forInvoice(i.id).length === 0 ? <span className="muted">—</span> : (
                       <span className="chips">

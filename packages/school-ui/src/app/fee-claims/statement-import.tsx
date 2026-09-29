@@ -181,7 +181,7 @@ export function StatementImport({ onImported }: { onImported: () => void }) {
               <tbody>
                 {result.rows.slice(0, 50).map((r, i) => (
                   <tr key={i}>
-                    <td>{new Date(r.valueDate).toLocaleDateString()}</td>
+                    <td>{new Date(r.valueDate).toLocaleDateString('en-GB')}</td>
                     <td className="money">{rs(r.amount)}</td>
                     <td style={{ maxWidth: 320 }}>{r.narration || <span className="muted">—</span>}</td>
                     <td>
@@ -211,7 +211,7 @@ export function StatementImport({ onImported }: { onImported: () => void }) {
                 <tbody>
                   {unexplained.map((u) => (
                     <tr key={u.id}>
-                      <td>{new Date(u.valueDate).toLocaleDateString()}</td>
+                      <td>{new Date(u.valueDate).toLocaleDateString('en-GB')}</td>
                       <td className="money">{rs(u.amount)}</td>
                       <td>{u.counterparty ?? <span className="muted">—</span>}</td>
                       <td style={{ maxWidth: 300 }}>{u.narration}</td>

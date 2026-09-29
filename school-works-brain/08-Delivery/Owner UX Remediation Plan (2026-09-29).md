@@ -79,6 +79,71 @@ the two risks first, then builds one reusable **Owner Oversight pattern**, then 
   - **Carry-forward:** no class-test seed data in `prisma/seed.ts`; "Send SMS" / "Move section" bulk actions
     from §1.2 are not built (owner is read-only; SMS broadcast lives on the SMS screen).
 
+- **Phase 1c — ✅ DONE 2026-09-29, verified live.** Owner attendance overview + staff register rework.
+  - **API:** `GET /attendance/overview` (owner/campus admin; campus-forced) — today's KPIs, registers with the
+    class teacher (cover wins), sections × 14-day heatmap (closed days marked closed), chronic absentees
+    (3+ consecutive school days ABSENT, leave skipped), sections under 85% over the period.
+    **Policy:** `POST /staff-attendance/bulk` is now office-only (campus admin + Ops Admin); owner/HR read.
+  - **UI:** owner `/attendance` = Overview | Register tabs (`attendance/owner-overview.tsx`). KPI strip
+    (present %, absent → Students hub `?show=ABSENT`, on leave → hub, late, registers not marked "n of m ·
+    due by 10:00 — overdue", absent 3+ days), three "needs attention" lists (unmarked registers naming the
+    teacher, chronic absentees, sections below threshold), heatmap with legend + per-cell labels; a cell or row
+    opens that section's read-only register on that date (`?view=register&sectionId&date`). Marking roles see
+    the register exactly as before. Staff attendance rebuilt on the pattern: KPI strip = filters, DataTable,
+    one-tap P / L / ½ / Lv / A per person for the office, **"Mark n not-marked as present"** (never
+    overwrites an existing mark), read-only wording for the owner.
+  - **Live** (demo): 16 registers, teachers named, 22–26 Sep at 90%, Sunday closed, Monday unmarked, today
+    pending; cell → Grade 1 — A on 24 Sep, 20 rows, no controls; scope Grade 6 → 2 registers; Absent tile →
+    hub pre-filtered; owner staff register read-only (12 not marked); as a QA office account (Ops Admin,
+    `qa.office@demo.pk`, created on the local demo through the staff API) tapped A → 1 absent, "Mark 13
+    not-marked as present" kept the absence, KPIs 93% / 13 of 14 — the test absence was reset to present;
+    the office still gets the plain student register; 375px: no page scroll, heatmap scrolls with names pinned.
+  - *Tests:* new `attendance-overview.e2e-spec` 6/6; staff-attendance (+ owner 403), cover, m6,
+    notifications, staff-leaves moved to an Ops Admin marker (`support/ops-admin.ts`); matrix row updated;
+    Playwright `attendance.spec.ts` 2/2 (owner Overview → Register read-only; owner staff register read-only).
+  - **Found + fixed:** empty-state copy "No absent today here" → sentence per filter; a copied SMS-queue
+    teardown in the new spec.
+
+- **Phase 1d — ✅ DONE 2026-09-29, verified live.** Reports centre (`app/reports/page.tsx`, rewritten).
+  - **Gallery** grouped Enrollment · Attendance · Fees · Exams · Staff · Communication: each card = the
+    question it answers, a live preview figure (e.g. defaulters "144 students · Rs 4.05 lakh", class strength
+    "320 students"), and "Last run …" (per viewer, guarded `localStorage`). The live oversight screens
+    (attendance overview, class performance, staff attendance) sit in the gallery as "Live view" cards.
+    Accountants see only Fees.
+  - **Report view** (`?report=key`, Back/popstate aware): filters up front with defaults (today / this month),
+    runs on open when nothing is required, "Choose a student first." otherwise; results = one summary line,
+    a chart where the data is visual (class strength, collection by method, top-10 defaulters, SMS by
+    outcome), then the sortable/paged table; **Download CSV / PDF at the top right of the results**,
+    exporting exactly what was run. Empty result = one empty state, no empty table.
+  - **API:** defaulters now carry class — section, invoice count, oldest due, sorted by amount owed; fee ledger
+    period "Aug 2026". **Bug fixed:** CSV/PDF wrote dates as `Date.toString()` ("Mon Aug 10 2026 05:00:00
+    GMT+0500 (Pakistan Standard Time)") — now YYYY-MM-DD (moments ISO); PDF headings readable ("GR no.").
+    New `moneyExact` (lakh grouping, exact) with unit tests.
+  - **Live:** 10 cards / 6 categories; defaulters ran on open (144, top-10 bars, sorted by amount), CSV row
+    `…,4250,1,2026-08-10`, PDF 200; class strength 320 across 16 sections with bars; fee ledger blocked until
+    a student is picked, then "1 invoice · Rs 4,250 balance"; Back keeps "Last run"; 375px clean.
+  - *Tests:* `reports-export.e2e` + dates/headings (4/4); campus-scope period assertion updated; Playwright
+    "every report runs without typing an id" rewritten for the gallery and fixed two pre-existing faults (it
+    drove the searchable combobox as a native `<select>`, and depended on the optional "Moeez" test seed);
+    the QA-suite REP specs updated the same way.
+
+- **Phase 2 — ◐ PARTLY DONE 2026-09-29, verified live.**
+  - **Sidebar: exactly one active item** — the longest nav href matching on a segment boundary (it used
+    `startsWith`, so `/staff-attendance` also lit `/staff`); `aria-current="page"` set.
+  - **Header identity:** name · role; an owner (no staff profile, so no name on record) shows the role alone,
+    email only in the tooltip. Duplicate "Owner" role chip under the "Owner" brand removed.
+  - **MFA banner → slim strip** (one line, 44px at 1280), dismissible for 7 days (guarded localStorage), with a
+    red dot + aria-label on Security while two-step sign-in is off. Dismiss survives reload; badge stays.
+  - **Sentence case:** `humanizeStatus` (@sw/ui) returns "Half day" / "Male" (it returned "HALF DAY"); applied
+    to 14 raw enum renders + gender/relation options; table headings no longer uppercase (owner-web, staff-web).
+    Browser specs asserting "PAID"/"PENDING"/"WAIVED" updated.
+  - **Dates:** 15 `toLocaleDateString()` calls pinned to `'en-GB'` (DD/MM/YYYY on any browser locale).
+  - Dev badge: the Next.js indicator exists only under `next dev`; production builds do not render it.
+  - **Carry-forward:** owner display name (needs a field + settings form); one-primary-button audit; weekday
+    date picker; density pass on older tables.
+  - ⚠️ `owner-gaps.spec.ts` tests 1 and 3 sign in as `accountant@demo.pk` / `campusadmin@demo.pk`, which exist
+    only after `scripts/seed-test-users.ts` — they fail on a stack seeded with `pnpm db:seed` alone.
+
 ## Design principles (the bar every screen is judged against)
 1. **Oversee, don't operate.** Owner screens answer "how is my school doing and where must I act?" first;
    records come second, and editing is for the role that owns the record.

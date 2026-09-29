@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { api, ApiError, type LeaveBalance, type StaffLeave } from '@sw/api-client';
-import { Metric } from '@sw/ui';
+import { Metric, humanizeStatus } from '@sw/ui';
 
 /**
  * My Leaves — for STAFF and TEACHER (§10).
@@ -184,7 +184,7 @@ export default function MyLeaves() {
                   <td data-label="From">{fmt(r.fromDate)}</td>
                   <td data-label="To">{fmt(r.toDate)}</td>
                   <td data-label="">{r.reason}{r.status === 'REJECTED' && r.rejectionReason && <span className="muted"> — {r.rejectionReason}</span>}</td>
-                  <td data-label="Status"><span className={`badge ${badge(r.status)}`}>{r.status}</span></td>
+                  <td data-label="Status"><span className={`badge ${badge(r.status)}`}>{humanizeStatus(r.status)}</span></td>
                   <td data-label="" style={{ textAlign: 'right' }}>
                     {r.status === 'PENDING' && <button className="ghost small" onClick={() => cancel(r.id)}>Cancel</button>}
                   </td>

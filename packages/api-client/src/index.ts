@@ -319,6 +319,22 @@ export interface Student { id: string; fullName: string; grNumber: string; regis
   performancePercent?: number | null;
   feeStatus?: 'CLEAR' | 'DUE' | 'OVERDUE';
   outstanding?: number }
+/** GET /attendance/overview — the owner's read-only attendance picture (Owner UX 1c). */
+export interface AttendanceOverviewCell { date: string; closed: string | null; marked: number; present: number; expected: number; percent: number | null }
+export interface AttendanceOverviewSection {
+  sectionId: string; classId: string; className: string; sectionName: string; campusName: string;
+  teacher: string | null; coveredBy: string | null; expected: number;
+  today: { closed: string | null; marked: number; present: number; absent: number; onLeave: number; late: number; percent: number | null };
+  periodPercent: number | null;
+  cells: AttendanceOverviewCell[];
+}
+export interface AttendanceOverview {
+  date: string; days: string[]; session: string; markByTime: string; due: boolean; threshold: number;
+  today: { open: boolean; expected: number; marked: number; present: number; absent: number; onLeave: number; late: number; percent: number | null; registers: number; registersUnmarked: number };
+  sections: AttendanceOverviewSection[];
+  chronic: Array<{ studentId: string; fullName: string; grNumber: string; className: string; sectionName: string; sectionId: string; days: number; since: string }>;
+  belowThreshold: string[];
+}
 export type AttendanceStatus = 'PRESENT' | 'ABSENT' | 'LATE' | 'HALF_DAY' | 'ON_LEAVE';
 export interface StudentListEnrollment {
   id: string; classId: string; sectionId: string; campusId: string; rollNumber: number | null; startedAt: string;
@@ -975,6 +991,11 @@ export const api = {
     /** Which class registers are still unmarked today. Admins only — a teacher gets their own
      *  coverage strip, not a list of which colleagues are behind. */
     unmarkedRegisters: () => apiGet<UnmarkedRegisters>('/attendance/unmarked-today'),
+    /** The owner's attendance overview for a Campus ▸ Class ▸ Section scope (Owner UX 1c). */
+    attendanceOverview: (scope: { campusId?: string | null; classId?: string | null; sectionId?: string | null; days?: number } = {}) => {
+      const q = new URLSearchParams(Object.entries(scope).filter(([, v]) => v).map(([k, v]) => [k, String(v)])).toString();
+      return apiGet<AttendanceOverview>(`/attendance/overview${q ? `?${q}` : ''}`);
+    },
     /** The caller's OWN unmarked registers, named. Self-scoped, so a teacher may ask for theirs. */
     myUnmarkedRegisters: () => apiGet<MyUnmarkedRegisters>('/attendance/mine/unmarked-today'),
     /** Any authenticated role — teachers have no dashboard, so the shell is the only place

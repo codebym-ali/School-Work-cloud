@@ -134,7 +134,7 @@ export default function MyAttendance() {
             <tbody>
               {visibleRows.map((r, i) => (
                 <tr key={i}>
-                  <td data-label="Date">{new Date(r.date).toLocaleDateString()}</td>
+                  <td data-label="Date">{new Date(r.date).toLocaleDateString('en-GB')}</td>
                   <td data-label="Status"><span className={`badge ${attendanceBadge(r.status)}`}>{humanizeStatus(r.status)}</span></td>
                   <td data-label="Check-in">{time(r.checkIn)}</td>
                   <td data-label="Marked by" className="muted">{MARKED_BY[r.source] ?? r.source}</td>

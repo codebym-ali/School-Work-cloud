@@ -47,6 +47,21 @@ export function moneyShort(v: number, style: 'long' | 'short' = 'long'): string 
 }
 
 /**
+ * EXACT rupees for ledgers and report tables: "Rs 2,50,000", "Rs 1,250.50". Lakh grouping (3, then 2s) done
+ * by hand for the same reason `moneyShort` avoids Intl notation — one rendering on every engine. Paisa are
+ * shown only when there are some.
+ */
+export function moneyExact(v: number): string {
+  if (!Number.isFinite(v)) return '—';
+  const sign = v < 0 ? '-' : '';
+  const [whole, frac] = Math.abs(Math.round(v * 100) / 100).toFixed(2).split('.') as [string, string];
+  const last3 = whole.slice(-3);
+  const rest = whole.slice(0, -3);
+  const grouped = rest ? `${rest.replace(/\B(?=(\d{2})+(?!\d))/g, ',')},${last3}` : last3;
+  return `${sign}Rs ${grouped}${frac === '00' ? '' : `.${frac}`}`;
+}
+
+/**
  * Whole-number percentage of `part` in `whole`, or null when the whole is not a real base (nothing
  * billed yet). Capped at 100: advance payments can make "collected" exceed "billed" for the month,
  * and a bar at 112% says something false about the month's dues.

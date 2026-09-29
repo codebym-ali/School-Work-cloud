@@ -3,62 +3,54 @@
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { api, ApiError, type StaffDaySummary, type StaffRegisterRow } from '@sw/api-client';
-import { useCampusLens } from '@sw/session';
-import { useMe } from '@sw/session';
+import { useCampusLens, useMe } from '@sw/session';
 import { hasAnyRole } from '@sw/roles';
-import { attendanceBadge, humanizeStatus } from '@sw/ui';
-
-const STATUSES = ['PRESENT', 'LATE', 'HALF_DAY', 'ON_LEAVE', 'ABSENT'] as const;
+import { DataTable, EmptyState, KpiStrip, StatusPill, type Column, type KpiTileSpec, type Tone } from '@school/components/oversight';
 
 /**
- * A count that IS its own filter.
+ * The staff register for one day (Owner UX Remediation Plan, Phase 1c).
  *
- * Tiles and filters must never be able to disagree: a "Present" tile that quietly included late
- * arrivals sat next to a PRESENT filter that did not, so the page reported 1 and then showed
- * nothing when you clicked. Binding the number and the filter to the same status makes that
- * impossible rather than merely fixed.
+ * - The **office** marks it (campus admin, and the Ops Admin through the role hierarchy) — one tap per
+ *   person with the paper register's letters, and **Mark all present** for everyone not yet marked.
+ * - The **owner and HR** read it. The API refuses their writes; here they simply see no controls.
+ * - Every count is its own filter: a tile and the list it opens can never disagree.
  */
-function StatTile({ label, value, active, alert, title, onClick }: {
-  label: string; value: number; active: boolean; alert?: boolean; title?: string; onClick: () => void;
-}) {
-  return (
-    <button type="button" onClick={onClick} title={title} aria-pressed={active}
-      className={`metric metric-link${alert ? ' metric-alert' : ''}`}>
-      <div className="value">{value}</div>
-      <div className="label">{label}</div>
-    </button>
-  );
-}
+
 const today = () => new Date().toISOString().slice(0, 10);
-const time = (t: string | null) => (t ? new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—');
-const MARKED_BY: Record<string, string> = { SELF: 'Self', ADMIN: 'Office', SYSTEM: 'Auto' };
+const time = (t: string | null) => (t ? new Date(t).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : '—');
+const MARKED_BY: Record<string, string> = { SELF: 'Self check-in', ADMIN: 'Office', SYSTEM: 'Automatic' };
 
-/**
- * The staff register for one day.
- *
- * Reached from the dashboard, pre-filtered — the filters live in the URL so the view is
- * shareable and survives the back button ("look at Tuesday's absences" should be a link).
- */
+/** The one status language: word + colour, in the order the office reads them. */
+const STATUS: Record<string, { word: string; short: string; tone: Tone }> = {
+  PRESENT: { word: 'Present', short: 'P', tone: 'ok' },
+  LATE: { word: 'Late', short: 'L', tone: 'warn' },
+  HALF_DAY: { word: 'Half day', short: '½', tone: 'warn' },
+  ON_LEAVE: { word: 'On leave', short: 'Lv', tone: 'info' },
+  ABSENT: { word: 'Absent', short: 'A', tone: 'bad' },
+};
+const MARKS = ['PRESENT', 'LATE', 'HALF_DAY', 'ON_LEAVE', 'ABSENT'] as const;
+
+type Filter = '' | 'PRESENT' | 'LATE' | 'ABSENT' | 'ON_LEAVE' | 'UNMARKED';
+
 export default function StaffAttendancePage() {
   const me = useMe();
-  const canMark = hasAnyRole(me?.roles, ['OWNER_ADMIN', 'CAMPUS_ADMIN']);
-
+  // The office marks; the owner and HR oversee. Mirrors the API gate on POST /staff-attendance/bulk.
+  const canMark = hasAnyRole(me?.roles, ['CAMPUS_ADMIN', 'OPERATIONS_ADMIN']);
   const lens = useCampusLens();
-  const campusId = lens.campusId ?? ''; // campus now comes from the shell lens, not a local select
+  const campusId = lens.campusId ?? '';
   const [date, setDate] = useState(today());
-  const [status, setStatus] = useState('');
+  const [status, setStatus] = useState<Filter>('');
   const [summary, setSummary] = useState<StaffDaySummary | null>(null);
   const [rows, setRows] = useState<StaffRegisterRow[] | null>(null);
   const [err, setErr] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
-  const [busy, setBusy] = useState('');
+  const [busy, setBusy] = useState<string>('');
 
-  // Read the initial filters from the URL rather than useSearchParams, matching the pattern
-  // used elsewhere in this app (no Suspense boundary needed for a client-only read).
+  // Filters live in the URL so "look at Tuesday's absences" is a link that survives Back.
   useEffect(() => {
     const q = new URLSearchParams(window.location.search);
     if (q.get('date')) setDate(q.get('date')!);
-    if (q.get('status')) setStatus(q.get('status')!);
+    if (q.get('status')) setStatus(q.get('status') as Filter);
   }, []);
 
   const load = useCallback(async () => {
@@ -77,14 +69,13 @@ export default function StaffAttendancePage() {
     window.history.replaceState(null, '', `?${q.toString()}`);
   }, [load, date, status, campusId]);
 
-  async function setOne(staffId: string, next: string) {
-    setBusy(staffId);
+  async function record(records: Array<{ staffId: string; status: string }>, key: string, done: string) {
+    setBusy(key); setMsg(null);
     try {
-      const res = await api.staffAttendance.mark({ date, session: 'MORNING', records: [{ staffId, status: next }] });
-      // The partial-failure contract: a refusal comes back in `errors`, not as a thrown error,
-      // so a silent "saved" would be a lie.
-      if (res.failed) setMsg({ ok: false, text: res.errors[0]?.message ?? 'Could not record that.' });
-      else setMsg({ ok: true, text: 'Attendance recorded' });
+      const res = await api.staffAttendance.mark({ date, session: 'MORNING', records });
+      // The partial-failure contract: refusals come back in `errors`, not as a thrown error.
+      if (res.failed) setMsg({ ok: false, text: `${res.succeeded} recorded, ${res.failed} refused — ${res.errors[0]?.message ?? 'see the register'}` });
+      else setMsg({ ok: true, text: done });
       await load();
     } catch (e) {
       setMsg({ ok: false, text: e instanceof ApiError ? e.message : 'Could not record that.' });
@@ -93,106 +84,99 @@ export default function StaffAttendancePage() {
     }
   }
 
-  if (err) return <p className="error">Couldn&apos;t load the staff register.</p>;
+  if (err) return <EmptyState title="Couldn’t load the staff register">Refresh the page to try again.</EmptyState>;
+
+  const s = summary;
+  const inToday = s ? s.present + s.late + s.halfDay : 0;
+  const markedCount = s ? s.totalStaff - s.unmarked : 0;
+  const num = (v: number | undefined) => (v === undefined ? undefined : String(v));
+  const pick = (f: Filter) => setStatus((cur) => (cur === f ? '' : f));
+  const tiles: KpiTileSpec[] = [
+    { key: 'in', label: 'In today', icon: 'check-circle', tone: 'ok',
+      value: !s ? undefined : !s.workingDay ? 'Closed' : markedCount === 0 ? '—' : `${Math.round((inToday / markedCount) * 100)}%`,
+      sub: !s ? undefined : !s.workingDay ? (s.holidayName ?? 'Weekly off') : `${inToday} of ${s.totalStaff} staff${s.late ? ` · ${s.late} late` : ''}`,
+      active: status === '', onClick: () => setStatus(''), hint: 'Everyone on the register' },
+    { key: 'PRESENT', label: 'On time', icon: 'check-circle', tone: 'ok', value: num(s?.present), active: status === 'PRESENT', onClick: () => pick('PRESENT') },
+    { key: 'LATE', label: 'Late', icon: 'timetable', tone: s && s.late > 0 ? 'warn' : 'neutral', value: num(s?.late), active: status === 'LATE', onClick: () => pick('LATE') },
+    { key: 'ABSENT', label: 'Absent', icon: 'x-circle', tone: s && s.absent > 0 ? 'bad' : 'neutral', value: num(s?.absent), active: status === 'ABSENT', onClick: () => pick('ABSENT') },
+    { key: 'ON_LEAVE', label: 'On leave', icon: 'leave', tone: 'info', value: num(s?.onLeave), active: status === 'ON_LEAVE', onClick: () => pick('ON_LEAVE') },
+    { key: 'UNMARKED', label: 'Not marked', icon: 'alert', tone: s && s.unmarked > 0 ? 'bad' : 'ok', value: num(s?.unmarked),
+      sub: s && s.selfMarked > 0 ? `${s.selfMarked} checked in themselves` : undefined,
+      active: status === 'UNMARKED', onClick: () => pick('UNMARKED'), hint: 'Nobody has recorded anything for these people — not the same as absent' },
+  ];
+
+  const unmarkedRows = (rows ?? []).filter((r) => !r.status);
+  const columns: Column<StaffRegisterRow>[] = [
+    { key: 'name', header: 'Staff member', pinned: true, sortValue: (r) => r.name, cell: (r) => (
+      <span className="ov-person-text">
+        <Link href={`/staff-attendance/${r.staffId}`} style={{ fontWeight: 600 }}>{r.name}</Link>
+        <span className="ov-sub">{r.employeeCode}{r.campus ? ` · ${r.campus}` : ''}</span>
+      </span>
+    ) },
+    { key: 'status', header: 'Status', sortValue: (r) => (r.status ? STATUS[r.status]?.word : 'ZZ'), cell: (r) => (r.status
+      ? <StatusPill tone={STATUS[r.status]?.tone ?? 'neutral'}>{STATUS[r.status]?.word ?? r.status}</StatusPill>
+      : <StatusPill tone="neutral">Not marked</StatusPill>) },
+    { key: 'in', header: 'Check-in', sortValue: (r) => r.checkIn, cell: (r) => <span className="ov-num" style={{ fontWeight: 400 }}>{time(r.checkIn)}</span> },
+    { key: 'by', header: 'Recorded by', sortValue: (r) => r.source, cell: (r) => <span className="ov-sub">{r.source ? MARKED_BY[r.source] ?? r.source : '—'}</span> },
+    ...(canMark && s?.workingDay !== false ? [{
+      key: 'mark', header: 'Record', pinned: true, cell: (r: StaffRegisterRow) => (
+        <span className="ov-segmark" role="group" aria-label={`Record ${r.name}`}>
+          {MARKS.map((m) => (
+            <button key={m} type="button" className={`ov-mark${r.status === m ? ` is-on is-${STATUS[m]!.tone}` : ''}`}
+              aria-pressed={r.status === m} title={STATUS[m]!.word} aria-label={`${STATUS[m]!.word}: ${r.name}`}
+              disabled={!!busy} onClick={() => { if (r.status !== m) void record([{ staffId: r.staffId, status: m }], r.staffId, `${r.name}: ${STATUS[m]!.word.toLowerCase()}`); }}>
+              {STATUS[m]!.short}
+            </button>
+          ))}
+        </span>
+      ),
+    } satisfies Column<StaffRegisterRow>] : []),
+  ];
 
   return (
-    <div className="stack">
-      <div className="row">
-        <h1 style={{ marginBottom: 0 }}>Staff attendance</h1>
-        <span className="muted" style={{ fontSize: 13 }}>
-          {summary?.workingDay === false
-            ? summary.holidayName ? `${summary.holidayName} — no register today` : 'Weekly off — no register today'
-            : 'Who is in today, and who nobody has marked yet'}
-        </span>
-      </div>
-
-      {msg && <div className={`toast ${msg.ok ? 'ok' : 'err'}`}>{msg.text}</div>}
-
-      <div className="inline-form">
-        <div><label>Date</label><input type="date" max={today()} value={date} onChange={(e) => setDate(e.target.value)} /></div>
-      </div>
-
-      {summary && summary.workingDay && (
-        <>
-          {/* The roll-up everyone actually wants ("how many are in?") lives in prose, NOT in a
-              tile. A tile reading "Present: 1" that counted late arrivals contradicted the
-              PRESENT filter beside it — the page said 1, you clicked, and got nothing. Every
-              tile below now maps to exactly one filter, so that class of lie is structural. */}
-          <p className="muted" style={{ margin: 0, fontSize: 13 }}>
-            <strong>{summary.present + summary.late}</strong> of {summary.totalStaff} in today
-            {summary.late > 0 && ` (${summary.late} arrived late)`}
-            {summary.unmarked > 0 && ` · ${summary.unmarked} still unmarked`}
+    <div className="oh">
+      <div className="ov-head">
+        <div>
+          <h1 style={{ margin: 0 }}>Staff attendance</h1>
+          <p className="ov-lede">
+            {summary?.workingDay === false
+              ? `${summary.holidayName ?? 'Weekly off'} — no register on this day.`
+              : canMark ? 'Who is in today. Tap a letter to record someone; nobody is marked absent automatically.'
+                : 'View only — the office records staff attendance.'}
           </p>
-          <div className="grid">
-            <StatTile label="Staff" value={summary.totalStaff} active={status === ''} onClick={() => setStatus('')} />
-            <StatTile label="On time" value={summary.present} active={status === 'PRESENT'} onClick={() => setStatus('PRESENT')} />
-            <StatTile label="Late" value={summary.late} active={status === 'LATE'} onClick={() => setStatus('LATE')} />
-            <StatTile label="Absent" value={summary.absent} alert={summary.absent > 0}
-              active={status === 'ABSENT'} onClick={() => setStatus('ABSENT')} />
-            <StatTile label="On leave" value={summary.onLeave} active={status === 'ON_LEAVE'} onClick={() => setStatus('ON_LEAVE')} />
-            {/* Leads the eye where the work is: nothing writes an ABSENT row on its own, so a
-                large "not marked" is the real state of the register, not a rounding detail. */}
-            <StatTile label="Not marked" value={summary.unmarked} alert={summary.unmarked > 0}
-              title="Nobody has recorded anything for these people — not the same as being absent"
-              active={status === 'UNMARKED'} onClick={() => setStatus('UNMARKED')} />
-          </div>
-        </>
-      )}
+        </div>
+        <label className="ov-field" style={{ minWidth: 0 }}>
+          <span>Date</span>
+          <input type="date" max={today()} value={date} onChange={(e) => e.target.value && setDate(e.target.value)} />
+        </label>
+      </div>
 
-      <div className="chips">
-        <button type="button" className={`chip${status === '' ? ' active' : ''}`} onClick={() => setStatus('')}>All</button>
-        {STATUSES.map((s) => (
-          <button key={s} type="button" className={`chip${status === s ? ' active' : ''}`} onClick={() => setStatus(s)}>
-            {humanizeStatus(s)}
+      {msg && <div className={`toast ${msg.ok ? 'ok' : 'err'}`} role="status">{msg.text}</div>}
+
+      <KpiStrip label="Staff today" tiles={tiles} />
+
+      <DataTable<StaffRegisterRow>
+        caption="Staff register"
+        noun="staff"
+        columns={columns}
+        rows={rows ?? []}
+        rowKey={(r) => r.staffId}
+        loading={!rows}
+        initialSort={{ key: 'name', dir: 'asc' }}
+        toolbar={canMark && summary?.workingDay && unmarkedRows.length > 0 && status !== 'ABSENT' && status !== 'ON_LEAVE' ? (
+          <button type="button" className="ov-btn-primary" disabled={!!busy}
+            onClick={() => void record(unmarkedRows.map((r) => ({ staffId: r.staffId, status: 'PRESENT' })), 'ALL',
+              `${unmarkedRows.length} marked present`)}>
+            {busy === 'ALL' ? 'Saving…' : `Mark ${unmarkedRows.length} not-marked as present`}
           </button>
-        ))}
-        <button type="button" className={`chip${status === 'UNMARKED' ? ' active' : ''}`} onClick={() => setStatus('UNMARKED')}>
-          ⚠️ Not marked
-        </button>
-      </div>
-
-      <div className="card stack">
-        {!rows ? (
-          <p className="muted" style={{ margin: 0 }}>Loading…</p>
-        ) : rows.length === 0 ? (
-          <p className="muted" style={{ margin: 0 }}>
-            {status ? 'Nobody matches this filter on this date.' : 'No staff records for this date.'}
-          </p>
-        ) : (
-          <table>
-            <thead>
-              <tr><th>Name</th><th>Code</th><th>Campus</th><th>Status</th><th>Check-in</th><th>By</th>{canMark && <th>Record</th>}</tr>
-            </thead>
-            <tbody>
-              {rows.map((r) => (
-                <tr key={r.staffId}>
-                  <td>
-                    <Link href={`/staff-attendance/${r.staffId}`} style={{ fontWeight: 600 }}>{r.name}</Link>
-                  </td>
-                  <td className="muted">{r.employeeCode}</td>
-                  <td className="muted">{r.campus ?? '—'}</td>
-                  <td>
-                    {r.status
-                      ? <span className={`badge ${attendanceBadge(r.status)}`}>{humanizeStatus(r.status)}</span>
-                      : <span className="badge warn">Not marked</span>}
-                  </td>
-                  <td>{time(r.checkIn)}</td>
-                  <td className="muted">{r.source ? MARKED_BY[r.source] ?? r.source : '—'}</td>
-                  {canMark && (
-                    <td>
-                      <select value="" disabled={busy === r.staffId}
-                        onChange={(e) => { if (e.target.value) setOne(r.staffId, e.target.value); }}>
-                        <option value="">{busy === r.staffId ? 'Saving…' : r.status ? 'Change…' : 'Record…'}</option>
-                        {STATUSES.map((s) => <option key={s} value={s}>{humanizeStatus(s)}</option>)}
-                      </select>
-                    </td>
-                  )}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
+        ) : status ? (
+          <span className="ov-filter-chip">Showing: <strong>{tiles.find((t) => t.key === status)?.label}</strong>
+            <button type="button" className="ov-link" onClick={() => setStatus('')}>Show everyone</button></span>
+        ) : undefined}
+        empty={<EmptyState title={status ? 'Nobody matches this filter on this date' : 'No staff on the register for this date'}>
+          {status ? 'Choose another tile or date.' : 'Staff appear here from the day they join.'}
+        </EmptyState>}
+      />
     </div>
   );
 }

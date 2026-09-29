@@ -472,7 +472,8 @@ th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--bo
    rather than like data. The tint (was a hard-coded #f9fafb) puts it on the brand ramp. */
 th {
   background: var(--brand-tint); color: var(--muted);
-  font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em;
+  /* Sentence case (Owner UX Phase 2): headings read like the data under them — "Due date", not "DUE DATE". */
+  font-size: 12px; font-weight: 700; letter-spacing: .01em;
 }
 tr:last-child td { border-bottom: 0; }
 /* `color` is load-bearing: the global `button` rule sets `color: #fff` for solid brand buttons,
@@ -1130,3 +1131,101 @@ button.ov-btn-danger-quiet:hover:not(:disabled) { background: var(--danger-tint)
 
 /* Sentence case in owner tables (plan principle 5) — the global th rule uppercases. */
 .ov-table th { text-transform: none; }
+
+/* ── Owner Oversight, Phase 1c additions (attendance overview + staff register) ── */
+.ov-card { padding: 14px 16px; background: var(--card); border-radius: var(--r-lg); box-shadow: var(--shadow-card); }
+.ov-ok-line { margin: 0; font-size: 14px; color: var(--ok-ink); }
+.ov-attn { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+button.ov-attn-row { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 8px; min-height: 0;
+  background: none; color: var(--ink); border: 0; border-radius: var(--r-md); text-align: left; font: inherit; font-weight: 400; }
+button.ov-attn-row:hover:not(:disabled) { background: #f3f6fa; color: var(--ink); }
+button.ov-attn-row:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+
+/* Heatmap: sections × days. Colour + legend + a label on every cell — never colour alone. */
+.ov-heat-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
+.ov-legend { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 12px; font-size: 12px; color: var(--muted); }
+.ov-legend li { display: inline-flex; align-items: center; gap: 6px; }
+.ov-heat-scroll { overflow-x: auto; }
+.ov-heat { border-collapse: separate; border-spacing: 3px; font-size: 12px; }
+.ov-heat th { font-weight: 600; color: var(--muted); text-align: center; padding: 2px 0; min-width: 26px; font-variant-numeric: tabular-nums; text-transform: none; background: none; border: 0; }
+.ov-heat th.is-today { color: var(--brand); }
+.ov-heat-dow { display: block; font-size: 10px; font-weight: 500; }
+.ov-heat th.ov-heat-name { text-align: left; padding-right: 10px; min-width: 170px; font-weight: 400; position: sticky; left: 0; background: var(--card); z-index: 1; }
+.ov-heat td { padding: 0; text-align: center; border: 0; }
+.ov-heat td.is-today .ov-heat-cell { box-shadow: 0 0 0 2px var(--brand); }
+.ov-heat-avg { padding-left: 10px !important; text-align: right !important; min-width: 44px; }
+.ov-heat-cell, .ov-heat-swatch { display: inline-block; width: 24px; height: 24px; border-radius: 5px; border: 0; padding: 0; min-height: 0; vertical-align: middle; }
+.ov-heat-swatch { width: 14px; height: 14px; border-radius: 3px; }
+button.ov-heat-cell { cursor: pointer; }
+button.ov-heat-cell:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }
+.ov-heat-cell.is-good, .ov-heat-swatch.is-good, button.ov-heat-cell.is-good:hover:not(:disabled) { background: #2f8f5b; }
+.ov-heat-cell.is-mid, .ov-heat-swatch.is-mid, button.ov-heat-cell.is-mid:hover:not(:disabled) { background: #e0a526; }
+.ov-heat-cell.is-low, .ov-heat-swatch.is-low, button.ov-heat-cell.is-low:hover:not(:disabled) { background: #c0392b; }
+.ov-heat-cell.is-missing, .ov-heat-swatch.is-missing, button.ov-heat-cell.is-missing:hover:not(:disabled) { background: #fff; box-shadow: inset 0 0 0 2px #c0392b; }
+.ov-heat-cell.is-pending, button.ov-heat-cell.is-pending:hover:not(:disabled) { background: #fff; box-shadow: inset 0 0 0 2px #9aa6b8; }
+.ov-heat-cell.is-closed, .ov-heat-swatch.is-closed { background: repeating-linear-gradient(135deg, #e7ecf3 0 4px, #f4f6fa 4px 8px); }
+/* Partly marked: the band colour, cut diagonally with white — "some of this register is missing". */
+.ov-heat-cell.is-partial, .ov-heat-swatch.is-partial { background-image: linear-gradient(135deg, transparent 50%, rgba(255, 255, 255, .85) 50%); }
+button.ov-heat-cell:hover:not(:disabled) { transform: scale(1.12); }
+@media (prefers-reduced-motion: reduce) { button.ov-heat-cell:hover:not(:disabled) { transform: none; } }
+
+/* Segmented status buttons (staff register): one tap, the paper register's P / L / ½ / A / Lv. */
+.ov-segmark { display: inline-flex; gap: 3px; flex-wrap: nowrap; }
+button.ov-mark { min-width: 36px; min-height: 32px; padding: 0 8px; border-radius: 7px; border: 1px solid #c9d3e1; background: var(--card); color: #3d4656; font-size: 13px; font-weight: 700; }
+button.ov-mark:hover:not(:disabled) { background: #eef2f8; color: var(--ink); }
+button.ov-mark:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+button.ov-mark.is-on.is-ok, button.ov-mark.is-on.is-ok:hover:not(:disabled) { background: var(--ok-tint); color: var(--ok-ink); border-color: var(--ok-ink); }
+button.ov-mark.is-on.is-warn, button.ov-mark.is-on.is-warn:hover:not(:disabled) { background: var(--warn-tint); color: var(--warn-ink); border-color: var(--warn-ink); }
+button.ov-mark.is-on.is-bad, button.ov-mark.is-on.is-bad:hover:not(:disabled) { background: var(--danger-tint); color: var(--danger-ink); border-color: var(--danger-ink); }
+button.ov-mark.is-on.is-info, button.ov-mark.is-on.is-info:hover:not(:disabled) { background: var(--info-tint); color: var(--info-ink); border-color: var(--info-ink); }
+button.ov-mark:disabled { opacity: .55; cursor: progress; }
+
+/* ── Owner Oversight, Phase 1d additions (Reports centre) ── */
+.ov-cat { margin: 6px 0 0; font-size: 13px; font-weight: 700; letter-spacing: .04em; color: var(--muted); }
+.ov-eyebrow { margin: 0 0 2px; font-size: 12px; font-weight: 700; letter-spacing: .04em; color: var(--brand); }
+.ov-gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; }
+.ov-rcard { display: flex; flex-direction: column; align-items: stretch; gap: 6px; padding: 16px; min-height: 0;
+  background: var(--card); color: var(--ink); border: 1px solid #e3e8f0; border-radius: var(--r-lg); box-shadow: var(--shadow-card);
+  text-align: left; font: inherit; font-weight: 400; text-decoration: none; cursor: pointer; transition: border-color .15s ease, box-shadow .15s ease; }
+/* Surface-styled: its own hover, or the global navy button hover wins (the Phase 0.2 lesson). */
+button.ov-rcard:hover:not(:disabled), a.ov-rcard:hover { background: var(--card); color: var(--ink); border-color: var(--brand); box-shadow: var(--shadow-raise); text-decoration: none; }
+.ov-rcard:focus-visible { outline: 3px solid var(--brand); outline-offset: 2px; }
+.ov-rcard-head { display: flex; align-items: center; gap: 10px; }
+.ov-rcard-ico { width: 32px; height: 32px; border-radius: 9px; display: inline-flex; align-items: center; justify-content: center; background: var(--brand-tint); color: var(--brand); flex: none; }
+.ov-rcard.is-live .ov-rcard-ico { background: var(--ok-tint); color: var(--ok-ink); }
+.ov-rcard-title { font-size: 15px; font-weight: 700; color: var(--ink); }
+.ov-rcard-q { font-size: 14px; color: #3d4656; line-height: 1.4; }
+.ov-rcard-fig { margin-top: 4px; font-family: var(--font-heading); font-size: 18px; font-weight: 700; color: var(--brand); font-variant-numeric: tabular-nums; display: inline-flex; align-items: center; gap: 8px; }
+.ov-rcard.is-live .ov-rcard-fig { color: var(--ok-ink); font-size: 15px; }
+.ov-live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok-ink); box-shadow: 0 0 0 3px var(--ok-tint); }
+.ov-rcard-foot { margin-top: auto; padding-top: 6px; border-top: 1px solid #edf0f5; font-size: 12px; color: var(--muted); display: inline-flex; align-items: center; gap: 4px; }
+
+/* Report view. */
+.ov-filters { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; }
+.ov-filters .ov-field { min-width: 200px; }
+.ov-filters-go { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ov-results-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 10px; }
+.ov-export { display: inline-flex; gap: 8px; flex-wrap: wrap; }
+a.ov-btn-quiet-link { display: inline-flex; align-items: center; background: var(--card); color: var(--brand); border: 1px solid #c9d3e1; border-radius: var(--r-md); padding: 7px 14px; font-size: 14px; font-weight: 600; text-decoration: none; }
+a.ov-btn-quiet-link:hover { background: var(--brand-tint); text-decoration: none; }
+a.ov-btn-quiet-link:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+a.ov-btn-quiet-link.is-disabled { color: var(--muted); border-color: #e3e8f0; pointer-events: none; }
+.ov-hbars { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; font-size: 13px; }
+.ov-hbars li { display: grid; grid-template-columns: minmax(110px, 28%) 1fr auto; align-items: center; gap: 10px; }
+.ov-hbars-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); }
+
+@media (max-width: 720px) {
+  .ov-gallery { grid-template-columns: 1fr; }
+  .ov-filters .ov-field { min-width: 0; flex: 1 1 140px; }
+  .ov-hbars li { grid-template-columns: minmax(80px, 36%) 1fr auto; }
+}
+
+/* ── Owner UX Phase 2: shell polish ── */
+.mfa-strip { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 12px; margin-bottom: 12px; border-radius: var(--r-md);
+  background: var(--warn-tint); color: var(--warn-ink); font-size: 13px; line-height: 1.4; }
+.mfa-strip > span { flex: 1 1 240px; }
+.mfa-strip a { font-weight: 700; color: var(--warn-ink); }
+button.mfa-strip-close { background: none; border: 0; min-height: 0; width: 28px; height: 28px; padding: 0; border-radius: 6px; color: var(--warn-ink); font-size: 18px; line-height: 1; }
+button.mfa-strip-close:hover:not(:disabled) { background: rgba(0, 0, 0, .06); color: var(--warn-ink); }
+.security-link { position: relative; }
+.badge-dot { position: absolute; top: 4px; right: 4px; width: 8px; height: 8px; border-radius: 50%; background: var(--danger-ink); box-shadow: 0 0 0 2px var(--card); }

@@ -42,6 +42,13 @@ const TILE_TITLE: Record<TileKey, string> = {
   NEW: 'New this month', DEFAULTER: 'Fee defaulters', NO_GUARDIAN: 'Missing guardian', WITHDRAWN: 'Withdrawn',
 };
 
+/** Empty-state headlines, written as sentences — "No absent today here" is not how anyone speaks. */
+const TILE_EMPTY: Record<TileKey, string> = {
+  ACTIVE: 'No students in this scope', PRESENT: 'Nobody has been marked present yet today', ABSENT: 'Nobody is absent today',
+  ON_LEAVE: 'Nobody is on leave today', NEW: 'Nobody has joined this month', DEFAULTER: 'No fee defaulters',
+  NO_GUARDIAN: 'Every student has a guardian on record', WITHDRAWN: 'No withdrawn students',
+};
+
 const STATUS_TONE: Record<StudentStatus, Tone> = {
   ACTIVE: 'ok', SUSPENDED: 'warn', RESTRICTED: 'warn', STRUCK_OFF: 'bad', WITHDRAWN: 'neutral', GRADUATED: 'info',
 };
@@ -97,7 +104,11 @@ export function OwnerStudentsHub({ onOpenProfile, onDelete, reloadKey = 0 }: {
   const scopeState = useScope();
   const { scope } = scopeState;
   const [tab, setTabState] = useState<'students' | 'performance'>(readTab);
-  const [tile, setTile] = useState<TileKey>('ACTIVE');
+  // `?show=ABSENT` — other owner screens (the attendance overview) link straight into a tile's list.
+  const [tile, setTile] = useState<TileKey>(() => {
+    const s = typeof window === 'undefined' ? null : new URLSearchParams(window.location.search).get('show');
+    return s && s in TILE_QUERY ? (s as TileKey) : 'ACTIVE';
+  });
   const [search, setSearch] = useState('');
   const [debounced, setDebounced] = useState('');
   const [sort, setSort] = useState<{ key: string; dir: 'asc' | 'desc' } | null>({ key: 'name', dir: 'asc' });
@@ -272,7 +283,7 @@ export function OwnerStudentsHub({ onOpenProfile, onDelete, reloadKey = 0 }: {
           ) : undefined}
           bulkActions={(rows, clear) => <button type="button" className="ov-btn-quiet" onClick={() => exportCsv(rows, clear)}>Export selected</button>}
           empty={
-            <EmptyState title={debounced ? `No students match “${debounced}”` : `No ${TILE_TITLE[tile].toLowerCase()} here`}
+            <EmptyState title={debounced ? `No students match “${debounced}”` : TILE_EMPTY[tile]}
               action={<button type="button" className="ov-link" onClick={() => { setTile('ACTIVE'); setSearch(''); scopeState.reset(); }}>Clear all filters</button>}>
               {tile === 'ACTIVE' ? 'Try another campus, class or section.' : 'That is good news, or the scope is narrow — widen it to check.'}
             </EmptyState>

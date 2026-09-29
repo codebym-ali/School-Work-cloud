@@ -58,6 +58,7 @@ export interface MatrixRow {
  */
 export const PERMISSION_MATRIX: MatrixRow[] = [
   { label: 'list students', method: 'get', path: '/api/v1/students', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ADMISSION_CONTROLLER'], scopeGated: true },
+  { label: 'attendance overview (owner, read-only)', method: 'get', path: '/api/v1/attendance/overview', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'], scopeGated: true },
   { label: 'students hub summary (KPI strip)', method: 'get', path: '/api/v1/students/summary', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ADMISSION_CONTROLLER'], scopeGated: true },
   // Creating a student is admission-controller-only (segregation of duties); owner/campus are read-only here.
   { label: 'create student', method: 'post', path: '/api/v1/students', body: {}, allow: ['ADMISSION_CONTROLLER'] },
@@ -135,7 +136,8 @@ export const PERMISSION_MATRIX: MatrixRow[] = [
   // Staff attendance had NO matrix row at all, on either endpoint — and these rows feed the
   // payroll attendance deduction, so who may write them is a pay question. Marking is the
   // office's job: a teacher must never record staff attendance, least of all their own.
-  { label: 'mark staff attendance', method: 'post', path: '/api/v1/staff-attendance/bulk', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'], scopeGated: true },
+  // …nor the owner (Owner UX 1c): the office keeps the staff register; the owner oversees it read-only.
+  { label: 'mark staff attendance', method: 'post', path: '/api/v1/staff-attendance/bulk', body: {}, allow: ['CAMPUS_ADMIN'], scopeGated: true },
   // School settings govern money (fee due day, proration, sibling discount) and pay
   // (attendance windows, self check-in), so a campus admin reads the rules they work under
   // but only the owner moves them.

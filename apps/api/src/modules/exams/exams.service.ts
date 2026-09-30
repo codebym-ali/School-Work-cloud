@@ -5,7 +5,7 @@ import {
   assertCampusAccess,
   AuditActions,
   ErrorCodes,
-  restrictedCampusId,
+  effectiveCampusFilter,
   TenantContext,
   type RequestUser,
 } from '@common';
@@ -53,9 +53,9 @@ export class ExamsService {
     });
   }
 
-  listExams(classId?: string, termId?: string) {
-    // Campus-bound users only see exams for classes in their campus.
-    const restricted = restrictedCampusId(this.ctx.user);
+  listExams(classId?: string, termId?: string, campusId?: string) {
+    // Campus-bound users only see exams for classes in their campus; school-wide admins may narrow by lens.
+    const restricted = effectiveCampusFilter(this.ctx.user, campusId);
     return this.db.examDefinition.findMany({
       where: {
         ...(classId ? { classId } : {}),

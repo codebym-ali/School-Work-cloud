@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, ApiError, type Defaulter } from '@sw/api-client';
 import { EmptyState } from '@school/components/oversight';
 import { hasAnyRole } from '@sw/roles';
-import { useMe } from '@sw/session';
+import { useCampusLens, useMe } from '@sw/session';
 
 const rs = (n: number) => `Rs ${n.toLocaleString()}`;
 const THRESHOLDS = [0, 7, 30, 60, 90];
@@ -26,6 +26,7 @@ const THRESHOLDS = [0, 7, 30, 60, 90];
 export default function DefaultersPage({ embedded }: { embedded?: boolean } = {}) {
   const me = useMe();
   const canOpenProfile = hasAnyRole(me?.roles, ['OWNER_ADMIN', 'CAMPUS_ADMIN']);
+  const lens = useCampusLens();
   const [minDays, setMinDays] = useState(0);
   const [rows, setRows] = useState<Defaulter[] | null>(null);
   const [picked, setPicked] = useState<Set<string>>(new Set());
@@ -36,11 +37,11 @@ export default function DefaultersPage({ embedded }: { embedded?: boolean } = {}
 
   const load = useCallback(() => {
     setRows(null);
-    api.defaulters.list(minDays).then((r) => { setRows(r); setPicked(new Set()); }).catch((e) => {
+    api.defaulters.list(minDays, lens.campusId).then((r) => { setRows(r); setPicked(new Set()); }).catch((e) => {
       setRows([]);
       setMsg({ ok: false, text: e instanceof ApiError ? e.message : 'Could not load defaulters.' });
     });
-  }, [minDays]);
+  }, [minDays, lens.campusId]);
   useEffect(() => { load(); }, [load]);
 
   const textable = useMemo(() => (rows ?? []).filter((r) => r.guardian?.canText), [rows]);
@@ -178,7 +179,7 @@ export default function DefaultersPage({ embedded }: { embedded?: boolean } = {}
                   </td>
                   <td>
                     {canOpenProfile
-                      ? <a href={`/students?student=${r.student.id}`}>{r.student.fullName}</a>
+                      ? <a href={`/students/${r.student.id}`}>{r.student.fullName}</a>
                       : r.student.fullName}
                     <div className="muted" style={{ fontSize: 12 }}>{r.student.grNumber} · {r.invoices} invoice{r.invoices === 1 ? '' : 's'}</div>
                   </td>

@@ -983,7 +983,11 @@ button.ov-btn-quiet { background: var(--card); color: var(--brand); border: 1px 
 button.ov-btn-quiet:hover:not(:disabled) { background: var(--brand-tint); }
 
 /* Table. */
-.ov-table-card { background: var(--card); border-radius: var(--r-lg); box-shadow: var(--shadow-card); overflow: hidden; }
+.ov-table-card { background: var(--card); border-radius: var(--r-lg); box-shadow: var(--shadow-card); overflow: visible; }
+.ov-table-card > .ov-toolbar:first-child { border-radius: var(--r-lg) var(--r-lg) 0 0; background: var(--card); }
+.ov-table-card > .ov-pager:last-child { border-radius: 0 0 var(--r-lg) var(--r-lg); background: var(--card); }
+.ov-table-card > .ov-table-scroll { overflow-x: auto; background: var(--card); }
+.ov-table-card > .ov-table-scroll:last-child { border-radius: 0 0 var(--r-lg) var(--r-lg); }
 .ov-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 14px; border-bottom: 1px solid #edf0f5; min-height: 52px; }
 .ov-toolbar-left, .ov-toolbar-right { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 .ov-range { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
@@ -1008,6 +1012,7 @@ button.ov-sort.is-active { color: var(--brand); }
 .ov-pager { display: flex; align-items: center; justify-content: flex-end; gap: 12px; padding: 10px 14px; border-top: 1px solid #edf0f5; font-size: 13px; color: var(--muted); }
 .ov-cols { position: relative; }
 .ov-check { display: flex; align-items: center; gap: 8px; padding: 6px 10px; font-size: 14px; color: var(--ink); cursor: pointer; white-space: nowrap; }
+.ov-check input[type="checkbox"] { width: 16px; height: 16px; flex-shrink: 0; padding: 0; }
 
 /* Menus (row ⋯ and Columns). */
 .ov-actions { position: relative; display: inline-block; }

@@ -40,7 +40,7 @@ export class ExamsController {
   constructor(private readonly exams: ExamsService) {}
 
   @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN') @Post() create(@Body() dto: CreateExamDto) { return this.exams.createExam(dto); }
-  @Roles(...STAFF_ROLES) @Get() list(@Query('classId') classId?: string, @Query('termId') termId?: string) { return this.exams.listExams(classId, termId); }
+  @Roles(...STAFF_ROLES) @Get() list(@Query('classId') classId?: string, @Query('termId') termId?: string, @Query('campusId') campusId?: string) { return this.exams.listExams(classId, termId, campusId); }
 
   @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
   @Post(':id/open-marks-entry')

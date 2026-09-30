@@ -1113,8 +1113,10 @@ export const api = {
   },
   /** Admin approval queue — both kinds of leave, the same two verbs. */
   leaveQueue: {
-    students: (status = 'PENDING') => apiGet<{ data: StudentLeaveRow[]; total: number }>(`/student-leaves?status=${status}`),
-    staff: (status = 'PENDING') => apiGet<{ data: StaffLeaveRow[]; total: number }>(`/staff-leaves?status=${status}`),
+    students: (status = 'PENDING', campusId?: string | null) =>
+      apiGet<{ data: StudentLeaveRow[]; total: number }>(`/student-leaves?status=${status}${campusId ? `&campusId=${campusId}` : ''}`),
+    staff: (status = 'PENDING', campusId?: string | null) =>
+      apiGet<{ data: StaffLeaveRow[]; total: number }>(`/staff-leaves?status=${status}${campusId ? `&campusId=${campusId}` : ''}`),
     approveStudent: (id: string) => apiPost<StudentLeave>(`/student-leaves/${id}/approve`, {}),
     rejectStudent: (id: string, reason: string) => apiPost<StudentLeave>(`/student-leaves/${id}/reject`, { reason }),
     // Returns how many ABSENT rows the approval corrected, so the office can be told the register
@@ -1234,11 +1236,13 @@ export const api = {
    * "You are not assigned to this section". Needs no timetable and no staff attendance.
    */
   cover: {
-    list: (date: string) => apiGet<{ date: string; cover: CoverRow[] }>(`/cover?date=${date}`),
+    list: (date: string, campusId?: string | null) =>
+      apiGet<{ date: string; cover: CoverRow[] }>(`/cover?date=${date}${campusId ? `&campusId=${campusId}` : ''}`),
     create: (body: { sectionId: string; date: string; coveringStaffId: string; periodNo?: number; absentStaffId?: string; reason?: string }) =>
       apiPost<CoverRow>('/cover', body),
     remove: (id: string) => apiDelete<{ deleted: boolean }>(`/cover/${id}`),
-    away: (date: string) => apiGet<AwayToday>(`/cover/away?date=${date}`),
+    away: (date: string, campusId?: string | null) =>
+      apiGet<AwayToday>(`/cover/away?date=${date}${campusId ? `&campusId=${campusId}` : ''}`),
     /** What I am covering, and what of mine is covered — self-scoped, so any staff member may ask. */
     mine: (date?: string) => apiGet<MyCover>(`/cover/mine${date ? `?date=${date}` : ''}`),
     suggestions: (sectionId: string, date: string, periodNo?: number) =>
@@ -1383,7 +1387,8 @@ export const api = {
   },
   /** The defaulter working list (GAP-13). Campus-scoped on the server whatever is asked. */
   defaulters: {
-    list: (minDays = 0) => apiGet<Defaulter[]>(`/fees/defaulters?minDays=${minDays}`),
+    list: (minDays = 0, campusId?: string | null) =>
+      apiGet<Defaulter[]>(`/fees/defaulters?minDays=${minDays}${campusId ? `&campusId=${campusId}` : ''}`),
     /** Ids only: each student's balance is re-read on the server when the reminder is queued. */
     remind: (studentIds: string[]) =>
       apiPost<{ queued: number; skipped: { notDefaulting: number; cannotText: number } }>('/fees/defaulters/reminders', { studentIds }),
@@ -1430,8 +1435,8 @@ export const api = {
       apiPost<{ created: number; skipped: number; details: string[] }>('/fee-structures/copy', body),
     lateFeePolicy: () => apiGet<LateFeePolicy | null>('/late-fee-policy'),
     /** Payment submissions — money somebody says arrived, pending a human check. */
-    claims: (q: { status?: string; studentId?: string } = {}) => {
-      const qs = new URLSearchParams({ ...(q.status ? { status: q.status } : {}), ...(q.studentId ? { studentId: q.studentId } : {}), pageSize: '100' }).toString();
+    claims: (q: { status?: string; studentId?: string; campusId?: string | null } = {}) => {
+      const qs = new URLSearchParams({ ...(q.status ? { status: q.status } : {}), ...(q.studentId ? { studentId: q.studentId } : {}), ...(q.campusId ? { campusId: q.campusId } : {}), pageSize: '100' }).toString();
       return apiGet<Paged<FeeClaim>>(`/fees/claims?${qs}`);
     },
     pendingClaims: () => apiGet<{ pending: number }>('/fees/claims/pending-count'),

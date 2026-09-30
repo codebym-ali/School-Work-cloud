@@ -98,7 +98,7 @@ export function MoveStudentDialog({ student, classes, sections, onClose, onDone,
             ))}
           </select>
         </div>
-        <button onClick={submit} disabled={!canSubmit} style={{ minHeight: 44 }}>
+        <button onClick={submit} disabled={!canSubmit} style={{ padding: '8px 16px', fontSize: 14 }}>
           {busy ? 'Moving…' : 'Move student'}
         </button>
       </div>

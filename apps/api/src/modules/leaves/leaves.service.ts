@@ -2,6 +2,7 @@ import { HttpStatus, Injectable } from '@nestjs/common';
 import { AttendanceStatus, LeaveStatus, StaffLeaveType } from '@prisma/client';
 import {
   AppError,
+  effectiveCampusFilter,
   ErrorCodes,
   isAdminRole,
   paginate,
@@ -115,9 +116,11 @@ export class LeavesService {
     // deliberately after the parent portal was removed; it now denies rather than scopes.
     const user = this.ctx.user!;
     const parentScope = !isAdminRole(user) && !user.roles.includes('TEACHER');
+    const campusId = parentScope ? undefined : effectiveCampusFilter(user, q.campusId);
     const where = {
       ...(q.status ? { status: q.status } : {}),
       ...(q.studentId ? { studentId: q.studentId } : {}),
+      ...(campusId ? { student: { enrollments: { some: { status: 'ACTIVE' as const, campusId } } } } : {}),
       ...(parentScope ? { student: { guardians: { some: { parent: { userId: user.userId } } } } } : {}),
     };
     const { skip, take } = toSkipTake(q);
@@ -206,9 +209,11 @@ export class LeavesService {
     // an admin may filter by any staffId.
     const user = this.ctx.user!;
     const scopedStaffId = isAdminRole(user) ? q.staffId : await this.selfStaffId();
+    const campusId = isAdminRole(user) ? effectiveCampusFilter(user, q.campusId) : undefined;
     const where = {
       ...(q.status ? { status: q.status } : {}),
       ...(scopedStaffId ? { staffId: scopedStaffId } : {}),
+      ...(campusId ? { staff: { user: { campusId } } } : {}),
     };
     const { skip, take } = toSkipTake(q);
     const [rows, total] = await Promise.all([

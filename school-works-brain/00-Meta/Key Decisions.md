@@ -9,6 +9,11 @@ updated: 2026-08-20
 The locked, cross-cutting decisions every note and every developer must respect.
 Full ledger: [[consistency-register]] (LOCKED). This is the digest.
 
+## Campus lens is a convenience filter, never the boundary (2026-09-30)
+- Every list a page filters by the top-bar lens takes an optional `campusId` and resolves it with `effectiveCampusFilter(user, q.campusId)` — a campus-bound user's own campus always wins over the client value.
+- Any page that keeps local scope state (`useScope`, payroll's picker) must **sync from `lens.campusId` on change**, not only seed from it — seeding once is what made the dropdown look broken.
+- Staff have no campus of their own: staff-leave filtering goes through `staff.user.campusId`; cover/away through the sections' class campus.
+
 ## The owner does NOT mark student attendance (2026-09-29)
 - **Policy:** the **class teacher** marks the student register; **campus admin** and the **Ops Admin** are the
   correction roles (the `PATCH /attendance/:id` correction requires a reason and is audited). The **owner is

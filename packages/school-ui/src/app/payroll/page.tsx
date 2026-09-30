@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { api, apiGet, ApiError, type Campus, type PayrollPayslip, type PayrollRunDetail, type PayrollRunSummary } from '@sw/api-client';
-import { useMe } from '@sw/session';
+import { useCampusLens, useMe } from '@sw/session';
 import { ReasonedActionDialog } from '@school/components/reasoned-action-dialog';
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -24,6 +24,7 @@ const METHOD_LABEL: Record<string, string> = { CASH: 'Cash', BANK_TRANSFER: 'Ban
  */
 export default function PayrollPage() {
   const me = useMe();
+  const lens = useCampusLens();
   const isOwner = (me?.roles ?? []).includes('OWNER_ADMIN');
   const now = new Date();
   const [campuses, setCampuses] = useState<Campus[]>([]);
@@ -47,6 +48,10 @@ export default function PayrollPage() {
       setCampusId((cur) => cur || mine[0]?.id || me?.campusId || '');
     }).catch(() => { if (me?.campusId) setCampusId(me.campusId); });
   }, [loadRuns, me?.campusId]);
+
+  useEffect(() => {
+    if (isOwner && lens.campusId) setCampusId(lens.campusId);
+  }, [isOwner, lens.campusId]);
 
   const openRun = async (id: string) => {
     try { setOpen(await api.payroll.getRun(id)); } catch (e) { setMsg({ ok: false, text: e instanceof ApiError ? e.message : 'Could not open that payroll.' }); }
@@ -212,7 +217,7 @@ export default function PayrollPage() {
             <table>
               <thead><tr><th>Month</th>{isOwner && <th>Campus</th>}<th>Status</th><th style={{ textAlign: 'right' }}>Net pay</th><th>Paid</th><th /></tr></thead>
               <tbody>
-                {runs.map((r) => (
+                {runs.filter((r) => !lens.campusId || r.campusId === lens.campusId).map((r) => (
                   <tr key={r.id}>
                     <td>{MONTHS[r.month - 1]} {r.year}</td>
                     {isOwner && <td>{r.campusName}</td>}

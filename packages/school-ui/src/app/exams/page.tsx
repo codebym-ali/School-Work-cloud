@@ -9,7 +9,7 @@ import {
   type Klass, type Paged, type Section, type Student, type Subject, type Term, type ReportCard,
 } from '@sw/api-client';
 import { classLabeller } from '@school/lib/labels';
-import { useMe } from '@sw/session';
+import { useCampusLens, useMe } from '@sw/session';
 import { hasAnyRole } from '@sw/roles';
 import TeacherExams from './TeacherExams';
 
@@ -29,6 +29,7 @@ export default function ExamsPage() {
 }
 
 function ExamsAdminConsole() {
+  const lens = useCampusLens();
   const [tab, setTab] = useState<'exams' | 'setup'>('exams');
   const [years, setYears] = useState<AcademicYear[]>([]);
   const [terms, setTerms] = useState<Term[]>([]);
@@ -60,13 +61,14 @@ function ExamsAdminConsole() {
     const q = new URLSearchParams();
     if (classFilter) q.set('classId', classFilter);
     if (termFilter) q.set('termId', termFilter);
+    if (lens.campusId) q.set('campusId', lens.campusId);
     const qs = q.toString();
     setExams(await apiGet<Exam[]>(`/exams${qs ? `?${qs}` : ''}`));
   }
   const classLabel = classLabeller(classes, campuses);
 
   useEffect(() => { reloadBase().catch(() => {}); }, []);
-  useEffect(() => { reloadExams().catch(() => {}); }, [classFilter, termFilter]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { reloadExams().catch(() => {}); }, [classFilter, termFilter, lens.campusId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function run(fn: () => Promise<unknown>, ok: string, after?: () => Promise<unknown>) {
     try {

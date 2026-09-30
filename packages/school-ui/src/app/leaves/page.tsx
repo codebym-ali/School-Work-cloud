@@ -4,6 +4,7 @@ import { humanizeStatus, type IconName } from '@sw/ui';
 import { EmptyState } from '@school/components/oversight';
 import { useCallback, useEffect, useState } from 'react';
 import { api, ApiError, type LeaveBalance, type StaffLeaveRow, type StudentLeaveRow } from '@sw/api-client';
+import { useCampusLens } from '@sw/session';
 
 /**
  * Leave approvals — the screen the dashboard has been advertising.
@@ -30,6 +31,7 @@ const badgeFor = (status: string) =>
   status === 'APPROVED' ? 'ok' : status === 'REJECTED' ? 'bad' : status === 'CANCELLED' ? '' : 'warn';
 
 export default function LeavesPage() {
+  const lens = useCampusLens();
   const [kind, setKind] = useState<Kind>('students');
   const [status, setStatus] = useState<string>('PENDING');
   const [students, setStudents] = useState<StudentLeaveRow[]>([]);
@@ -44,20 +46,20 @@ export default function LeavesPage() {
 
   const load = useCallback(async () => {
     try {
-      const [st, sf] = await Promise.all([api.leaveQueue.students(status), api.leaveQueue.staff(status)]);
+      const [st, sf] = await Promise.all([api.leaveQueue.students(status, lens.campusId), api.leaveQueue.staff(status, lens.campusId)]);
       setStudents(st.data);
       setStaff(sf.data);
       // Tab counts always reflect PENDING, whatever filter is showing — the badge answers
       // "what still needs me?", which does not change because you looked at last week's rejects.
       if (status === 'PENDING') setPendingCounts({ students: st.total, staff: sf.total });
       else {
-        const [ps, pf] = await Promise.all([api.leaveQueue.students('PENDING'), api.leaveQueue.staff('PENDING')]);
+        const [ps, pf] = await Promise.all([api.leaveQueue.students('PENDING', lens.campusId), api.leaveQueue.staff('PENDING', lens.campusId)]);
         setPendingCounts({ students: ps.total, staff: pf.total });
       }
     } catch (e) {
       setMsg({ ok: false, text: e instanceof ApiError ? e.message : 'Could not load leave requests' });
     }
-  }, [status]);
+  }, [status, lens.campusId]);
 
   useEffect(() => { load(); }, [load]);
 

@@ -8,7 +8,7 @@ import {
   type AcademicYear, type Campus, type FeeHead, type FeeStructure, type Invoice, type Klass,
   type Paged, type PaymentMethodKey, type SchoolSettings, type Student,
 } from '@sw/api-client';
-import { hasModule, useMe } from '@sw/session';
+import { hasModule, useCampusLens, useMe } from '@sw/session';
 import { isSchoolWideAdmin } from '@sw/roles';
 import { classLabeller } from '@school/lib/labels';
 import { FeePlanPanel } from './fee-plan-panel';
@@ -40,6 +40,7 @@ export default function FeesPage() {
 function FeesInvoicesPanel() {
   const now = new Date();
   const me = useMe();
+  const lens = useCampusLens();
   const canConfigure = isSchoolWideAdmin(me?.roles);
   const canInvoicing = hasModule(me, 'fees.invoicing');
   const canPayments = hasModule(me, 'fees.payments');
@@ -85,9 +86,13 @@ function FeesInvoicesPanel() {
   }
 
   async function loadInvoices() {
-    const res = await apiGet<Paged<Invoice>>('/fees/invoices?pageSize=100');
+    const res = await apiGet<Paged<Invoice>>(`/fees/invoices?pageSize=100${lens.campusId ? `&campusId=${lens.campusId}` : ''}`);
     setInvoices(res.data);
   }
+  useEffect(() => {
+    setBatch((b) => (b.classId && lens.campusId && classes.find((c) => c.id === b.classId)?.campusId !== lens.campusId ? { ...b, classId: '' } : b));
+    loadInvoices().catch(() => {});
+  }, [lens.campusId]); // eslint-disable-line react-hooks/exhaustive-deps
   const loadSetup = useCallback(async () => {
     const [h, s] = await Promise.all([
       api.feeSetup.heads().catch(() => [] as FeeHead[]),
@@ -100,7 +105,6 @@ function FeesInvoicesPanel() {
     apiGet<Campus[]>('/campuses').then(setCampuses).catch(() => {});
     apiGet<AcademicYear[]>('/academic-years').then(setYears).catch(() => {});
     apiGet<Paged<Student>>('/students?pageSize=100').then((r) => setNames(Object.fromEntries(r.data.map((s) => [s.id, `${s.fullName} (${s.grNumber})`])))).catch(() => {});
-    loadInvoices().catch(() => {});
     loadSetup().catch(() => {});
     // Fails silently for a role the API denies (an accountant reads it, a clerk may not) —
     // the form then falls back to cash, which every school accepts.
@@ -256,7 +260,7 @@ function FeesInvoicesPanel() {
         <div className="inline-form">
           <div><label>Class</label>
             <select aria-label="Class" value={batch.classId} onChange={(e) => setBatch({ ...batch, classId: e.target.value })}>
-              <option value="">Select…</option>{classes.map((c) => <option key={c.id} value={c.id}>{classLabel(c)}</option>)}
+              <option value="">Select…</option>{classes.filter((c) => !lens.campusId || c.campusId === lens.campusId).map((c) => <option key={c.id} value={c.id}>{classLabel(c)}</option>)}
             </select>
           </div>
           <div style={{ maxWidth: 90 }}><label>Month</label><input value={batch.month} onChange={(e) => setBatch({ ...batch, month: e.target.value })} /></div>

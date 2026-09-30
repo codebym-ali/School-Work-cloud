@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { api, ApiError, type AwayToday, type CoverRow, type CoverSuggestions, type ManagedTeacher, type TimetableCoverage } from '@sw/api-client';
+import { useCampusLens } from '@sw/session';
 
 /**
  * Cover — who is taking a class today (Cover Plan, C0 §4.1 + C1).
@@ -29,6 +30,7 @@ const longDate = (d: string) =>
   new Date(d).toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' });
 
 export default function CoverPage() {
+  const lens = useCampusLens();
   const [date, setDate] = useState(today());
   const [rows, setRows] = useState<CoverRow[]>([]);
   const [away, setAway] = useState<AwayToday | null>(null);
@@ -41,13 +43,13 @@ export default function CoverPage() {
 
   const load = useCallback(async () => {
     try {
-      const [cover, aw] = await Promise.all([api.cover.list(date), api.cover.away(date)]);
+      const [cover, aw] = await Promise.all([api.cover.list(date, lens.campusId), api.cover.away(date, lens.campusId)]);
       setRows(cover.cover);
       setAway(aw);
     } catch (e) {
       setMsg({ ok: false, text: e instanceof ApiError ? e.message : 'Could not load cover.' });
     }
-  }, [date]);
+  }, [date, lens.campusId]);
   useEffect(() => { load(); }, [load]);
 
   useEffect(() => {

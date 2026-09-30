@@ -81,6 +81,17 @@ export function useScope() {
   const setSection = useCallback((sectionId: string | null) => commit({ ...effective, sectionId }), [commit, effective]);
   const reset = useCallback(() => commit({ campusId: fixedCampusId ?? null, classId: null, sectionId: null }), [commit, fixedCampusId]);
 
+  // When the global campus lens changes (top-bar dropdown), sync it into the local scope.
+  useEffect(() => {
+    if (fixedCampusId) return;
+    setScope((prev) => {
+      if (prev.campusId === (lens.campusId ?? null)) return prev;
+      const next: Scope = { campusId: lens.campusId ?? null, classId: null, sectionId: null };
+      writeUrl(next);
+      return next;
+    });
+  }, [lens.campusId, fixedCampusId]);
+
   // Drop a stale child once the data is in (a class id from another campus, a section from another class).
   useEffect(() => {
     if (loading) return;

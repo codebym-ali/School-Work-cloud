@@ -292,6 +292,7 @@ export class RejectClaimDto {
 export class ClaimListQuery extends PaginationQuery {
   @IsOptional() @IsIn(['PENDING', 'VERIFIED', 'REJECTED']) status?: string;
   @IsOptional() @IsUUID() studentId?: string;
+  @IsOptional() @IsUUID() campusId?: string;
 }
 
 /**

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, ApiError, type FeeClaim } from '@sw/api-client';
 import { EmptyState } from '@school/components/oversight';
-import { useMe } from '@sw/session';
+import { useCampusLens, useMe } from '@sw/session';
 import { hasAnyRole } from '@sw/roles';
 import { StatementImport } from './statement-import';
 
@@ -41,6 +41,7 @@ const SOURCE: Record<string, string> = {
  */
 export default function FeeClaimsPage({ embedded }: { embedded?: boolean } = {}) {
   const me = useMe();
+  const lens = useCampusLens();
   const canDecide = hasAnyRole(me?.roles, ['OWNER_ADMIN', 'ACCOUNTANT']);
 
   const [status, setStatus] = useState<string>('PENDING');
@@ -53,12 +54,12 @@ export default function FeeClaimsPage({ embedded }: { embedded?: boolean } = {})
 
   const load = useCallback(async () => {
     const [list, pending] = await Promise.all([
-      api.feeSetup.claims({ status }),
+      api.feeSetup.claims({ status, campusId: lens.campusId }),
       api.feeSetup.pendingClaims().catch(() => ({ pending: 0 })),
     ]);
     setClaims(list.data);
     setCounts(pending);
-  }, [status]);
+  }, [status, lens.campusId]);
 
   useEffect(() => { setClaims(null); load().catch(() => setErr(true)); }, [load]);
 

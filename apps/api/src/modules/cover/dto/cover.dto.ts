@@ -5,6 +5,10 @@ export class CoverQuery {
   /** Defaults to today — the day the office is standing in. */
   @IsOptional() @IsDateString()
   date?: string;
+
+  /** Campus lens; forced to the caller's own campus when they are campus-bound. */
+  @IsOptional() @IsUUID()
+  campusId?: string;
 }
 
 export class CreateCoverDto {

@@ -7,7 +7,7 @@ import {
   AuditActions,
   ErrorCodes,
   parseSchoolSettings,
-  restrictedCampusId,
+  effectiveCampusFilter,
   TenantContext,
   workingDaysBetween,
 } from '@common';
@@ -96,7 +96,7 @@ export class CoverService {
   /** Cover on a day. Campus-scoped for a campus admin, like every other oversight read. */
   async list(q: CoverQuery) {
     const date = new Date(q.date ?? new Date().toISOString().slice(0, 10));
-    const restricted = restrictedCampusId(this.ctx.user);
+    const restricted = effectiveCampusFilter(this.ctx.user, q.campusId);
     const rows = await this.db.coverAssignment.findMany({
       where: { date, ...(restricted ? { section: { class: { campusId: restricted } } } : {}) },
       include: CoverService.INCLUDE,
@@ -190,7 +190,7 @@ export class CoverService {
    */
   async away(q: CoverQuery) {
     const date = new Date(q.date ?? new Date().toISOString().slice(0, 10));
-    const restricted = restrictedCampusId(this.ctx.user);
+    const restricted = effectiveCampusFilter(this.ctx.user, q.campusId);
     const yearId = await this.setup.requireCurrentYearId();
 
     const marked = await this.db.staffAttendance.findMany({

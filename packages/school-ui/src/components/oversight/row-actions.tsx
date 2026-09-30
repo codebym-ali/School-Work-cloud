@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 
 export interface RowAction {
   label: string;
@@ -24,12 +25,24 @@ export function RowActions({ actions, label = 'More actions' }: { actions: RowAc
   const [open, setOpen] = useState(false);
   const wrap = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   const items = useRef<Array<HTMLButtonElement | null>>([]);
   const menuId = useId();
 
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+
+  useLayoutEffect(() => {
+    if (!open || !trigger.current) return;
+    const r = trigger.current.getBoundingClientRect();
+    setPos({ top: r.bottom + 4, left: r.right });
+  }, [open]);
+
   useEffect(() => {
     if (!open) return;
-    const onDown = (e: MouseEvent) => { if (!wrap.current?.contains(e.target as Node)) setOpen(false); };
+    const menuEl = menuRef.current;
+    const onDown = (e: MouseEvent) => {
+      if (!wrap.current?.contains(e.target as Node) && !menuEl?.contains(e.target as Node)) setOpen(false);
+    };
     document.addEventListener('mousedown', onDown);
     items.current.find((b) => b && !b.disabled)?.focus();
     return () => document.removeEventListener('mousedown', onDown);
@@ -55,8 +68,9 @@ export function RowActions({ actions, label = 'More actions' }: { actions: RowAc
         onKeyDown={(e) => { if (e.key === 'ArrowDown') { e.preventDefault(); setOpen(true); } }}>
         <span aria-hidden>⋯</span>
       </button>
-      {open && (
-        <div id={menuId} role="menu" className="ov-menu"
+      {open && pos && createPortal(
+        <div id={menuId} role="menu" className="ov-menu" ref={menuRef}
+          style={{ position: 'fixed', top: pos.top, left: pos.left, transform: 'translateX(-100%)', right: 'auto', zIndex: 9999 }}
           onKeyDown={(e) => {
             const i = items.current.indexOf(document.activeElement as HTMLButtonElement);
             if (e.key === 'Escape') { e.preventDefault(); close(); }
@@ -72,7 +86,8 @@ export function RowActions({ actions, label = 'More actions' }: { actions: RowAc
               {a.label}
             </button>
           ))}
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );

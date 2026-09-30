@@ -4,6 +4,7 @@ import {
   AppError,
   assertCampusAccess,
   AuditActions,
+  effectiveCampusFilter,
   ErrorCodes,
   paginate,
   parseSchoolSettings,
@@ -258,8 +259,8 @@ export class ClaimsService {
     const where: Prisma.FeePaymentClaimWhereInput = {};
     if (q.status) where.status = q.status as ClaimStatus;
     if (q.studentId) where.studentId = q.studentId;
-    const restricted = restrictedCampusId(this.ctx.user);
-    if (restricted !== null) where.invoice = { enrollment: { campusId: restricted } };
+    const campusId = effectiveCampusFilter(this.ctx.user, q.campusId);
+    if (campusId) where.invoice = { enrollment: { campusId } };
 
     const { skip, take } = toSkipTake(q);
     const [rows, total] = await Promise.all([

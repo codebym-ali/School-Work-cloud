@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { api, ApiError, type FeeClaim } from '@sw/api-client';
+import { EmptyState } from '@school/components/oversight';
 import { useMe } from '@sw/session';
 import { hasAnyRole } from '@sw/roles';
 import { StatementImport } from './statement-import';
@@ -38,7 +39,7 @@ const SOURCE: Record<string, string> = {
  *
  * Oldest first, because a queue is worked through and the family waiting longest goes first.
  */
-export default function FeeClaimsPage() {
+export default function FeeClaimsPage({ embedded }: { embedded?: boolean } = {}) {
   const me = useMe();
   const canDecide = hasAnyRole(me?.roles, ['OWNER_ADMIN', 'ACCOUNTANT']);
 
@@ -81,13 +82,14 @@ export default function FeeClaimsPage() {
 
   return (
     <div className="stack">
-      <div className="stack" style={{ gap: 4 }}>
-        <h1 style={{ marginBottom: 0 }}>Payment submissions</h1>
-        <p className="muted" style={{ margin: 0 }}>
-          Money someone says they have sent. <strong>Nothing here is counted as paid</strong> until you
-          check it against your bank statement and verify it — that is what issues the receipt.
-        </p>
-      </div>
+      {!embedded && (
+        <div className="stack" style={{ gap: 4 }}>
+          <h1 style={{ marginBottom: 0 }}>Payment submissions</h1>
+          <p className="muted" style={{ margin: 0 }}>
+            Payments reported by parents or staff. Verify each one before it counts as paid.
+          </p>
+        </div>
+      )}
 
       {msg && <div className={`toast ${msg.ok ? 'ok' : 'err'}`}>{msg.text}</div>}
 
@@ -110,11 +112,10 @@ export default function FeeClaimsPage() {
         {!claims ? (
           <p className="muted" style={{ margin: 0 }}>Loading…</p>
         ) : claims.length === 0 ? (
-          <p className="muted" style={{ margin: 0 }}>
-            {status === 'PENDING'
-              ? 'Nothing is waiting to be checked.'
-              : `No ${status.toLowerCase()} submissions.`}
-          </p>
+          <EmptyState icon="fee-claims"
+            title={status === 'PENDING' ? 'Nothing to verify' : `No ${status.toLowerCase()} submissions`}>
+            {status === 'PENDING' ? 'When a parent or staff member reports a payment, it appears here for you to check against your bank records.' : null}
+          </EmptyState>
         ) : (
           <div style={{ overflowX: 'auto' }}>
             <table>
@@ -137,11 +138,9 @@ export default function FeeClaimsPage() {
                       )}
                     </td>
                     <td className="muted">
-                      {c.paidOn.slice(0, 10)}
-                      {/* Submitted-on is shown only when it differs — the payer's date is the one
-                          that matters, and repeating it when they match is noise. */}
+                      {new Date(c.paidOn).toLocaleDateString('en-GB')}
                       {c.createdAt.slice(0, 10) !== c.paidOn.slice(0, 10) && (
-                        <span style={{ display: 'block', fontSize: 11 }}>sent in {c.createdAt.slice(0, 10)}</span>
+                        <span style={{ display: 'block', fontSize: 11 }}>sent in {new Date(c.createdAt).toLocaleDateString('en-GB')}</span>
                       )}
                       <span className="badge" style={{ fontSize: 11 }}>{SOURCE[c.source] ?? c.source}</span>
                     </td>

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, ApiError, type Defaulter } from '@sw/api-client';
+import { EmptyState } from '@school/components/oversight';
 import { hasAnyRole } from '@sw/roles';
 import { useMe } from '@sw/session';
 
@@ -22,7 +23,7 @@ const THRESHOLDS = [0, 7, 30, 60, 90];
  * ⚠️ **The screen sends ids, never amounts.** The server re-reads what each student owes when it queues the
  * message, so a list left open all morning still texts today's balance. One reminder per student per day.
  */
-export default function DefaultersPage() {
+export default function DefaultersPage({ embedded }: { embedded?: boolean } = {}) {
   const me = useMe();
   const canOpenProfile = hasAnyRole(me?.roles, ['OWNER_ADMIN', 'CAMPUS_ADMIN']);
   const [minDays, setMinDays] = useState(0);
@@ -31,6 +32,7 @@ export default function DefaultersPage() {
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [search, setSearch] = useState('');
 
   const load = useCallback(() => {
     setRows(null);
@@ -81,6 +83,12 @@ export default function DefaultersPage() {
   /** Every way out of the dialog also ends the remind intent, so a later reload cannot reopen it. */
   const closeDialog = () => { setConfirming(false); setRemindAll(false); };
   const total = (rows ?? []).reduce((n, r) => n + r.outstanding, 0);
+  const q = search.toLowerCase().trim();
+  const filteredRows = q ? (rows ?? []).filter((r) =>
+    r.student.fullName.toLowerCase().includes(q) ||
+    r.student.grNumber.toLowerCase().includes(q) ||
+    r.guardian?.name.toLowerCase().includes(q)
+  ) : (rows ?? []);
   const allPicked = textable.length > 0 && textable.every((r) => picked.has(r.student.id));
 
   const toggle = (id: string) => setPicked((cur) => {
@@ -107,10 +115,12 @@ export default function DefaultersPage() {
 
   return (
     <div className="stack">
-      <div className="stack" style={{ gap: 4 }}>
-        <h1 style={{ marginBottom: 0 }}>Defaulters</h1>
-        <p className="muted" style={{ margin: 0 }}>Students with fees unpaid past the due date — and who to contact about each.</p>
-      </div>
+      {!embedded && (
+        <div className="stack" style={{ gap: 4 }}>
+          <h1 style={{ marginBottom: 0 }}>Defaulters</h1>
+          <p className="muted" style={{ margin: 0 }}>Students with fees unpaid past the due date.</p>
+        </div>
+      )}
 
       <div className="card row" style={{ gap: 16, alignItems: 'flex-end', flexWrap: 'wrap' }}>
         <div style={{ minWidth: 200 }}>
@@ -118,6 +128,11 @@ export default function DefaultersPage() {
           <select id="def-days" value={minDays} onChange={(e) => setMinDays(Number(e.target.value))}>
             {THRESHOLDS.map((d) => <option key={d} value={d}>{d === 0 ? 'Any time past due' : `${d} days`}</option>)}
           </select>
+        </div>
+        <div style={{ minWidth: 180 }}>
+          <label htmlFor="def-search">Search</label>
+          <input id="def-search" type="search" placeholder="Student or guardian name…" value={search}
+            onChange={(e) => setSearch(e.target.value)} style={{ width: '100%' }} />
         </div>
         {rows && rows.length > 0 && (
           <div className="row" style={{ gap: 16 }}>
@@ -129,12 +144,19 @@ export default function DefaultersPage() {
         <button type="button" disabled={picked.size === 0} onClick={() => { setConfirming(true); setMsg(null); }}>
           Send reminder{picked.size > 0 ? ` to ${picked.size}` : ''}
         </button>
+        {rows && rows.length > 0 && textable.length < rows.length && (
+          <div className="muted" style={{ fontSize: 12, width: '100%' }}>
+            {rows.length - textable.length} student{rows.length - textable.length === 1 ? ' has' : 's have'} no SMS number — greyed out below, call them instead.
+          </div>
+        )}
       </div>
 
       {msg && <div className={`toast ${msg.ok ? 'ok' : 'err'}`} role={msg.ok ? 'status' : 'alert'}>{msg.text}</div>}
 
       {rows === null ? <p className="muted">Loading…</p> : rows.length === 0 ? (
-        <div className="card"><p className="muted" style={{ margin: 0 }}>No student is overdue{minDays ? ` by ${minDays} days or more` : ''}.</p></div>
+        <EmptyState icon="check-circle" title={minDays ? `No student is overdue by ${minDays}+ days` : 'No overdue fees'}>
+          {minDays ? 'Try a shorter threshold, or — good news — everyone is up to date.' : 'Every student is up to date. Nothing to chase.'}
+        </EmptyState>
       ) : (
         <div className="card" style={{ padding: 0, overflowX: 'auto' }}>
           <table>
@@ -148,8 +170,8 @@ export default function DefaultersPage() {
               </tr>
             </thead>
             <tbody>
-              {rows.map((r) => (
-                <tr key={r.student.id}>
+              {filteredRows.map((r) => (
+                <tr key={r.student.id} style={!r.guardian?.canText ? { opacity: 0.55 } : undefined}>
                   <td>
                     <input type="checkbox" style={{ width: 'auto' }} aria-label={`Select ${r.student.fullName}`}
                       checked={picked.has(r.student.id)} disabled={!r.guardian?.canText} onChange={() => toggle(r.student.id)} />
@@ -158,7 +180,7 @@ export default function DefaultersPage() {
                     {canOpenProfile
                       ? <a href={`/students?student=${r.student.id}`}>{r.student.fullName}</a>
                       : r.student.fullName}
-                    <div className="muted" style={{ fontSize: 12 }}>GR {r.student.grNumber} · {r.invoices} invoice{r.invoices === 1 ? '' : 's'}</div>
+                    <div className="muted" style={{ fontSize: 12 }}>{r.student.grNumber} · {r.invoices} invoice{r.invoices === 1 ? '' : 's'}</div>
                   </td>
                   <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}><strong>{rs(r.outstanding)}</strong></td>
                   <td>
@@ -171,10 +193,13 @@ export default function DefaultersPage() {
                   </td>
                   <td>
                     {r.guardian && <a href={`tel:${r.guardian.phone}`} style={{ fontVariantNumeric: 'tabular-nums' }}>{r.guardian.phone}</a>}
-                    {r.guardian && !r.guardian.canText && <div className="muted" style={{ fontSize: 12 }}>No SMS — call instead</div>}
+                    {r.guardian && !r.guardian.canText && <span className="badge warn" style={{ fontSize: 11, marginTop: 2 }}>No SMS — call instead</span>}
                   </td>
                 </tr>
               ))}
+              {filteredRows.length === 0 && q && (
+                <tr><td colSpan={6} className="muted">No students match &quot;{search}&quot;.</td></tr>
+              )}
             </tbody>
           </table>
         </div>

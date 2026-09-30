@@ -93,14 +93,14 @@ export function StatementImport({ onImported }: { onImported: () => void }) {
     <div className="card stack">
       <div className="row" style={{ alignItems: 'flex-start' }}>
         <div>
-          <h2 style={{ margin: 0, fontSize: 17 }}>Reconcile against a bank statement</h2>
+          <h2 style={{ margin: 0, fontSize: 17 }}>Match payments to your bank records</h2>
           <p className="muted" style={{ margin: '2px 0 0', fontSize: 13 }}>
-            Upload the statement and the submissions above are matched for you. Verifying stays your decision.
+            Upload your bank statement and payments are matched automatically. You still decide what to verify.
           </p>
         </div>
         <div className="row" style={{ gap: 8 }}>
           <button className="ghost small" onClick={() => void loadUnexplained()} disabled={busy}>
-            Money we can&apos;t explain
+            Unmatched deposits
           </button>
           {!open && <button className="ghost small" onClick={() => setOpen(true)}>Upload statement</button>}
         </div>
@@ -199,7 +199,7 @@ export function StatementImport({ onImported }: { onImported: () => void }) {
 
       {unexplained && (
         <div className="stack" style={{ gap: 6 }}>
-          <div className="section-title">Money we can&apos;t explain — last 60 days</div>
+          <div className="section-title">Unmatched deposits — last 60 days</div>
           {/* The most valuable output, and the one nobody asks for: somebody paid and never told the
               school, and that child may be sitting on a defaulter list. */}
           {unexplained.length === 0 ? (

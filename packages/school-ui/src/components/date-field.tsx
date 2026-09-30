@@ -19,6 +19,12 @@ export function formatSchoolDate(iso: string): string {
   return `${weekday}, ${day}/${m}/${y}`;
 }
 
+function weekdayLabel(iso: string): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return '';
+  const d = new Date(`${iso}T00:00:00Z`);
+  return d.toLocaleDateString('en-GB', { weekday: 'long', timeZone: 'UTC' });
+}
+
 function shift(iso: string, days: number): string {
   const d = new Date(`${iso}T00:00:00Z`);
   d.setUTCDate(d.getUTCDate() + days);
@@ -38,7 +44,7 @@ export function DateField({ id, value, onChange, min, max, label, stepper = true
 }) {
   const canPrev = !!value && (!min || shift(value, -1) >= min);
   const canNext = !!value && (!max || shift(value, 1) <= max);
-  const readout = formatSchoolDate(value);
+  const dayName = weekdayLabel(value);
   return (
     <div className="date-field">
       {label && <label htmlFor={id}>{label}</label>}
@@ -47,13 +53,13 @@ export function DateField({ id, value, onChange, min, max, label, stepper = true
           <button type="button" className="date-step" aria-label="Previous day" disabled={!canPrev} onClick={() => onChange(shift(value, -1))}>‹</button>
         )}
         <input id={id} type="date" value={value} min={min} max={max}
-          aria-describedby={readout ? `${id}-readout` : undefined}
+          aria-describedby={dayName ? `${id}-readout` : undefined}
           onChange={(e) => e.target.value && onChange(e.target.value)} />
         {stepper && (
           <button type="button" className="date-step" aria-label="Next day" disabled={!canNext} onClick={() => onChange(shift(value, 1))}>›</button>
         )}
       </div>
-      {readout && <span id={`${id}-readout`} className="date-field-readout">{readout}</span>}
+      {dayName && <span id={`${id}-readout`} className="date-field-readout">{dayName}</span>}
     </div>
   );
 }

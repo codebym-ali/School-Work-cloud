@@ -274,7 +274,7 @@ function AttendanceRegister({ embedded = false }: { embedded?: boolean }) {
       {!embedded && <h1>Attendance</h1>}
       {readOnly && !embedded && (
         <p className="muted" style={{ margin: 0 }}>
-          View only. Class teachers mark attendance; your campus admin or Ops Admin makes corrections.
+          Read-only — your teachers mark the register.
         </p>
       )}
       {msg && <div className={`toast ${msg.ok ? 'ok' : 'err'}`}>{msg.text}</div>}

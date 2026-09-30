@@ -1,6 +1,7 @@
 'use client';
 
-import { humanizeStatus } from '@sw/ui';
+import { humanizeStatus, type IconName } from '@sw/ui';
+import { EmptyState } from '@school/components/oversight';
 import { useCallback, useEffect, useState } from 'react';
 import { api, ApiError, type LeaveBalance, type StaffLeaveRow, type StudentLeaveRow } from '@sw/api-client';
 
@@ -154,8 +155,7 @@ export default function LeavesPage() {
     <div className="stack">
       <h1>Leave requests</h1>
       <p className="muted" style={{ margin: 0 }}>
-        Approve or reject leave for students and staff. Approving a student&apos;s leave marks
-        those days ON LEAVE and locks them, so attendance can&apos;t contradict the decision.
+        Approve or reject leave. Approved days are automatically marked as leave in attendance.
       </p>
       {msg && <div className={`toast ${msg.ok ? 'ok' : 'err'}`}>{msg.text}</div>}
 
@@ -176,13 +176,12 @@ export default function LeavesPage() {
       </div>
 
       {rows.length === 0 ? (
-        <div className="card">
-          <p className="muted" style={{ margin: 0 }}>
-            {status === 'PENDING'
-              ? `Nothing waiting — no ${kind === 'students' ? 'student' : 'staff'} leave needs a decision.`
-              : `No ${status.toLowerCase()} requests.`}
-          </p>
-        </div>
+        <EmptyState icon="leaves"
+          title={status === 'PENDING'
+            ? `No ${kind === 'students' ? 'student' : 'staff'} leave needs a decision`
+            : `No ${status.toLowerCase()} requests`}>
+          {status === 'PENDING' ? 'When someone applies for leave, it appears here for you to approve or reject.' : null}
+        </EmptyState>
       ) : (
         <div className="stack" style={{ gap: 8 }}>
           {rows.map((r) => (

@@ -14,6 +14,9 @@ import { hasAnyRole } from '@sw/roles';
 import TeacherExams from './TeacherExams';
 
 const EXAM_TYPES = ['MONTHLY', 'MID_TERM', 'FINAL', 'SURPRISE_TEST'];
+const EXAM_TYPE_LABEL: Record<string, string> = {
+  MONTHLY: 'Monthly', MID_TERM: 'Mid-term', FINAL: 'Final', SURPRISE_TEST: 'Surprise test',
+};
 
 export default function ExamsPage() {
   const me = useMe();
@@ -26,6 +29,7 @@ export default function ExamsPage() {
 }
 
 function ExamsAdminConsole() {
+  const [tab, setTab] = useState<'exams' | 'setup'>('exams');
   const [years, setYears] = useState<AcademicYear[]>([]);
   const [terms, setTerms] = useState<Term[]>([]);
   const [classes, setClasses] = useState<Klass[]>([]);
@@ -37,6 +41,7 @@ function ExamsAdminConsole() {
   const [classFilter, setClassFilter] = useState('');
   const [termFilter, setTermFilter] = useState('');
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [showCreate, setShowCreate] = useState(false);
 
   async function reloadBase() {
     const [y, t, k, s, sub, st, cam] = await Promise.all([
@@ -63,8 +68,6 @@ function ExamsAdminConsole() {
   useEffect(() => { reloadBase().catch(() => {}); }, []);
   useEffect(() => { reloadExams().catch(() => {}); }, [classFilter, termFilter]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // `after` (e.g. reloadBase/reloadExams) is awaited before the toast is shown, so any
-  // dropdown fed by that state already reflects the change once the user sees success.
   async function run(fn: () => Promise<unknown>, ok: string, after?: () => Promise<unknown>) {
     try {
       await fn();
@@ -82,50 +85,70 @@ function ExamsAdminConsole() {
 
   return (
     <div className="stack">
-      <h1>Exams</h1>
+      <div className="row">
+        <h1>Exams & Results</h1>
+        <div className="ov-tab-bar" style={{ display: 'flex', gap: 4, background: '#edf0f5', padding: 4, borderRadius: 10 }}>
+          <button type="button" className={`ov-tab${tab === 'exams' ? ' is-active' : ''}`} onClick={() => setTab('exams')}>Exams</button>
+          <button type="button" className={`ov-tab${tab === 'setup' ? ' is-active' : ''}`} onClick={() => setTab('setup')}>Setup</button>
+        </div>
+      </div>
       {msg && <div className={`toast ${msg.ok ? 'ok' : 'err'}`}>{msg.text}</div>}
 
-      <SubjectsCard subjects={subjects} classes={classes} />
+      {tab === 'setup' && (
+        <>
+          <SubjectsCard subjects={subjects} classes={classes} />
+          <GradeScaleCard years={years} onSaved={(ok, text) => setMsg({ ok, text })} />
+          <TermsCard years={years} terms={terms}
+            onCreate={(b) => run(() => apiPost('/terms', b), 'Term created', reloadBase)}
+            onDelete={async (t) => { await run(() => api.terms.remove(t.id), `Deleted "${t.name}"`, reloadBase); }} />
+        </>
+      )}
 
-      <GradeScaleCard years={years}
-        onSaved={(ok, text) => setMsg({ ok, text })} />
+      {tab === 'exams' && (
+        <>
+          <div className="card stack">
+            <div className="row">
+              <div className="inline-form" style={{ flex: 1 }}>
+                <div><label>Class</label>
+                  <select value={classFilter} onChange={(e) => setClassFilter(e.target.value)}>
+                    <option value="">All</option>{classes.map((c) => <option key={c.id} value={c.id}>{classLabel(c)}</option>)}
+                  </select>
+                </div>
+                <div><label>Term</label>
+                  <select value={termFilter} onChange={(e) => setTermFilter(e.target.value)}>
+                    <option value="">All</option>{terms.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                  </select>
+                </div>
+              </div>
+              <button className="ghost" onClick={() => setShowCreate((v) => !v)}>
+                {showCreate ? 'Cancel' : '+ Create exam'}
+              </button>
+            </div>
 
-      <TermsCard years={years} terms={terms}
-        onCreate={(b) => run(() => apiPost('/terms', b), 'Term created', reloadBase)}
-        onDelete={async (t) => { await run(() => api.terms.remove(t.id), `Deleted "${t.name}"`, reloadBase); }} />
+            {showCreate && (
+              <NewExam terms={terms} classes={classes} classLabel={classLabel}
+                onCreate={async (b) => {
+                  const ok = await run(() => apiPost('/exams', { ...b, weightagePercent: Number(b.weightagePercent) }), 'Exam created', reloadExams);
+                  if (ok) setShowCreate(false);
+                }} />
+            )}
 
-      <div className="card stack">
-        <h2 style={{ margin: 0, fontSize: 17 }}>Exams</h2>
-        <div className="inline-form">
-          <div><label>Class</label>
-            <select value={classFilter} onChange={(e) => setClassFilter(e.target.value)}>
-              <option value="">All</option>{classes.map((c) => <option key={c.id} value={c.id}>{classLabel(c)}</option>)}
-            </select>
+            <table>
+              <thead><tr><th>Name</th><th>Class</th><th>Term</th><th>Type</th><th>Weight</th><th>Date</th><th>Status</th><th></th></tr></thead>
+              <tbody>
+                {exams.map((ex) => (
+                  <ExamRow key={ex.id} exam={ex} className={className(ex.classId)} termName={termName(ex.termId)}
+                    sections={sections} subjects={subjects} students={students}
+                    onAction={run} onReload={reloadExams} />
+                ))}
+                {exams.length === 0 && <tr><td colSpan={8} className="muted">No exams yet. Click &quot;+ Create exam&quot; to add one.</td></tr>}
+              </tbody>
+            </table>
           </div>
-          <div><label>Term</label>
-            <select value={termFilter} onChange={(e) => setTermFilter(e.target.value)}>
-              <option value="">All</option>{terms.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-            </select>
-          </div>
-        </div>
 
-        <NewExam terms={terms} classes={classes} classLabel={classLabel}
-          onCreate={(b) => run(() => apiPost('/exams', { ...b, weightagePercent: Number(b.weightagePercent) }), 'Exam created', reloadExams)} />
-
-        <table>
-          <thead><tr><th>Name</th><th>Class</th><th>Term</th><th>Type</th><th>Weightage</th><th>Date</th><th>Status</th><th></th></tr></thead>
-          <tbody>
-            {exams.map((ex) => (
-              <ExamRow key={ex.id} exam={ex} className={className(ex.classId)} termName={termName(ex.termId)}
-                sections={sections} subjects={subjects} students={students}
-                onAction={run} onReload={reloadExams} />
-            ))}
-            {exams.length === 0 && <tr><td colSpan={8} className="muted">No exams yet.</td></tr>}
-          </tbody>
-        </table>
-      </div>
-
-      <ReportCardsCard terms={terms} onAction={run} />
+          <ReportCardsCard terms={terms} onAction={run} />
+        </>
+      )}
     </div>
   );
 }
@@ -307,7 +330,7 @@ function NewExam({ terms, classes, classLabel, onCreate }: { terms: Term[]; clas
       <div><label>Name</label><input value={form.name ?? ''} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Monthly test 1" /></div>
       <div><label>Type</label>
         <select value={form.examType} onChange={(e) => setForm({ ...form, examType: e.target.value })}>
-          {EXAM_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+          {EXAM_TYPES.map((t) => <option key={t} value={t}>{EXAM_TYPE_LABEL[t] ?? t}</option>)}
         </select>
       </div>
       <div style={{ maxWidth: 110 }}><label>Weightage %</label><input value={form.weightagePercent} onChange={(e) => setForm({ ...form, weightagePercent: e.target.value })} /></div>
@@ -342,9 +365,9 @@ function ExamRow({
         <td>{exam.name}</td>
         <td>{className}</td>
         <td>{termName}</td>
-        <td>{exam.examType}</td>
+        <td>{EXAM_TYPE_LABEL[exam.examType] ?? exam.examType}</td>
         <td>{exam.weightagePercent}%</td>
-        <td>{exam.examDate.slice(0, 10)}</td>
+        <td>{new Date(exam.examDate).toLocaleDateString('en-GB')}</td>
         <td><span className={`badge ${badge(exam.status)}`}>{humanizeStatus(exam.status)}</span></td>
         <td>
           <span className="inline-form">

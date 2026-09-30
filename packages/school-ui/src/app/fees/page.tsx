@@ -13,10 +13,32 @@ import { isSchoolWideAdmin } from '@sw/roles';
 import { classLabeller } from '@school/lib/labels';
 import { FeePlanPanel } from './fee-plan-panel';
 import { ConfirmDialog } from '../classes/confirm-dialog';
+import FeeClaimsPage from '../fee-claims/page';
+import DefaultersPage from '../defaulters/page';
 
-const now = new Date();
+type FeeTab = 'invoices' | 'payments' | 'defaulters';
 
 export default function FeesPage() {
+  const [tab, setTab] = useState<FeeTab>('invoices');
+  return (
+    <div className="stack">
+      <div className="row">
+        <h1>Fees</h1>
+        <div className="ov-tab-bar" style={{ display: 'flex', gap: 4, background: '#edf0f5', padding: 4, borderRadius: 10 }}>
+          <button type="button" className={`ov-tab${tab === 'invoices' ? ' is-active' : ''}`} onClick={() => setTab('invoices')}>Invoices</button>
+          <button type="button" className={`ov-tab${tab === 'payments' ? ' is-active' : ''}`} onClick={() => setTab('payments')}>Payments</button>
+          <button type="button" className={`ov-tab${tab === 'defaulters' ? ' is-active' : ''}`} onClick={() => setTab('defaulters')}>Defaulters</button>
+        </div>
+      </div>
+      {tab === 'invoices' && <FeesInvoicesPanel />}
+      {tab === 'payments' && <FeeClaimsPage embedded />}
+      {tab === 'defaulters' && <DefaultersPage embedded />}
+    </div>
+  );
+}
+
+function FeesInvoicesPanel() {
+  const now = new Date();
   const me = useMe();
   const canConfigure = isSchoolWideAdmin(me?.roles);
   const canInvoicing = hasModule(me, 'fees.invoicing');
@@ -172,14 +194,42 @@ export default function FeesPage() {
 
   return (
     <div className="stack">
-      <div className="row">
-        <h1>Fees</h1>
-        {canConfigure && (
+      {canConfigure && (
+        <div className="row" style={{ justifyContent: 'flex-end' }}>
           <button className="ghost" onClick={() => setSetupOpen((v) => !v)}>
             {setupOpen ? 'Close fee setup' : '⚙ Fee setup'}
           </button>
-        )}
-      </div>
+        </div>
+      )}
+      {invoices.length > 0 && (() => {
+        const billed = invoices.reduce((s, i) => s + Number(i.totalAmount), 0);
+        const collected = invoices.reduce((s, i) => s + Number(i.paidAmount), 0);
+        const outstanding = billed - collected;
+        const overdue = invoices.filter((i) => i.status === 'OVERDUE').reduce((s, i) => s + Number(i.totalAmount) - Number(i.paidAmount), 0);
+        const rs = (n: number) => `Rs ${Math.round(n).toLocaleString()}`;
+        return (
+          <div className="row" style={{ gap: 12, flexWrap: 'wrap' }}>
+            <div className="card" style={{ flex: 1, minWidth: 140, padding: '12px 16px' }}>
+              <div className="muted" style={{ fontSize: 12 }}>Total billed</div>
+              <strong style={{ fontSize: 18 }}>{rs(billed)}</strong>
+            </div>
+            <div className="card" style={{ flex: 1, minWidth: 140, padding: '12px 16px' }}>
+              <div className="muted" style={{ fontSize: 12 }}>Collected</div>
+              <strong style={{ fontSize: 18, color: 'var(--green, #16a34a)' }}>{rs(collected)}</strong>
+            </div>
+            <div className="card" style={{ flex: 1, minWidth: 140, padding: '12px 16px' }}>
+              <div className="muted" style={{ fontSize: 12 }}>Outstanding</div>
+              <strong style={{ fontSize: 18, color: 'var(--amber, #d97706)' }}>{rs(outstanding)}</strong>
+            </div>
+            {overdue > 0 && (
+              <div className="card" style={{ flex: 1, minWidth: 140, padding: '12px 16px' }}>
+                <div className="muted" style={{ fontSize: 12 }}>Overdue</div>
+                <strong style={{ fontSize: 18, color: 'var(--red, #dc2626)' }}>{rs(overdue)}</strong>
+              </div>
+            )}
+          </div>
+        );
+      })()}
       {msg && <div className={`toast ${msg.ok ? 'ok' : 'err'}`}>{msg.text}</div>}
       {/* Offered at the counter, in the moment — not a thing the clerk has to go and find. */}
       {justPaid && (
@@ -221,7 +271,7 @@ export default function FeesPage() {
               : <> Ask the owner or an operations admin to add one under Fee setup.</>}
           </div>
         ) : (
-          <p className="muted" style={{ margin: 0 }}>Invoices come from the class&apos;s fee structure. Idempotent per class + month + year.</p>
+          <p className="muted" style={{ margin: 0 }}>Invoices come from the class&apos;s fee structure. Already generated? Running again won&apos;t create duplicates.</p>
         )}
       </div>
       )}
@@ -278,7 +328,7 @@ export default function FeesPage() {
                           {linking === i.id ? 'Making…' : copied === i.id ? '✓ Copied' : '🔗 Payment link'}
                         </button>
                       )}
-                      <button className="ghost small" onClick={() => { setPaying(i.id); setPay({ amountPaid: String(Math.max(Number(i.totalAmount) - Number(i.paidAmount), 0)), method: acceptedMethods[0], transactionRef: '', proofFileKey: '' }); }}>Collect</button>
+                      <button className="ghost small" onClick={() => { setPaying(i.id); setPay({ amountPaid: String(Math.max(Number(i.totalAmount) - Number(i.paidAmount), 0)), method: acceptedMethods[0], transactionRef: '', proofFileKey: '' }); }}>Record payment</button>
                     </span>
                   )
                 )}

@@ -155,7 +155,120 @@ export class ReportCardsService {
     return this.db.reportCard.findMany({ where: { termId }, orderBy: { sectionRank: 'asc' } });
   }
 
+  /**
+   * Every exam mark a student has, grouped term → exam → subject, with the term's report card beside it.
+   *
+   * A report card alone answers "how did the term go" but not "where was it lost": the office asked for the
+   * marks behind it. Only term exams (`ExamDefinition`) — the teacher's own class tests live on
+   * `/reports/performance/students/:id` and are deliberately a separate list. Unpublished exams are
+   * included with their status so an admin can see marks entry in progress; the status is shown, never hidden.
+   */
+  async termResultsByStudent(studentId: string) {
+    const enrollments = await this.viewableEnrollments(studentId);
+    const ids = enrollments.map((e) => e.id);
+    const [results, cards] = await Promise.all([
+      this.db.examResult.findMany({
+        where: { enrollmentId: { in: ids } },
+        include: {
+          subject: { select: { name: true } },
+          exam: { include: { term: { select: { id: true, name: true, startDate: true, academicYearId: true } } } },
+        },
+      }),
+      this.db.reportCard.findMany({ where: { enrollmentId: { in: ids } } }),
+    ]);
+
+    // How the whole class did, so a mark has something to be read against: mean marks and mean total per
+    // (exam, subject) across every student who sat it. Absent rows carry null marks and drop out of the mean.
+    const examIds = [...new Set(results.map((r) => r.examId))];
+    const classMeans = examIds.length
+      ? await this.db.examResult.groupBy({
+          by: ['examId', 'subjectId'],
+          where: { examId: { in: examIds }, isAbsent: false },
+          _avg: { marksObtained: true, totalMarks: true },
+        })
+      : [];
+    const mean = new Map(classMeans.map((m) => [`${m.examId}:${m.subjectId}`, { marks: Number(m._avg.marksObtained ?? 0), total: Number(m._avg.totalMarks ?? 0) }]));
+    const yearIds = [...new Set(results.map((r) => r.exam.term.academicYearId))];
+    const scaleRows = yearIds.length ? await this.db.gradeScale.findMany({ where: { academicYearId: { in: yearIds } } }) : [];
+    const scaleFor = (yearId: string): GradeBand[] => scaleRows.filter((b) => b.academicYearId === yearId)
+      .map((b) => ({ label: b.label, minPercent: Number(b.minPercent), maxPercent: Number(b.maxPercent), gradePoint: Number(b.gradePoint) }));
+
+    type ExamOut = {
+      id: string; name: string; examType: string; weightagePercent: number; examDate: Date; status: string;
+      obtained: number; total: number; percent: number | null; classAveragePercent: number | null;
+      subjects: Array<{ subjectId: string; subject: string; marksObtained: number | null; totalMarks: number; isAbsent: boolean; grade: string | null; classAveragePercent: number | null }>;
+    };
+    const terms = new Map<string, { termId: string; term: string; startDate: Date; exams: Map<string, ExamOut> }>();
+    for (const r of results) {
+      const t = r.exam.term;
+      const term = terms.get(t.id) ?? { termId: t.id, term: t.name, startDate: t.startDate, exams: new Map<string, ExamOut>() };
+      terms.set(t.id, term);
+      const exam = term.exams.get(r.examId) ?? {
+        id: r.examId, name: r.exam.name, examType: r.exam.examType, weightagePercent: Number(r.exam.weightagePercent),
+        examDate: r.exam.examDate, status: r.exam.status, obtained: 0, total: 0, percent: null, classAveragePercent: null, subjects: [],
+      };
+      term.exams.set(r.examId, exam);
+      const total = Number(r.totalMarks);
+      const obtained = r.marksObtained == null ? null : Number(r.marksObtained);
+      const m = mean.get(`${r.examId}:${r.subjectId}`);
+      exam.subjects.push({
+        subjectId: r.subjectId, subject: r.subject.name, marksObtained: obtained, totalMarks: total, isAbsent: r.isAbsent,
+        grade: !r.isAbsent && obtained !== null && total > 0 ? gradeFor(scaleFor(t.academicYearId), (obtained / total) * 100)?.label ?? null : null,
+        classAveragePercent: m && m.total > 0 ? round2((m.marks / m.total) * 100) : null,
+      });
+      if (!r.isAbsent && obtained !== null) { exam.obtained += obtained; exam.total += total; }
+    }
+
+    const cardByTerm = new Map(cards.map((c) => [c.termId, c]));
+    return [...terms.values()]
+      .sort((a, b) => b.startDate.getTime() - a.startDate.getTime())
+      .map((t) => {
+        const card = cardByTerm.get(t.termId);
+        return {
+          termId: t.termId,
+          term: t.term,
+          reportCard: card
+            ? { overallPercent: Number(card.overallPercent), grade: card.gradeLabel, sectionRank: card.sectionRank, hasFile: card.documentId !== null }
+            : null,
+          exams: [...t.exams.values()]
+            .sort((a, b) => a.examDate.getTime() - b.examDate.getTime())
+            .map((e) => {
+              let m = 0;
+              let tot = 0;
+              for (const s of e.subjects) {
+                const x = mean.get(`${e.id}:${s.subjectId}`);
+                if (x) { m += x.marks; tot += x.total; }
+              }
+              return {
+                ...e,
+                percent: e.total > 0 ? round2((e.obtained / e.total) * 100) : null,
+                classAveragePercent: tot > 0 ? round2((m / tot) * 100) : null,
+                subjects: e.subjects.sort((a, b) => a.subject.localeCompare(b.subject)),
+              };
+            }),
+        };
+      });
+  }
+
+  /** A short-lived link to one term's report-card PDF, behind the same gate as the list. */
+  async reportCardFileUrl(studentId: string, termId: string): Promise<{ url: string; expiresInSeconds: number }> {
+    const enrollments = await this.viewableEnrollments(studentId);
+    const card = await this.db.reportCard.findFirst({ where: { termId, enrollmentId: { in: enrollments.map((e) => e.id) } } });
+    const doc = card?.documentId ? await this.db.document.findFirst({ where: { id: card.documentId }, select: { fileKey: true } }) : null;
+    if (!doc) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'No report card file for this term');
+    const expiresInSeconds = 600;
+    return { url: await this.storage.presignGet(doc.fileKey, expiresInSeconds), expiresInSeconds };
+  }
+
   async listByStudent(studentId: string) {
+    const enrollments = await this.viewableEnrollments(studentId);
+    return this.db.reportCard.findMany({
+      where: { enrollmentId: { in: enrollments.map((e) => e.id) } },
+      orderBy: { generatedAt: 'desc' },
+    });
+  }
+
+  private async viewableEnrollments(studentId: string) {
     const user = this.ctx.user;
     const enrollments = await this.db.studentEnrollment.findMany({
       where: { studentId },
@@ -179,9 +292,6 @@ export class ReportCardsService {
       throw new AppError(ErrorCodes.FORBIDDEN, HttpStatus.FORBIDDEN, 'Not permitted to view this student');
     }
 
-    return this.db.reportCard.findMany({
-      where: { enrollmentId: { in: enrollments.map((e) => e.id) } },
-      orderBy: { generatedAt: 'desc' },
-    });
+    return enrollments;
   }
 }

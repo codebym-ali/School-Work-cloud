@@ -52,6 +52,17 @@ export default function AppLayout({ children, app }: { children: React.ReactNode
   // Close on navigation — otherwise the drawer covers the page you just opened.
   useEffect(() => { setNavOpen(false); }, [pathname]);
 
+  // A sidebar click gives feedback at once: the route may take seconds to compile or load, and with no sign
+  // that the click landed people click again. Cleared when the route changes, or after 10s if it never does.
+  const [pendingHref, setPendingHref] = useState<string | null>(null);
+  useEffect(() => { setPendingHref(null); }, [pathname]);
+  useEffect(() => {
+    if (!pendingHref) return;
+    const t = window.setTimeout(() => setPendingHref(null), 10000);
+    return () => window.clearTimeout(t);
+  }, [pendingHref]);
+  const navigating = (href: string) => { if (href !== pathname) setPendingHref(href); };
+
   useEffect(() => {
     if (!navOpen) return;
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setNavOpen(false); };
@@ -207,7 +218,9 @@ export default function AppLayout({ children, app }: { children: React.ReactNode
               )}
               {nav.map(({ group, items }) => {
                 const links = items.map((n) => (
-                  <Link key={n.href} href={n.href} className={n.href === activeHref ? 'active' : ''} aria-current={n.href === activeHref ? 'page' : undefined}>
+                  <Link key={n.href} href={n.href} onClick={() => navigating(n.href)}
+                    className={(pendingHref ?? activeHref) === n.href ? 'active' : ''} aria-current={n.href === activeHref ? 'page' : undefined}
+                    aria-busy={pendingHref === n.href || undefined}>
                     <span className="nav-icon"><Icon name={n.icon} size={18} /></span>
                     {n.label}
                   </Link>
@@ -234,6 +247,13 @@ export default function AppLayout({ children, app }: { children: React.ReactNode
           )}
         </aside>
         <div className="content">
+          {pendingHref && (
+            <>
+              <style>{'@keyframes sw-nav-progress{from{transform:scaleX(0)}to{transform:scaleX(.92)}}'}</style>
+              <div role="progressbar" aria-label="Loading page"
+                style={{ position: 'fixed', top: 0, left: 0, right: 0, height: 3, background: 'var(--brand, #2563eb)', zIndex: 100, transformOrigin: 'left', animation: 'sw-nav-progress 8s cubic-bezier(.1,.6,.2,1) forwards' }} />
+            </>
+          )}
           <div className="topbar">
             <button
               className="nav-toggle"

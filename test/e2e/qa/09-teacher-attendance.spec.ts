@@ -23,7 +23,7 @@ test('C9 — a teacher can pick only their assigned section and mark its registe
     const options = await picker
       .locator('option')
       .evaluateAll((os) => os.map((o) => (o.textContent ?? '').trim()).filter(Boolean));
-    expect(options.filter((o) => o !== 'Select…' && o !== '')).toEqual([w.teacherSection.label]);
+    expect(options.filter((o) => o !== 'Choose a section…' && o !== '')).toEqual([w.teacherSection.label]);
 
     // Load the roster and mark it. A fresh section has no prior marks, so the save is clean (no
     // authorship conflict), and the bulk endpoint answers 200.

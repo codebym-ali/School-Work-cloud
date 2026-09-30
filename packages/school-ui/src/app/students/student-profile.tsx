@@ -1,11 +1,13 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { api, apiGet, ApiError, type Klass, type Section, type StudentDetail, type StudentDocumentRow } from '@sw/api-client';
+import { api, apiGet, ApiError, type Klass, type Paged, type Section, type StudentDetail, type StudentDocumentRow, type StudentLeave, type StudentProfileSummary } from '@sw/api-client';
 import { useMe } from '@sw/session';
 import { hasAnyRole } from '@sw/roles';
 import { humanizeStatus } from '@sw/ui';
 import { MoveStudentDialog } from '@school/components/move-student-dialog';
+import { StudentAcademics, type AcademicsTab } from './student-academics';
+import { ProfileTabs } from './profile-tabs';
 import { StudentFeesCard } from './student-fees-card';
 import { GuardiansCard } from './guardians-card';
 import { WithdrawalCard } from './withdrawal';
@@ -127,7 +129,7 @@ function RecordCard({ student, onSaved }: { student: StudentDetail; onSaved: () 
             <p className="muted" style={{ margin: '2px 0 0', fontSize: 13 }}>Nothing outstanding.</p>
           ) : (
             <p className="muted" style={{ margin: '2px 0 0', fontSize: 13 }}>
-              Still needed: <b>{student.missingFields.join(' - ')}</b>
+              Still needed: <b>{student.missingFields.join(', ')}</b>
             </p>
           )}
         </div>
@@ -283,7 +285,7 @@ function CnicRow({ student, onSaved }: { student: StudentDetail; onSaved: () => 
               <span>•••••-•••••••-•</span>
               {student.cnicRevealable
                 ? <button className="ghost small" disabled={busy} onClick={reveal}>{busy ? 'Revealing…' : 'Reveal'}</button>
-                : <span className="muted" style={{ fontSize: 12 }}>on file — recorded before it could be shown</span>}
+                : <span className="muted" style={{ fontSize: 12 }}>on file, but it can’t be displayed — use Change to enter it again</span>}
             </>
           )}
 
@@ -434,16 +436,92 @@ function DocumentsCard({ studentId, onSaved }: { studentId: string; onSaved: () 
   );
 }
 
+
+type ProfileTab = 'overview' | 'academics' | 'fees' | 'records';
+const TODAY_WORD: Record<string, string> = { PRESENT: 'Present', ABSENT: 'Absent', LATE: 'Late', HALF_DAY: 'Half day', ON_LEAVE: 'On leave' };
+
+/** The tab and Academics sub-tab live in the URL (`?tab=academics&sub=terms`), so a view can be shared or reloaded. */
+function readTabs(): { tab: ProfileTab; sub: AcademicsTab } {
+  const q = new URLSearchParams(typeof window === 'undefined' ? '' : window.location.search);
+  const tab = q.get('tab') as ProfileTab | null;
+  const sub = q.get('sub') as AcademicsTab | null;
+  return {
+    tab: tab && ['overview', 'academics', 'fees', 'records'].includes(tab) ? tab : 'overview',
+    sub: sub && ['attendance', 'tests', 'terms'].includes(sub) ? sub : 'attendance',
+  };
+}
+function writeTabs(tab: ProfileTab, sub: AcademicsTab) {
+  const url = new URL(window.location.href);
+  if (tab === 'overview') url.searchParams.delete('tab'); else url.searchParams.set('tab', tab);
+  if (tab === 'academics' && sub !== 'attendance') url.searchParams.set('sub', sub); else url.searchParams.delete('sub');
+  window.history.replaceState(window.history.state, '', url);
+}
+
+/** A leave the office has already recorded for this child — so "was she off on the 12th?" needs no detour to the queue. */
+function StudentLeavesCard({ studentId }: { studentId: string }) {
+  const [rows, setRows] = useState<StudentLeave[] | null>(null);
+  useEffect(() => {
+    let alive = true;
+    apiGet<Paged<StudentLeave>>(`/student-leaves?studentId=${studentId}&pageSize=20`)
+      .then((r) => { if (alive) setRows(r.data); }).catch(() => { if (alive) setRows([]); });
+    return () => { alive = false; };
+  }, [studentId]);
+  const d = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
+  return (
+    <div className="card stack">
+      <h2 style={{ margin: 0, fontSize: 17 }}>Leave requests</h2>
+      {rows === null ? <span className="ov-skel" style={{ height: 48, display: 'block' }} />
+        : rows.length === 0 ? <p className="muted" style={{ margin: 0, fontSize: 13 }}>No leave has been requested for this student.</p> : (
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%' }}>
+              <thead><tr><th>Dates</th><th>Reason</th><th>Status</th></tr></thead>
+              <tbody>
+                {rows.map((l) => (
+                  <tr key={l.id}>
+                    <td style={{ whiteSpace: 'nowrap' }}>{d(l.fromDate)}{l.toDate.slice(0, 10) !== l.fromDate.slice(0, 10) ? ` – ${d(l.toDate)}` : ''}</td>
+                    <td>{l.reason}</td>
+                    <td><span className={`badge ${l.status === 'APPROVED' ? 'ok' : l.status === 'REJECTED' ? 'bad' : l.status === 'PENDING' ? 'warn' : ''}`}>{humanizeStatus(l.status)}</span></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+    </div>
+  );
+}
+
 export function StudentProfile({ id, classes, sections, onBack }: { id: string; classes: Klass[]; sections: Section[]; onBack: () => void }) {
   const profileMe = useMe();
+  const canSeeAcademics = hasAnyRole(profileMe?.roles, ['OWNER_ADMIN', 'CAMPUS_ADMIN']);
   const [s, setS] = useState<StudentDetail | null>(null);
   const [error, setError] = useState<ApiError | null>(null);
   const [moving, setMoving] = useState(false);
   const [moved, setMoved] = useState<string | null>(null);
+  const [summary, setSummary] = useState<StudentProfileSummary | null>(null);
+  const [tab, setTabState] = useState<ProfileTab>('overview');
+  const [sub, setSubState] = useState<AcademicsTab>('attendance');
+
   const load = useCallback(() => {
     apiGet<StudentDetail>(`/students/${id}`).then(setS).catch((e) => setError(e instanceof ApiError ? e : new ApiError(0, 'INTERNAL', 'Failed')));
   }, [id]);
   useEffect(() => { load(); }, [load]);
+  useEffect(() => { const t = readTabs(); setTabState(t.tab); setSubState(t.sub); }, []);
+  useEffect(() => {
+    if (!canSeeAcademics) return;
+    let alive = true;
+    api.studentAcademics.summary(id).then((r) => { if (alive) setSummary(r); }).catch(() => {});
+    return () => { alive = false; };
+  }, [id, canSeeAcademics]);
+
+  const setTab = (t: ProfileTab, nextSub: AcademicsTab = sub) => { setTabState(t); setSubState(nextSub); writeTabs(t, nextSub); };
+  const tabs: Array<{ key: ProfileTab; label: string }> = [
+    { key: 'overview', label: 'Overview' },
+    ...(canSeeAcademics ? [{ key: 'academics' as const, label: 'Academics' }] : []),
+    { key: 'fees', label: 'Fees' },
+    { key: 'records', label: 'Records' },
+  ];
+  const visibleTab = tabs.some((t) => t.key === tab) ? tab : 'overview';
 
   const className = (cid: string) => classes.find((c) => c.id === cid)?.name ?? '?';
   const sectionName = (sid: string) => sections.find((x) => x.id === sid)?.name ?? '?';
@@ -452,6 +530,9 @@ export function StudentProfile({ id, classes, sections, onBack }: { id: string; 
     v === undefined || v === null || v === '' ? null : (
       <div style={{ display: 'flex', gap: 8 }}><span className="muted" style={{ minWidth: 150, fontSize: 13 }}>{k}</span><span>{v}</span></div>
     );
+  const placement = active
+    ? [className(active.classId), `Section ${sectionName(active.sectionId)}`, active.rollNumber != null ? `Roll ${active.rollNumber}` : null, summary?.enrollment?.campusName].filter(Boolean).join(' · ')
+    : 'Not enrolled';
 
   return (
     <div className="stack">
@@ -474,6 +555,7 @@ export function StudentProfile({ id, classes, sections, onBack }: { id: string; 
             <div className="row" style={{ alignItems: 'flex-start', gap: 16 }}>
               <div className="stack" style={{ gap: 10, minWidth: 0, flex: 1 }}>
                 <h2 style={{ margin: 0 }}>{s.fullName} {s.isActive ? <span className="badge ok">active</span> : <span className="badge bad">inactive</span>}</h2>
+                <p style={{ margin: 0, fontSize: 15, fontWeight: 600 }}>{placement}</p>
                 <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
                   <span className="badge" style={{ fontSize: 13 }}><span className="muted" style={{ fontSize: 11 }}>REG</span> {s.registrationNo ?? '—'}</span>
                   <span className="badge" style={{ fontSize: 13 }}><span className="muted" style={{ fontSize: 11 }}>GR</span> {s.grNumber}</span>
@@ -494,35 +576,94 @@ export function StudentProfile({ id, classes, sections, onBack }: { id: string; 
             </div>
           </div>
 
-          <RecordCard student={s} onSaved={load} />
-          <DocumentsCard studentId={s.id} onSaved={load} />
-          <WithdrawalCard student={s} onChanged={load} />
+          {canSeeAcademics && (
+            <div className="ov-kpis">
+              <button type="button" className="ov-kpi" onClick={() => setTab('academics', 'attendance')}>
+                <span className="ov-kpi-label">Attendance · this year</span>
+                <span className={`ov-num ${summary?.attendancePercent == null ? '' : summary.attendancePercent < 75 ? 'is-bad' : summary.attendancePercent < 85 ? 'is-warn' : ''}`} style={{ fontSize: 22 }}>
+                  {summary ? (summary.attendancePercent == null ? '—' : `${summary.attendancePercent}%`) : '…'}
+                </span>
+                <span className="ov-sub">See day by day</span>
+              </button>
+              <button type="button" className="ov-kpi" onClick={() => setTab('academics', 'terms')}>
+                <span className="ov-kpi-label">Latest term result</span>
+                <span className="ov-num" style={{ fontSize: 22 }}>
+                  {summary ? (summary.latestTerm ? `${Math.round(summary.latestTerm.overallPercent)}% · ${summary.latestTerm.grade}` : '—') : '…'}
+                </span>
+                <span className="ov-sub">{summary?.latestTerm ? `${summary.latestTerm.term}${summary.latestTerm.sectionRank ? ` · rank ${summary.latestTerm.sectionRank}` : ''}` : summary ? 'No report card yet' : ' '}</span>
+              </button>
+              <button type="button" className="ov-kpi" onClick={() => setTab('fees')}>
+                <span className="ov-kpi-label">Fees</span>
+                <span className={`ov-num ${summary?.feeStatus === 'OVERDUE' ? 'is-bad' : summary?.feeStatus === 'DUE' ? 'is-warn' : ''}`} style={{ fontSize: 22 }}>
+                  {summary ? (summary.feeStatus === 'CLEAR' ? 'Clear' : `Rs ${summary.outstanding.toLocaleString()}`) : '…'}
+                </span>
+                <span className="ov-sub">{summary?.feeStatus === 'OVERDUE' ? 'overdue' : summary?.feeStatus === 'DUE' ? 'due, not late' : summary ? 'nothing owed' : ' '}</span>
+              </button>
+              <div className="ov-kpi">
+                <span className="ov-kpi-label">Today</span>
+                <span className="ov-num" style={{ fontSize: 22 }}>{summary ? (summary.todayStatus ? TODAY_WORD[summary.todayStatus] : 'Not marked') : '…'}</span>
+                <span className="ov-sub">morning register</span>
+              </div>
+            </div>
+          )}
 
+          <ProfileTabs tabs={tabs} value={visibleTab} onChange={(t) => setTab(t)} label="Student profile sections" />
+
+          {moved && <div className="toast ok">{moved}</div>}
           {moving && (
             <MoveStudentDialog student={s} classes={classes} sections={sections}
               onClose={() => setMoving(false)}
               onDone={(text) => { setMoving(false); setMoved(text); load(); }}
               onError={(text) => { setMoving(false); setMoved(text); }} />
           )}
-          {moved && <div className="toast ok">{moved}</div>}
 
-          <div className="card stack">
-            <div className="row">
-              <h3 style={{ margin: 0, fontSize: 15 }}>Current enrollment</h3>
-              {active && <button className="ghost small" onClick={() => setMoving(true)}>Move</button>}
-            </div>
-            {active ? (
-              <div className="stack" style={{ gap: 4 }}>
-                <Row k="Class" v={className(active.classId)} />
-                <Row k="Section" v={sectionName(active.sectionId)} />
-                <Row k="Roll number" v={active.rollNumber ?? '—'} />
-                <Row k="Status" v={humanizeStatus(active.status)} />
+          {visibleTab === 'overview' && (
+            <>
+              <GuardiansCard student={s} onChanged={load} />
+              <div className="card stack">
+                <div className="row">
+                  <h3 style={{ margin: 0, fontSize: 15 }}>Current enrollment</h3>
+                  {active && <button className="ghost small" onClick={() => setMoving(true)}>Move</button>}
+                </div>
+                {active ? (
+                  <div className="stack" style={{ gap: 4 }}>
+                    <Row k="Class" v={className(active.classId)} />
+                    <Row k="Section" v={sectionName(active.sectionId)} />
+                    <Row k="Campus" v={summary?.enrollment?.campusName} />
+                    <Row k="Roll number" v={active.rollNumber ?? '—'} />
+                    <Row k="Joined" v={new Date(active.startedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })} />
+                    <Row k="Status" v={humanizeStatus(active.status)} />
+                  </div>
+                ) : <p className="muted" style={{ margin: 0, fontSize: 13 }}>No enrollment.</p>}
+                {s.enrollments.length > 1 && (
+                  <div className="stack" style={{ gap: 4, borderTop: '1px solid #edf0f5', paddingTop: 10 }}>
+                    <span className="ov-h3" style={{ margin: 0 }}>Earlier placements</span>
+                    {s.enrollments.filter((e) => e.id !== active?.id).map((e) => (
+                      <span key={e.id} className="ov-sub" style={{ fontSize: 13 }}>
+                        {className(e.classId)} · Section {sectionName(e.sectionId)} · from {new Date(e.startedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })} · {humanizeStatus(e.status)}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
-            ) : <p className="muted" style={{ margin: 0, fontSize: 13 }}>No enrollment.</p>}
-          </div>
+              <RecordCard student={s} onSaved={load} />
+            </>
+          )}
 
-          <StudentFeesCard student={s} />
-          <GuardiansCard student={s} onChanged={load} />
+          {visibleTab === 'academics' && canSeeAcademics && <StudentAcademics studentId={s.id} tab={sub} onTab={(t) => setTab('academics', t)} />}
+
+          {visibleTab === 'fees' && <StudentFeesCard student={s} />}
+
+          {visibleTab === 'records' && (
+            <>
+              <DocumentsCard studentId={s.id} onSaved={load} />
+              {canSeeAcademics && <StudentLeavesCard studentId={s.id} />}
+              <div className="stack" style={{ gap: 8, borderTop: '2px solid #f3d5d0', paddingTop: 16, marginTop: 8 }}>
+                <h2 style={{ margin: 0, fontSize: 15, color: 'var(--danger-ink, #991b1b)' }}>Danger zone</h2>
+                <WithdrawalCard student={s} onChanged={load} />
+              </div>
+            </>
+          )}
         </>
       )}
     </div>

@@ -583,6 +583,127 @@ export class StudentsService {
     return paginate(data, total, q);
   }
 
+  /** The student's enrolments (newest first) behind the same campus gate as `getOne`, for the profile's summary reads. */
+  private async enrollmentsForProfile(id: string) {
+    const student = await this.db.student.findFirst({
+      where: { id, deletedAt: null },
+      select: {
+        id: true,
+        enrollments: {
+          orderBy: { startedAt: 'desc' },
+          select: {
+            id: true, status: true, campusId: true, startedAt: true, rollNumber: true,
+            class: { select: { name: true } }, section: { select: { name: true } }, campus: { select: { name: true } },
+          },
+        },
+      },
+    });
+    if (!student) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'Student not found');
+    const restricted = restrictedCampusId(this.ctx.user);
+    if (restricted !== null && !student.enrollments.some((e) => e.status === 'ACTIVE' && e.campusId === restricted)) {
+      throw new AppError(ErrorCodes.FORBIDDEN, HttpStatus.FORBIDDEN, 'Student belongs to another campus');
+    }
+    return { enrollments: student.enrollments, active: student.enrollments.find((e) => e.status === 'ACTIVE') ?? student.enrollments[0] ?? null };
+  }
+
+  /**
+   * The profile header in one read: where the child is placed, and the four signals a director asks for first
+   * (today, attendance, latest term, fees). Attendance and fees are the SAME figures the Students list shows —
+   * they come from `rowSignals`, not a second implementation.
+   */
+  async profileSummary(id: string) {
+    const { enrollments, active } = await this.enrollmentsForProfile(id);
+    const signals = (await this.rowSignals([id], active ? [active.id] : []))(id, active?.id);
+    const card = await this.db.reportCard.findFirst({
+      where: { enrollmentId: { in: enrollments.map((e) => e.id) } },
+      orderBy: { generatedAt: 'desc' },
+    });
+    const term = card ? await this.db.term.findFirst({ where: { id: card.termId }, select: { name: true } }) : null;
+    return {
+      enrollment: active && {
+        className: active.class.name, sectionName: active.section.name, campusName: active.campus.name,
+        rollNumber: active.rollNumber, startedAt: active.startedAt,
+      },
+      todayStatus: signals.todayStatus,
+      attendancePercent: signals.attendancePercent,
+      feeStatus: signals.feeStatus,
+      outstanding: signals.outstanding,
+      latestTerm: card && { term: term?.name ?? '—', overallPercent: Number(card.overallPercent), grade: card.gradeLabel, sectionRank: card.sectionRank },
+    };
+  }
+
+  /**
+   * Attendance for one student over a period (default: the current academic year to today), with the school
+   * calendar folded in so the screen can tell "not marked" from "school was closed".
+   *
+   * ⚠️ The percentage and the day rule live HERE. The profile used to fetch raw rows (capped at 500, i.e. ~250
+   * days at two sessions) and recompute in the browser — a second copy of a business rule that could drift from
+   * the Students list, and silently truncate a full year. A day takes its worst session (absent beats late beats
+   * present); the percentage is over records, exactly as `attendancePercentFromStatuses` does everywhere else.
+   */
+  async attendanceSummary(id: string, fromQ?: string, toQ?: string) {
+    const { enrollments, active } = await this.enrollmentsForProfile(id);
+    const today = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), new Date().getUTCDate()));
+    const year = await this.db.academicYear.findFirst({ where: { isCurrent: true }, select: { startDate: true, endDate: true } });
+
+    let to = toQ ? new Date(toQ) : year && year.endDate < today ? year.endDate : today;
+    let from = fromQ ? new Date(fromQ) : year?.startDate ?? new Date(today.getTime() - 365 * 86400000);
+    if (to > today) to = today;
+    if (from > to) from = to;
+    // Never draw days before the child was enrolled: they would all read "not marked".
+    const enrolledFrom = enrollments.reduce<Date | null>((m, e) => (m === null || e.startedAt < m ? e.startedAt : m), null);
+    if (enrolledFrom && enrolledFrom > from) from = new Date(Date.UTC(enrolledFrom.getUTCFullYear(), enrolledFrom.getUTCMonth(), enrolledFrom.getUTCDate()));
+    if (to.getTime() - from.getTime() > 400 * 86400000) from = new Date(to.getTime() - 400 * 86400000);
+
+    const [records, holidays, school] = await Promise.all([
+      this.db.attendanceRecord.findMany({
+        where: { enrollmentId: { in: enrollments.map((e) => e.id) }, date: { gte: from, lte: to } },
+        select: { date: true, status: true },
+      }),
+      this.db.holiday.findMany({ where: { date: { gte: from, lte: to } }, select: { date: true, campusId: true, name: true } }),
+      this.db.school.findFirst({ where: { id: this.ctx.requireSchoolId() } }),
+    ]);
+    const weeklyOff = parseSchoolSettings(school?.settings ?? {}).weeklyOffDays;
+    const key = (d: Date) => d.toISOString().slice(0, 10);
+
+    const PRIORITY: AttendanceStatus[] = ['ABSENT', 'HALF_DAY', 'LATE', 'ON_LEAVE', 'PRESENT'];
+    const byDay = new Map<string, AttendanceStatus[]>();
+    for (const r of records) byDay.set(key(r.date), [...(byDay.get(key(r.date)) ?? []), r.status]);
+    const holidaysBy = new Map<string, Array<{ campusId: string | null; name: string }>>();
+    for (const h of holidays) holidaysBy.set(key(h.date), [...(holidaysBy.get(key(h.date)) ?? []), h]);
+
+    const counts = { present: 0, late: 0, halfDay: 0, onLeave: 0, absent: 0 };
+    let unmarked = 0;
+    const calendar: Array<{ date: string; status: AttendanceStatus | 'UNMARKED' | 'CLOSED'; note: string | null }> = [];
+    for (let t = from.getTime(); t <= to.getTime(); t += 86400000) {
+      const d = new Date(t);
+      const k = key(d);
+      const sts = byDay.get(k);
+      if (sts) {
+        const status = PRIORITY.find((p) => sts.includes(p)) ?? 'PRESENT';
+        if (status === 'PRESENT') counts.present++; else if (status === 'LATE') counts.late++;
+        else if (status === 'HALF_DAY') counts.halfDay++; else if (status === 'ON_LEAVE') counts.onLeave++; else counts.absent++;
+        calendar.push({ date: k, status, note: null });
+        continue;
+      }
+      const open = schoolDayStatus(d, weeklyOff, holidaysBy.get(k) ?? [], active ? [active.campusId] : []);
+      if (open.open) unmarked++;
+      calendar.push({ date: k, status: open.open ? 'UNMARKED' : 'CLOSED', note: open.reason });
+    }
+
+    const byMonth = new Map<string, AttendanceStatus[]>();
+    for (const r of records) byMonth.set(key(r.date).slice(0, 7), [...(byMonth.get(key(r.date).slice(0, 7)) ?? []), r.status]);
+    const months = [...byMonth.entries()]
+      .sort(([a], [b]) => b.localeCompare(a))
+      .map(([month, sts]) => ({ month, percent: attendancePercentFromStatuses(sts), markedDays: new Set(records.filter((r) => key(r.date).startsWith(month)).map((r) => key(r.date))).size }));
+
+    return {
+      from: key(from), to: key(to),
+      percent: attendancePercentFromStatuses(records.map((r) => r.status)),
+      counts, markedDays: byDay.size, unmarkedDays: unmarked, months, calendar,
+    };
+  }
+
   async getOne(id: string) {
     const student = await this.db.student.findFirst({
       where: { id, deletedAt: null },

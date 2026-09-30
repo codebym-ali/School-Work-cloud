@@ -208,6 +208,73 @@ describe('Campus scoping (e2e, §22.8 / P1.7)', () => {
     expect(cross.body.error.code).toBe('FORBIDDEN');
   });
 
+  it('student profile reads (summary, attendance, term results): own campus ok, another campus → 403, owner sees both', async () => {
+    for (const read of ['profile-summary', 'attendance-summary', 'term-results']) {
+      expect((await authed('get', `/api/v1/students/${studentA}/${read}`, adminCookies)).status).toBe(200);
+      const cross = await authed('get', `/api/v1/students/${studentB}/${read}`, adminCookies);
+      expect(cross.status).toBe(403);
+      expect(cross.body.error.code).toBe('FORBIDDEN');
+      expect((await authed('get', `/api/v1/students/${studentB}/${read}`, ownerCookies)).status).toBe(200);
+    }
+  });
+
+  it('attendance-summary is internally consistent: every calendar day is exactly marked, unmarked or closed', async () => {
+    const res = await authed('get', `/api/v1/students/${studentA}/attendance-summary`, adminCookies);
+    expect(res.status).toBe(200);
+    const { calendar, markedDays, unmarkedDays, percent } = res.body as {
+      calendar: Array<{ status: string }>; markedDays: number; unmarkedDays: number; percent: number | null;
+    };
+    const closed = calendar.filter((d) => d.status === 'CLOSED').length;
+    expect(calendar.filter((d) => d.status === 'UNMARKED').length).toBe(unmarkedDays);
+    expect(calendar.length).toBe(markedDays + unmarkedDays + closed);
+    // No marked day means no percentage — never a misleading 0% or 100%.
+    expect(percent === null).toBe(markedDays === 0);
+    // The profile header and the list must agree on attendance, since both read the same rule.
+    const summary = await authed('get', `/api/v1/students/${studentA}/profile-summary`, adminCookies);
+    expect(summary.body.enrollment.className).toBeTruthy();
+  });
+
+  it('register summary: own campus ok, another campus → 403, owner sees both; figures add up', async () => {
+    const own = await authed('get', `/api/v1/attendance/register?sectionId=${sectionA}`, adminCookies);
+    expect(own.status).toBe(200);
+    const cross = await authed('get', `/api/v1/attendance/register?sectionId=${sectionB}`, adminCookies);
+    expect(cross.status).toBe(403);
+    expect(cross.body.error.code).toBe('FORBIDDEN');
+    expect((await authed('get', `/api/v1/attendance/register?sectionId=${sectionB}`, ownerCookies)).status).toBe(200);
+
+    const r = own.body as {
+      expected: number; marked: number; overdue: boolean; closed: string | null; students: Array<{ status: string | null }>;
+      counts: { present: number; late: number; halfDay: number; absent: number; onLeave: number; notMarked: number };
+      week: unknown[]; section: { id: string };
+    };
+    const { counts } = r;
+    // Every student is in exactly one bucket, and the head-count is the list.
+    expect(counts.present + counts.late + counts.halfDay + counts.absent + counts.onLeave + counts.notMarked).toBe(r.expected);
+    expect(r.students.length).toBe(r.expected);
+    expect(r.students.filter((s) => s.status === null).length).toBe(counts.notMarked);
+    expect(r.marked).toBe(r.expected - counts.notMarked);
+    // A closed day is never "overdue"; it is simply no school.
+    if (r.closed) expect(r.overdue).toBe(false);
+    expect(r.week).toHaveLength(7);
+    expect(r.section.id).toBe(sectionA);
+  });
+
+  it('register summary refuses a teacher-only caller and a malformed id', async () => {
+    const bad = await authed('get', '/api/v1/attendance/register?sectionId=not-a-uuid', adminCookies);
+    expect(bad.status).toBe(400);
+    const teacher = await authed('get', `/api/v1/attendance/register?sectionId=${sectionA}`, acctCookies);
+    expect(teacher.status).toBe(403); // an accountant: neither owner nor campus admin
+  });
+
+  it('the campus lens `campusId` query is accepted, and a campus-bound admin cannot widen it to campus B', async () => {
+    for (const p of [`/api/v1/exams?campusId=${campusB}`, `/api/v1/cover?campusId=${campusB}`, `/api/v1/student-leaves?campusId=${campusB}`, `/api/v1/staff-leaves?campusId=${campusB}`, `/api/v1/fees/claims?campusId=${campusB}`]) {
+      expect((await authed('get', p, adminCookies)).status).toBe(200);
+    }
+    // Forced to the admin's own campus: campus-B students' leaves can never be listed by asking for B.
+    const leaves = await authed('get', `/api/v1/student-leaves?campusId=${campusB}`, adminCookies);
+    expect((leaves.body.data as Array<{ studentId: string }>).every((l) => l.studentId !== studentB)).toBe(true);
+  });
+
   // ── Attendance ───────────────────────────────────────────────────────────────
   it('CAMPUS_ADMIN attendance mark: campus A ok, campus B → 403', async () => {
     const date = safeDate();

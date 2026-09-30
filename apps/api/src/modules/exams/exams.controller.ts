@@ -71,4 +71,10 @@ export class StudentReportCardsController {
   constructor(private readonly reportCards: ReportCardsService) {}
   @Get(':id/report-cards')
   byStudent(@Param('id') id: string) { return this.reportCards.listByStudent(id); }
+
+  @Get(':id/term-results')
+  termResults(@Param('id') id: string) { return this.reportCards.termResultsByStudent(id); }
+
+  @Get(':id/report-cards/:termId/file')
+  reportCardFile(@Param('id') id: string, @Param('termId') termId: string) { return this.reportCards.reportCardFileUrl(id, termId); }
 }

@@ -16,5 +16,5 @@ export default function StudentProfilePage() {
     apiGet<Section[]>('/sections').then(setSections).catch(() => {});
   }, []);
 
-  return <StudentProfile id={id} classes={classes} sections={sections} onBack={() => router.back()} />;
+  return <StudentProfile id={id} classes={classes} sections={sections} onBack={() => (window.history.length > 1 ? router.back() : router.push('/students'))} />;
 }

@@ -175,11 +175,13 @@ export interface Notifications { items: NotificationItem[]; unread: number }
 export interface UnmarkedRegisters {
   /** False before the school's own mark-by time: the UI stays quiet until the deadline passes. */
   due: boolean;
+  /** Set when every campus is closed today ("Weekly off", or the holiday's name) — "nothing outstanding" then means "no school", not "all done". */
+  closed: string | null;
   markByTime: string;
   count: number;
   /** `coveredBy` names who actually holds the register today — chase the cover, not the teacher
    *  who was away and could not have marked it (Cover Plan §6a). */
-  sections: Array<{ sectionId: string; className: string; sectionName: string; expected: number; marked: number; partial: boolean; coveredBy: string | null }>;
+  sections: Array<{ sectionId: string; campusId: string; className: string; sectionName: string; expected: number; marked: number; partial: boolean; coveredBy: string | null }>;
 }
 /**
  * **My own** unmarked registers, named (Teacher App Shell Plan T2) — self-scoped, so any staff
@@ -224,6 +226,34 @@ export interface StudentPerformance {
     subjectId: string; subjectName: string;
     tests: { id: string; name: string; testDate: string; totalMarks: number; marksObtained: number | null; isAbsent: boolean }[];
   })[];
+}
+
+export interface StudentProfileSummary {
+  enrollment: { className: string; sectionName: string; campusName: string; rollNumber: number | null; startedAt: string } | null;
+  todayStatus: AttendanceStatus | null;
+  attendancePercent: number | null;
+  feeStatus: 'OVERDUE' | 'DUE' | 'CLEAR';
+  outstanding: number;
+  latestTerm: { term: string; overallPercent: number; grade: string; sectionRank: number | null } | null;
+}
+/** `UNMARKED` = a school day nobody took the register; `CLOSED` = weekly off or holiday (`note` says which). */
+export type AttendanceDayStatus = AttendanceStatus | 'UNMARKED' | 'CLOSED';
+export interface StudentAttendanceSummary {
+  from: string; to: string; percent: number | null;
+  counts: { present: number; late: number; halfDay: number; onLeave: number; absent: number };
+  markedDays: number; unmarkedDays: number;
+  months: Array<{ month: string; percent: number | null; markedDays: number }>;
+  calendar: Array<{ date: string; status: AttendanceDayStatus; note: string | null }>;
+}
+export interface StudentTermResult {
+  termId: string; term: string;
+  reportCard: { overallPercent: number; grade: string; sectionRank: number | null; hasFile: boolean } | null;
+  exams: Array<{
+    id: string; name: string; examType: string; weightagePercent: number; examDate: string;
+    status: 'DRAFT' | 'MARKS_ENTRY' | 'PUBLISHED';
+    obtained: number; total: number; percent: number | null; classAveragePercent: number | null;
+    subjects: Array<{ subjectId: string; subject: string; marksObtained: number | null; totalMarks: number; isAbsent: boolean; grade: string | null; classAveragePercent: number | null }>;
+  }>;
 }
 
 export interface Paged<T> { data: T[]; total: number; page: number; pageSize: number }
@@ -320,6 +350,27 @@ export interface Student { id: string; fullName: string; grNumber: string; regis
   feeStatus?: 'CLEAR' | 'DUE' | 'OVERDUE';
   outstanding?: number }
 /** GET /attendance/overview — the owner's read-only attendance picture (Owner UX 1c). */
+/** One section's register for one day, summarised by the server (owner / campus admin). */
+export interface AttendanceRegisterView {
+  section: { id: string; className: string; sectionName: string; campusName: string };
+  date: string;
+  /** "Weekly off" or the holiday's name when the school is shut that day. */
+  closed: string | null;
+  teacher: string | null;
+  coveredBy: string | null;
+  markByTime: string;
+  expected: number;
+  marked: number;
+  /** Unmarked past the school's deadline (always true for an earlier day). */
+  overdue: boolean;
+  counts: { present: number; late: number; halfDay: number; absent: number; onLeave: number; notMarked: number };
+  percent: number | null;
+  students: Array<{
+    enrollmentId: string; studentId: string; grNumber: string; fullName: string; rollNumber: number | null;
+    status: AttendanceStatus | null; recentPercent: number | null; absentStreak: number;
+  }>;
+  week: Array<{ date: string; working: boolean; closedFor: string | null; marked: number; expected: number }>;
+}
 export interface AttendanceOverviewCell { date: string; closed: string | null; marked: number; present: number; expected: number; percent: number | null }
 export interface AttendanceOverviewSection {
   sectionId: string; classId: string; className: string; sectionName: string; campusName: string;
@@ -976,6 +1027,17 @@ export const api = {
     forStudent: (studentId: string, range: PerformanceRange) =>
       apiGet<StudentPerformance>(`/reports/performance/students/${studentId}?range=${range}`),
   },
+  /** One student's academic record: register history and official term-exam marks (owner / campus admin). */
+  studentAcademics: {
+    /** The profile header: placement plus today / attendance / latest term / fees in one read. */
+    summary: (studentId: string) => apiGet<StudentProfileSummary>(`/students/${studentId}/profile-summary`),
+    /** Omit `from`/`to` for the academic year to date. The percentage is computed by the server. */
+    attendance: (studentId: string, from?: string, to?: string) =>
+      apiGet<StudentAttendanceSummary>(`/students/${studentId}/attendance-summary${from || to ? `?${new URLSearchParams({ ...(from ? { from } : {}), ...(to ? { to } : {}) })}` : ''}`),
+    termResults: (studentId: string) => apiGet<StudentTermResult[]>(`/students/${studentId}/term-results`),
+    reportCardFile: (studentId: string, termId: string) =>
+      apiGet<{ url: string; expiresInSeconds: number }>(`/students/${studentId}/report-cards/${termId}/file`),
+  },
   hr: {
     /** Campus-scoped for an HR manager; school-wide for owner/campus admin. */
     summary: () => apiGet<HrSummary>('/staff/summary'),
@@ -993,6 +1055,9 @@ export const api = {
     /** Which class registers are still unmarked today. Admins only — a teacher gets their own
      *  coverage strip, not a list of which colleagues are behind. */
     unmarkedRegisters: () => apiGet<UnmarkedRegisters>('/attendance/unmarked-today'),
+    /** One section's register for a day, summarised for the oversight view. */
+    attendanceRegister: (sectionId: string, date?: string) =>
+      apiGet<AttendanceRegisterView>(`/attendance/register?sectionId=${sectionId}${date ? `&date=${date}` : ''}`),
     /** The owner's attendance overview for a Campus ▸ Class ▸ Section scope (Owner UX 1c). */
     attendanceOverview: (scope: { campusId?: string | null; classId?: string | null; sectionId?: string | null; days?: number } = {}) => {
       const q = new URLSearchParams(Object.entries(scope).filter(([, v]) => v).map(([k, v]) => [k, String(v)])).toString();

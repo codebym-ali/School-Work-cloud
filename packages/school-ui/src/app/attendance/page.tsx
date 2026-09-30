@@ -1,11 +1,11 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api, apiGet, apiPost, ApiError, type Campus, type Enrollment, type Klass, type Section, type TeacherClass, type UnmarkedRegisters } from '@sw/api-client';
 import { sectionLabeller } from '@school/lib/labels';
 import { useCampusLens, useMe } from '@sw/session';
 import { AttendanceOverviewPanel } from './owner-overview';
-import { DateField } from '@school/components/date-field';
+import { ReadOnlyRegister, RegisterEmptyState, RegisterFilters } from './register-overview';
 
 /** Roles that mark attendance across the school; everyone else marking is a teacher scoped to their own
  *  sections. Drives whether the section picker is fed by the school-wide list or by /teaching/my-classes. */
@@ -156,7 +156,10 @@ function AttendanceRegister({ embedded = false }: { embedded?: boolean }) {
   const [coverage, setCoverage] = useState<DayCoverage[]>([]);
   const [autoLoaded, setAutoLoaded] = useState(false);
   const [unmarked, setUnmarked] = useState<UnmarkedRegisters | null>(null);
+  // Today's outstanding registers, for the empty state. Separate from `unmarked` (the banner a dashboard deep link asks for).
+  const [outstanding, setOutstanding] = useState<UnmarkedRegisters | null | 'unavailable'>(null);
   const [loaded, setLoaded] = useState(false);
+  const restoredSection = useRef(false);
   const [myClasses, setMyClasses] = useState<TeacherClass[]>([]);
   const lens = useCampusLens();
   const me = useMe();
@@ -190,6 +193,8 @@ function AttendanceRegister({ embedded = false }: { embedded?: boolean }) {
     if (params.get('unmarked')) {
       api.staff.unmarkedRegisters().then(setUnmarked).catch(() => {});
     }
+    // The empty state offers the registers that need a look. Admins only: the API gives a teacher their own list.
+    if (me && schoolWide) api.staff.unmarkedRegisters().then(setOutstanding).catch(() => setOutstanding('unavailable'));
   }, [me, schoolWide]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Once the deep-linked section is set, load its roster automatically (one time).
@@ -209,10 +214,8 @@ function AttendanceRegister({ embedded = false }: { embedded?: boolean }) {
       setCoverage([]); // the strip is an aid, never a blocker
     }
   }
-  useEffect(() => { loadCoverage().catch(() => {}); }, [sectionId, session]); // eslint-disable-line react-hooks/exhaustive-deps
-  // Read-only viewers are looking, not marking: the register follows the section/date picker directly
-  // instead of waiting on a "Load roster" click.
-  useEffect(() => { if (readOnly && sectionId) loadRoster().catch(() => {}); }, [readOnly, sectionId, date]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Read-only viewers get the week strip and the whole register from one server read (`ReadOnlyRegister`).
+  useEffect(() => { if (!readOnly) loadCoverage().catch(() => {}); }, [sectionId, session, readOnly]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function loadRoster(d: string = date) {
     if (!sectionId) return;
@@ -263,6 +266,32 @@ function AttendanceRegister({ embedded = false }: { embedded?: boolean }) {
   useEffect(() => {
     if (sectionId && schoolWide && !visibleSections.some((s) => s.id === sectionId)) { setSectionId(''); setRows([]); setLoaded(false); }
   }, [lens.campusId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Start somewhere sensible: a link's section wins; else the one remembered for this session; else, if there is
+  // only one section to choose from, that one. Runs once the picker has options. Never overrides a choice.
+  useEffect(() => {
+    if (restoredSection.current || sectionId || pickerOptions.length === 0) return;
+    restoredSection.current = true;
+    if (new URLSearchParams(window.location.search).get('sectionId')) return;
+    let remembered: string | null = null;
+    try { remembered = window.sessionStorage.getItem('sw.attendance.section'); } catch { /* storage blocked */ }
+    const pick = pickerOptions.find((o) => o.id === remembered) ?? (pickerOptions.length === 1 ? pickerOptions[0] : null);
+    if (pick) setSectionId(pick.id);
+  }, [pickerOptions.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!sectionId) return;
+    try { window.sessionStorage.setItem('sw.attendance.section', sectionId); } catch { /* storage blocked */ }
+  }, [sectionId]);
+
+  const chooseSection = (id: string, d?: string) => {
+    setSectionId(id); setRows([]); setLoaded(false); setMsg(null);
+    if (d) setDate(d);
+  };
+  // Only registers in the campus being viewed; the server list is school-wide.
+  const attention = outstanding && outstanding !== 'unavailable'
+    ? { ...outstanding, sections: outstanding.sections.filter((s) => !lens.campusId || s.campusId === lens.campusId)
+        .sort((a, b) => Number(a.partial) - Number(b.partial) || a.className.localeCompare(b.className) || a.sectionName.localeCompare(b.sectionName)) }
+    : null;
   // Counted from what is on screen, so it cannot disagree with what Save is about to send.
   const tally = rows.reduce((acc, r) => {
     const m = marks[r.id] ?? 'PRESENT';
@@ -275,6 +304,11 @@ function AttendanceRegister({ embedded = false }: { embedded?: boolean }) {
       {readOnly && !embedded && (
         <p className="muted" style={{ margin: 0 }}>
           Read-only — your teachers mark the register.
+        </p>
+      )}
+      {readOnly && embedded && (
+        <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+          Open any class&rsquo;s register for a day. For school-wide status, use the Overview tab.
         </p>
       )}
       {msg && <div className={`toast ${msg.ok ? 'ok' : 'err'}`}>{msg.text}</div>}
@@ -312,21 +346,19 @@ function AttendanceRegister({ embedded = false }: { embedded?: boolean }) {
         </div>
       )}
 
-      <div className="inline-form">
-        <div><label>Section</label>
-          <select aria-label="Section" value={sectionId} onChange={(e) => { setSectionId(e.target.value); setRows([]); setLoaded(false); setMsg(null); }}>
-            <option value="">Select…</option>
-            {pickerOptions.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
-          </select>
-        </div>
-        <div><label htmlFor="att-date">Date</label>
-          {/* The backfill bound is a MARKING rule; a viewer may look at any past day. */}
-          <DateField id="att-date" value={date} min={readOnly ? undefined : earliest()} max={today()} onChange={setDate} />
-        </div>
+      {/* The backfill bound is a MARKING rule; a viewer may look at any past day. */}
+      <RegisterFilters options={pickerOptions} sectionId={sectionId} onSection={(id) => chooseSection(id)}
+        date={date} onDate={setDate} min={readOnly ? undefined : earliest()} max={today()} today={today()}>
         {!readOnly && <button className="ghost" onClick={() => loadRoster()} disabled={!sectionId}>Load roster</button>}
-      </div>
+      </RegisterFilters>
 
-      <CoverageStrip days={coverage} selected={date} readOnly={readOnly} onPick={(d) => { setDate(d); loadRoster(d); }} />
+      {!readOnly && <CoverageStrip days={coverage} selected={date} readOnly={false} onPick={(d) => { setDate(d); loadRoster(d); }} />}
+
+      {!sectionId && (
+        <RegisterEmptyState readOnly={readOnly} date={date} today={today()} schoolWide={schoolWide} attention={attention}
+          loading={outstanding === null} onPick={(id) => chooseSection(id, today())} />
+      )}
+      {readOnly && sectionId && <ReadOnlyRegister sectionId={sectionId} date={date} today={today()} onDate={setDate} />}
 
       {rows.length > 0 && (
         <>

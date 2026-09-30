@@ -9,6 +9,7 @@ import {
   MarkStaffAttendanceDto,
   MyStaffAttendanceQuery,
   PatchAttendanceDto,
+  RegisterViewQuery,
   StaffHistoryQuery,
   StaffRegisterQuery,
 } from './dto/attendance.dto';
@@ -76,6 +77,13 @@ export class AttendanceController {
   @Get('coverage')
   coverage(@Query() q: AttendanceCoverageQuery) {
     return this.attendance.coverage(q.sectionId, q.session, q.days ?? 7);
+  }
+
+  /** One section's register for a day, summarised for the oversight view (owner / campus admin). Campus-gated in the service. */
+  @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
+  @Get('register')
+  register(@Query() q: RegisterViewQuery) {
+    return this.attendance.registerView(q.sectionId, q.date);
   }
 
   // ⚠️ Staff only. Without @Roles this read defaulted to any authenticated user, so a STUDENT could

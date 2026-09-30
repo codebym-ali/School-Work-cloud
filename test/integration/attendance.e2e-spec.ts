@@ -199,8 +199,30 @@ describe('Attendance + absence SMS (e2e, §9/§14)', () => {
         expect(row.marked).toBeLessThan(row.expected);
         expect(row).toHaveProperty('className');
         expect(row).toHaveProperty('sectionName');
+        expect(row).toHaveProperty('campusId'); // lets the screen narrow the list to the campus being viewed
       }
       expect(due.body.count).toBe(due.body.sections.length);
+    });
+
+    it('says the school is closed — not "all marked" — when every campus is off today', async () => {
+      const setOff = (weeklyOffDays: string[]) =>
+        request(server()).patch('/api/v1/school-settings')
+          .set('Host', host).set('Cookie', cookies).set('X-CSRF-Token', csrf)
+          .send({ weeklyOffDays });
+      try {
+        // All seven days, so the answer does not depend on which weekday the suite runs on.
+        await setOff(['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY']);
+        const closed = await get('/api/v1/attendance/unmarked-today');
+        expect(closed.body.closed).toBe('Weekly off');
+        // Nothing is "outstanding" on a closed day — the screen must be able to tell that from "all done".
+        expect(closed.body.count).toBe(0);
+
+        await setOff([]);
+        const open = await get('/api/v1/attendance/unmarked-today');
+        expect(open.body.closed).toBeNull();
+      } finally {
+        await setOff(['SUNDAY']);
+      }
     });
 
     /**

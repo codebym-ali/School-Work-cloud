@@ -26,7 +26,7 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={`${roboto.variable} ${bitter.variable}`}>
-      <body>
+      <body suppressHydrationWarning>
         <ConsoleShell>{children}</ConsoleShell>
       </body>
     </html>

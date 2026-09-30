@@ -65,6 +65,12 @@ export class AttendanceCoverageQuery {
   days?: number;
 }
 
+export class RegisterViewQuery {
+  @IsUUID() sectionId!: string;
+  /** Defaults to today; a future date is clamped to today. */
+  @IsOptional() @IsDateString() date?: string;
+}
+
 export class AttendanceQuery {
   @IsOptional() @IsUUID()
   sectionId?: string;

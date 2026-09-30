@@ -267,6 +267,105 @@ export class AttendanceService {
   }
 
   /**
+   * One section's register for one day, everything the read-only view needs in a single read: who is
+   * responsible, whether the day is closed or overdue, the head-count by status, every student with
+   * how they have been doing lately, and the last week's strip.
+   *
+   * ⚠️ The screen used to make three calls and do this arithmetic itself, so "how many are absent" sat in a
+   * bar at the bottom and the rules (percentage, closed days, absence streak) were copied into the browser.
+   * They live here now, reusing the same rules as the overview and the Students list — leave is excluded
+   * from the percentage, and a streak is the latest run of ABSENT marks on days the register was taken.
+   */
+  async registerView(sectionId: string, dateStr?: string) {
+    const section = await this.db.section.findFirst({
+      where: { id: sectionId },
+      select: { id: true, name: true, class: { select: { name: true, campusId: true, campus: { select: { name: true } } } } },
+    });
+    if (!section) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'Section not found');
+    assertCampusAccess(this.ctx.user, section.class.campusId);
+
+    const school = await this.db.school.findFirst({ where: { id: this.ctx.requireSchoolId() } });
+    const settings = parseSchoolSettings(school?.settings ?? {});
+    const session = settings.attendanceSessions[0];
+    const academicYearId = await this.setup.requireCurrentYearId();
+
+    const todayMs = startOfDay(new Date());
+    const dayMs = Math.min(dateStr ? startOfDay(new Date(dateStr)) : todayMs, todayMs);
+    const date = new Date(dayMs);
+    const iso = (d: Date) => d.toISOString().slice(0, 10);
+
+    const reason = await this.nonWorkingReason(date, section.class.campusId, settings.weeklyOffDays);
+    const closed = reason ? (reason.kind === 'HOLIDAY' ? reason.name : 'Weekly off') : null;
+
+    const [enrolments, records, homeroom, week, coveredBy] = await Promise.all([
+      this.db.studentEnrollment.findMany({
+        // Same rule as the unmarked list: anyone enrolled earlier today is owed today's mark.
+        where: { sectionId, academicYearId, status: 'ACTIVE', student: { deletedAt: null }, startedAt: { lt: new Date(dayMs + 86400000) } },
+        select: { id: true, rollNumber: true, student: { select: { id: true, fullName: true, grNumber: true } } },
+      }),
+      this.db.attendanceRecord.findMany({
+        where: { session, date: { gte: new Date(dayMs - 29 * 86400000), lte: date }, enrollment: { sectionId, academicYearId } },
+        select: { enrollmentId: true, date: true, status: true },
+      }),
+      this.db.teacherAssignment.findFirst({
+        where: { sectionId, academicYearId, subjectId: null },
+        select: { staff: { select: { fullName: true, user: { select: { email: true } } } } },
+      }),
+      this.coverage(sectionId, session, 7),
+      this.cover.coveredByBySection([sectionId], date),
+    ]);
+
+    const byEnrolment = new Map<string, Array<{ d: string; s: AttendanceStatus }>>();
+    for (const r of records) byEnrolment.set(r.enrollmentId, [...(byEnrolment.get(r.enrollmentId) ?? []), { d: iso(r.date), s: r.status }]);
+    const dayKey = iso(date);
+
+    const students = enrolments
+      .map((e) => {
+        const marks = byEnrolment.get(e.id) ?? [];
+        // Latest run of unexplained absence; leave neither breaks nor extends it (same as the overview's chronic rule).
+        let streak = 0;
+        for (const m of marks.filter((x) => x.s !== 'ON_LEAVE').sort((a, b) => b.d.localeCompare(a.d))) {
+          if (m.s === 'ABSENT') streak++; else break;
+        }
+        return {
+          enrollmentId: e.id,
+          studentId: e.student.id,
+          grNumber: e.student.grNumber,
+          fullName: e.student.fullName,
+          rollNumber: e.rollNumber,
+          status: marks.find((m) => m.d === dayKey)?.s ?? null,
+          recentPercent: attendancePercentFromStatuses(marks.map((m) => m.s)),
+          absentStreak: streak,
+        };
+      })
+      .sort((a, b) => (a.rollNumber ?? 1e9) - (b.rollNumber ?? 1e9) || a.fullName.localeCompare(b.fullName));
+
+    const dayStatuses = students.map((s) => s.status).filter((s): s is AttendanceStatus => s !== null);
+    const count = (s: AttendanceStatus) => dayStatuses.filter((x) => x === s).length;
+    const expected = students.length;
+    const marked = dayStatuses.length;
+    // A register is late once the school's deadline has passed today — and always for an earlier day.
+    const overdue = !closed && marked < expected
+      && (dayMs < todayMs || isPastLocalTime(new Date(), settings.attendanceMarkByTime, settings.timezone));
+
+    return {
+      section: { id: section.id, className: section.class.name, sectionName: section.name, campusName: section.class.campus.name },
+      date: dayKey,
+      closed,
+      teacher: homeroom ? homeroom.staff.fullName ?? homeroom.staff.user.email : null,
+      coveredBy: coveredBy.get(sectionId) ?? null,
+      markByTime: settings.attendanceMarkByTime,
+      expected,
+      marked,
+      overdue,
+      counts: { present: count('PRESENT'), late: count('LATE'), halfDay: count('HALF_DAY'), absent: count('ABSENT'), onLeave: count('ON_LEAVE'), notMarked: expected - marked },
+      percent: attendancePercentFromStatuses(dayStatuses),
+      students,
+      week,
+    };
+  }
+
+  /**
    * Which sections have not had today's register marked (G3).
    *
    * **Starts from the SECTIONS, not from the attendance table** — the same rule the staff
@@ -399,11 +498,17 @@ export class AttendanceService {
       select: { id: true, name: true, class: { select: { name: true, campusId: true } } },
     });
 
+    // Why sections were skipped as closed, so "nothing outstanding" can be told apart from "school is shut".
+    const closedReasons: string[] = [];
     const rows = await Promise.all(
       sections.map(async (s) => {
         // A holiday or weekly off is not a gap. Crying wolf every Sunday is how a warning
         // becomes wallpaper — the coverage strip learned this first.
-        if (await this.isNonWorkingDay(date, s.class.campusId, settings.weeklyOffDays)) return null;
+        const closed = await this.nonWorkingReason(date, s.class.campusId, settings.weeklyOffDays);
+        if (closed) {
+          closedReasons.push(closed.kind === 'HOLIDAY' ? closed.name : 'Weekly off');
+          return null;
+        }
 
         const [expected, marked] = await Promise.all([
           this.db.studentEnrollment.count({
@@ -417,6 +522,7 @@ export class AttendanceService {
         if (expected === 0 || marked >= expected) return null;
         return {
           sectionId: s.id,
+          campusId: s.class.campusId,
           className: s.class.name,
           sectionName: s.name,
           expected,
@@ -425,6 +531,9 @@ export class AttendanceService {
         };
       }),
     );
+    // Closed only when EVERY section is closed; one campus being shut must not silence the others' gaps.
+    const allClosed = sections.length > 0 && closedReasons.length === sections.length;
+    const closed = allClosed ? ([...new Set(closedReasons)].length === 1 ? closedReasons[0] : 'Holiday') : null;
 
     const outstanding = rows.filter((r): r is NonNullable<typeof r> => r !== null);
     // Who actually holds each of these registers today (Cover Plan §6a). A covered-but-unmarked
@@ -434,6 +543,8 @@ export class AttendanceService {
     return {
       /** Whether the school's own deadline has passed yet — the UI stays quiet until it has. */
       due,
+      /** Why today is not a school day for every campus ("Weekly off", or the holiday's name); null when any campus is open. */
+      closed,
       markByTime: settings.attendanceMarkByTime,
       count: outstanding.length,
       sections: outstanding

@@ -131,6 +131,7 @@ export const PERMISSION_MATRIX: MatrixRow[] = [
   // Which registers are still unmarked is OVERSIGHT, not self-service: it names colleagues who
   // are behind. A teacher gets their own coverage strip instead.
   { label: 'unmarked registers today', method: 'get', path: '/api/v1/attendance/unmarked-today', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'], scopeGated: true },
+  { label: 'one section register summary', method: 'get', path: '/api/v1/attendance/register', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'], scopeGated: true },
   // `/attendance/mine/unmarked-today` is deliberately NOT here: it is self-scoped like
   // `/staff-attendance/mine`, so every role reaching it is correct and a deny row would encode the
   // opposite. What protects it is that the service resolves the caller's own staff profile and can
@@ -316,6 +317,8 @@ export const PERMISSION_MATRIX: MatrixRow[] = [
   { label: 'search parents', method: 'get', path: '/api/v1/students/parents/search', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ADMISSION_CONTROLLER'], scopeGated: true },
   { label: 'read one student', method: 'get', path: '/api/v1/students/00000000-0000-0000-0000-000000000000', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ADMISSION_CONTROLLER'], scopeGated: true },
   { label: 'read student photo', method: 'get', path: '/api/v1/students/00000000-0000-0000-0000-000000000000/photo', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ADMISSION_CONTROLLER'], scopeGated: true },
+  { label: 'student profile summary', method: 'get', path: '/api/v1/students/00000000-0000-0000-0000-000000000000/profile-summary', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'], scopeGated: true },
+  { label: 'student attendance summary', method: 'get', path: '/api/v1/students/00000000-0000-0000-0000-000000000000/attendance-summary', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'], scopeGated: true },
   { label: 'edit student', method: 'patch', path: '/api/v1/students/00000000-0000-0000-0000-000000000000', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'], scopeGated: true },
   { label: 'list student documents', method: 'get', path: '/api/v1/students/00000000-0000-0000-0000-000000000000/documents', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ADMISSION_CONTROLLER'], scopeGated: true },
   { label: 'attach a student document', method: 'put', path: '/api/v1/students/00000000-0000-0000-0000-000000000000/documents/PHOTO', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ADMISSION_CONTROLLER'], scopeGated: true },

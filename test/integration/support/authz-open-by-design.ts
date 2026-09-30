@@ -29,6 +29,8 @@ export const OPEN_BY_DESIGN: RegExp[] = [
   /^\/api\/v1\/payslips\/mine$/,                  // own payslips
   /^\/api\/v1\/payslips\/[^/]+\/pdf$/,            // owner/admin check in the service (§22.8)
   /^\/api\/v1\/students\/[^/]+\/report-cards$/,   // ownership-checked in the service (a student sees only their own)
+  /^\/api\/v1\/students\/[^/]+\/term-results$/,   // same gate as report-cards (`viewableEnrollments`): admin + campus scope in the service
+  /^\/api\/v1\/students\/[^/]+\/report-cards\/[^/]+\/file$/, // signed PDF link, same `viewableEnrollments` gate
   /^\/api\/v1\/uploads(\/confirm)?$/,             // presigned upload for the caller's own file
 ];
 

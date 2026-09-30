@@ -94,6 +94,20 @@ export class StudentsController {
     return this.students.photoUrl(id);
   }
 
+  /** The profile header: placement plus today / attendance / latest term / fees, in one read. */
+  @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
+  @Get(':id/profile-summary')
+  profileSummary(@Param('id') id: string) {
+    return this.students.profileSummary(id);
+  }
+
+  /** Attendance with the school calendar folded in; `from`/`to` default to the academic year to date. */
+  @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
+  @Get(':id/attendance-summary')
+  attendanceSummary(@Param('id') id: string, @Query('from') from?: string, @Query('to') to?: string) {
+    return this.students.attendanceSummary(id, from, to);
+  }
+
   /**
    * Record or replace the CNIC after admission — the route the admission screen was already
    * telling officers existed. Also provisions the portal login when the student has none.

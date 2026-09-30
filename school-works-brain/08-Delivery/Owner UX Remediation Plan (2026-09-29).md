@@ -1,9 +1,9 @@
 ---
 title: Owner UX Remediation Plan
 type: delivery
-updated: 2026-09-29
+updated: 2026-09-30
 author: Senior UI/UX Designer
-status: proposed
+status: in-progress
 ---
 
 # Owner UX Remediation Plan (2026-09-29)
@@ -293,6 +293,38 @@ column visibility, row selection), `RowActions` (⋯ menu), `DetailDrawer`, `Sta
 - **Accessibility:** axe gate green; manual keyboard pass; AA contrast on all interactive states.
 - **Regression:** permission matrix (owner write → 403), e2e for each hub's KPI → filter → drill → drawer.
 - **Live re-review** of the four original screens against the principles above before sign-off.
+
+---
+
+## UX Review Round 2 (2026-09-30) — Finance / Teaching / Comms screens
+
+A second design review covered 6 screens (Attendance Register, Leave Requests, Exams & Results, Fees,
+Payment Submissions, Defaulters). 66 issues identified, prioritised, and remediated in 4 phases.
+
+### Shipped (commit `9db2b2d`)
+- **Phase 1b — Finance consolidation:** Fees page wrapped in a tabbed layout (Invoices | Payments |
+  Defaulters). `FeeClaimsPage` and `DefaultersPage` accept `embedded?: boolean` — when true, the `<h1>`
+  and description are suppressed. `FeesInvoicesPanel` (the old FeesPage) lost its duplicate heading.
+  Standalone routes (`/fee-claims`, `/defaulters`) still render their own headings.
+- **Phase 2a — Fees KPI strip:** Total billed / Collected (green) / Outstanding (amber) / Overdue (red)
+  tiles at the top of the Invoices tab, computed client-side from loaded invoice data.
+- **Phase 3b — Empty states:** Leaves, Fee Claims, Defaulters upgraded from plain `<p className="muted">`
+  to the shared `EmptyState` component (icon + title + guidance text).
+- **Phase 4 — Polish:** "Collect" → "Record payment"; date format normalised to dd/mm/yyyy on Exams
+  (exam date column) and Fee Claims (paid-on, sent-in dates); jargon replaced with plain language on
+  Attendance, Leaves, Fee Claims, Statement Import, Defaulters descriptions; exam type labels readable;
+  DateField stepper buttons compact (28px circles) with weekday-only readout; "GR GR-" prefix duplication
+  fixed; Defaulters search field and SMS exclusion banner added.
+
+### Remaining (deferred)
+- **Defaulters class column/filter** — needs backend API change to include class/section info in the
+  `Defaulter` response type.
+- **Sidebar regrouping** — `NavGroup` types are shared across all apps/roles; changing "Teaching" would
+  affect teachers. Needs cross-app consideration in a separate session.
+- **Fees onboarding card** — guided card when no fee structure exists; lower priority.
+- **Bulk approve on Leave Requests, exports/pagination** — Phase 4 stretch items.
+
+---
 
 ## Out of scope (logged for later)
 Scheduled report emails, saved custom views, mobile-first owner app, Urdu localisation (explicitly deferred

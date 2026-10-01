@@ -213,8 +213,8 @@ function ExamsAdminConsole() {
 
       {tab === 'setup' && (
         <>
-          <SubjectsCard subjects={subjects} classes={classes} />
-          <GradeScaleCard years={years} onSaved={(ok, text) => setMsg({ ok, text })} />
+          <SubjectsCard subjects={subjects} classes={classes} campuses={campuses} />
+          <GradeScaleCard years={years} gradeBands={gradeBands} onSaved={(ok, text) => { setMsg({ ok, text }); reloadBase(); }} />
           <TermsCard years={years} terms={terms}
             onCreate={(b) => run(() => apiPost('/terms', b), 'Term created', reloadBase)}
             onDelete={async (t) => { await run(() => api.terms.remove(t.id), `Deleted "${t.name}"`, reloadBase); }} />
@@ -223,6 +223,9 @@ function ExamsAdminConsole() {
 
       {tab === 'exams' && (
         <>
+          {/* Overview strip */}
+          <ExamOverview exams={exams} />
+
           {/* Filters + create */}
           <div className="card stack">
             <div className="row" style={{ alignItems: 'flex-end' }}>
@@ -281,6 +284,35 @@ function ExamsAdminConsole() {
           <ReportCardsCard terms={terms} onAction={run} />
         </>
       )}
+    </div>
+  );
+}
+
+// ── Exam overview strip ──────────────────────────────────────────────────────
+
+function ExamOverview({ exams }: { exams: Exam[] }) {
+  if (exams.length === 0) return null;
+  const published = exams.filter((e) => e.status === 'PUBLISHED').length;
+  const marksEntry = exams.filter((e) => e.status === 'MARKS_ENTRY').length;
+  const draft = exams.filter((e) => e.status === 'DRAFT').length;
+  const classCount = new Set(exams.map((e) => e.classId)).size;
+
+  const tiles: { label: string; value: number; color?: string }[] = [
+    { label: 'Total exams', value: exams.length },
+    { label: 'Published', value: published, color: 'var(--c-green, #16a34a)' },
+    { label: 'Marks entry', value: marksEntry, color: 'var(--c-amber, #d97706)' },
+    { label: 'Draft', value: draft },
+    { label: 'Classes', value: classCount },
+  ];
+
+  return (
+    <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+      {tiles.map((t) => (
+        <div key={t.label} className="card" style={{ flex: '1 1 120px', padding: '14px 16px', minWidth: 120, textAlign: 'center' }}>
+          <div className="muted" style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>{t.label}</div>
+          <div style={{ fontSize: 22, fontWeight: 700, color: t.color }}>{t.value}</div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -826,38 +858,68 @@ function ReportCardsCard({ terms, onAction }: { terms: Term[]; onAction: ActionF
 
 // ── Setup tab (unchanged) ────────────────────────────────────────────────────
 
-function SubjectsCard({ subjects, classes }: { subjects: Subject[]; classes: Klass[] }) {
-  const nameFor = (id: string) => classes.find((c) => c.id === id)?.name ?? '?';
+function SubjectsCard({ subjects, classes, campuses }: { subjects: Subject[]; classes: Klass[]; campuses: Campus[] }) {
   const byClass = classes
     .map((c) => ({ c, items: subjects.filter((s) => s.classId === c.id) }))
     .filter((g) => g.items.length > 0);
 
+  const byCampus = new Map<string, { campusName: string; classes: typeof byClass }>();
+  for (const entry of byClass) {
+    const campusId = entry.c.campusId;
+    const campus = campuses.find((cam) => cam.id === campusId);
+    const campusName = campus?.name ?? 'Other';
+    if (!byCampus.has(campusId)) byCampus.set(campusId, { campusName, classes: [] });
+    byCampus.get(campusId)!.classes.push(entry);
+  }
+  const groups = [...byCampus.values()].sort((a, b) => a.campusName.localeCompare(b.campusName));
+  const showCampus = groups.length > 1;
+
   return (
     <div className="card stack">
       <div className="row">
-        <h2 style={{ margin: 0, fontSize: 17 }}>Subjects</h2>
+        <div>
+          <h2 style={{ margin: 0, fontSize: 17 }}>Subjects</h2>
+          <p className="muted" style={{ margin: '2px 0 0', fontSize: 12 }}>Subjects assigned to each class. Manage them on the Classes page.</p>
+        </div>
         <Link className="ghost small" href="/classes" style={{ textDecoration: 'none' }}>Manage in Classes →</Link>
       </div>
       {byClass.length === 0 ? (
-        <p className="muted" style={{ margin: 0, fontSize: 13 }}>
-          No subjects yet — add them to a class on the <Link href="/classes">Classes</Link> screen.
-        </p>
+        <EmptyState title="No subjects yet">
+          Add subjects to a class on the <Link href="/classes">Classes</Link> screen.
+        </EmptyState>
       ) : (
-        byClass.map(({ c, items }) => (
-          <div className="chips" key={c.id}>
-            <span className="muted" style={{ fontSize: 12, minWidth: 62 }}>{nameFor(c.id)}</span>
-            {items.map((s) => <span key={s.id} className="badge">{s.name}</span>)}
-          </div>
-        ))
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {groups.map((g) => (
+            <div key={g.campusName}>
+              {showCampus && (
+                <div className="muted" style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 6 }}>{g.campusName}</div>
+              )}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {g.classes.map(({ c, items }) => (
+                  <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 0', borderBottom: '1px solid var(--border-light, #f0f0f0)' }}>
+                    <span style={{ fontSize: 13, fontWeight: 600, minWidth: 70 }}>{c.name}</span>
+                    <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                      {items.map((s) => <span key={s.id} className="badge" style={{ fontSize: 12 }}>{s.name}</span>)}
+                    </div>
+                    <span className="muted" style={{ fontSize: 11, marginLeft: 'auto' }}>{items.length} subject{items.length !== 1 ? 's' : ''}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
       )}
     </div>
   );
 }
 
-function GradeScaleCard({ years, onSaved }: { years: AcademicYear[]; onSaved: (ok: boolean, text: string) => void }) {
+function GradeScaleCard({ years, gradeBands: currentBands, onSaved }: { years: AcademicYear[]; gradeBands: GradeBand[]; onSaved: (ok: boolean, text: string) => void }) {
+  const currentYear = years.find((y) => y.isCurrent);
   const [yearId, setYearId] = useState('');
   const [bands, setBands] = useState<GradeBand[]>([]);
+  const [editing, setEditing] = useState(false);
 
+  useEffect(() => { if (currentYear && !yearId) setYearId(currentYear.id); }, [currentYear]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!yearId) { setBands([]); return; }
     apiGet<GradeBand[]>(`/grade-scales?academicYearId=${yearId}`).then(setBands).catch(() => setBands([]));
@@ -879,6 +941,7 @@ function GradeScaleCard({ years, onSaved }: { years: AcademicYear[]; onSaved: (o
       };
       const res = await apiPut<GradeBand[]>('/grade-scales', body);
       setBands(res);
+      setEditing(false);
       onSaved(true, 'Grade scale saved');
     } catch (e) {
       onSaved(false, e instanceof ApiError ? e.message : 'Failed to save grade scale');
@@ -887,34 +950,75 @@ function GradeScaleCard({ years, onSaved }: { years: AcademicYear[]; onSaved: (o
 
   return (
     <div className="card stack">
-      <h2 style={{ margin: 0, fontSize: 17 }}>Grade scale</h2>
-      <div className="inline-form">
-        <div style={{ minWidth: 220 }}><label>Academic year</label>
-          <select value={yearId} onChange={(e) => setYearId(e.target.value)}>
-            <option value="">Select…</option>{years.map((y) => <option key={y.id} value={y.id}>{y.name}</option>)}
+      <div className="row">
+        <div>
+          <h2 style={{ margin: 0, fontSize: 17 }}>Grade scale</h2>
+          <p className="muted" style={{ margin: '2px 0 0', fontSize: 12 }}>Define how percentages map to grades (A+, A, B, etc.).</p>
+        </div>
+        <div className="inline-form" style={{ gap: 8 }}>
+          <select value={yearId} onChange={(e) => { setYearId(e.target.value); setEditing(false); }} style={{ fontSize: 13 }}>
+            <option value="">Select year…</option>{years.map((y) => <option key={y.id} value={y.id}>{y.name}{y.isCurrent ? ' (current)' : ''}</option>)}
           </select>
+          {yearId && !editing && bands.length > 0 && (
+            <button className="ghost small" onClick={() => setEditing(true)}>Edit</button>
+          )}
         </div>
       </div>
-      {yearId && (
+
+      {yearId && bands.length === 0 && !editing && (
+        <div style={{ textAlign: 'center', padding: '16px 0' }}>
+          <p className="muted" style={{ margin: '0 0 8px' }}>No grade bands defined for this year.</p>
+          <button className="ghost" onClick={() => { setEditing(true); addBand(); }}>+ Add grade bands</button>
+        </div>
+      )}
+
+      {yearId && bands.length > 0 && !editing && (
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          {bands.sort((a, b) => Number(b.maxPercent) - Number(a.maxPercent)).map((b, i) => (
+            <div key={i} style={{
+              padding: '8px 14px', borderRadius: 8, textAlign: 'center', flex: '1 1 80px', minWidth: 80,
+              background: 'var(--bg-raised, #f8f9fb)', border: '1px solid var(--border-light, #e5e7eb)',
+            }}>
+              <div style={{ fontSize: 16, fontWeight: 700 }}>{b.label || '—'}</div>
+              <div className="muted" style={{ fontSize: 11 }}>{b.minPercent}–{b.maxPercent}%</div>
+              {Number(b.gradePoint) > 0 && <div className="muted" style={{ fontSize: 10 }}>GP {b.gradePoint}</div>}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {yearId && editing && (
         <>
-          <table>
-            <thead><tr><th>Label</th><th>Min %</th><th>Max %</th><th>Grade point</th><th></th></tr></thead>
-            <tbody>
-              {bands.map((b, i) => (
-                <tr key={i}>
-                  <td><input value={b.label} onChange={(e) => updateBand(i, 'label', e.target.value)} /></td>
-                  <td><input value={String(b.minPercent)} onChange={(e) => updateBand(i, 'minPercent', e.target.value)} /></td>
-                  <td><input value={String(b.maxPercent)} onChange={(e) => updateBand(i, 'maxPercent', e.target.value)} /></td>
-                  <td><input value={String(b.gradePoint)} onChange={(e) => updateBand(i, 'gradePoint', e.target.value)} /></td>
-                  <td><button className="ghost small" onClick={() => removeBand(i)}>Remove</button></td>
+          <div style={{ overflowX: 'auto', borderRadius: 8, border: '1px solid var(--border, #e5e7eb)' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+              <thead>
+                <tr style={{ background: 'var(--bg-raised, #f8f9fb)' }}>
+                  <th style={thStyle}>Label</th>
+                  <th style={{ ...thStyle, textAlign: 'center' }}>Min %</th>
+                  <th style={{ ...thStyle, textAlign: 'center' }}>Max %</th>
+                  <th style={{ ...thStyle, textAlign: 'center' }}>Grade point</th>
+                  <th style={{ ...thStyle, width: 60 }}></th>
                 </tr>
-              ))}
-              {bands.length === 0 && <tr><td colSpan={5} className="muted">No bands yet.</td></tr>}
-            </tbody>
-          </table>
-          <div className="inline-form">
+              </thead>
+              <tbody>
+                {bands.map((b, i) => (
+                  <tr key={i}>
+                    <td style={tdStyle}><input value={b.label} onChange={(e) => updateBand(i, 'label', e.target.value)} placeholder="A+" style={{ width: '100%', padding: '4px 8px', borderRadius: 4, border: '1px solid var(--border, #d1d5db)', fontSize: 13 }} /></td>
+                    <td style={{ ...tdStyle, textAlign: 'center' }}><input value={String(b.minPercent)} onChange={(e) => updateBand(i, 'minPercent', e.target.value)} style={{ width: 60, textAlign: 'center', padding: '4px', borderRadius: 4, border: '1px solid var(--border, #d1d5db)', fontSize: 13 }} /></td>
+                    <td style={{ ...tdStyle, textAlign: 'center' }}><input value={String(b.maxPercent)} onChange={(e) => updateBand(i, 'maxPercent', e.target.value)} style={{ width: 60, textAlign: 'center', padding: '4px', borderRadius: 4, border: '1px solid var(--border, #d1d5db)', fontSize: 13 }} /></td>
+                    <td style={{ ...tdStyle, textAlign: 'center' }}><input value={String(b.gradePoint)} onChange={(e) => updateBand(i, 'gradePoint', e.target.value)} style={{ width: 60, textAlign: 'center', padding: '4px', borderRadius: 4, border: '1px solid var(--border, #d1d5db)', fontSize: 13 }} /></td>
+                    <td style={{ ...tdStyle, textAlign: 'center' }}><button className="ghost small" onClick={() => removeBand(i)} style={{ color: 'var(--c-red, #dc2626)' }}>Remove</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="row">
             <button className="ghost" onClick={addBand}>+ Add band</button>
-            <button onClick={save} disabled={bands.length === 0}>Save grade scale</button>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button className="ghost" onClick={() => { setEditing(false); apiGet<GradeBand[]>(`/grade-scales?academicYearId=${yearId}`).then(setBands).catch(() => {}); }}>Cancel</button>
+              <button onClick={save} disabled={bands.length === 0}>Save grade scale</button>
+            </div>
           </div>
         </>
       )}
@@ -928,7 +1032,9 @@ function TermsCard({ years, terms, onCreate, onDelete }: {
   onDelete: (t: Term) => Promise<void>;
 }) {
   const [form, setForm] = useState<Record<string, string>>({});
+  const [showForm, setShowForm] = useState(false);
   const [busy, setBusy] = useState('');
+  const currentYear = years.find((y) => y.isCurrent);
   const yearName = (id: string) => years.find((y) => y.id === id)?.name ?? '?';
 
   async function remove(t: Term) {
@@ -936,28 +1042,48 @@ function TermsCard({ years, terms, onCreate, onDelete }: {
     setBusy(t.id);
     try { await onDelete(t); } finally { setBusy(''); }
   }
+
+  function handleAdd() {
+    onCreate(form);
+    setForm({});
+    setShowForm(false);
+  }
+
   return (
     <div className="card stack">
       <div className="row">
-        <h2 style={{ margin: 0, fontSize: 17 }}>Terms</h2>
-        {terms.length > 0 && <span className="badge">{terms.length}</span>}
+        <div>
+          <h2 style={{ margin: 0, fontSize: 17 }}>Terms</h2>
+          <p className="muted" style={{ margin: '2px 0 0', fontSize: 12 }}>Academic terms divide the year into grading periods.</p>
+        </div>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          {terms.length > 0 && <span className="badge">{terms.length}</span>}
+          {!showForm && <button className="ghost small" onClick={() => { setShowForm(true); if (currentYear) setForm((f) => ({ ...f, academicYearId: currentYear.id })); }}>+ Add term</button>}
+        </div>
       </div>
-      {terms.length === 0 ? (
-        <p className="muted" style={{ margin: 0 }}>None yet — add the first term below.</p>
-      ) : (
-        <div style={{ maxHeight: 260, overflowY: 'auto' }}>
-          <table>
-            <thead><tr><th>Term</th><th>Academic year</th><th>Dates</th><th></th></tr></thead>
+      {terms.length === 0 && !showForm ? (
+        <div style={{ textAlign: 'center', padding: '16px 0' }}>
+          <p className="muted" style={{ margin: '0 0 8px' }}>No terms yet.</p>
+          <button className="ghost" onClick={() => { setShowForm(true); if (currentYear) setForm((f) => ({ ...f, academicYearId: currentYear.id })); }}>+ Add the first term</button>
+        </div>
+      ) : terms.length > 0 && (
+        <div style={{ overflowX: 'auto', borderRadius: 8, border: '1px solid var(--border, #e5e7eb)' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+            <thead>
+              <tr style={{ background: 'var(--bg-raised, #f8f9fb)' }}>
+                <th style={thStyle}>Term</th><th style={thStyle}>Academic year</th><th style={thStyle}>Dates</th><th style={{ ...thStyle, width: 60 }}></th>
+              </tr>
+            </thead>
             <tbody>
               {terms.map((t) => (
                 <tr key={t.id}>
-                  <td>{t.name}</td>
-                  <td className="muted">{yearName(t.academicYearId)}</td>
-                  <td className="muted" style={{ fontSize: 12 }}>
+                  <td style={{ ...tdStyle, fontWeight: 600 }}>{t.name}</td>
+                  <td style={tdStyle} className="muted">{yearName(t.academicYearId)}</td>
+                  <td style={tdStyle} className="muted">
                     {new Date(t.startDate).toLocaleDateString('en-GB')} – {new Date(t.endDate).toLocaleDateString('en-GB')}
                   </td>
-                  <td style={{ textAlign: 'right' }}>
-                    <button className="ghost small" disabled={busy === t.id}
+                  <td style={{ ...tdStyle, textAlign: 'right' }}>
+                    <button className="ghost small" disabled={busy === t.id} style={{ color: 'var(--c-red, #dc2626)' }}
                       onClick={() => remove(t)}>{busy === t.id ? '…' : 'Delete'}</button>
                   </td>
                 </tr>
@@ -966,17 +1092,24 @@ function TermsCard({ years, terms, onCreate, onDelete }: {
           </table>
         </div>
       )}
-      <div className="inline-form">
-        <div><label>Academic year</label>
-          <select value={form.academicYearId ?? ''} onChange={(e) => setForm({ ...form, academicYearId: e.target.value })}>
-            <option value="">Select…</option>{years.map((y) => <option key={y.id} value={y.id}>{y.name}</option>)}
-          </select>
+      {showForm && (
+        <div style={{ padding: '12px 16px', borderRadius: 8, border: '1px solid var(--border, #e5e7eb)', background: 'var(--bg-raised, #f8f9fb)' }}>
+          <div className="inline-form">
+            <div><label>Academic year</label>
+              <select value={form.academicYearId ?? ''} onChange={(e) => setForm({ ...form, academicYearId: e.target.value })}>
+                <option value="">Select…</option>{years.map((y) => <option key={y.id} value={y.id}>{y.name}{y.isCurrent ? ' (current)' : ''}</option>)}
+              </select>
+            </div>
+            <div><label>Name</label><input value={form.name ?? ''} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. Mid-term" /></div>
+            <div><label>Start</label><input type="date" value={form.startDate ?? ''} onChange={(e) => setForm({ ...form, startDate: e.target.value })} /></div>
+            <div><label>End</label><input type="date" value={form.endDate ?? ''} onChange={(e) => setForm({ ...form, endDate: e.target.value })} /></div>
+          </div>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 8 }}>
+            <button className="ghost" onClick={() => { setShowForm(false); setForm({}); }}>Cancel</button>
+            <button onClick={handleAdd} disabled={!form.academicYearId || !form.name || !form.startDate || !form.endDate}>Add term</button>
+          </div>
         </div>
-        <div><label>Name</label><input value={form.name ?? ''} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Term 1" /></div>
-        <div><label>Start</label><input type="date" value={form.startDate ?? ''} onChange={(e) => setForm({ ...form, startDate: e.target.value })} /></div>
-        <div><label>End</label><input type="date" value={form.endDate ?? ''} onChange={(e) => setForm({ ...form, endDate: e.target.value })} /></div>
-        <button className="ghost" onClick={() => onCreate(form)} disabled={!form.academicYearId || !form.name || !form.startDate || !form.endDate}>Add term</button>
-      </div>
+      )}
     </div>
   );
 }

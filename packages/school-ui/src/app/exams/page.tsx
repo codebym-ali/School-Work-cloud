@@ -170,22 +170,32 @@ function ExamsAdminConsole() {
   const className = (id: string) => classes.find((c) => c.id === id)?.name ?? id.slice(0, 8);
   const termName = (id: string) => terms.find((t) => t.id === id)?.name ?? id.slice(0, 8);
 
-  // Group exams by class for the card layout
-  const examsByClass = useMemo(() => {
-    const groups = new Map<string, Exam[]>();
+  // Group exams: campus → class
+  const examsByCampus = useMemo(() => {
+    const byClass = new Map<string, Exam[]>();
     for (const ex of exams) {
-      const list = groups.get(ex.classId) ?? [];
+      const list = byClass.get(ex.classId) ?? [];
       list.push(ex);
-      groups.set(ex.classId, list);
+      byClass.set(ex.classId, list);
     }
-    return [...groups.entries()]
-      .map(([classId, items]) => {
-        const klass = classes.find((c) => c.id === classId);
-        const label = klass ? classLabel(klass) : classId.slice(0, 8);
-        return { classId, className: label, items: items.sort((a, b) => new Date(b.examDate).getTime() - new Date(a.examDate).getTime()) };
-      })
-      .sort((a, b) => a.className.localeCompare(b.className));
+    const byCampus = new Map<string, { campusName: string; classes: { classId: string; className: string; items: Exam[] }[] }>();
+    for (const [classId, items] of byClass) {
+      const klass = classes.find((c) => c.id === classId);
+      const campusId = klass?.campusId ?? '';
+      const campus = campuses.find((c) => c.id === campusId);
+      const campusName = campus?.name ?? 'Other';
+      if (!byCampus.has(campusId)) byCampus.set(campusId, { campusName, classes: [] });
+      byCampus.get(campusId)!.classes.push({
+        classId,
+        className: klass?.name ?? classId.slice(0, 8),
+        items: items.sort((a, b) => new Date(b.examDate).getTime() - new Date(a.examDate).getTime()),
+      });
+    }
+    return [...byCampus.values()]
+      .map((g) => ({ ...g, classes: g.classes.sort((a, b) => a.className.localeCompare(b.className)) }))
+      .sort((a, b) => a.campusName.localeCompare(b.campusName));
   }, [exams, classes, campuses]); // eslint-disable-line react-hooks/exhaustive-deps
+  const showCampusHeaders = examsByCampus.length > 1;
 
   return (
     <div className="stack">
@@ -244,18 +254,27 @@ function ExamsAdminConsole() {
             )}
           </div>
 
-          {/* Exam cards grouped by class */}
-          {examsByClass.length === 0 ? (
+          {/* Exam cards grouped by campus → class */}
+          {examsByCampus.length === 0 ? (
             <div className="card">
               <EmptyState title="No exams yet">
                 {isOwner ? 'Your campus admin creates exams from this screen.' : 'Click "+ Create exam" to add one.'}
               </EmptyState>
             </div>
           ) : (
-            examsByClass.map((group) => (
-              <ExamClassGroup key={group.classId} className={group.className} exams={group.items}
-                termName={termName} sections={sections} subjects={subjects} gradeBands={gradeBands}
-                isOwner={isOwner} onAction={run} onReload={reloadExams} />
+            examsByCampus.map((campus) => (
+              <div key={campus.campusName} className="stack" style={{ gap: 12 }}>
+                {showCampusHeaders && (
+                  <h2 style={{ margin: '8px 0 0', fontSize: 15, fontWeight: 700, color: 'var(--text-muted, #6b7280)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                    {campus.campusName}
+                  </h2>
+                )}
+                {campus.classes.map((group) => (
+                  <ExamClassGroup key={group.classId} className={group.className} exams={group.items}
+                    termName={termName} sections={sections} subjects={subjects} gradeBands={gradeBands}
+                    isOwner={isOwner} onAction={run} onReload={reloadExams} />
+                ))}
+              </div>
             ))
           )}
 

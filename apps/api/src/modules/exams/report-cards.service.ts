@@ -151,8 +151,23 @@ export class ReportCardsService {
     return count;
   }
 
-  listByTerm(termId: string) {
-    return this.db.reportCard.findMany({ where: { termId }, orderBy: { sectionRank: 'asc' } });
+  async listByTerm(termId: string) {
+    const cards = await this.db.reportCard.findMany({
+      where: { termId },
+      orderBy: { sectionRank: 'asc' },
+    });
+    if (cards.length === 0) return cards;
+    const enrollmentIds = [...new Set(cards.map((c) => c.enrollmentId))];
+    const enrollments = await this.db.studentEnrollment.findMany({
+      where: { id: { in: enrollmentIds } },
+      include: {
+        student: { select: { fullName: true, grNumber: true } },
+        class: { select: { name: true } },
+        section: { select: { name: true } },
+      },
+    });
+    const enrMap = new Map(enrollments.map((e) => [e.id, e]));
+    return cards.map((c) => ({ ...c, enrollment: enrMap.get(c.enrollmentId) ?? null }));
   }
 
   /**

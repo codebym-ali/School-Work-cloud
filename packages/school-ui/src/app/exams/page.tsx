@@ -1,7 +1,7 @@
 'use client';
 
 import { humanizeStatus } from '@sw/ui';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import {
   api, apiGet, apiPost, apiPut, ApiError,
@@ -11,6 +11,7 @@ import {
 import { classLabeller } from '@school/lib/labels';
 import { useCampusLens, useMe } from '@sw/session';
 import { hasAnyRole } from '@sw/roles';
+import { EmptyState } from '@school/components/oversight';
 import TeacherExams from './TeacherExams';
 
 const EXAM_TYPES = ['MONTHLY', 'MID_TERM', 'FINAL', 'SURPRISE_TEST'];
@@ -18,18 +19,102 @@ const EXAM_TYPE_LABEL: Record<string, string> = {
   MONTHLY: 'Monthly', MID_TERM: 'Mid-term', FINAL: 'Final', SURPRISE_TEST: 'Surprise test',
 };
 
+// ── Pivot table types & helpers ──────────────────────────────────────────────
+
+interface PivotRow {
+  enrollmentId: string;
+  student: string;
+  grNumber: string;
+  subjects: Record<string, { obtained: number | null; total: number; isAbsent: boolean }>;
+  totalObtained: number;
+  totalMax: number;
+  percent: number;
+  grade: string;
+  rank: number;
+}
+
+function pivotResults(results: ExamResult[], gradeBands: GradeBand[]): { subjects: string[]; rows: PivotRow[] } {
+  const subjectNames = [...new Set(results.map((r) => r.subject?.name ?? r.subjectId))].sort();
+  const byStudent = new Map<string, { student: string; grNumber: string; marks: Map<string, { obtained: number | null; total: number; isAbsent: boolean }> }>();
+
+  for (const r of results) {
+    const eid = r.enrollmentId;
+    const name = r.enrollment?.student?.fullName ?? eid.slice(0, 8);
+    const gr = r.enrollment?.student?.grNumber ?? '';
+    const subj = r.subject?.name ?? r.subjectId;
+    if (!byStudent.has(eid)) byStudent.set(eid, { student: name, grNumber: gr, marks: new Map() });
+    const entry = byStudent.get(eid)!;
+    entry.marks.set(subj, {
+      obtained: r.isAbsent || r.marksObtained == null ? null : Number(r.marksObtained),
+      total: Number(r.totalMarks),
+      isAbsent: r.isAbsent,
+    });
+  }
+
+  const rows: PivotRow[] = [];
+  for (const [eid, data] of byStudent) {
+    const subjects: PivotRow['subjects'] = {};
+    let totalObtained = 0;
+    let totalMax = 0;
+    for (const subj of subjectNames) {
+      const m = data.marks.get(subj);
+      subjects[subj] = m ?? { obtained: null, total: 0, isAbsent: true };
+      if (m && m.obtained !== null) { totalObtained += m.obtained; totalMax += m.total; }
+      else if (m) totalMax += m.total;
+    }
+    const percent = totalMax > 0 ? Math.round((totalObtained / totalMax) * 1000) / 10 : 0;
+    const grade = gradeFor(gradeBands, percent);
+    rows.push({ enrollmentId: eid, student: data.student, grNumber: data.grNumber, subjects, totalObtained, totalMax, percent, grade, rank: 0 });
+  }
+
+  rows.sort((a, b) => b.percent - a.percent || a.student.localeCompare(b.student));
+  let rank = 0;
+  let lastPct = -1;
+  for (const row of rows) {
+    if (row.percent !== lastPct) { rank++; lastPct = row.percent; }
+    row.rank = rank;
+  }
+
+  return { subjects: subjectNames, rows };
+}
+
+function gradeFor(bands: GradeBand[], pct: number): string {
+  for (const b of bands) {
+    if (pct >= Number(b.minPercent) && pct <= Number(b.maxPercent)) return b.label;
+  }
+  return '-';
+}
+
+function pctColor(pct: number): string {
+  if (pct >= 80) return 'var(--c-green, #16a34a)';
+  if (pct >= 50) return 'var(--c-amber, #d97706)';
+  return 'var(--c-red, #dc2626)';
+}
+
+function downloadCsv(filename: string, headers: string[], csvRows: string[][]) {
+  const escape = (v: string) => (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
+  const lines = [headers.map(escape).join(','), ...csvRows.map((r) => r.map(escape).join(','))];
+  const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+// ── Main page ────────────────────────────────────────────────────────────────
+
 export default function ExamsPage() {
   const me = useMe();
-  // Owners/campus admins run the full setup console; a teacher-only account gets the focused
-  // marks-entry view instead of a wall of admin controls they can't use.
   const isAdmin = hasAnyRole(me?.roles, ['OWNER_ADMIN', 'CAMPUS_ADMIN']);
   if (!isAdmin && me?.roles.includes('TEACHER')) return <TeacherExams />;
-
   return <ExamsAdminConsole />;
 }
 
 function ExamsAdminConsole() {
+  const me = useMe();
   const lens = useCampusLens();
+  const isOwner = hasAnyRole(me?.roles, ['OWNER_ADMIN']);
   const [tab, setTab] = useState<'exams' | 'setup'>('exams');
   const [years, setYears] = useState<AcademicYear[]>([]);
   const [terms, setTerms] = useState<Term[]>([]);
@@ -37,25 +122,25 @@ function ExamsAdminConsole() {
   const [campuses, setCampuses] = useState<Campus[]>([]);
   const [sections, setSections] = useState<Section[]>([]);
   const [subjects, setSubjects] = useState<Subject[]>([]);
-  const [students, setStudents] = useState<Record<string, string>>({});
   const [exams, setExams] = useState<Exam[]>([]);
   const [classFilter, setClassFilter] = useState('');
   const [termFilter, setTermFilter] = useState('');
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [showCreate, setShowCreate] = useState(false);
+  const [gradeBands, setGradeBands] = useState<GradeBand[]>([]);
 
   async function reloadBase() {
-    const [y, t, k, s, sub, st, cam] = await Promise.all([
+    const [y, t, k, s, sub, cam] = await Promise.all([
       apiGet<AcademicYear[]>('/academic-years'),
       apiGet<Term[]>('/terms'),
       apiGet<Klass[]>('/classes'),
       apiGet<Section[]>('/sections'),
       apiGet<Subject[]>('/subjects'),
-      apiGet<Paged<Student>>('/students?pageSize=100'),
       apiGet<Campus[]>('/campuses').catch(() => [] as Campus[]),
     ]);
     setYears(y); setTerms(t); setClasses(k); setSections(s); setSubjects(sub); setCampuses(cam);
-    setStudents(Object.fromEntries(st.data.map((x) => [x.id, `${x.fullName} (${x.grNumber})`])));
+    const current = y.find((yr) => yr.isCurrent);
+    if (current) apiGet<GradeBand[]>(`/grade-scales?academicYearId=${current.id}`).then(setGradeBands).catch(() => {});
   }
   async function reloadExams() {
     const q = new URLSearchParams();
@@ -85,16 +170,36 @@ function ExamsAdminConsole() {
   const className = (id: string) => classes.find((c) => c.id === id)?.name ?? id.slice(0, 8);
   const termName = (id: string) => terms.find((t) => t.id === id)?.name ?? id.slice(0, 8);
 
+  // Group exams by class for the card layout
+  const examsByClass = useMemo(() => {
+    const groups = new Map<string, Exam[]>();
+    for (const ex of exams) {
+      const list = groups.get(ex.classId) ?? [];
+      list.push(ex);
+      groups.set(ex.classId, list);
+    }
+    return [...groups.entries()]
+      .map(([classId, items]) => {
+        const klass = classes.find((c) => c.id === classId);
+        const label = klass ? classLabel(klass) : classId.slice(0, 8);
+        return { classId, className: label, items: items.sort((a, b) => new Date(b.examDate).getTime() - new Date(a.examDate).getTime()) };
+      })
+      .sort((a, b) => a.className.localeCompare(b.className));
+  }, [exams, classes, campuses]); // eslint-disable-line react-hooks/exhaustive-deps
+
   return (
     <div className="stack">
-      <div className="row">
-        <h1>Exams & Results</h1>
-        <div className="ov-tab-bar" style={{ display: 'flex', gap: 4, background: '#edf0f5', padding: 4, borderRadius: 10 }}>
+      <div className="ov-head">
+        <div>
+          <h1 style={{ margin: 0 }}>Exams & Results</h1>
+          <p className="ov-lede">Create exams, enter marks, view results and generate report cards.</p>
+        </div>
+        <div className="ov-tab-bar" style={{ display: 'flex', gap: 4, background: 'var(--bg-raised, #edf0f5)', padding: 4, borderRadius: 10 }}>
           <button type="button" className={`ov-tab${tab === 'exams' ? ' is-active' : ''}`} onClick={() => setTab('exams')}>Exams</button>
           <button type="button" className={`ov-tab${tab === 'setup' ? ' is-active' : ''}`} onClick={() => setTab('setup')}>Setup</button>
         </div>
       </div>
-      {msg && <div className={`toast ${msg.ok ? 'ok' : 'err'}`}>{msg.text}</div>}
+      {msg && <div className={`toast ${msg.ok ? 'ok' : 'err'}`} role="alert">{msg.text}</div>}
 
       {tab === 'setup' && (
         <>
@@ -108,8 +213,9 @@ function ExamsAdminConsole() {
 
       {tab === 'exams' && (
         <>
+          {/* Filters + create */}
           <div className="card stack">
-            <div className="row">
+            <div className="row" style={{ alignItems: 'flex-end' }}>
               <div className="inline-form" style={{ flex: 1 }}>
                 <div><label>Class</label>
                   <select value={classFilter} onChange={(e) => setClassFilter(e.target.value)}>
@@ -122,9 +228,11 @@ function ExamsAdminConsole() {
                   </select>
                 </div>
               </div>
-              <button className="ghost" onClick={() => setShowCreate((v) => !v)}>
-                {showCreate ? 'Cancel' : '+ Create exam'}
-              </button>
+              {!isOwner && (
+                <button className="ghost" onClick={() => setShowCreate((v) => !v)}>
+                  {showCreate ? 'Cancel' : '+ Create exam'}
+                </button>
+              )}
             </div>
 
             {showCreate && (
@@ -134,19 +242,22 @@ function ExamsAdminConsole() {
                   if (ok) setShowCreate(false);
                 }} />
             )}
-
-            <table>
-              <thead><tr><th>Name</th><th>Class</th><th>Term</th><th>Type</th><th>Weight</th><th>Date</th><th>Status</th><th></th></tr></thead>
-              <tbody>
-                {exams.map((ex) => (
-                  <ExamRow key={ex.id} exam={ex} className={className(ex.classId)} termName={termName(ex.termId)}
-                    sections={sections} subjects={subjects} students={students}
-                    onAction={run} onReload={reloadExams} />
-                ))}
-                {exams.length === 0 && <tr><td colSpan={8} className="muted">No exams yet. Click &quot;+ Create exam&quot; to add one.</td></tr>}
-              </tbody>
-            </table>
           </div>
+
+          {/* Exam cards grouped by class */}
+          {examsByClass.length === 0 ? (
+            <div className="card">
+              <EmptyState title="No exams yet">
+                {isOwner ? 'Your campus admin creates exams from this screen.' : 'Click "+ Create exam" to add one.'}
+              </EmptyState>
+            </div>
+          ) : (
+            examsByClass.map((group) => (
+              <ExamClassGroup key={group.classId} className={group.className} exams={group.items}
+                termName={termName} sections={sections} subjects={subjects} gradeBands={gradeBands}
+                isOwner={isOwner} onAction={run} onReload={reloadExams} />
+            ))
+          )}
 
           <ReportCardsCard terms={terms} onAction={run} />
         </>
@@ -155,8 +266,547 @@ function ExamsAdminConsole() {
   );
 }
 
-/** Read-only. Subjects are academic structure and belong with classes and sections, so they
- *  are created in Setup — having two places to add them left it ambiguous which was canonical. */
+// ── Exam cards grouped by class ──────────────────────────────────────────────
+
+function ExamClassGroup({ className, exams, termName, sections, subjects, gradeBands, isOwner, onAction, onReload }: {
+  className: string;
+  exams: Exam[];
+  termName: (id: string) => string;
+  sections: Section[];
+  subjects: Subject[];
+  gradeBands: GradeBand[];
+  isOwner: boolean;
+  onAction: ActionFn;
+  onReload: () => Promise<void>;
+}) {
+  const [collapsed, setCollapsed] = useState(false);
+  const published = exams.filter((e) => e.status === 'PUBLISHED').length;
+  const total = exams.length;
+
+  return (
+    <div className="card stack" style={{ gap: 0 }}>
+      <button type="button" className="row" onClick={() => setCollapsed(!collapsed)}
+        style={{ cursor: 'pointer', background: 'none', border: 'none', padding: '12px 0', textAlign: 'left', width: '100%' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ fontSize: 11, color: 'var(--text-muted)', transform: collapsed ? 'rotate(-90deg)' : 'rotate(0)', transition: 'transform 0.15s' }}>▼</span>
+          <h2 style={{ margin: 0, fontSize: 16 }}>{className}</h2>
+          <span className="badge" style={{ fontSize: 12 }}>{total} exam{total !== 1 ? 's' : ''}</span>
+          {published > 0 && <span className="badge ok" style={{ fontSize: 12 }}>{published} published</span>}
+        </div>
+      </button>
+      {!collapsed && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+          {exams.map((ex) => (
+            <ExamCard key={ex.id} exam={ex} termName={termName(ex.termId)}
+              sections={sections.filter((s) => s.classId === ex.classId)}
+              subjects={subjects.filter((s) => s.classId === ex.classId)}
+              gradeBands={gradeBands} isOwner={isOwner} onAction={onAction} onReload={onReload} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ExamCard({ exam, termName, sections, subjects, gradeBands, isOwner, onAction, onReload }: {
+  exam: Exam;
+  termName: string;
+  sections: Section[];
+  subjects: Subject[];
+  gradeBands: GradeBand[];
+  isOwner: boolean;
+  onAction: ActionFn;
+  onReload: () => Promise<void>;
+}) {
+  const [open, setOpen] = useState<'marks' | 'results' | null>(null);
+  const badge = (s: string) => (s === 'PUBLISHED' ? 'ok' : s === 'MARKS_ENTRY' ? 'warn' : '');
+  const act = (fn: () => Promise<unknown>, ok: string) => onAction(fn, ok, onReload);
+
+  return (
+    <div style={{ borderTop: '1px solid var(--border, #e5e7eb)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 0', flexWrap: 'wrap' }}>
+        <div style={{ flex: 1, minWidth: 200 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontWeight: 600, fontSize: 14 }}>{exam.name}</span>
+            <span className={`badge ${badge(exam.status)}`} style={{ fontSize: 11 }}>{humanizeStatus(exam.status)}</span>
+          </div>
+          <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
+            {termName} · {EXAM_TYPE_LABEL[exam.examType] ?? exam.examType} · {exam.weightagePercent}% · {new Date(exam.examDate).toLocaleDateString('en-GB')}
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          {exam.status === 'PUBLISHED' && (
+            <button className={open === 'results' ? 'small' : 'ghost small'} onClick={() => setOpen(open === 'results' ? null : 'results')}>
+              {open === 'results' ? 'Hide results' : 'View results'}
+            </button>
+          )}
+          {exam.status !== 'PUBLISHED' && exam.status !== 'DRAFT' && (
+            <button className="ghost small" onClick={() => setOpen(open === 'results' ? null : 'results')}>Results</button>
+          )}
+          {exam.status === 'DRAFT' && (
+            <button className="ghost small" onClick={() => act(() => apiPost(`/exams/${exam.id}/open-marks-entry`), 'Marks entry opened')}>Open marks entry</button>
+          )}
+          {exam.status !== 'DRAFT' && !isOwner && (
+            <button className="ghost small" onClick={() => setOpen(open === 'marks' ? null : 'marks')}>
+              {open === 'marks' ? 'Hide marks' : 'Enter marks'}
+            </button>
+          )}
+          {exam.status === 'MARKS_ENTRY' && !isOwner && (
+            <button className="small" onClick={() => act(() => apiPost(`/exams/${exam.id}/publish`), 'Exam published')}>Publish</button>
+          )}
+        </div>
+      </div>
+
+      {open === 'results' && (
+        <ResultsPivotPanel examId={exam.id} gradeBands={gradeBands} examName={exam.name} onClose={() => setOpen(null)} />
+      )}
+      {open === 'marks' && (
+        <MarksEntryPanel exam={exam} sections={sections} subjects={subjects}
+          onAction={onAction} onClose={() => setOpen(null)} />
+      )}
+    </div>
+  );
+}
+
+// ── Results pivot table ──────────────────────────────────────────────────────
+
+function ResultsPivotPanel({ examId, gradeBands, examName, onClose }: {
+  examId: string; gradeBands: GradeBand[]; examName: string; onClose: () => void;
+}) {
+  const [results, setResults] = useState<ExamResult[] | null>(null);
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
+
+  useEffect(() => {
+    apiGet<ExamResult[]>(`/exams/${examId}/results`).then(setResults).catch(() => setResults([]));
+  }, [examId]);
+
+  const pivot = useMemo(() => (results ? pivotResults(results, gradeBands) : null), [results, gradeBands]);
+
+  const filtered = useMemo(() => {
+    if (!pivot) return null;
+    if (!search.trim()) return pivot.rows;
+    const q = search.toLowerCase();
+    return pivot.rows.filter((r) => r.student.toLowerCase().includes(q) || r.grNumber.toLowerCase().includes(q));
+  }, [pivot, search]);
+
+  if (results === null) return <div style={{ padding: '16px 0' }}><p className="muted">Loading results…</p></div>;
+  if (!pivot || pivot.rows.length === 0) return (
+    <div style={{ padding: '16px 0' }}>
+      <EmptyState title="No results entered yet">Marks need to be entered before results appear here.</EmptyState>
+      <div style={{ textAlign: 'right', paddingTop: 8 }}><button className="ghost small" onClick={onClose}>Close</button></div>
+    </div>
+  );
+
+  const avgBySubject = pivot.subjects.map((subj) => {
+    let sum = 0; let count = 0;
+    for (const row of pivot.rows) {
+      const m = row.subjects[subj];
+      if (m && m.obtained !== null && m.total > 0) { sum += (m.obtained / m.total) * 100; count++; }
+    }
+    return count > 0 ? Math.round(sum / count) : null;
+  });
+  const overallAvg = pivot.rows.length > 0 ? Math.round(pivot.rows.reduce((s, r) => s + r.percent, 0) / pivot.rows.length * 10) / 10 : 0;
+  const passed = pivot.rows.filter((r) => r.percent >= 40).length;
+
+  function exportCsv() {
+    if (!pivot) return;
+    const headers = ['Rank', 'Student', 'GR No.', ...pivot.subjects, 'Total', 'Percentage', 'Grade'];
+    const csvRows = pivot.rows.map((r) => [
+      String(r.rank), r.student, r.grNumber,
+      ...pivot.subjects.map((s) => { const m = r.subjects[s]; return m?.isAbsent ? 'ABS' : m?.obtained !== null ? `${m.obtained}/${m.total}` : '-'; }),
+      `${r.totalObtained}/${r.totalMax}`, `${r.percent}%`, r.grade,
+    ]);
+    downloadCsv(`${examName.replace(/[^a-z0-9]+/gi, '-')}-results.csv`, headers, csvRows);
+  }
+
+  return (
+    <div style={{ padding: '12px 0' }} className="stack">
+      {/* Summary bar */}
+      <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', alignItems: 'center', padding: '8px 12px', background: 'var(--bg-raised, #f8f9fb)', borderRadius: 8 }}>
+        <div>
+          <div className="muted" style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Students</div>
+          <div style={{ fontSize: 18, fontWeight: 700 }}>{pivot.rows.length}</div>
+        </div>
+        <div>
+          <div className="muted" style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Passed</div>
+          <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--c-green, #16a34a)' }}>{passed}</div>
+        </div>
+        <div>
+          <div className="muted" style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Class average</div>
+          <div style={{ fontSize: 18, fontWeight: 700, color: pctColor(overallAvg) }}>{overallAvg}%</div>
+        </div>
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
+          <input type="search" placeholder="Search student…" value={search} onChange={(e) => setSearch(e.target.value)}
+            style={{ width: 180, padding: '5px 10px', borderRadius: 6, border: '1px solid var(--border, #d1d5db)', fontSize: 13 }} />
+          <button className="ghost small" onClick={exportCsv}>Export CSV</button>
+          <button className="ghost small" onClick={onClose}>Close</button>
+        </div>
+      </div>
+
+      {/* Pivot table */}
+      <div style={{ overflowX: 'auto', borderRadius: 8, border: '1px solid var(--border, #e5e7eb)' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+          <thead>
+            <tr style={{ background: 'var(--bg-raised, #f8f9fb)', position: 'sticky', top: 0, zIndex: 1 }}>
+              <th style={{ ...thStyle, position: 'sticky', left: 0, background: 'var(--bg-raised, #f8f9fb)', zIndex: 2, minWidth: 40, textAlign: 'center' }}>#</th>
+              <th style={{ ...thStyle, position: 'sticky', left: 40, background: 'var(--bg-raised, #f8f9fb)', zIndex: 2, minWidth: 180 }}>Student</th>
+              {pivot.subjects.map((s) => <th key={s} style={{ ...thStyle, textAlign: 'center', minWidth: 70 }}>{s}</th>)}
+              <th style={{ ...thStyle, textAlign: 'center', minWidth: 80 }}>Total</th>
+              <th style={{ ...thStyle, textAlign: 'center', minWidth: 60 }}>%</th>
+              <th style={{ ...thStyle, textAlign: 'center', minWidth: 60 }}>Grade</th>
+            </tr>
+          </thead>
+          <tbody>
+            {(filtered ?? []).map((row, i) => (
+              <PivotStudentRow key={row.enrollmentId} row={row} subjects={pivot.subjects} index={i}
+                isExpanded={expanded === row.enrollmentId} onToggle={() => setExpanded(expanded === row.enrollmentId ? null : row.enrollmentId)}
+                gradeBands={gradeBands} />
+            ))}
+          </tbody>
+          <tfoot>
+            <tr style={{ background: 'var(--bg-raised, #f8f9fb)', fontWeight: 600, fontSize: 12 }}>
+              <td style={tdStyle}></td>
+              <td style={{ ...tdStyle, position: 'sticky', left: 40, background: 'var(--bg-raised, #f8f9fb)' }}>Class average</td>
+              {avgBySubject.map((avg, i) => (
+                <td key={i} style={{ ...tdStyle, textAlign: 'center', color: avg !== null ? pctColor(avg) : undefined }}>{avg !== null ? `${avg}%` : '-'}</td>
+              ))}
+              <td style={tdStyle}></td>
+              <td style={{ ...tdStyle, textAlign: 'center', color: pctColor(overallAvg) }}>{overallAvg}%</td>
+              <td style={tdStyle}></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+const thStyle: React.CSSProperties = { padding: '8px 10px', borderBottom: '2px solid var(--border, #e5e7eb)', textAlign: 'left', fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap' };
+const tdStyle: React.CSSProperties = { padding: '7px 10px', borderBottom: '1px solid var(--border-light, #f0f0f0)' };
+
+function PivotStudentRow({ row, subjects, index, isExpanded, onToggle, gradeBands }: {
+  row: PivotRow; subjects: string[]; index: number; isExpanded: boolean; onToggle: () => void; gradeBands: GradeBand[];
+}) {
+  const bg = index % 2 === 0 ? 'transparent' : 'var(--row-alt, #fafbfc)';
+  return (
+    <>
+      <tr style={{ background: bg, cursor: 'pointer' }} onClick={onToggle} title="Click for details">
+        <td style={{ ...tdStyle, position: 'sticky', left: 0, background: bg, textAlign: 'center', fontWeight: 600, color: 'var(--text-muted)' }}>{row.rank}</td>
+        <td style={{ ...tdStyle, position: 'sticky', left: 40, background: bg, fontWeight: 500 }}>
+          <span>{row.student}</span>
+          <span className="muted" style={{ fontSize: 11, marginLeft: 6 }}>{row.grNumber}</span>
+        </td>
+        {subjects.map((subj) => {
+          const m = row.subjects[subj];
+          const isAbsent = m?.isAbsent;
+          const pct = m && m.obtained !== null && m.total > 0 ? (m.obtained / m.total) * 100 : null;
+          return (
+            <td key={subj} style={{ ...tdStyle, textAlign: 'center' }}>
+              {isAbsent ? <span className="badge bad" style={{ fontSize: 10 }}>ABS</span>
+                : m?.obtained !== null ? (
+                  <span style={{ color: pct !== null && pct < 40 ? 'var(--c-red, #dc2626)' : undefined, fontWeight: pct !== null && pct >= 90 ? 700 : 400 }}>
+                    {m.obtained}<span className="muted" style={{ fontSize: 11 }}>/{m.total}</span>
+                  </span>
+                ) : <span className="muted">-</span>}
+            </td>
+          );
+        })}
+        <td style={{ ...tdStyle, textAlign: 'center', fontWeight: 600 }}>
+          {row.totalObtained}<span className="muted" style={{ fontSize: 11 }}>/{row.totalMax}</span>
+        </td>
+        <td style={{ ...tdStyle, textAlign: 'center', fontWeight: 700, color: pctColor(row.percent) }}>{row.percent}%</td>
+        <td style={{ ...tdStyle, textAlign: 'center' }}><span className="badge" style={{ fontSize: 11 }}>{row.grade}</span></td>
+      </tr>
+      {isExpanded && (
+        <tr>
+          <td colSpan={subjects.length + 4} style={{ padding: 0, background: 'var(--bg-raised, #f7f8fa)' }}>
+            <StudentDetailCard row={row} subjects={subjects} gradeBands={gradeBands} />
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
+
+function StudentDetailCard({ row, subjects, gradeBands }: { row: PivotRow; subjects: string[]; gradeBands: GradeBand[] }) {
+  return (
+    <div style={{ padding: '14px 20px 14px 52px', display: 'flex', gap: 24, flexWrap: 'wrap' }}>
+      <div>
+        <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 2 }}>{row.student}</div>
+        <div className="muted" style={{ fontSize: 12 }}>GR: {row.grNumber}</div>
+        <div style={{ marginTop: 8, display: 'flex', gap: 16 }}>
+          <div>
+            <div className="muted" style={{ fontSize: 11 }}>Overall</div>
+            <div style={{ fontSize: 20, fontWeight: 700, color: pctColor(row.percent) }}>{row.percent}%</div>
+          </div>
+          <div>
+            <div className="muted" style={{ fontSize: 11 }}>Grade</div>
+            <div style={{ fontSize: 20, fontWeight: 700 }}>{row.grade}</div>
+          </div>
+          <div>
+            <div className="muted" style={{ fontSize: 11 }}>Rank</div>
+            <div style={{ fontSize: 20, fontWeight: 700 }}>#{row.rank}</div>
+          </div>
+        </div>
+      </div>
+      <div style={{ flex: 1, minWidth: 240 }}>
+        <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
+          <thead>
+            <tr>
+              <th style={{ ...thStyle, fontSize: 11 }}>Subject</th>
+              <th style={{ ...thStyle, fontSize: 11, textAlign: 'center' }}>Marks</th>
+              <th style={{ ...thStyle, fontSize: 11, textAlign: 'center' }}>%</th>
+              <th style={{ ...thStyle, fontSize: 11, textAlign: 'center' }}>Grade</th>
+            </tr>
+          </thead>
+          <tbody>
+            {subjects.map((subj) => {
+              const m = row.subjects[subj];
+              const pct = m && m.obtained !== null && m.total > 0 ? Math.round((m.obtained / m.total) * 100) : null;
+              return (
+                <tr key={subj}>
+                  <td style={tdStyle}>{subj}</td>
+                  <td style={{ ...tdStyle, textAlign: 'center' }}>
+                    {m?.isAbsent ? <span className="badge bad" style={{ fontSize: 10 }}>ABS</span>
+                      : m?.obtained !== null ? `${m.obtained} / ${m.total}` : '-'}
+                  </td>
+                  <td style={{ ...tdStyle, textAlign: 'center', color: pct !== null ? pctColor(pct) : undefined, fontWeight: 600 }}>
+                    {pct !== null ? `${pct}%` : '-'}
+                  </td>
+                  <td style={{ ...tdStyle, textAlign: 'center' }}>
+                    {pct !== null ? <span className="badge" style={{ fontSize: 10 }}>{gradeFor(gradeBands, pct)}</span> : '-'}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ── Marks entry (pivot grid) ─────────────────────────────────────────────────
+
+function MarksEntryPanel({ exam, sections, subjects, onAction, onClose }: {
+  exam: Exam;
+  sections: Section[];
+  subjects: Subject[];
+  onAction: ActionFn;
+  onClose: () => void;
+}) {
+  const [sectionId, setSectionId] = useState('');
+  const [enrollments, setEnrollments] = useState<Array<{ id: string; studentId: string; student?: { fullName: string; grNumber: string } }>>([]);
+  const [defaultTotal, setDefaultTotal] = useState('100');
+  const [rows, setRows] = useState<Record<string, { totalMarks: string; marksObtained: string; isAbsent: boolean }>>({});
+  const [saveMsg, setSaveMsg] = useState<string | null>(null);
+  const [dirty, setDirty] = useState(new Set<string>());
+
+  async function loadRoster() {
+    if (!sectionId) return;
+    const enr = await apiGet<{ data: Array<{ id: string; studentId: string; student?: { fullName: string; grNumber: string } }> }>(`/enrollments?sectionId=${sectionId}&status=ACTIVE`);
+    const existing = await apiGet<ExamResult[]>(`/exams/${exam.id}/results`);
+    const next: Record<string, { totalMarks: string; marksObtained: string; isAbsent: boolean }> = {};
+    for (const e of enr.data) {
+      for (const s of subjects) {
+        const key = `${e.id}:${s.id}`;
+        const found = existing.find((r) => r.enrollmentId === e.id && r.subjectId === s.id);
+        next[key] = found
+          ? { totalMarks: String(found.totalMarks), marksObtained: found.marksObtained != null ? String(found.marksObtained) : '', isAbsent: found.isAbsent }
+          : { totalMarks: defaultTotal, marksObtained: '', isAbsent: false };
+      }
+    }
+    setRows(next);
+    setEnrollments(enr.data);
+    setDirty(new Set());
+  }
+
+  function updateRow(key: string, patch: Partial<{ totalMarks: string; marksObtained: string; isAbsent: boolean }>) {
+    setRows((prev) => ({ ...prev, [key]: { ...prev[key], ...patch } }));
+    setDirty((prev) => new Set(prev).add(key.split(':')[0]));
+  }
+
+  function toggleAbsent(enrollmentId: string, isAbsent: boolean) {
+    setRows((prev) => {
+      const next = { ...prev };
+      for (const s of subjects) {
+        const key = `${enrollmentId}:${s.id}`;
+        if (next[key]) next[key] = { ...next[key], isAbsent };
+      }
+      return next;
+    });
+    setDirty((prev) => new Set(prev).add(enrollmentId));
+  }
+
+  async function save() {
+    const records = enrollments.flatMap((e) =>
+      subjects.map((s) => {
+        const key = `${e.id}:${s.id}`;
+        const r = rows[key];
+        return {
+          enrollmentId: e.id, subjectId: s.id, totalMarks: Number(r.totalMarks),
+          isAbsent: r.isAbsent, ...(r.isAbsent ? {} : { marksObtained: Number(r.marksObtained) }),
+        };
+      }),
+    );
+    setSaveMsg(null);
+    await onAction(async () => {
+      const res = await apiPost<{ succeeded: number; failed: number }>(`/exams/${exam.id}/results/bulk`, { records });
+      setSaveMsg(`Saved ${res.succeeded}${res.failed ? `, ${res.failed} failed` : ''}`);
+      setDirty(new Set());
+    }, 'Marks saved');
+  }
+
+  return (
+    <div className="stack" style={{ padding: '12px 0', borderTop: '1px solid var(--border, #e5e7eb)' }}>
+      <div className="row">
+        <h3 style={{ margin: 0, fontSize: 15 }}>Enter marks — {exam.name}</h3>
+        <button className="ghost small" onClick={onClose}>Close</button>
+      </div>
+      {subjects.length === 0 && <p className="muted">No subjects defined for this class yet.</p>}
+      <div className="inline-form">
+        <div><label>Section</label>
+          <select value={sectionId} onChange={(e) => setSectionId(e.target.value)}>
+            <option value="">Select…</option>{sections.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
+        </div>
+        <div style={{ maxWidth: 100 }}><label>Default total</label><input value={defaultTotal} onChange={(e) => setDefaultTotal(e.target.value)} /></div>
+        <button className="ghost" onClick={loadRoster} disabled={!sectionId || subjects.length === 0}>Load roster</button>
+      </div>
+
+      {enrollments.length > 0 && subjects.length > 0 && (
+        <>
+          <div style={{ overflowX: 'auto', borderRadius: 8, border: '1px solid var(--border, #e5e7eb)' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+              <thead>
+                <tr style={{ background: 'var(--bg-raised, #f8f9fb)', position: 'sticky', top: 0 }}>
+                  <th style={{ ...thStyle, position: 'sticky', left: 0, background: 'var(--bg-raised, #f8f9fb)', zIndex: 2, minWidth: 180 }}>Student</th>
+                  {subjects.map((s) => (
+                    <th key={s.id} style={{ ...thStyle, textAlign: 'center', minWidth: 80 }}>{s.name}<br /><span className="muted" style={{ fontWeight: 400, fontSize: 10 }}>/ {defaultTotal}</span></th>
+                  ))}
+                  <th style={{ ...thStyle, textAlign: 'center', minWidth: 60 }}>Absent</th>
+                </tr>
+              </thead>
+              <tbody>
+                {enrollments.map((e, i) => {
+                  const isDirty = dirty.has(e.id);
+                  const bg = isDirty ? 'var(--bg-dirty, #fffbeb)' : i % 2 === 0 ? 'transparent' : 'var(--row-alt, #fafbfc)';
+                  const firstKey = `${e.id}:${subjects[0]?.id}`;
+                  const isAbsent = rows[firstKey]?.isAbsent ?? false;
+                  return (
+                    <tr key={e.id} style={{ background: bg }}>
+                      <td style={{ ...tdStyle, position: 'sticky', left: 0, background: bg, fontWeight: 500 }}>
+                        {e.student ? `${e.student.fullName}` : e.studentId.slice(0, 8)}
+                        {e.student?.grNumber && <span className="muted" style={{ fontSize: 11, marginLeft: 4 }}>({e.student.grNumber})</span>}
+                      </td>
+                      {subjects.map((s) => {
+                        const key = `${e.id}:${s.id}`;
+                        const r = rows[key] ?? { totalMarks: defaultTotal, marksObtained: '', isAbsent: false };
+                        return (
+                          <td key={key} style={{ ...tdStyle, textAlign: 'center', padding: '4px 6px' }}>
+                            <input value={r.isAbsent ? '' : r.marksObtained} disabled={r.isAbsent}
+                              onChange={(ev) => updateRow(key, { marksObtained: ev.target.value })}
+                              style={{ width: 50, textAlign: 'center', padding: '3px', borderRadius: 4, border: '1px solid var(--border, #d1d5db)', fontSize: 13, background: r.isAbsent ? 'var(--bg-raised, #f0f0f0)' : 'white' }}
+                              tabIndex={0} />
+                          </td>
+                        );
+                      })}
+                      <td style={{ ...tdStyle, textAlign: 'center' }}>
+                        <input type="checkbox" checked={isAbsent} onChange={(ev) => toggleAbsent(e.id, ev.target.checked)} />
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <div className="row" style={{ position: 'sticky', bottom: 0, background: 'white', padding: '8px 0', borderTop: '1px solid var(--border, #e5e7eb)' }}>
+            <button onClick={save} disabled={dirty.size === 0 && !saveMsg}>Save marks</button>
+            {saveMsg && <span className="muted" style={{ fontSize: 13 }}>{saveMsg}</span>}
+            {dirty.size > 0 && <span className="muted" style={{ fontSize: 12 }}>{dirty.size} student{dirty.size > 1 ? 's' : ''} changed</span>}
+          </div>
+        </>
+      )}
+      {sectionId && enrollments.length === 0 && <p className="muted">No active students in this section.</p>}
+    </div>
+  );
+}
+
+// ── Report cards ─────────────────────────────────────────────────────────────
+
+interface ReportCardWithStudent extends ReportCard {
+  enrollment?: {
+    student?: { fullName: string; grNumber: string };
+    class?: { name: string };
+    section?: { name: string };
+  };
+}
+
+function ReportCardsCard({ terms, onAction }: { terms: Term[]; onAction: ActionFn }) {
+  const [termId, setTermId] = useState('');
+  const [cards, setCards] = useState<ReportCardWithStudent[] | null>(null);
+
+  async function load() {
+    if (!termId) { setCards(null); return; }
+    setCards(await apiGet<ReportCardWithStudent[]>(`/terms/${termId}/report-cards`));
+  }
+  useEffect(() => { load().catch(() => {}); }, [termId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  return (
+    <div className="card stack">
+      <h2 style={{ margin: 0, fontSize: 17 }}>Report cards</h2>
+      <div className="inline-form">
+        <div style={{ minWidth: 220 }}><label>Term</label>
+          <select value={termId} onChange={(e) => setTermId(e.target.value)}>
+            <option value="">Select…</option>{terms.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+          </select>
+        </div>
+        <button className="ghost" onClick={() => onAction(async () => { await apiPost(`/terms/${termId}/report-cards/generate`); await load(); }, 'Report cards generated')} disabled={!termId}>Generate</button>
+      </div>
+      {cards && (cards.length === 0 ? (
+        <EmptyState title="No report cards generated yet">Select a term and click Generate after all exams are published.</EmptyState>
+      ) : (
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+            <thead>
+              <tr style={{ background: 'var(--bg-raised, #f8f9fb)' }}>
+                <th style={thStyle}>Student</th>
+                <th style={thStyle}>GR No.</th>
+                <th style={thStyle}>Class</th>
+                <th style={{ ...thStyle, textAlign: 'center' }}>Overall %</th>
+                <th style={{ ...thStyle, textAlign: 'center' }}>Grade</th>
+                <th style={{ ...thStyle, textAlign: 'center' }}>Rank</th>
+              </tr>
+            </thead>
+            <tbody>
+              {cards.map((c, i) => {
+                const pct = Number(c.overallPercent);
+                return (
+                  <tr key={c.id} style={{ background: i % 2 === 0 ? 'transparent' : 'var(--row-alt, #fafbfc)' }}>
+                    <td style={{ ...tdStyle, fontWeight: 500 }}>
+                      {c.enrollment?.student?.fullName ?? c.enrollmentId.slice(0, 8)}
+                    </td>
+                    <td style={tdStyle}>{c.enrollment?.student?.grNumber ?? '-'}</td>
+                    <td style={tdStyle} className="muted">
+                      {c.enrollment?.class && c.enrollment?.section ? `${c.enrollment.class.name} ${c.enrollment.section.name}` : '-'}
+                    </td>
+                    <td style={{ ...tdStyle, textAlign: 'center', fontWeight: 700, color: pctColor(pct) }}>{pct}%</td>
+                    <td style={{ ...tdStyle, textAlign: 'center' }}><span className="badge" style={{ fontSize: 11 }}>{c.gradeLabel}</span></td>
+                    <td style={{ ...tdStyle, textAlign: 'center', fontWeight: 600 }}>{c.sectionRank ?? '-'}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Setup tab (unchanged) ────────────────────────────────────────────────────
+
 function SubjectsCard({ subjects, classes }: { subjects: Subject[]; classes: Klass[] }) {
   const nameFor = (id: string) => classes.find((c) => c.id === id)?.name ?? '?';
   const byClass = classes
@@ -167,8 +817,6 @@ function SubjectsCard({ subjects, classes }: { subjects: Subject[]; classes: Kla
     <div className="card stack">
       <div className="row">
         <h2 style={{ margin: 0, fontSize: 17 }}>Subjects</h2>
-        {/* Subjects belong to a class, so they are managed on Classes. This card is read-only
-            precisely so there is one home for them; the link must point at that home. */}
         <Link className="ghost small" href="/classes" style={{ textDecoration: 'none' }}>Manage in Classes →</Link>
       </div>
       {byClass.length === 0 ? (
@@ -308,7 +956,6 @@ function TermsCard({ years, terms, onCreate, onDelete }: {
         <div><label>Name</label><input value={form.name ?? ''} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Term 1" /></div>
         <div><label>Start</label><input type="date" value={form.startDate ?? ''} onChange={(e) => setForm({ ...form, startDate: e.target.value })} /></div>
         <div><label>End</label><input type="date" value={form.endDate ?? ''} onChange={(e) => setForm({ ...form, endDate: e.target.value })} /></div>
-        {/* Secondary: one primary action per screen (Owner UX Phase 2) — creating an exam is this screen's job. */}
         <button className="ghost" onClick={() => onCreate(form)} disabled={!form.academicYearId || !form.name || !form.startDate || !form.endDate}>Add term</button>
       </div>
     </div>
@@ -343,246 +990,3 @@ function NewExam({ terms, classes, classLabel, onCreate }: { terms: Term[]; clas
 }
 
 type ActionFn = (fn: () => Promise<unknown>, ok: string, after?: () => Promise<unknown>) => Promise<boolean>;
-
-function ExamRow({
-  exam, className, termName, sections, subjects, students, onAction, onReload,
-}: {
-  exam: Exam;
-  className: string;
-  termName: string;
-  sections: Section[];
-  subjects: Subject[];
-  students: Record<string, string>;
-  onAction: ActionFn;
-  onReload: () => Promise<void>;
-}) {
-  const [open, setOpen] = useState<'marks' | 'results' | null>(null);
-  const badge = (s: string) => (s === 'PUBLISHED' ? 'ok' : s === 'MARKS_ENTRY' ? 'warn' : '');
-
-  const act = (fn: () => Promise<unknown>, ok: string) => onAction(fn, ok, onReload);
-
-  return (
-    <>
-      <tr>
-        <td>{exam.name}</td>
-        <td>{className}</td>
-        <td>{termName}</td>
-        <td>{EXAM_TYPE_LABEL[exam.examType] ?? exam.examType}</td>
-        <td>{exam.weightagePercent}%</td>
-        <td>{new Date(exam.examDate).toLocaleDateString('en-GB')}</td>
-        <td><span className={`badge ${badge(exam.status)}`}>{humanizeStatus(exam.status)}</span></td>
-        <td>
-          <span className="inline-form">
-            {exam.status === 'DRAFT' && <button className="ghost small" onClick={() => act(() => apiPost(`/exams/${exam.id}/open-marks-entry`), 'Marks entry opened')}>Open marks entry</button>}
-            {exam.status !== 'DRAFT' && <button className="ghost small" onClick={() => setOpen(open === 'marks' ? null : 'marks')}>Enter marks</button>}
-            <button className="ghost small" onClick={() => setOpen(open === 'results' ? null : 'results')}>Results</button>
-            {exam.status === 'MARKS_ENTRY' && <button className="small" onClick={() => act(() => apiPost(`/exams/${exam.id}/publish`), 'Exam published')}>Publish</button>}
-          </span>
-        </td>
-      </tr>
-      {open === 'marks' && (
-        <tr><td colSpan={8}>
-          <MarksEntryPanel exam={exam} sections={sections.filter((s) => s.classId === exam.classId)}
-            subjects={subjects.filter((s) => s.classId === exam.classId)} students={students}
-            onAction={onAction} onClose={() => setOpen(null)} />
-        </td></tr>
-      )}
-      {open === 'results' && (
-        <tr><td colSpan={8}>
-          <ResultsPanel examId={exam.id} subjects={subjects} students={students} onClose={() => setOpen(null)} />
-        </td></tr>
-      )}
-    </>
-  );
-}
-
-function MarksEntryPanel({
-  exam, sections, subjects, students, onAction, onClose,
-}: {
-  exam: Exam;
-  sections: Section[];
-  subjects: Subject[];
-  students: Record<string, string>;
-  onAction: ActionFn;
-  onClose: () => void;
-}) {
-  const [sectionId, setSectionId] = useState('');
-  // Carries the student's name, because the roster endpoint returns it. Deriving it from a
-  // separately-fetched `/students?pageSize=100` map meant every school past 100 students saw a
-  // truncated UUID where a child's name should be.
-  const [enrollments, setEnrollments] = useState<Array<{ id: string; studentId: string; student?: { fullName: string; grNumber: string } }>>([]);
-  const [defaultTotal, setDefaultTotal] = useState('100');
-  const [rows, setRows] = useState<Record<string, { totalMarks: string; marksObtained: string; isAbsent: boolean }>>({});
-  const [saveMsg, setSaveMsg] = useState<string | null>(null);
-
-  async function loadRoster() {
-    if (!sectionId) return;
-    const enr = await apiGet<{ data: Array<{ id: string; studentId: string; student?: { fullName: string; grNumber: string } }> }>(`/enrollments?sectionId=${sectionId}&status=ACTIVE`);
-    const existing = await apiGet<ExamResult[]>(`/exams/${exam.id}/results`);
-    const next: Record<string, { totalMarks: string; marksObtained: string; isAbsent: boolean }> = {};
-    for (const e of enr.data) {
-      for (const s of subjects) {
-        const key = `${e.id}:${s.id}`;
-        const found = existing.find((r) => r.enrollmentId === e.id && r.subjectId === s.id);
-        next[key] = found
-          ? { totalMarks: String(found.totalMarks), marksObtained: found.marksObtained != null ? String(found.marksObtained) : '', isAbsent: found.isAbsent }
-          : { totalMarks: defaultTotal, marksObtained: '', isAbsent: false };
-      }
-    }
-    // Set rows BEFORE enrollments: the editable table renders on `enrollments.length > 0`,
-    // so populating rows first ensures the inputs never render (and can't be typed into
-    // then clobbered) before their backing state exists. Otherwise a mark typed during the
-    // gap is overwritten by this setRows and posts as 0.
-    setRows(next);
-    setEnrollments(enr.data);
-  }
-
-  function updateRow(key: string, patch: Partial<{ totalMarks: string; marksObtained: string; isAbsent: boolean }>) {
-    // Functional update: edits to different cells must compose off the latest state, not a
-    // stale `rows` closure (React may batch several onChange commits together).
-    setRows((prev) => ({ ...prev, [key]: { ...prev[key], ...patch } }));
-  }
-
-  async function save() {
-    const records = enrollments.flatMap((e) =>
-      subjects.map((s) => {
-        const key = `${e.id}:${s.id}`;
-        const r = rows[key];
-        return {
-          enrollmentId: e.id,
-          subjectId: s.id,
-          totalMarks: Number(r.totalMarks),
-          isAbsent: r.isAbsent,
-          ...(r.isAbsent ? {} : { marksObtained: Number(r.marksObtained) }),
-        };
-      }),
-    );
-    setSaveMsg(null);
-    await onAction(async () => {
-      const res = await apiPost<{ succeeded: number; failed: number }>(`/exams/${exam.id}/results/bulk`, { records });
-      setSaveMsg(`Saved ${res.succeeded}, failed ${res.failed}`);
-    }, 'Marks saved');
-  }
-
-  return (
-    <div className="card stack">
-      <div className="row">
-        <h2 style={{ margin: 0, fontSize: 17 }}>Enter marks — {exam.name}</h2>
-        <button className="ghost small" onClick={onClose}>Close</button>
-      </div>
-      {subjects.length === 0 && <p className="muted">No subjects defined for this class yet — add one above.</p>}
-      <div className="inline-form">
-        <div><label>Section</label>
-          <select value={sectionId} onChange={(e) => setSectionId(e.target.value)}>
-            <option value="">Select…</option>{sections.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-          </select>
-        </div>
-        <div style={{ maxWidth: 100 }}><label>Default total</label><input value={defaultTotal} onChange={(e) => setDefaultTotal(e.target.value)} /></div>
-        <button className="ghost" onClick={loadRoster} disabled={!sectionId || subjects.length === 0}>Load roster</button>
-      </div>
-
-      {enrollments.length > 0 && subjects.length > 0 && (
-        <>
-          <table>
-            <thead><tr><th>Student</th><th>Subject</th><th>Total marks</th><th>Marks obtained</th><th>Absent</th></tr></thead>
-            <tbody>
-              {enrollments.map((e) => subjects.map((s) => {
-                const key = `${e.id}:${s.id}`;
-                const r = rows[key] ?? { totalMarks: defaultTotal, marksObtained: '', isAbsent: false };
-                return (
-                  <tr key={key}>
-                    {/* From the row itself. The old `students[...] ?? id.slice(0,8)` fallback
-                        fired for every student outside the first page of /students — i.e. most
-                        of a real school — and put a UUID fragment on a marks sheet. */}
-                    <td>{e.student ? `${e.student.fullName} (${e.student.grNumber})` : students[e.studentId] ?? e.studentId.slice(0, 8)}</td>
-                    <td>{s.name}</td>
-                    <td style={{ maxWidth: 90 }}><input value={r.totalMarks} onChange={(ev) => updateRow(key, { totalMarks: ev.target.value })} /></td>
-                    <td style={{ maxWidth: 90 }}><input value={r.marksObtained} disabled={r.isAbsent} onChange={(ev) => updateRow(key, { marksObtained: ev.target.value })} /></td>
-                    <td><input type="checkbox" checked={r.isAbsent} onChange={(ev) => updateRow(key, { isAbsent: ev.target.checked })} /></td>
-                  </tr>
-                );
-              }))}
-            </tbody>
-          </table>
-          <div className="inline-form">
-            <button onClick={save}>Save marks</button>
-            {saveMsg && <span className="muted">{saveMsg}</span>}
-          </div>
-        </>
-      )}
-      {sectionId && enrollments.length === 0 && <p className="muted">No active students in this section.</p>}
-    </div>
-  );
-}
-
-function ResultsPanel({ examId, subjects, students, onClose }: { examId: string; subjects: Subject[]; students: Record<string, string>; onClose: () => void }) {
-  const [results, setResults] = useState<ExamResult[] | null>(null);
-  useEffect(() => { apiGet<ExamResult[]>(`/exams/${examId}/results`).then(setResults).catch(() => setResults([])); }, [examId]);
-  const subjectName = (id: string) => subjects.find((s) => s.id === id)?.name ?? id.slice(0, 8);
-
-  return (
-    <div className="card stack">
-      <div className="row">
-        <h2 style={{ margin: 0, fontSize: 17 }}>Results</h2>
-        <button className="ghost small" onClick={onClose}>Close</button>
-      </div>
-      {results === null ? <p className="muted">Loading…</p> : results.length === 0 ? <p className="muted">No results entered yet.</p> : (
-        <table>
-          <thead><tr><th>Student</th><th>Subject</th><th>Marks</th><th>Status</th></tr></thead>
-          <tbody>
-            {results.map((r) => (
-              <tr key={r.id}>
-                <td>{r.enrollment?.student
-                  ? `${r.enrollment.student.fullName} (${r.enrollment.student.grNumber})`
-                  : students[r.enrollment?.studentId ?? ''] ?? r.enrollment?.studentId?.slice(0, 8)}</td>
-                <td>{r.subject?.name ?? subjectName(r.subjectId)}</td>
-                <td>{r.isAbsent ? '—' : `${r.marksObtained} / ${r.totalMarks}`}</td>
-                <td>{r.isAbsent ? <span className="badge bad">absent</span> : <span className="badge ok">recorded</span>}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-    </div>
-  );
-}
-
-function ReportCardsCard({ terms, onAction }: { terms: Term[]; onAction: ActionFn }) {
-  const [termId, setTermId] = useState('');
-  const [cards, setCards] = useState<ReportCard[] | null>(null);
-
-  async function load() {
-    if (!termId) { setCards(null); return; }
-    setCards(await apiGet<ReportCard[]>(`/terms/${termId}/report-cards`));
-  }
-  useEffect(() => { load().catch(() => {}); }, [termId]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  return (
-    <div className="card stack">
-      <h2 style={{ margin: 0, fontSize: 17 }}>Report cards</h2>
-      <div className="inline-form">
-        <div style={{ minWidth: 220 }}><label>Term</label>
-          <select value={termId} onChange={(e) => setTermId(e.target.value)}>
-            <option value="">Select…</option>{terms.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-          </select>
-        </div>
-        <button className="ghost" onClick={() => onAction(async () => { await apiPost(`/terms/${termId}/report-cards/generate`); await load(); }, 'Report cards generated')} disabled={!termId}>Generate</button>
-      </div>
-      {cards && (cards.length === 0 ? <p className="muted">No report cards generated yet.</p> : (
-        <table>
-          <thead><tr><th>Enrollment</th><th>Overall %</th><th>Grade</th><th>Section rank</th></tr></thead>
-          <tbody>
-            {cards.map((c) => (
-              <tr key={c.id}>
-                <td>{c.enrollmentId.slice(0, 8)}</td>
-                <td>{c.overallPercent}</td>
-                <td>{c.gradeLabel}</td>
-                <td>{c.sectionRank ?? '—'}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      ))}
-    </div>
-  );
-}

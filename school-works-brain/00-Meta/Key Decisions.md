@@ -27,6 +27,11 @@ Full ledger: [[consistency-register]] (LOCKED). This is the digest.
 - Any page that keeps local scope state (`useScope`, payroll's picker) must **sync from `lens.campusId` on change**, not only seed from it — seeding once is what made the dropdown look broken.
 - Staff have no campus of their own: staff-leave filtering goes through `staff.user.campusId`; cover/away through the sections' class campus.
 
+## Campus Admin loses money access by default (2026-10-01)
+- **Decision (operator):** `campusAdminSeesFees` default flipped from `true` to `false`. Campus Admin is the principal-level academic/admin seat **without money access** out of the box. The owner can re-enable via Settings → "Campus admins can see fees".
+- **Scope:** all schools (existing schools with `campusAdminSeesFees: undefined` in their JSON inherit the new default). This is a breaking change for schools that relied on the implicit `true`.
+- **Why:** the operator model says money is the accountant's and Ops Admin's job, not the principal's. A campus admin who also handles fees is the exception, not the rule.
+
 ## The owner does NOT mark student attendance (2026-09-29)
 - **Policy:** the **class teacher** marks the student register; **campus admin** and the **Ops Admin** are the
   correction roles (the `PATCH /attendance/:id` correction requires a reason and is audited). The **owner is

@@ -267,7 +267,7 @@ describe('Campus scoping (e2e, §22.8 / P1.7)', () => {
   });
 
   it('the campus lens `campusId` query is accepted, and a campus-bound admin cannot widen it to campus B', async () => {
-    for (const p of [`/api/v1/exams?campusId=${campusB}`, `/api/v1/cover?campusId=${campusB}`, `/api/v1/student-leaves?campusId=${campusB}`, `/api/v1/staff-leaves?campusId=${campusB}`, `/api/v1/fees/claims?campusId=${campusB}`]) {
+    for (const p of [`/api/v1/exams?campusId=${campusB}`, `/api/v1/cover?campusId=${campusB}`, `/api/v1/student-leaves?campusId=${campusB}`, `/api/v1/staff-leaves?campusId=${campusB}`]) {
       expect((await authed('get', p, adminCookies)).status).toBe(200);
     }
     // Forced to the admin's own campus: campus-B students' leaves can never be listed by asking for B.
@@ -290,15 +290,9 @@ describe('Campus scoping (e2e, §22.8 / P1.7)', () => {
   });
 
   // ── Fees ─────────────────────────────────────────────────────────────────────
-  it('CAMPUS_ADMIN invoice list is scoped to A; a campus-B invoice read is 403', async () => {
-    const list = await authed('get', '/api/v1/fees/invoices', adminCookies);
-    const invIds = (list.body.data as Array<{ id: string }>).map((i) => i.id);
-    expect(invIds).toContain(invoiceA);
-    expect(invIds).not.toContain(invoiceB);
-
-    const cross = await authed('get', `/api/v1/fees/invoices/${invoiceB}`, adminCookies);
-    expect(cross.status).toBe(403);
-    expect(cross.body.error.code).toBe('FORBIDDEN');
+  it('CAMPUS_ADMIN cannot read invoices when campusAdminSeesFees is off (default)', async () => {
+    expect((await authed('get', '/api/v1/fees/invoices', adminCookies)).status).toBe(403);
+    expect((await authed('get', `/api/v1/fees/invoices/${invoiceB}`, adminCookies)).status).toBe(403);
   });
 
   it('a campus-A accountant filtering payments by a campus-B student sees nothing', async () => {
@@ -415,6 +409,16 @@ describe('Campus scoping (e2e, §22.8 / P1.7)', () => {
     expect(invIds).toEqual(expect.arrayContaining([invoiceA, invoiceB]));
   });
 
+  it('/auth/me returns campusName for a campus-bound user and schoolName for everyone', async () => {
+    const admin = (await authed('get', '/api/v1/auth/me', adminCookies)).body;
+    expect(admin.campusName).toBe('Main Campus');
+    expect(admin.schoolName).toBe('CS School');
+
+    const owner = (await authed('get', '/api/v1/auth/me', ownerCookies)).body;
+    expect(owner.campusName).toBeNull();
+    expect(owner.schoolName).toBe('CS School');
+  });
+
   // ── Dashboard role-shaping (§28, P1.7) ───────────────────────────────────────
   it('dashboard is campus-scoped: OWNER sees both students, CAMPUS_ADMIN only campus A', async () => {
     const owner = await authed('get', '/api/v1/dashboard', ownerCookies);
@@ -502,40 +506,40 @@ describe('Campus scoping (e2e, §22.8 / P1.7)', () => {
     expect(acct.body.enrollmentCount).toBe(1);
   });
   it("the owner may hide fees from the campus admin — enforced by the API, and the accountant/owner are unaffected", async () => {
-    // Default ON: a campus admin reads fees today (read-only), so nothing changes by upgrading.
-    expect((await authed('get', '/api/v1/fees/invoices', adminCookies)).status).toBe(200);
-    expect((await authed('get', '/api/v1/auth/me', adminCookies)).body.campusAdminSeesFees).toBe(true);
+    // Default OFF: campus admin cannot see fees out of the box.
+    expect((await authed('get', '/api/v1/auth/me', adminCookies)).body.campusAdminSeesFees).toBe(false);
+    for (const p of ['/api/v1/fees/invoices', '/api/v1/fees/payments', '/api/v1/fees/defaulters', '/api/v1/fees/claims', '/api/v1/fee-structures', '/api/v1/reports/defaulters', '/api/v1/reports/daily-collection']) {
+      expect([(await authed('get', p, adminCookies)).status, p]).toEqual([403, p]);
+    }
+    const dash = (await authed('get', '/api/v1/dashboard', adminCookies)).body;
+    expect(dash.visible).not.toContain('monthCollections');
+    expect([dash.monthCollections, dash.outstandingTotal, dash.defaulterCount, dash.collectionsTrend.length]).toEqual([0, 0, 0, 0]);
+    expect((await authed('get', '/api/v1/dashboard/collection-by-class', adminCookies)).body.classes).toEqual([]);
+    expect((await authed('get', '/api/v1/fees/claims/pending-count', adminCookies)).body.pending).toBe(0);
 
-    // Only the OWNER can make the choice.
-    const off = await authed('patch', '/api/v1/school-settings', ownerCookies, ownerCsrf).send({ campusAdminSeesFees: false });
-    expect(off.status).toBe(200);
-    expect(off.body.campusAdminSeesFees).toBe(false);
+    // A campus admin cannot flip it themselves.
+    expect((await authed('patch', '/api/v1/school-settings', adminCookies).send({ campusAdminSeesFees: true })).status).toBe(403);
+
+    // Only the OWNER can enable it.
+    const on = await authed('patch', '/api/v1/school-settings', ownerCookies, ownerCsrf).send({ campusAdminSeesFees: true });
+    expect(on.status).toBe(200);
+    expect(on.body.campusAdminSeesFees).toBe(true);
     try {
-      // Every fee read a campus admin could reach is now closed…
-      for (const p of ['/api/v1/fees/invoices', '/api/v1/fees/payments', '/api/v1/fees/defaulters', '/api/v1/fees/claims', '/api/v1/fee-structures', '/api/v1/reports/defaulters', '/api/v1/reports/daily-collection']) {
-        const res = await authed('get', p, adminCookies);
-        expect([p, res.status]).toEqual([p, 403]);
-      }
-      // …the dashboard carries no money (zeros, money cards dropped, nothing sent)…
-      const dash = (await authed('get', '/api/v1/dashboard', adminCookies)).body;
-      expect(dash.visible).not.toContain('monthCollections');
-      expect([dash.monthCollections, dash.outstandingTotal, dash.defaulterCount, dash.collectionsTrend.length]).toEqual([0, 0, 0, 0]);
-      expect((await authed('get', '/api/v1/dashboard/collection-by-class', adminCookies)).body.classes).toEqual([]);
-      // …the claims chip asks nothing of them…
-      expect((await authed('get', '/api/v1/fees/claims/pending-count', adminCookies)).body.pending).toBe(0);
-      // …and the shell is told, so it draws no money screens.
-      expect((await authed('get', '/api/v1/auth/me', adminCookies)).body.campusAdminSeesFees).toBe(false);
+      // Now the campus admin can read fees…
+      expect((await authed('get', '/api/v1/fees/invoices', adminCookies)).status).toBe(200);
+      expect((await authed('get', '/api/v1/auth/me', adminCookies)).body.campusAdminSeesFees).toBe(true);
 
-      // The accountant and the owner keep everything.
+      // The accountant and the owner always keep everything.
       expect((await authed('get', '/api/v1/fees/invoices', acctCookies)).status).toBe(200);
       expect((await authed('get', '/api/v1/fees/invoices', ownerCookies)).status).toBe(200);
       expect((await authed('get', '/api/v1/dashboard', ownerCookies)).body.visible).toContain('monthCollections');
-      // A campus admin cannot flip it back themselves.
-      expect((await authed('patch', '/api/v1/school-settings', adminCookies).send({ campusAdminSeesFees: true })).status).toBe(403);
     } finally {
-      await authed('patch', '/api/v1/school-settings', ownerCookies, ownerCsrf).send({ campusAdminSeesFees: true });
+      await authed('patch', '/api/v1/school-settings', ownerCookies, ownerCsrf).send({ campusAdminSeesFees: false });
     }
-    expect((await authed('get', '/api/v1/fees/invoices', adminCookies)).status).toBe(200);
+    // Back to default: campus admin blocked again.
+    for (const p of ['/api/v1/fees/invoices']) {
+      expect((await authed('get', p, adminCookies)).status).toBe(403);
+    }
   });
   it("the owner approves a campus's monthly vouchers: held, invisible and unpayable until approved; reject voids and frees the class", async () => {
     const batch = (classId: string, month: number, cookies = acctCookies, csrf = acctCsrf) =>

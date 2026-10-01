@@ -166,7 +166,7 @@ export const PERMISSION_MATRIX: MatrixRow[] = [
   { label: 'read one approval request', method: 'get', path: '/api/v1/approvals/00000000-0000-0000-0000-000000000000', allow: ['OWNER_ADMIN', 'ACCOUNTANT'], scopeGated: true },
   { label: 'approve a request', method: 'post', path: '/api/v1/approvals/00000000-0000-0000-0000-000000000000/approve', body: {}, allow: ['OWNER_ADMIN'] },
   { label: 'reject a request', method: 'post', path: '/api/v1/approvals/00000000-0000-0000-0000-000000000000/reject', body: { reason: 'no' }, allow: ['OWNER_ADMIN'] },
-  { label: 'list payment claims', method: 'get', path: '/api/v1/fees/claims',allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT'], scopeGated: true },
+  { label: 'list payment claims', method: 'get', path: '/api/v1/fees/claims', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT'], scopeGated: true },
   { label: 'submit a payment claim', method: 'post', path: '/api/v1/fees/claims', body: {}, allow: ['OWNER_ADMIN', 'ACCOUNTANT'] },
   { label: 'verify a payment claim', method: 'post', path: '/api/v1/fees/claims/00000000-0000-0000-0000-000000000000/verify', body: {}, allow: ['OWNER_ADMIN', 'ACCOUNTANT'] },
   { label: 'reject a payment claim', method: 'post', path: '/api/v1/fees/claims/00000000-0000-0000-0000-000000000000/reject', body: {}, allow: ['OWNER_ADMIN', 'ACCOUNTANT'] },
@@ -178,7 +178,7 @@ export const PERMISSION_MATRIX: MatrixRow[] = [
   // only, which is precisely why nothing caught it: **a guarded write does not imply a guarded
   // read, and only a row here proves either.**
   { label: 'list fee heads', method: 'get', path: '/api/v1/fee-heads', allow: ['OWNER_ADMIN', 'ACCOUNTANT'] },
-  { label: 'list fee prices', method: 'get', path: '/api/v1/fee-structures', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT'] },
+  { label: 'list fee prices', method: 'get', path: '/api/v1/fee-structures', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT'], scopeGated: true },
   { label: 'read late-fee policy', method: 'get', path: '/api/v1/late-fee-policy', allow: ['OWNER_ADMIN', 'ACCOUNTANT'] },
   { label: 'list student discounts', method: 'get', path: '/api/v1/discounts', allow: ['OWNER_ADMIN', 'ACCOUNTANT'] },
   // Minting a guardian link creates a BEARER CREDENTIAL for one invoice — whoever holds it can
@@ -381,7 +381,7 @@ export const PERMISSION_MATRIX: MatrixRow[] = [
   { label: 'list advances', method: 'get', path: '/api/v1/fees/advances', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT'], scopeGated: true },
   { label: 'record an advance', method: 'post', path: '/api/v1/fees/advances', body: {}, allow: ['OWNER_ADMIN', 'ACCOUNTANT'] },
   { label: 'list defaulters', method: 'get', path: '/api/v1/fees/defaulters', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT'], scopeGated: true },
-  { label: 'send defaulter reminders', method: 'post', path: '/api/v1/fees/defaulters/reminders', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT'] },
+  { label: 'send defaulter reminders', method: 'post', path: '/api/v1/fees/defaulters/reminders', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT'], scopeGated: true },
   { label: 'run mark-overdue job', method: 'post', path: '/api/v1/fees/jobs/mark-overdue', body: {}, allow: ['OWNER_ADMIN'] },
   { label: 'preview a fee statement', method: 'post', path: '/api/v1/fees/statements/preview', body: {}, allow: ['OWNER_ADMIN', 'ACCOUNTANT'] },
   { label: 'record a fee statement', method: 'post', path: '/api/v1/fees/statements', body: {}, allow: ['OWNER_ADMIN', 'ACCOUNTANT'] },

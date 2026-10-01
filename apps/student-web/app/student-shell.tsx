@@ -49,7 +49,10 @@ export function StudentShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="sp">
       <header className="sp-top">
-        <Link href="/" className="sp-brand"><Icon name="school" size={22} /><span>Student Portal</span></Link>
+        <Link href="/" className="sp-brand">
+          <Icon name="school" size={22} />
+          <span>{me.schoolName ?? 'Student Portal'}{me.campusName ? ` · ${me.campusName}` : ''}</span>
+        </Link>
         <nav className="sp-nav" aria-label="Student portal">
           {NAV.map((n) => (
             <Link key={n.href} href={n.href} aria-current={isActive(n.href) ? 'page' : undefined}>{n.label}</Link>

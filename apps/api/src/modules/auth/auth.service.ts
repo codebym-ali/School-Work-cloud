@@ -587,38 +587,54 @@ export class AuthService {
     await this.resignAccess(user.id, res);
   }
 
-  async me(principal: RequestUser): Promise<{ id: string; email: string; name: string | null; roles: Role[]; campusId: string | null; modules: string[]; mfaEnabled: boolean; admissionsMode: SchoolSettings['admissionsMode']; campusAdminSeesFees: boolean }> {
+  async me(principal: RequestUser): Promise<{ id: string; email: string; name: string | null; roles: Role[]; campusId: string | null; campusName: string | null; schoolName: string; modules: string[]; mfaEnabled: boolean; admissionsMode: SchoolSettings['admissionsMode']; campusAdminSeesFees: boolean; feeVoucherApproval: boolean }> {
     // SA5: a break-glass session has no tenant user row — synthesise a read-only "me" so the shell
     // loads (roles come from the token; every write is blocked by the BreakGlassReadonlyGuard).
     if (principal.breakGlass) {
       const bgSchool = await this.db.school.findFirst({ where: { id: principal.schoolId } });
+      const bgSettings = parseSchoolSettings(bgSchool?.settings);
       return {
         id: principal.userId,
         email: 'Vendor support · read-only',
         name: 'Vendor support',
         roles: principal.roles,
         campusId: null,
+        campusName: null,
+        schoolName: bgSchool?.name ?? 'School',
         modules: [],
         mfaEnabled: false,
-        admissionsMode: parseSchoolSettings(bgSchool?.settings).admissionsMode,
+        admissionsMode: bgSettings.admissionsMode,
         campusAdminSeesFees: true,
+        feeVoucherApproval: bgSettings.feeVoucherApproval,
       };
     }
     const user = await this.db.user.findFirst({ where: { id: principal.userId } });
     if (!user) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'User not found');
     const modules = await this.access.enabledModulesForSelf();
-    // The person's display name for the shell greeting — a staff member's own record, so "Ayesha Farooq"
-    // instead of the email local-part "teacher1". The owner has no staff profile → null, and the UI falls
-    // back to the email prefix.
     const staff = await this.db.staffProfile.findFirst({ where: { userId: user.id }, select: { fullName: true } });
-    // Shipped on /auth/me (not a separate fetch) because the UI needs it to decide which
-    // admissions surface to render at all — a later fetch would flash the wrong page first.
     const school = await this.db.school.findFirst({ where: { id: principal.schoolId } });
-    const { admissionsMode, campusAdminSeesFees } = parseSchoolSettings(school?.settings);
-    // Staff name first (HR owns it); otherwise the account's own name — how an owner gets one (Owner UX Phase 2).
-    // `campusAdminSeesFees` rides here for the same reason as `admissionsMode`: the shell must decide which money
-    // screens to draw before any of them loads (the API enforces it regardless).
-    return { id: user.id, email: user.email, name: staff?.fullName ?? user.fullName ?? null, roles: user.roles, campusId: user.campusId, modules, mfaEnabled: user.mfaEnabled, admissionsMode, campusAdminSeesFees };
+    const settings = parseSchoolSettings(school?.settings);
+    // Campus name for the CampusBadge (Campus Ops Admin plan, Phase 7). Students have no campusId
+    // on User — their campus is derived from their active enrollment.
+    let campusName: string | null = null;
+    if (user.campusId) {
+      const campus = await this.db.campus.findFirst({ where: { id: user.campusId }, select: { name: true } });
+      campusName = campus?.name ?? null;
+    } else if (user.roles.includes('STUDENT' as Role)) {
+      const enrollment = await this.db.studentEnrollment.findFirst({
+        where: { student: { userId: user.id }, status: 'ACTIVE' },
+        select: { campus: { select: { name: true } } },
+      });
+      campusName = enrollment?.campus?.name ?? null;
+    }
+    return {
+      id: user.id, email: user.email, name: staff?.fullName ?? user.fullName ?? null,
+      roles: user.roles, campusId: user.campusId, campusName,
+      schoolName: school?.name ?? 'School',
+      modules, mfaEnabled: user.mfaEnabled,
+      admissionsMode: settings.admissionsMode, campusAdminSeesFees: settings.campusAdminSeesFees,
+      feeVoucherApproval: settings.feeVoucherApproval,
+    };
   }
 
   /**

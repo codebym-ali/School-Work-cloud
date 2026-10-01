@@ -195,7 +195,7 @@ export const NAV: NavItem[] = [
   // as a plain absence that payroll then deducted. Same shape as `/my-attendance` above: a nav
   // stricter than the API does not restrict a capability, it deletes it.
   { href: '/my-leaves', label: 'My Leaves', icon: 'leaves', group: 'My Portal', roles: ['STAFF', 'TEACHER'] },
-  { href: '/my-payslips', label: 'My Payslips', icon: 'payslips', group: 'My Portal', roles: ['STAFF', 'TEACHER'] },
+  { href: '/my-payslips', label: 'My Payslips', icon: 'payslips', group: 'My Portal', roles: ['STAFF', 'TEACHER', 'ACCOUNTANT', 'CAMPUS_ADMIN', 'HR_MANAGER'] },
 
   // HR reads the register but never marks it — attendance feeds pay, and the same boundary
   // that keeps salary structures owner-only applies here.

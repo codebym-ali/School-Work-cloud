@@ -115,12 +115,13 @@ export const schoolSettingsSchema = z
      * Some owners are happy for the principal to see a child's fee status and the defaulters list; others
      * keep money strictly with the office. So it is the owner's call, per school.
      *
-     * **Default true**: that is what every existing school already gets, so a school hides it by choosing to.
+     * **Default false** (changed 2026-10-01): campus admin is the principal-level academic seat, NOT a
+     * money role — Ops Admin and the accountant handle fees. The owner can re-enable via Settings.
      * Off hides fees, payment submissions, defaulters, the fee reports and the dashboard's money figures from
      * a person whose ONLY money-relevant role is campus admin. The owner, the accountant and the Ops Admin are
      * unaffected (the server decides — `assertMayReadFees` — the UI merely follows).
      */
-    campusAdminSeesFees: z.boolean().default(true),
+    campusAdminSeesFees: z.boolean().default(false),
     /**
      * Must the owner approve a campus's monthly fee vouchers before they go out? (owner's decision, 2026-09-30)
      *

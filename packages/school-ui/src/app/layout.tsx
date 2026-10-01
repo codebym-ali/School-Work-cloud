@@ -11,6 +11,7 @@ import type { Campus } from '@sw/api-client';
 import { NotificationBell } from '@school/components/notification-bell';
 import { COLLAPSIBLE_GROUPS, feesHiddenFromMe, groupedNav, hasAnyRole, isFeeRoute, isSchoolWideAdmin, navItemFor, needsHomeLink, panelLabel, roleLabels, servesRoute, usesPersonalShell, MFA_REQUIRED_ROLES, type AppName } from '@sw/roles';
 import { TeacherSidebarNav, TeacherTabs } from '@school/components/teacher-tabs';
+import { CampusBadge } from '@school/components/campus-badge';
 
 /**
  * `app` names the door this shell is rendering in (Front-End Instance Separation Plan, Phase 4).
@@ -36,6 +37,7 @@ export default function AppLayout({ children, app }: { children: React.ReactNode
   // Campus lens (owner with >1 campus only). Fetched here so it persists across every screen.
   const [lensCampuses, setLensCampuses] = useState<Campus[]>([]);
   const [lensCampusId, setLensCampusId] = useState<string | null>(null);
+  const [approvalsPending, setApprovalsPending] = useState(0);
 
   // The two-step sign-in reminder strip, dismissed per viewer for 7 days. A convenience only: storage may be
   // blocked, in which case the strip simply shows (the Security badge carries the reminder either way).
@@ -115,6 +117,11 @@ export default function AppLayout({ children, app }: { children: React.ReactNode
         if (saved && cs.some((c) => c.id === saved)) setLensCampusId(saved);
       } catch { /* localStorage may be unavailable; the lens just starts at All */ }
     }).catch(() => {});
+  }, [me]);
+
+  useEffect(() => {
+    if (!me || !hasAnyRole(me.roles, ['OWNER_ADMIN', 'ACCOUNTANT'])) return;
+    api.approvals.pendingCount().then((r) => setApprovalsPending(r.pending)).catch(() => {});
   }, [me]);
 
   if (!ready) return <main className="container"><p className="muted">Loading…</p></main>;
@@ -237,6 +244,9 @@ export default function AppLayout({ children, app }: { children: React.ReactNode
                     aria-busy={pendingHref === n.href || undefined}>
                     <span className="nav-icon"><Icon name={n.icon} size={18} /></span>
                     {n.label}
+                    {n.href === '/approvals' && approvalsPending > 0 && (
+                      <span className="badge warn" style={{ marginLeft: 'auto', fontSize: 11 }}>{approvalsPending}</span>
+                    )}
                   </Link>
                 ));
                 // Configure-once groups collapse to cut the wall of links. They open automatically
@@ -287,6 +297,7 @@ export default function AppLayout({ children, app }: { children: React.ReactNode
                 </select>
               </label>
             )}
+            <CampusBadge />
             {/* The PERSON, as colleagues say it: "Muhammad Ali · Owner". The email is a login, not a name —
                 kept in the tooltip for the rare "which account am I in?" (Phase 2). */}
             <div className="who topbar-desktop" title={me.email}>

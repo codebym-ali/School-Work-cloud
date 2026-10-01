@@ -18,10 +18,11 @@ const MIN_CHARS = 2;
  *
  * Keyboard: ↑/↓ move, Enter picks, Escape closes. The result count is announced to screen readers.
  */
-export function StudentPicker({ id, value, onChange }: {
+export function StudentPicker({ id, value, onChange, campusId }: {
   id?: string;
   value: ReportStudentOption | null;
   onChange: (student: ReportStudentOption | null) => void;
+  campusId?: string;
 }) {
   const autoId = useId();
   const inputId = id ?? autoId;
@@ -45,7 +46,7 @@ export function StudentPicker({ id, value, onChange }: {
       inflight.current = controller;
       setSearching(true);
       try {
-        const found = await api.reportLookups.students(term, controller.signal);
+        const found = await api.reportLookups.students(term, controller.signal, campusId);
         if (!controller.signal.aborted) { setOptions(found); setActive(0); setOpen(true); }
       } catch {
         // An aborted request is the expected outcome of typing on; a real failure leaves the list empty.
@@ -55,7 +56,7 @@ export function StudentPicker({ id, value, onChange }: {
       }
     }, DEBOUNCE_MS);
     return () => window.clearTimeout(timer);
-  }, [text, value]);
+  }, [text, value, campusId]);
 
   useEffect(() => () => inflight.current?.abort(), []);
 

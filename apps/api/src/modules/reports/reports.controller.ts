@@ -12,6 +12,7 @@ import { ReportsService } from './reports.service';
  */
 class LookupQuery {
   @IsOptional() @IsString() @MaxLength(60) q?: string;
+  @IsOptional() @IsUUID() campusId?: string;
 }
 
 /** A report that cannot run without a parameter says which, instead of failing further down. */
@@ -45,22 +46,22 @@ export class ReportsController {
 
   @Get('daily-collection')
   async dailyCollection(@Query() q: ReportQuery, @Res() res: Response) {
-    return this.render(res, q.format, 'Daily Collection', await this.reports.dailyCollection(q.date ?? today()));
+    return this.render(res, q.format, 'Daily Collection', await this.reports.dailyCollection(q.date ?? today(), q.campusId));
   }
 
   @Get('fee-ledger')
   async feeLedger(@Query() q: ReportQuery, @Res() res: Response) {
-    return this.render(res, q.format, 'Fee Ledger', await this.reports.feeLedger(required(q.studentId, 'student')));
+    return this.render(res, q.format, 'Fee Ledger', await this.reports.feeLedger(required(q.studentId, 'student'), q.campusId));
   }
 
   @Get('attendance-register')
   async attendanceRegister(@Query() q: ReportQuery, @Res() res: Response) {
-    return this.render(res, q.format, 'Attendance Register', await this.reports.attendanceRegister(required(q.sectionId, 'section'), q.from ?? today(), q.to ?? today()));
+    return this.render(res, q.format, 'Attendance Register', await this.reports.attendanceRegister(required(q.sectionId, 'section'), q.from ?? today(), q.to ?? today(), q.campusId));
   }
 
   @Get('class-strength')
   async classStrength(@Query() q: ReportQuery, @Res() res: Response) {
-    return this.render(res, q.format, 'Class Strength', await this.reports.classStrength());
+    return this.render(res, q.format, 'Class Strength', await this.reports.classStrength(q.campusId));
   }
 
   @Get('defaulters')
@@ -70,7 +71,7 @@ export class ReportsController {
 
   @Get('exam-summary')
   async examSummary(@Query() q: ReportQuery, @Res() res: Response) {
-    return this.render(res, q.format, 'Exam Summary', await this.reports.examSummary(required(q.examId, 'exam')));
+    return this.render(res, q.format, 'Exam Summary', await this.reports.examSummary(required(q.examId, 'exam'), q.campusId));
   }
 
   /**
@@ -82,17 +83,17 @@ export class ReportsController {
    */
   @Get('lookups/students')
   lookupStudents(@Query() q: LookupQuery) {
-    return this.reports.lookupStudents(q.q ?? '');
+    return this.reports.lookupStudents(q.q ?? '', q.campusId);
   }
 
   @Get('lookups/sections')
-  lookupSections() {
-    return this.reports.lookupSections();
+  lookupSections(@Query() q: LookupQuery) {
+    return this.reports.lookupSections(q.campusId);
   }
 
   @Get('lookups/exams')
-  lookupExams() {
-    return this.reports.lookupExams();
+  lookupExams(@Query() q: LookupQuery) {
+    return this.reports.lookupExams(q.campusId);
   }
 
   @Get('sms-usage')

@@ -13,11 +13,10 @@ export function CampusBadge() {
   if (!me) return null;
   const schoolName = me.schoolName ?? 'School';
   const isOwner = (me.roles ?? []).includes('OWNER_ADMIN');
-  const label = isOwner ? 'All campuses' : me.campusName;
-  if (!label) return null;
+  const campusName = isOwner ? null : me.campusName;
   return (
-    <span className="campus-badge" title={isOwner ? 'You see every campus' : `Your campus: ${label}`}>
-      <strong>{schoolName}</strong> · {label}
+    <span className="campus-badge" title={campusName ? `Your campus: ${campusName}` : schoolName}>
+      <strong>{schoolName}</strong>{campusName ? ` · ${campusName}` : ''}
     </span>
   );
 }

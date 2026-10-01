@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { api, apiGet, ApiError, type ReportStudentOption } from '@sw/api-client';
-import { useMe } from '@sw/session';
+import { useMe, useCampusLens } from '@sw/session';
 import { feesHiddenFromMe, hasAnyRole, type Role } from '@sw/roles';
 import { Icon, type IconName } from '@sw/ui';
 import { StudentPicker } from '@school/components/student-picker';
@@ -165,15 +165,19 @@ export default function ReportsPage() {
     return () => window.removeEventListener('popstate', onPop);
   }, []);
 
+  const lens = useCampusLens();
+  const campusId = lens.campusId ?? undefined;
+
   if (!me) return <p className="muted">Loading…</p>;
   const spec = reports.find((r) => r.key === open);
   // Keyed: Back/Forward between two reports must not carry one report's filters into the other.
-  if (spec) return <ReportView key={spec.key} spec={spec} onBack={() => go(null)} />;
-  return <Gallery reports={reports} live={live} onOpen={go} />;
+  // campusId in key forces a full remount when the lens switches — stale data from the old campus is never shown.
+  if (spec) return <ReportView key={`${spec.key}-${campusId ?? 'all'}`} spec={spec} onBack={() => go(null)} campusId={campusId} />;
+  return <Gallery reports={reports} live={live} onOpen={go} campusId={campusId} />;
 }
 
 // ── Gallery ────────────────────────────────────────────────────────────────────────────────────────────
-function Gallery({ reports, live, onOpen }: { reports: ReportSpec[]; live: LiveSpec[]; onOpen: (key: string) => void }) {
+function Gallery({ reports, live, onOpen, campusId }: { reports: ReportSpec[]; live: LiveSpec[]; onOpen: (key: string) => void; campusId?: string }) {
   const [preview, setPreview] = useState<Record<string, string | null>>({});
   const [runs, setRuns] = useState<Record<string, string>>({});
   useEffect(() => { setRuns(readRuns()); }, []);
@@ -183,16 +187,18 @@ function Gallery({ reports, live, onOpen }: { reports: ReportSpec[]; live: LiveS
     let alive = true;
     const put = (k: string, v: string | null) => { if (alive) setPreview((p) => ({ ...p, [k]: v })); };
     const keys = new Set(reports.map((r) => r.key));
+    const cq = campusId ? `&campusId=${campusId}` : '';
+    const cqFirst = campusId ? `?campusId=${campusId}` : '';
     const rows = (path: string) => apiGet<Row[]>(path);
-    if (keys.has('daily-collection')) rows(`/reports/daily-collection?date=${today()}`).then((r) => put('daily-collection', `${moneyShort(sum(r, 'amountPaid'))} today`)).catch(() => put('daily-collection', null));
-    if (keys.has('defaulters')) rows('/reports/defaulters').then((r) => put('defaulters', `${plural(r.length, 'student')} · ${moneyShort(sum(r, 'outstanding'))}`)).catch(() => put('defaulters', null));
-    if (keys.has('class-strength')) rows('/reports/class-strength').then((r) => put('class-strength', plural(sum(r, 'activeStudents'), 'student'))).catch(() => put('class-strength', null));
+    if (keys.has('daily-collection')) rows(`/reports/daily-collection?date=${today()}${cq}`).then((r) => put('daily-collection', `${moneyShort(sum(r, 'amountPaid'))} today`)).catch(() => put('daily-collection', null));
+    if (keys.has('defaulters')) rows(`/reports/defaulters${cqFirst}`).then((r) => put('defaulters', `${plural(r.length, 'student')} · ${moneyShort(sum(r, 'outstanding'))}`)).catch(() => put('defaulters', null));
+    if (keys.has('class-strength')) rows(`/reports/class-strength${cqFirst}`).then((r) => put('class-strength', plural(sum(r, 'activeStudents'), 'student'))).catch(() => put('class-strength', null));
     if (keys.has('sms-usage')) rows(`/reports/sms-usage?from=${monthStart()}`).then((r) => put('sms-usage', `${plural(sum(r, 'count'), 'message')} this month`)).catch(() => put('sms-usage', null));
-    if (keys.has('attendance-register')) api.reportLookups.sections().then((s) => put('attendance-register', plural(s.length, 'section'))).catch(() => put('attendance-register', null));
-    if (keys.has('exam-summary')) api.reportLookups.exams().then((e) => put('exam-summary', plural(e.length, 'exam'))).catch(() => put('exam-summary', null));
+    if (keys.has('attendance-register')) api.reportLookups.sections(campusId).then((s) => put('attendance-register', plural(s.length, 'section'))).catch(() => put('attendance-register', null));
+    if (keys.has('exam-summary')) api.reportLookups.exams(campusId).then((e) => put('exam-summary', plural(e.length, 'exam'))).catch(() => put('exam-summary', null));
     if (keys.has('fee-ledger')) put('fee-ledger', 'Any family');
     return () => { alive = false; };
-  }, [reports.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [reports.length, campusId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const groups = CATEGORIES
     .map((c) => ({ c, reports: reports.filter((r) => r.category === c), live: live.filter((l) => l.category === c) }))
@@ -243,7 +249,7 @@ function Gallery({ reports, live, onOpen }: { reports: ReportSpec[]; live: LiveS
 }
 
 // ── One report ─────────────────────────────────────────────────────────────────────────────────────────
-function ReportView({ spec, onBack }: { spec: ReportSpec; onBack: () => void }) {
+function ReportView({ spec, onBack, campusId }: { spec: ReportSpec; onBack: () => void; campusId?: string }) {
   const [values, setValues] = useState<Partial<Record<ParamKind, string>>>(() =>
     Object.fromEntries(spec.params.filter((p) => DEFAULTS[p]).map((p) => [p, DEFAULTS[p]!()])));
   const [student, setStudent] = useState<ReportStudentOption | null>(null);
@@ -255,14 +261,15 @@ function ReportView({ spec, onBack }: { spec: ReportSpec; onBack: () => void }) 
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    if (spec.params.includes('section')) api.reportLookups.sections().then(setSections).catch(() => setSections([]));
-    if (spec.params.includes('exam')) api.reportLookups.exams().then(setExams).catch(() => setExams([]));
-  }, [spec]);
+    if (spec.params.includes('section')) api.reportLookups.sections(campusId).then(setSections).catch(() => setSections([]));
+    if (spec.params.includes('exam')) api.reportLookups.exams(campusId).then(setExams).catch(() => setExams([]));
+  }, [spec, campusId]);
 
   const valueOf = (p: ParamKind) => (p === 'student' ? student?.id : values[p]);
   const missing = (spec.required ?? []).filter((p) => !valueOf(p));
   const query = (extra?: string) => {
     const parts = spec.params.map((p) => [QUERY[p], valueOf(p)] as const).filter(([, v]) => v).map(([k, v]) => `${k}=${encodeURIComponent(v!)}`);
+    if (campusId) parts.push(`campusId=${campusId}`);
     if (extra) parts.push(extra);
     return parts.length ? `?${parts.join('&')}` : '';
   };
@@ -315,7 +322,7 @@ function ReportView({ spec, onBack }: { spec: ReportSpec; onBack: () => void }) 
           <div key={p} className="ov-field">
             <label htmlFor={`rep-${p}`}>{LABEL[p]}{spec.required?.includes(p) ? '' : ' (optional)'}</label>
             {p === 'student' ? (
-              <StudentPicker id={`rep-${p}`} value={student} onChange={setStudent} />
+              <StudentPicker id={`rep-${p}`} value={student} onChange={setStudent} campusId={campusId} />
             ) : p === 'section' ? (
               <SearchableSelect id={`rep-${p}`} value={values.section ?? ''} onChange={(v) => set('section', v)}
                 placeholder={sections === null ? 'Loading…' : 'Search a section'} emptyLabel="No section matches."

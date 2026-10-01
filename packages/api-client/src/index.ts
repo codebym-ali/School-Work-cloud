@@ -1473,10 +1473,10 @@ export const api = {
    * accountant too — the general student/section/exam routes do not admit that role.
    */
   reportLookups: {
-    students: (q: string, signal?: AbortSignal) =>
-      apiGet<ReportStudentOption[]>(`/reports/lookups/students?q=${encodeURIComponent(q)}`, signal),
-    sections: () => apiGet<Array<{ id: string; label: string; campus: string }>>('/reports/lookups/sections'),
-    exams: () => apiGet<Array<{ id: string; label: string; term: string }>>('/reports/lookups/exams'),
+    students: (q: string, signal?: AbortSignal, campusId?: string) =>
+      apiGet<ReportStudentOption[]>(`/reports/lookups/students?q=${encodeURIComponent(q)}${campusId ? `&campusId=${campusId}` : ''}`, signal),
+    sections: (campusId?: string) => apiGet<Array<{ id: string; label: string; campus: string }>>(`/reports/lookups/sections${campusId ? `?campusId=${campusId}` : ''}`),
+    exams: (campusId?: string) => apiGet<Array<{ id: string; label: string; term: string }>>(`/reports/lookups/exams${campusId ? `?campusId=${campusId}` : ''}`),
   },
   /** Campuses side by side (GAP-11). Owner and deputy only. Reversed payments are not counted as collected. */
   campusSummary: () => apiGet<CampusSummary[]>('/campuses/summary'),

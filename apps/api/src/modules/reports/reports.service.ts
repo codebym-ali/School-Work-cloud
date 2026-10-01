@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { assertMayReadFees, effectiveCampusFilter, PdfService, restrictedCampusId, TenantContext } from '@common';
+import { assertMayReadFees, effectiveCampusFilter, PdfService, TenantContext } from '@common';
 import { TenantPrismaService } from '@database';
 
 type Row = Record<string, unknown>;
@@ -37,26 +37,20 @@ export class ReportsService {
     });
   }
 
-  /** `{ enrollment: { campusId } }` fragment for a campus-bound user, else `{}`. */
-  private get campusEnrollmentFilter(): { enrollment: { campusId: string } } | Record<string, never> {
-    const restricted = restrictedCampusId(this.ctx.user);
-    return restricted ? { enrollment: { campusId: restricted } } : {};
-  }
-
   /** The owner may choose not to show fees to a campus admin (`campusAdminSeesFees`) — the three fee reports. */
   private mayReadFees() {
     return assertMayReadFees(this.ctx.user, async () => (await this.db.school.findFirst({ where: { id: this.ctx.requireSchoolId() }, select: { settings: true } }))?.settings);
   }
 
-  async dailyCollection(date: string): Promise<Row[]> {
+  async dailyCollection(date: string, campusId?: string): Promise<Row[]> {
     await this.mayReadFees();
     const day = new Date(date);
     const next = new Date(day.getTime() + 86400000);
-    const restricted = restrictedCampusId(this.ctx.user);
+    const eff = effectiveCampusFilter(this.ctx.user, campusId);
     const payments = await this.db.feePayment.findMany({
       where: {
         paidAt: { gte: day, lt: next },
-        ...(restricted ? { invoice: { enrollment: { campusId: restricted } } } : {}),
+        ...(eff ? { invoice: { enrollment: { campusId: eff } } } : {}),
       },
       include: { invoice: { select: { student: { select: { fullName: true, grNumber: true } } } } },
       orderBy: { receiptNo: 'asc' },
@@ -68,9 +62,10 @@ export class ReportsService {
     }));
   }
 
-  async feeLedger(studentId: string): Promise<Row[]> {
+  async feeLedger(studentId: string, campusId?: string): Promise<Row[]> {
     await this.mayReadFees();
-    const invoices = await this.db.feeInvoice.findMany({ where: { studentId, ...this.campusEnrollmentFilter }, include: { payments: true }, orderBy: { createdAt: 'asc' } });
+    const eff = effectiveCampusFilter(this.ctx.user, campusId);
+    const invoices = await this.db.feeInvoice.findMany({ where: { studentId, ...(eff ? { enrollment: { campusId: eff } } : {}) }, include: { payments: true }, orderBy: { createdAt: 'asc' } });
     return invoices.map((i) => ({
       // "Aug 2026", as the challan and the parent say it — not "8/2026".
       period: i.month ? `${MONTHS[i.month - 1]} ${i.year}` : String(i.year), total: Number(i.totalAmount), paid: Number(i.paidAmount),
@@ -79,11 +74,11 @@ export class ReportsService {
     }));
   }
 
-  async attendanceRegister(sectionId: string, from: string, to: string): Promise<Row[]> {
-    const restricted = restrictedCampusId(this.ctx.user);
+  async attendanceRegister(sectionId: string, from: string, to: string, campusId?: string): Promise<Row[]> {
+    const eff = effectiveCampusFilter(this.ctx.user, campusId);
     const records = await this.db.attendanceRecord.findMany({
       where: {
-        enrollment: { sectionId, ...(restricted ? { campusId: restricted } : {}) },
+        enrollment: { sectionId, ...(eff ? { campusId: eff } : {}) },
         date: { gte: new Date(from), lte: new Date(to) },
       },
       include: { enrollment: { select: { rollNumber: true, student: { select: { fullName: true, grNumber: true } } } } },
@@ -95,13 +90,13 @@ export class ReportsService {
     }));
   }
 
-  async classStrength(): Promise<Row[]> {
+  async classStrength(campusId?: string): Promise<Row[]> {
     const year = await this.db.academicYear.findFirst({ where: { isCurrent: true } });
     if (!year) return [];
-    const restricted = restrictedCampusId(this.ctx.user);
+    const eff = effectiveCampusFilter(this.ctx.user, campusId);
     const grouped = await this.db.studentEnrollment.groupBy({
       by: ['classId', 'sectionId'],
-      where: { academicYearId: year.id, status: 'ACTIVE', ...(restricted ? { campusId: restricted } : {}) },
+      where: { academicYearId: year.id, status: 'ACTIVE', ...(eff ? { campusId: eff } : {}) },
       _count: { _all: true },
     });
     // Names, not ids, ordered as the school orders its classes. The ids alone made this — the report an owner
@@ -148,9 +143,10 @@ export class ReportsService {
     return [...byStudent.values()].sort((a, b) => b.outstanding - a.outstanding || String(a.name).localeCompare(String(b.name)));
   }
 
-  async examSummary(examId: string): Promise<Row[]> {
+  async examSummary(examId: string, campusId?: string): Promise<Row[]> {
+    const eff = effectiveCampusFilter(this.ctx.user, campusId);
     const results = await this.db.examResult.findMany({
-      where: { examId, ...this.campusEnrollmentFilter },
+      where: { examId, ...(eff ? { enrollment: { campusId: eff } } : {}) },
       include: { subject: { select: { name: true } }, enrollment: { select: { student: { select: { fullName: true, grNumber: true } } } } },
     });
     return results
@@ -168,10 +164,10 @@ export class ReportsService {
    * index (ILIKE is index-backed with pg_trgm), so it stays an index lookup as the school grows. Includes
    * students who have left — a fee ledger is most often wanted for exactly them.
    */
-  async lookupStudents(q: string) {
+  async lookupStudents(q: string, campusId?: string) {
     const term = q.trim();
     if (term.length < 2) return [];
-    const restricted = restrictedCampusId(this.ctx.user);
+    const restricted = effectiveCampusFilter(this.ctx.user, campusId);
     const rows = await this.db.student.findMany({
       where: {
         deletedAt: null,
@@ -191,8 +187,8 @@ export class ReportsService {
     }));
   }
 
-  async lookupSections() {
-    const restricted = restrictedCampusId(this.ctx.user);
+  async lookupSections(campusId?: string) {
+    const restricted = effectiveCampusFilter(this.ctx.user, campusId);
     const rows = await this.db.section.findMany({
       where: restricted ? { class: { campusId: restricted } } : {},
       select: { id: true, name: true, class: { select: { name: true, order: true, campus: { select: { name: true } } } } },
@@ -202,8 +198,8 @@ export class ReportsService {
       .map((s) => ({ id: s.id, label: `${s.class.name} ${s.name}`, campus: s.class.campus.name }));
   }
 
-  async lookupExams() {
-    const restricted = restrictedCampusId(this.ctx.user);
+  async lookupExams(campusId?: string) {
+    const restricted = effectiveCampusFilter(this.ctx.user, campusId);
     const rows = await this.db.examDefinition.findMany({
       where: restricted ? { class: { campusId: restricted } } : {},
       select: { id: true, name: true, class: { select: { name: true, order: true } }, term: { select: { name: true } } },

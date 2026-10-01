@@ -23,7 +23,7 @@ const THRESHOLDS = [0, 7, 30, 60, 90];
  * ⚠️ **The screen sends ids, never amounts.** The server re-reads what each student owes when it queues the
  * message, so a list left open all morning still texts today's balance. One reminder per student per day.
  */
-export default function DefaultersPage({ embedded }: { embedded?: boolean } = {}) {
+export default function DefaultersPage({ embedded }: { embedded?: boolean }) {
   const me = useMe();
   const canOpenProfile = hasAnyRole(me?.roles, ['OWNER_ADMIN', 'CAMPUS_ADMIN']);
   const lens = useCampusLens();

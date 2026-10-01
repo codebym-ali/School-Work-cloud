@@ -33,7 +33,7 @@ const badgeFor = (status: string) =>
   status === 'APPROVED' ? 'ok' : status === 'REJECTED' ? 'bad' : status === 'CANCELLED' ? '' : 'warn';
 
 /** Owner and campus admin reach this in the Attendance hub (`/attendance?tab=leaves`); an old link forwards there. */
-export default function LeavesPage({ embedded }: { embedded?: boolean } = {}) {
+export default function LeavesPage({ embedded }: { embedded?: boolean }) {
   const me = useMe();
   const router = useRouter();
   const toHub = !embedded && hasAnyRole(me?.roles, ['OWNER_ADMIN', 'CAMPUS_ADMIN']);

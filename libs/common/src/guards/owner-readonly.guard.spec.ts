@@ -4,7 +4,7 @@ import type { Reflector } from '@nestjs/core';
 import { ErrorCodes } from '../errors/error-codes';
 
 function ctx(method: string, roles: string[], writable?: boolean): [ExecutionContext, Reflector] {
-  const req = { method, user: { roles } } as any;
+  const req = { method, user: { roles } } as unknown as Record<string, unknown>;
   const handler = () => {};
   const klass = class {};
   const context = {

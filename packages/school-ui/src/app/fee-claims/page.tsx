@@ -39,7 +39,7 @@ const SOURCE: Record<string, string> = {
  *
  * Oldest first, because a queue is worked through and the family waiting longest goes first.
  */
-export default function FeeClaimsPage({ embedded }: { embedded?: boolean } = {}) {
+export default function FeeClaimsPage({ embedded }: { embedded?: boolean }) {
   const me = useMe();
   const lens = useCampusLens();
   const canDecide = hasAnyRole(me?.roles, ['OWNER_ADMIN', 'ACCOUNTANT']);

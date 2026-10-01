@@ -47,11 +47,11 @@ describe('Bell schedule (e2e)', () => {
   const csrfOf = (c: string[]) => (c.find((x) => x.startsWith('csrf=')) ?? '').split(';')[0].slice(5);
   const post = (p: string, b: object = {}) =>
     request(server()).post(p).set('Host', host).set('Cookie', ownerCookies).set('X-CSRF-Token', ownerCsrf).send(b);
-  const put = (p: string, b: object = {}) =>
+  const _put = (p: string, b: object = {}) =>
     request(server()).put(p).set('Host', host).set('Cookie', ownerCookies).set('X-CSRF-Token', ownerCsrf).send(b);
-  const patch = (p: string, b: object = {}) =>
+  const _patch = (p: string, b: object = {}) =>
     request(server()).patch(p).set('Host', host).set('Cookie', ownerCookies).set('X-CSRF-Token', ownerCsrf).send(b);
-  const del = (p: string) =>
+  const _del = (p: string) =>
     request(server()).delete(p).set('Host', host).set('Cookie', ownerCookies).set('X-CSRF-Token', ownerCsrf);
   const get = (p: string, cookies = ownerCookies) => request(server()).get(p).set('Host', host).set('Cookie', cookies);
 

@@ -39,7 +39,7 @@ type Filter = '' | 'PRESENT' | 'LATE' | 'ABSENT' | 'ON_LEAVE' | 'UNMARKED';
  * `/staff-attendance` forwards there, date and filter kept. The HR manager has no hub, so for them this stays
  * a page of its own.
  */
-export default function StaffAttendancePage({ embedded }: { embedded?: boolean } = {}) {
+export default function StaffAttendancePage({ embedded }: { embedded?: boolean }) {
   const me = useMe();
   const router = useRouter();
   const toHub = !embedded && hasAnyRole(me?.roles, ['OWNER_ADMIN', 'CAMPUS_ADMIN']);

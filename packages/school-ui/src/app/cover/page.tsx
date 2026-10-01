@@ -32,7 +32,7 @@ const longDate = (d: string) =>
   new Date(d).toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' });
 
 /** Owner and campus admin reach this in the Attendance hub (`/attendance?tab=cover`); an old link forwards there. */
-export default function CoverPage({ embedded }: { embedded?: boolean } = {}) {
+export default function CoverPage({ embedded }: { embedded?: boolean }) {
   const me = useMe();
   const router = useRouter();
   const toHub = !embedded && hasAnyRole(me?.roles, ['OWNER_ADMIN', 'CAMPUS_ADMIN']);

@@ -17,7 +17,7 @@ export class OwnerReadOnlyGuard implements CanActivate {
     if (!req.user) return true;
 
     const isOwnerOnly =
-      req.user.roles.includes('OWNER_ADMIN' as any) &&
+      req.user.roles.includes('OWNER_ADMIN') &&
       !req.user.roles.some((r) =>
         r !== 'OWNER_ADMIN' && r !== 'PARENT' && r !== 'STUDENT',
       );

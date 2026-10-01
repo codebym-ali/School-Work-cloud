@@ -292,17 +292,17 @@ function ExamsAdminConsole() {
 
 function ExamOverview({ exams }: { exams: Exam[] }) {
   if (exams.length === 0) return null;
+  const uniqueExams = new Set(exams.map((e) => e.name)).size;
   const published = exams.filter((e) => e.status === 'PUBLISHED').length;
   const marksEntry = exams.filter((e) => e.status === 'MARKS_ENTRY').length;
   const draft = exams.filter((e) => e.status === 'DRAFT').length;
   const classCount = new Set(exams.map((e) => e.classId)).size;
 
-  const tiles: { label: string; value: number; color?: string }[] = [
-    { label: 'Total exams', value: exams.length },
+  const tiles: { label: string; value: string | number; sub?: string; color?: string }[] = [
+    { label: 'Exams', value: uniqueExams, sub: `${exams.length} across ${classCount} classes` },
     { label: 'Published', value: published, color: 'var(--c-green, #16a34a)' },
     { label: 'Marks entry', value: marksEntry, color: 'var(--c-amber, #d97706)' },
     { label: 'Draft', value: draft },
-    { label: 'Classes', value: classCount },
   ];
 
   return (
@@ -311,6 +311,7 @@ function ExamOverview({ exams }: { exams: Exam[] }) {
         <div key={t.label} className="card" style={{ flex: '1 1 120px', padding: '14px 16px', minWidth: 120, textAlign: 'center' }}>
           <div className="muted" style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>{t.label}</div>
           <div style={{ fontSize: 22, fontWeight: 700, color: t.color }}>{t.value}</div>
+          {'sub' in t && t.sub && <div className="muted" style={{ fontSize: 10, marginTop: 2 }}>{t.sub}</div>}
         </div>
       ))}
     </div>

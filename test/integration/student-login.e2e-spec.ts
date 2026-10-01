@@ -10,6 +10,7 @@ import { admissionController } from './support/admission';
 import { destroyTenant } from './support/tenant';
 import { loginRequest } from './support/login';
 import { enrolMfa } from './support/mfa';
+import { opsAdminSession } from './support/ops-admin';
 
 /**
  * Student portal sign-in by registration number + CNIC (§28). The direct-admission flow
@@ -28,6 +29,7 @@ describe('Student login: reg-no + CNIC (e2e, §28)', () => {
   /** One admission-controller session for the whole spec — the helper mints a deterministic
    *  email per campus, so calling it twice for the same campus collides on (school, email). */
   let admit: (dto: object) => request.Test;
+  let opsCookies: string[];
   const cnic = '42101-1234567-9';
 
   const sub = `slog-${randomUUID().slice(0, 8)}`;
@@ -58,10 +60,12 @@ describe('Student login: reg-no + CNIC (e2e, §28)', () => {
     // Enrolled once, here: revealing a CNIC is two-factor gated. The later owner sign-ins in this file
     // complete the challenge through support/login.ts, so they need no change.
     const cookies = await enrolMfa(server(), host, login.headers['set-cookie'] as unknown as string[]);
+    const ops = await opsAdminSession(app, platform, schoolId, host, 'ops@slog.pk', campusId);
+    opsCookies = ops.cookies;
     await post('/api/v1/academic-years', { name: '2026-27', startDate: '2026-04-01', endDate: '2027-03-31', isCurrent: true }, cookies);
-    const klass = await post('/api/v1/classes', { campusId, name: 'Grade 9', order: 9 }, cookies);
+    const klass = await post('/api/v1/classes', { campusId, name: 'Grade 9', order: 9 }, opsCookies);
     classId = klass.body.id;
-    const section = await post('/api/v1/sections', { classId, name: 'A' }, cookies);
+    const section = await post('/api/v1/sections', { classId, name: 'A' }, opsCookies);
     sectionId = section.body.id;
 
     // Admission controller admits a student WITH a CNIC → provisions the portal login.
@@ -138,7 +142,6 @@ describe('Student login: reg-no + CNIC (e2e, §28)', () => {
   it('records a CNIC after admission, provisioning the login, and the student can then sign in', async () => {
     const login = await loginRequest(server(), host, owner.email, owner.password);
     const ownerCookies = login.headers['set-cookie'] as unknown as string[];
-    const csrf = csrfOf(ownerCookies);
 
     // A second student admitted with NO cnic — so no portal login at all.
     const late = await admit({
@@ -153,8 +156,9 @@ describe('Student login: reg-no + CNIC (e2e, §28)', () => {
     expect(before?.userId).toBeNull(); // no login — the state this endpoint exists to fix
 
     const lateCnic = '42101-5556667-8';
+    const opsCsrf = csrfOf(opsCookies);
     const res = await request(server()).patch(`/api/v1/students/${lateId}/cnic`)
-      .set('Host', host).set('Cookie', ownerCookies).set('X-CSRF-Token', csrf)
+      .set('Host', host).set('Cookie', opsCookies).set('X-CSRF-Token', opsCsrf)
       .send({ cnic: lateCnic });
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({ loginProvisioned: true, replacedExisting: false });
@@ -176,12 +180,10 @@ describe('Student login: reg-no + CNIC (e2e, §28)', () => {
   });
 
   it('replacing a CNIC retires the old one as a credential, and refuses a duplicate', async () => {
-    const login = await loginRequest(server(), host, owner.email, owner.password);
-    const ownerCookies = login.headers['set-cookie'] as unknown as string[];
-    const csrf = csrfOf(ownerCookies);
+    const opsCsrf = csrfOf(opsCookies);
     const patch = (id: string, c: string) =>
       request(server()).patch(`/api/v1/students/${id}/cnic`)
-        .set('Host', host).set('Cookie', ownerCookies).set('X-CSRF-Token', csrf).send({ cnic: c });
+        .set('Host', host).set('Cookie', opsCookies).set('X-CSRF-Token', opsCsrf).send({ cnic: c });
 
     const replacement = '42101-1111222-3';
     const res = await patch(studentId, replacement);

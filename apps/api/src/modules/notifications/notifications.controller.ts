@@ -1,6 +1,8 @@
 import { Controller, Get, Post } from '@nestjs/common';
+import { OwnerWritable } from '@common';
 import { NotificationsService } from './notifications.service';
 
+@OwnerWritable()
 @Controller('notifications')
 export class NotificationsController {
   constructor(private readonly notifications: NotificationsService) {}

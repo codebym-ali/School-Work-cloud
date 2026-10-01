@@ -76,6 +76,10 @@ export const AuditActions = {
    *  mid-session admission and the cashier's "generate for this child" path. Recorded because it
    *  is a discretionary act by a person, where a batch is a scheduled one over a whole class. */
   INVOICE_GENERATED: 'INVOICE_GENERATED',
+  /** An office user asked the owner to sign off something (a campus's monthly vouchers, a school-wide setup change). */
+  APPROVAL_REQUESTED: 'APPROVAL_REQUESTED',
+  APPROVAL_APPROVED: 'APPROVAL_APPROVED',
+  APPROVAL_REJECTED: 'APPROVAL_REJECTED',
   FINE_WAIVED: 'FINE_WAIVED',
   PAYMENT_REVERSED: 'PAYMENT_REVERSED',
   GRADE_CHANGED_POST_PUBLISH: 'GRADE_CHANGED_POST_PUBLISH',

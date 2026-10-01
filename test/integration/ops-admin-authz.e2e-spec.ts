@@ -130,14 +130,34 @@ describe('Operations Admin deputy (e2e, RBAC)', () => {
   });
 
   it('OP-2: the deputy cannot touch ANOTHER deputy — grant, reset-password or revoke ops → 403', async () => {
-    // Owner appoints a second deputy.
+    // One Ops Admin per campus (a seat): a second on the SAME campus is refused …
+    expect((await send('patch', `/api/v1/users/${deputy2Id}/access`, { role: 'OPERATIONS_ADMIN', grant: true }, ownerCookies)).status).toBe(409);
+    // … so the peer lives on another campus; the owner appoints them there.
+    const campus2 = await platform.campus.create({ data: { schoolId, name: 'Second Campus' } });
+    await platform.user.update({ where: { id: deputy2Id }, data: { campusId: campus2.id } });
     expect((await send('patch', `/api/v1/users/${deputy2Id}/access`, { role: 'OPERATIONS_ADMIN', grant: true }, ownerCookies)).status).toBe(200);
 
+    // Another campus's people are out of reach for this deputy (403) — a peer's login is never theirs to touch.
     const dep = (await login(deputy.email, deputy.password)).cookies;
     expect((await send('patch', `/api/v1/users/${deputy2Id}/access`, { role: 'HR_MANAGER', grant: true }, dep)).status).toBe(403);
     expect((await send('post', `/api/v1/users/${deputy2Id}/reset-password`, { password: 'Pwn!Secret1234' }, dep)).status).toBe(403);
     // Only the owner may revoke a deputy — a peer cannot.
     expect((await send('patch', `/api/v1/users/${deputy2Id}/access`, { role: 'OPERATIONS_ADMIN', grant: false }, dep)).status).toBe(403);
+  });
+
+  it('the Ops Admin is a per-campus seat: no campus-less one, and the deputy sees only their own campus', async () => {
+    // A campus is required — the owner cannot mint a school-wide Ops Admin any more.
+    const res = await send('post', '/api/v1/users', { email: `nocampus-${Date.now()}@ops.pk`, roles: ['OPERATIONS_ADMIN'], password: 'Xx!Secret1234' }, ownerCookies);
+    expect(res.status).toBe(422);
+
+    // Both Ops Admins (campus 1 and campus 2) exist; each sees only their own campus's people.
+    const dep = (await login(deputy.email, deputy.password)).cookies;
+    const ids = ((await get('/api/v1/users', dep)).body as Array<{ id: string }>).map((u) => u.id);
+    expect(ids).toContain(lowerId);
+    expect(ids).not.toContain(deputy2Id);
+    // And the owner, who is school-wide, sees both.
+    const all = ((await get('/api/v1/users', ownerCookies)).body as Array<{ id: string }>).map((u) => u.id);
+    expect(all).toEqual(expect.arrayContaining([deputyId, deputy2Id]));
   });
 
   it('owner-only roots of trust stay owner-only for the deputy: module access + remove → 403', async () => {
@@ -168,10 +188,56 @@ describe('Operations Admin deputy (e2e, RBAC)', () => {
       const status = (await send(m, p, b, dep)).status;
       expect(status).not.toBe(403);
     }
-    // A valid campus create actually succeeds for the deputy (201) — proving the write path end-to-end.
-    expect((await send('post', '/api/v1/campuses', { name: 'Ops Campus' }, dep)).status).toBe(201);
+    // Campus create/close and the cross-campus comparison are the OWNER's: a campus's Ops Admin runs one campus.
+    expect((await send('post', '/api/v1/campuses', { name: 'Ops Campus' }, dep)).status).toBe(403);
+    expect((await get('/api/v1/campuses/summary', dep)).status).toBe(403);
+    // The campus list shows them only their own campus.
+    expect(((await get('/api/v1/campuses', dep)).body as Array<{ id: string }>).map((c) => c.id)).toEqual([campusId]);
     // Still owner-reserved: integrity-check is a diagnostic, deliberately NOT opened to the deputy.
     expect((await get('/api/v1/fees/integrity-check', dep)).status).toBe(403);
+  });
+
+  it('school-wide setup: the Ops Admin PROPOSES, nothing changes until the owner approves; the owner acts directly', async () => {
+    const dep = (await login(deputy.email, deputy.password)).cookies;
+    const heads = async (cookies: string[]) => ((await get('/api/v1/fee-heads', cookies)).body as Array<{ id: string; name: string }>);
+
+    // The Ops Admin asks for a new fee head → accepted as a proposal, NOT created.
+    const asked = await send('post', '/api/v1/fee-heads', { name: 'Lab fee' }, dep);
+    expect(asked.status).toBe(201);
+    expect(asked.body).toMatchObject({ pendingApproval: true });
+    expect(asked.headers['x-pending-approval']).toBe(asked.body.approvalId);
+    expect((await heads(ownerCookies)).map((h) => h.name)).not.toContain('Lab fee');
+
+    // A setting change is a proposal too — including from a DELETE (no body), signalled by the header.
+    const setting = await send('patch', '/api/v1/school-settings', { feeDueDay: 12 }, dep);
+    expect(setting.body).toMatchObject({ pendingApproval: true });
+    expect((await get('/api/v1/school-settings', ownerCookies)).body.feeDueDay).not.toBe(12);
+
+    // The owner sees both, with the change spelled out in the proposer's own words.
+    const open = (await get('/api/v1/approvals?status=PENDING', ownerCookies)).body as Array<{ id: string; type: string; title: string; changes: Array<{ label: string; value: string }> | null; requestedBy: string }>;
+    const headReq = open.find((r) => r.title === 'Add fee head “Lab fee”')!;
+    expect(headReq).toMatchObject({ type: 'SETUP_CHANGE' });
+    expect(headReq.changes).toEqual([{ label: 'Name', value: 'Lab fee' }]);
+    // The deputy can follow their own request but cannot decide it.
+    expect((await get('/api/v1/approvals?status=PENDING', dep)).body.length).toBeGreaterThanOrEqual(2);
+    expect((await send('post', `/api/v1/approvals/${headReq.id}/approve`, {}, dep)).status).toBe(403);
+
+    // Approve → the SAME executor runs, as the owner: the fee head now exists.
+    expect((await send('post', `/api/v1/approvals/${headReq.id}/approve`, {}, ownerCookies)).status).toBe(201);
+    const created = (await heads(ownerCookies)).find((h) => h.name === 'Lab fee');
+    expect(created).toBeDefined();
+    // Reject → nothing ever happens.
+    const settingReq = open.find((r) => r.title.startsWith('Change school settings'))!;
+    expect((await send('post', `/api/v1/approvals/${settingReq.id}/reject`, { reason: 'Keep the 5th' }, ownerCookies)).status).toBe(201);
+    expect((await get('/api/v1/school-settings', ownerCookies)).body.feeDueDay).not.toBe(12);
+
+    // A DELETE (204, no body) is still a proposal; the owner removing it directly just works.
+    const del = await send('delete', `/api/v1/fee-heads/${created!.id}`, {}, dep);
+    expect(del.status).toBe(204);
+    expect(del.headers['x-pending-approval']).toBeTruthy();
+    expect((await heads(ownerCookies)).map((h) => h.name)).toContain('Lab fee');
+    expect((await send('delete', `/api/v1/fee-heads/${created!.id}`, {}, ownerCookies)).status).toBe(204);
+    expect((await heads(ownerCookies)).map((h) => h.name)).not.toContain('Lab fee');
   });
 
   it('the owner revokes the deputy, and the ex-deputy immediately loses the reach', async () => {

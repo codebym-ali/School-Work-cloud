@@ -34,8 +34,9 @@ const CAMPUS_ADMIN_MAY_GRANT: Role[] = [Role.ADMISSION_CONTROLLER, Role.ACCOUNTA
  * CASHIER seat (many per campus), **not** relaxing this rule: the point is accountability for the
  * drawer, which a second accountant would remove.
  */
-const SOLE_CAMPUS_SEAT_ROLES: Role[] = [Role.CAMPUS_ADMIN, Role.ADMISSION_CONTROLLER, Role.ACCOUNTANT];
+const SOLE_CAMPUS_SEAT_ROLES: Role[] = [Role.OPERATIONS_ADMIN, Role.CAMPUS_ADMIN, Role.ADMISSION_CONTROLLER, Role.ACCOUNTANT];
 const SEAT_LABEL: Record<string, string> = {
+  [Role.OPERATIONS_ADMIN]: 'an ops admin',
   [Role.CAMPUS_ADMIN]: 'a campus admin',
   [Role.ADMISSION_CONTROLLER]: 'an admission officer',
   [Role.ACCOUNTANT]: 'an accountant',
@@ -251,10 +252,10 @@ export class UsersService {
       throw new AppError(ErrorCodes.FORBIDDEN, HttpStatus.FORBIDDEN, `You are not permitted to grant the role ${forbidden}`);
     }
 
-    // Campus binding: OWNER_ADMIN and its deputy OPERATIONS_ADMIN are school-wide (no campus); every
-    // other role needs one.
+    // Campus binding: only OWNER_ADMIN is school-wide (no campus); every other role — the Ops Admin
+    // included — needs one.
     let campusId: string | null;
-    if (dto.roles.includes(Role.OWNER_ADMIN) || dto.roles.includes(Role.OPERATIONS_ADMIN)) {
+    if (dto.roles.includes(Role.OWNER_ADMIN)) {
       if (dto.campusId) throw new AppError(ErrorCodes.VALIDATION_FAILED, HttpStatus.UNPROCESSABLE_ENTITY, 'This role is school-wide — do not set a campus');
       campusId = null;
     } else {

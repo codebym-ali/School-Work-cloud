@@ -501,6 +501,99 @@ describe('Campus scoping (e2e, §22.8 / P1.7)', () => {
     // Financial metrics are campus-scoped to A (their one student).
     expect(acct.body.enrollmentCount).toBe(1);
   });
+  it("the owner may hide fees from the campus admin — enforced by the API, and the accountant/owner are unaffected", async () => {
+    // Default ON: a campus admin reads fees today (read-only), so nothing changes by upgrading.
+    expect((await authed('get', '/api/v1/fees/invoices', adminCookies)).status).toBe(200);
+    expect((await authed('get', '/api/v1/auth/me', adminCookies)).body.campusAdminSeesFees).toBe(true);
+
+    // Only the OWNER can make the choice.
+    const off = await authed('patch', '/api/v1/school-settings', ownerCookies, ownerCsrf).send({ campusAdminSeesFees: false });
+    expect(off.status).toBe(200);
+    expect(off.body.campusAdminSeesFees).toBe(false);
+    try {
+      // Every fee read a campus admin could reach is now closed…
+      for (const p of ['/api/v1/fees/invoices', '/api/v1/fees/payments', '/api/v1/fees/defaulters', '/api/v1/fees/claims', '/api/v1/fee-structures', '/api/v1/reports/defaulters', '/api/v1/reports/daily-collection']) {
+        const res = await authed('get', p, adminCookies);
+        expect([p, res.status]).toEqual([p, 403]);
+      }
+      // …the dashboard carries no money (zeros, money cards dropped, nothing sent)…
+      const dash = (await authed('get', '/api/v1/dashboard', adminCookies)).body;
+      expect(dash.visible).not.toContain('monthCollections');
+      expect([dash.monthCollections, dash.outstandingTotal, dash.defaulterCount, dash.collectionsTrend.length]).toEqual([0, 0, 0, 0]);
+      expect((await authed('get', '/api/v1/dashboard/collection-by-class', adminCookies)).body.classes).toEqual([]);
+      // …the claims chip asks nothing of them…
+      expect((await authed('get', '/api/v1/fees/claims/pending-count', adminCookies)).body.pending).toBe(0);
+      // …and the shell is told, so it draws no money screens.
+      expect((await authed('get', '/api/v1/auth/me', adminCookies)).body.campusAdminSeesFees).toBe(false);
+
+      // The accountant and the owner keep everything.
+      expect((await authed('get', '/api/v1/fees/invoices', acctCookies)).status).toBe(200);
+      expect((await authed('get', '/api/v1/fees/invoices', ownerCookies)).status).toBe(200);
+      expect((await authed('get', '/api/v1/dashboard', ownerCookies)).body.visible).toContain('monthCollections');
+      // A campus admin cannot flip it back themselves.
+      expect((await authed('patch', '/api/v1/school-settings', adminCookies).send({ campusAdminSeesFees: true })).status).toBe(403);
+    } finally {
+      await authed('patch', '/api/v1/school-settings', ownerCookies, ownerCsrf).send({ campusAdminSeesFees: true });
+    }
+    expect((await authed('get', '/api/v1/fees/invoices', adminCookies)).status).toBe(200);
+  });
+  it("the owner approves a campus's monthly vouchers: held, invisible and unpayable until approved; reject voids and frees the class", async () => {
+    const batch = (classId: string, month: number, cookies = acctCookies, csrf = acctCsrf) =>
+      authed('post', '/api/v1/fees/invoice-batches', cookies, csrf).send({ classId, month, year: 2026 });
+    const invoices = async (month: number) =>
+      (await authed('get', `/api/v1/fees/invoices?month=${month}&year=2026&pageSize=100`, acctCookies)).body.data as Array<{ id: string; status: string }>;
+
+    // The office (accountant) generates September for campus A → held, not issued.
+    const made = await batch(classA, 9);
+    expect(made.status).toBe(201);
+    expect(made.body.generated).toBeGreaterThan(0);
+    expect(made.body.pendingApproval).toBe(true);
+    const held = await invoices(9);
+    expect(held.length).toBe(made.body.generated);
+    expect(held.every((i) => i.status === 'PENDING_APPROVAL')).toBe(true);
+    // …unpayable…
+    expect((await authed('post', `/api/v1/fees/invoices/${held[0].id}/payments`, acctCookies, acctCsrf)
+      .set('Idempotency-Key', `held-${Date.now()}`).send({ amountPaid: 100, method: 'CASH' })).status).toBe(409);
+    // …and a second class batch for the same campus + month lands on the SAME request (one sign-off per campus-month).
+    const open = (await authed('get', '/api/v1/approvals?status=PENDING', ownerCookies)).body as Array<{ id: string; type: string; campusId: string; summary: { vouchers: number } }>;
+    expect(open).toHaveLength(1);
+    expect(open[0]).toMatchObject({ type: 'VOUCHER_BATCH', campusId: campusA });
+    expect(open[0].summary.vouchers).toBe(made.body.generated);
+    expect((await authed('get', '/api/v1/approvals/pending-count', ownerCookies)).body.pending).toBe(1);
+
+    // Only the owner decides; a campus admin cannot even read the inbox.
+    expect((await authed('post', `/api/v1/approvals/${open[0].id}/approve`, acctCookies, acctCsrf).send({})).status).toBe(403);
+    expect((await authed('get', '/api/v1/approvals', adminCookies)).status).toBe(403);
+
+    // Reject needs a reason; then the held vouchers are gone and the class can be billed again.
+    expect((await authed('post', `/api/v1/approvals/${open[0].id}/reject`, ownerCookies, ownerCsrf).send({})).status).toBe(400);
+    const rejected = await authed('post', `/api/v1/approvals/${open[0].id}/reject`, ownerCookies, ownerCsrf).send({ reason: 'Fee plan changed' });
+    expect(rejected.status).toBe(201);
+    expect(rejected.body).toMatchObject({ status: 'REJECTED', decisionNote: 'Fee plan changed' });
+    expect((await invoices(9)).length).toBe(0);
+    const again = await batch(classA, 9);
+    expect(again.body.generated).toBe(made.body.generated);
+
+    // Approve → issued: PENDING, payable, and the request records what happened.
+    const req = ((await authed('get', '/api/v1/approvals?status=PENDING', ownerCookies)).body as Array<{ id: string }>)[0];
+    const approved = await authed('post', `/api/v1/approvals/${req.id}/approve`, ownerCookies, ownerCsrf).send({});
+    expect(approved.status).toBe(201);
+    expect(approved.body).toMatchObject({ status: 'APPROVED', summary: { vouchers: made.body.generated } });
+    expect((await invoices(9)).every((i) => i.status === 'PENDING')).toBe(true);
+    expect((await authed('post', `/api/v1/approvals/${req.id}/approve`, ownerCookies, ownerCsrf).send({})).status).toBe(409); // decided once
+
+    // The owner's own batch is never held; and a school can switch the step off.
+    const ownerBatch = await batch(classB, 9, ownerCookies, ownerCsrf);
+    expect(ownerBatch.body.pendingApproval).toBe(false);
+    await authed('patch', '/api/v1/school-settings', ownerCookies, ownerCsrf).send({ feeVoucherApproval: false });
+    try {
+      const free = await batch(classA, 10);
+      expect(free.body.pendingApproval).toBe(false);
+      expect((await invoices(10)).every((i) => i.status === 'PENDING')).toBe(true);
+    } finally {
+      await authed('patch', '/api/v1/school-settings', ownerCookies, ownerCsrf).send({ feeVoucherApproval: true });
+    }
+  });
   it("shows a campus admin only the activity of people on their own campus", async () => {
     // ⚠️ Until 2026-09-16 the log was unfiltered: a campus-A admin read the whole school's entries,
     // including campus-B reversals, withdrawals, reasons and guardians' phone numbers.

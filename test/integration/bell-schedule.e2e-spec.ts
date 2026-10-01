@@ -8,6 +8,7 @@ import { AppModule } from '../../apps/api/src/app.module';
 import { ProvisioningService } from '../../apps/api/src/modules/platform/provisioning.service';
 import { destroyTenant } from './support/tenant';
 import { loginRequest } from './support/login';
+import { opsAdminSession } from './support/ops-admin';
 
 /**
  * Bell schedule (the school's own clock).
@@ -28,6 +29,9 @@ describe('Bell schedule (e2e)', () => {
   let ownerCsrf: string;
   let campusAdminCookies: string[];
   let campusAdminCsrf: string;
+  let opsCookies: string[];
+  let opsCsrf: string;
+  let farOps: Awaited<ReturnType<typeof opsAdminSession>>;
   let classId: string;
   let sectionA: string;
   let farClassId: string;
@@ -50,6 +54,15 @@ describe('Bell schedule (e2e)', () => {
   const del = (p: string) =>
     request(server()).delete(p).set('Host', host).set('Cookie', ownerCookies).set('X-CSRF-Token', ownerCsrf);
   const get = (p: string, cookies = ownerCookies) => request(server()).get(p).set('Host', host).set('Cookie', cookies);
+
+  const opsPost = (p: string, b: object = {}) =>
+    request(server()).post(p).set('Host', host).set('Cookie', opsCookies).set('X-CSRF-Token', opsCsrf).send(b);
+  const opsPut = (p: string, b: object = {}) =>
+    request(server()).put(p).set('Host', host).set('Cookie', opsCookies).set('X-CSRF-Token', opsCsrf).send(b);
+  const opsPatch = (p: string, b: object = {}) =>
+    request(server()).patch(p).set('Host', host).set('Cookie', opsCookies).set('X-CSRF-Token', opsCsrf).send(b);
+  const opsDel = (p: string) =>
+    request(server()).delete(p).set('Host', host).set('Cookie', opsCookies).set('X-CSRF-Token', opsCsrf);
 
   const asCampusAdmin = {
     put: (p: string, b: object = {}) =>
@@ -76,7 +89,7 @@ describe('Bell schedule (e2e)', () => {
   };
 
   const mkSchedule = async (body: object) => {
-    const res = await post('/api/v1/bell-schedules', body);
+    const res = await opsPost('/api/v1/bell-schedules', body);
     expect(res.status).toBe(201);
     return res.body.id as string;
   };
@@ -103,16 +116,21 @@ describe('Bell schedule (e2e)', () => {
       name: '2026-27', startDate: '2026-04-01', endDate: '2027-03-31', isCurrent: true,
     });
 
-    classId = (await post('/api/v1/classes', { campusId, name: 'Grade 9', order: 9 })).body.id;
-    sectionA = (await post('/api/v1/sections', { classId, name: 'A' })).body.id;
+    const ops = await opsAdminSession(app, platform, schoolId, host);
+    opsCookies = ops.cookies;
+    opsCsrf = ops.csrf;
+
+    classId = (await opsPost('/api/v1/classes', { campusId, name: 'Grade 9', order: 9 })).body.id;
+    sectionA = (await opsPost('/api/v1/sections', { classId, name: 'A' })).body.id;
 
     // A second campus with its own class, so every campus rule has something on the WRONG side of
     // the boundary to catch. A boundary test whose fixture is entirely on one side cannot fail.
     farCampusId = (await post('/api/v1/campuses', { name: 'Far Campus' })).body.id;
-    farClassId = (await post('/api/v1/classes', { campusId: farCampusId, name: 'Grade 1', order: 1 })).body.id;
+    farOps = await opsAdminSession(app, platform, schoolId, host, 'ops-far@bell.pk', farCampusId);
+    farClassId = (await farOps.post('/api/v1/classes', { campusId: farCampusId, name: 'Grade 1', order: 1 })).body.id;
 
-    subjectId = (await post('/api/v1/subjects', { classId, name: 'Mathematics' })).body.id;
-    staffId = (await post('/api/v1/staff', {
+    subjectId = (await opsPost('/api/v1/subjects', { classId, name: 'Mathematics' })).body.id;
+    staffId = (await opsPost('/api/v1/staff', {
       email: 'bellteach@bell.pk', campusId, staffType: 'TEACHER', employeeCode: 'BT1',
       designation: 'Teacher', joinedAt: '2026-04-01', fullName: 'Bell Teacher',
     })).body.staffId;
@@ -149,7 +167,7 @@ describe('Bell schedule (e2e)', () => {
 
   it('computes every time from the start plus durations, and numbers only the teaching rows', async () => {
     const id = await mkSchedule({ campusId, name: 'Regular', isDefault: true });
-    const res = await put(`/api/v1/bell-schedules/${id}/days/1`, regularDay);
+    const res = await opsPut(`/api/v1/bell-schedules/${id}/days/1`, regularDay);
     expect(res.status).toBe(200);
 
     const monday = res.body.days.find((d: { dayOfWeek: number }) => d.dayOfWeek === 1);
@@ -167,8 +185,8 @@ describe('Bell schedule (e2e)', () => {
 
   it('gives each day its own shape — Friday is fewer rows, not a special case', async () => {
     const id = await mkSchedule({ campusId, name: 'Regular', isDefault: true });
-    await put(`/api/v1/bell-schedules/${id}/days/1`, regularDay);
-    const res = await put(`/api/v1/bell-schedules/${id}/days/5`, {
+    await opsPut(`/api/v1/bell-schedules/${id}/days/1`, regularDay);
+    const res = await opsPut(`/api/v1/bell-schedules/${id}/days/5`, {
       startsAt: '08:00',
       rows: [{ isTeaching: true, minutes: 35 }, { isTeaching: true, minutes: 35 }],
     });
@@ -183,7 +201,7 @@ describe('Bell schedule (e2e)', () => {
 
   it('will not accept a time from the client at all — the server owns the clock', async () => {
     const id = await mkSchedule({ campusId, name: 'Regular', isDefault: true });
-    const res = await put(`/api/v1/bell-schedules/${id}/days/1`, {
+    const res = await opsPut(`/api/v1/bell-schedules/${id}/days/1`, {
       startsAt: '08:00',
       rows: [{ isTeaching: true, minutes: 40, startTime: '09:00', endTime: '10:30' }],
     });
@@ -194,13 +212,13 @@ describe('Bell schedule (e2e)', () => {
 
   it('refuses a day that runs past midnight, and a day number that is not a day', async () => {
     const id = await mkSchedule({ campusId, name: 'Regular', isDefault: true });
-    const late = await put(`/api/v1/bell-schedules/${id}/days/1`, {
+    const late = await opsPut(`/api/v1/bell-schedules/${id}/days/1`, {
       startsAt: '23:00', rows: [{ isTeaching: true, minutes: 120 }],
     });
     expect(late.status).toBe(422);
     expect(late.body.error.message).toMatch(/past midnight/i);
 
-    const badDay = await put(`/api/v1/bell-schedules/${id}/days/9`, regularDay);
+    const badDay = await opsPut(`/api/v1/bell-schedules/${id}/days/9`, regularDay);
     expect(badDay.status).toBe(422);
   });
 
@@ -213,7 +231,7 @@ describe('Bell schedule (e2e)', () => {
 
   it('allows one default per campus and year', async () => {
     await mkSchedule({ campusId, name: 'Regular', isDefault: true });
-    const second = await post('/api/v1/bell-schedules', { campusId, name: 'Another', isDefault: true });
+    const second = await opsPost('/api/v1/bell-schedules', { campusId, name: 'Another', isDefault: true });
     expect(second.status).toBe(409);
     expect(second.body.error.message).toMatch(/already has a default/i);
   });
@@ -231,32 +249,32 @@ describe('Bell schedule (e2e)', () => {
    * first visible symptom was an unrelated timetable spec failing as the grid filled with debris.
    */
   it('names the bell schedule as a blocker instead of dying on a foreign key', async () => {
-    const own = (await post('/api/v1/classes', { campusId, name: 'BellDel Live', order: 41 })).body.id;
-    const sched = (await post('/api/v1/bell-schedules', {
+    const own = (await opsPost('/api/v1/classes', { campusId, name: 'BellDel Live', order: 41 })).body.id;
+    const sched = (await opsPost('/api/v1/bell-schedules', {
       campusId, name: 'BellDel Live Schedule', classIds: [own],
     })).body;
 
-    const blocked = await del(`/api/v1/classes/${own}`);
+    const blocked = await opsDel(`/api/v1/classes/${own}`);
     // The point is the MESSAGE: a 409 that says why, not a 500 from the database.
     expect(blocked.status).toBe(409);
     expect(blocked.body.error.message).toMatch(/bell schedule/i);
 
     // Detaching it in the only way the product offers - deleting the schedule - must actually free
     // the class, which is precisely what was broken.
-    expect((await del(`/api/v1/bell-schedules/${sched.id}`)).status).toBe(200);
-    expect((await del(`/api/v1/classes/${own}`)).status).toBe(204);
+    expect((await opsDel(`/api/v1/bell-schedules/${sched.id}`)).status).toBe(200);
+    expect((await opsDel(`/api/v1/classes/${own}`)).status).toBe(204);
   });
 
   it('lets a class be deleted once the schedule that held it is gone', async () => {
-    const own = (await post('/api/v1/classes', { campusId, name: 'BellDel Soft', order: 42 })).body.id;
-    const sched = (await post('/api/v1/bell-schedules', {
+    const own = (await opsPost('/api/v1/classes', { campusId, name: 'BellDel Soft', order: 42 })).body.id;
+    const sched = (await opsPost('/api/v1/bell-schedules', {
       campusId, name: 'BellDel Soft Schedule', classIds: [own],
     })).body;
-    await del(`/api/v1/bell-schedules/${sched.id}`);
+    await opsDel(`/api/v1/bell-schedules/${sched.id}`);
 
     // The schedule is soft-deleted, so it is invisible to every read - and must therefore hold no
     // claim over the class either. Before the fix this was a 500.
-    const res = await del(`/api/v1/classes/${own}`);
+    const res = await opsDel(`/api/v1/classes/${own}`);
     expect(res.status).toBe(204);
     expect((await get(`/api/v1/classes/${own}`)).status).toBe(404);
   });
@@ -265,7 +283,7 @@ describe('Bell schedule (e2e)', () => {
     await mkSchedule({ campusId, name: 'Regular', isDefault: true });
     await mkSchedule({ campusId, name: 'Primary Wing', classIds: [classId] });
 
-    const clash = await post('/api/v1/bell-schedules', { campusId, name: 'Evening Wing', classIds: [classId] });
+    const clash = await opsPost('/api/v1/bell-schedules', { campusId, name: 'Evening Wing', classIds: [classId] });
     expect(clash.status).toBe(409);
     // ⚠️ This is THE invariant: two schedules claiming one class is exactly what would make
     // `periodNo` mean two different things for that class's sections.
@@ -273,22 +291,22 @@ describe('Bell schedule (e2e)', () => {
   });
 
   it('refuses a schedule nobody would follow, and a default that tries to name classes', async () => {
-    const orphan = await post('/api/v1/bell-schedules', { campusId, name: 'Nobody', classIds: [] });
+    const orphan = await opsPost('/api/v1/bell-schedules', { campusId, name: 'Nobody', classIds: [] });
     expect(orphan.status).toBe(422);
 
-    const bossy = await post('/api/v1/bell-schedules', { campusId, name: 'Default', isDefault: true, classIds: [classId] });
+    const bossy = await opsPost('/api/v1/bell-schedules', { campusId, name: 'Default', isDefault: true, classIds: [classId] });
     expect(bossy.status).toBe(422);
   });
 
   it('refuses a class from another campus — the pair is wrong, not the caller', async () => {
-    const res = await post('/api/v1/bell-schedules', { campusId, name: 'Wing', classIds: [farClassId] });
+    const res = await opsPost('/api/v1/bell-schedules', { campusId, name: 'Wing', classIds: [farClassId] });
     expect(res.status).toBe(422);
     expect(res.body.error.message).toMatch(/another campus/i);
   });
 
   it('treats schedule names as case-insensitively unique per campus and year', async () => {
     await mkSchedule({ campusId, name: 'Regular', isDefault: true });
-    const dup = await post('/api/v1/bell-schedules', { campusId, name: 'regular', classIds: [classId] });
+    const dup = await opsPost('/api/v1/bell-schedules', { campusId, name: 'regular', classIds: [classId] });
     expect(dup.status).toBe(409);
   });
 
@@ -296,10 +314,10 @@ describe('Bell schedule (e2e)', () => {
 
   it('keeps lessons that fall off a shortened day, and says how many', async () => {
     const id = await mkSchedule({ campusId, name: 'Regular', isDefault: true });
-    await put(`/api/v1/bell-schedules/${id}/days/1`, regularDay); // 4 teaching periods
+    await opsPut(`/api/v1/bell-schedules/${id}/days/1`, regularDay); // 4 teaching periods
 
     for (const periodNo of [3, 4]) {
-      const slot = await post('/api/v1/timetable/slots', {
+      const slot = await opsPost('/api/v1/timetable/slots', {
         sectionId: sectionA, dayOfWeek: 1, periodNo, subjectId, staffId,
       });
       expect(slot.status).toBe(201);
@@ -307,7 +325,7 @@ describe('Bell schedule (e2e)', () => {
 
     // Ramadan, in effect: the same day composed shorter. There is deliberately no dated variant, so
     // this IS the mechanism, which is precisely why it must not destroy anything.
-    const shrunk = await put(`/api/v1/bell-schedules/${id}/days/1`, {
+    const shrunk = await opsPut(`/api/v1/bell-schedules/${id}/days/1`, {
       startsAt: '08:00', rows: [{ isTeaching: true, minutes: 30 }, { isTeaching: true, minutes: 30 }],
     });
     expect(shrunk.status).toBe(200);
@@ -321,22 +339,22 @@ describe('Bell schedule (e2e)', () => {
 
   it('counts only the lessons that actually ring to this bell', async () => {
     const wing = await mkSchedule({ campusId, name: 'Primary Wing', classIds: [classId] });
-    const other = (await post('/api/v1/classes', { campusId, name: 'Grade 10', order: 10 })).body.id;
-    const otherSection = (await post('/api/v1/sections', { classId: other, name: 'A' })).body.id;
-    const otherSubject = (await post('/api/v1/subjects', { classId: other, name: 'Physics' })).body.id;
-    const staff = await post('/api/v1/staff', {
+    const other = (await opsPost('/api/v1/classes', { campusId, name: 'Grade 10', order: 10 })).body.id;
+    const otherSection = (await opsPost('/api/v1/sections', { classId: other, name: 'A' })).body.id;
+    const otherSubject = (await opsPost('/api/v1/subjects', { classId: other, name: 'Physics' })).body.id;
+    const staff = await opsPost('/api/v1/staff', {
       email: 'bellteach2@bell.pk', campusId, staffType: 'TEACHER', employeeCode: 'BT2',
       designation: 'Teacher', joinedAt: '2026-04-01', fullName: 'Other Teacher',
     });
-    await put(`/api/v1/bell-schedules/${wing}/days/1`, regularDay);
+    await opsPut(`/api/v1/bell-schedules/${wing}/days/1`, regularDay);
     // A lesson in period 4 for a class that does NOT follow this wing schedule. Grade 10 has no
     // schedule of its own and no campus default here, so the period check lets it through — which
     // is the point of the check being conditional.
-    await post('/api/v1/timetable/slots', {
+    await opsPost('/api/v1/timetable/slots', {
       sectionId: otherSection, dayOfWeek: 1, periodNo: 4, subjectId: otherSubject, staffId: staff.body.staffId,
     });
 
-    const shrunk = await put(`/api/v1/bell-schedules/${wing}/days/1`, {
+    const shrunk = await opsPut(`/api/v1/bell-schedules/${wing}/days/1`, {
       startsAt: '08:00', rows: [{ isTeaching: true, minutes: 30 }],
     });
     // Zero, not one: Grade 10 rings to the campus default, so shortening the Primary wing's day
@@ -348,14 +366,14 @@ describe('Bell schedule (e2e)', () => {
 
   it('refuses a lesson in a period the day does not have, and says how many it has', async () => {
     const id = await mkSchedule({ campusId, name: 'Regular', isDefault: true });
-    await put(`/api/v1/bell-schedules/${id}/days/5`, {
+    await opsPut(`/api/v1/bell-schedules/${id}/days/5`, {
       startsAt: '08:00', rows: [{ isTeaching: true, minutes: 35 }, { isTeaching: true, minutes: 35 }],
     });
 
-    const ok = await post('/api/v1/timetable/slots', { sectionId: sectionA, dayOfWeek: 5, periodNo: 2, subjectId, staffId });
+    const ok = await opsPost('/api/v1/timetable/slots', { sectionId: sectionA, dayOfWeek: 5, periodNo: 2, subjectId, staffId });
     expect(ok.status).toBe(201);
 
-    const tooLate = await post('/api/v1/timetable/slots', { sectionId: sectionA, dayOfWeek: 5, periodNo: 3, subjectId, staffId });
+    const tooLate = await opsPost('/api/v1/timetable/slots', { sectionId: sectionA, dayOfWeek: 5, periodNo: 3, subjectId, staffId });
     expect(tooLate.status).toBe(422);
     // Naming the count is what makes it actionable: a short Friday is deliberate, so the answer is
     // usually "put it on another day", not "make Friday longer".
@@ -366,14 +384,14 @@ describe('Bell schedule (e2e)', () => {
     // No schedule exists in this test (afterEach clears them), which is the state EVERY existing
     // school is in on the day this ships. An unconditional period check would have taken the grid
     // away from all of them at once.
-    const res = await post('/api/v1/timetable/slots', { sectionId: sectionA, dayOfWeek: 1, periodNo: 9, subjectId, staffId });
+    const res = await opsPost('/api/v1/timetable/slots', { sectionId: sectionA, dayOfWeek: 1, periodNo: 9, subjectId, staffId });
     expect(res.status).toBe(201);
   });
 
   it('carries the clock time on every lesson it returns', async () => {
     const id = await mkSchedule({ campusId, name: 'Regular', isDefault: true });
-    await put(`/api/v1/bell-schedules/${id}/days/1`, regularDay);
-    await post('/api/v1/timetable/slots', { sectionId: sectionA, dayOfWeek: 1, periodNo: 2, subjectId, staffId });
+    await opsPut(`/api/v1/bell-schedules/${id}/days/1`, regularDay);
+    await opsPost('/api/v1/timetable/slots', { sectionId: sectionA, dayOfWeek: 1, periodNo: 2, subjectId, staffId });
 
     const grid = await get(`/api/v1/timetable/section/${sectionA}`);
     expect(grid.status).toBe(200);
@@ -388,7 +406,7 @@ describe('Bell schedule (e2e)', () => {
   });
 
   it('gives a school with no timings null times rather than an invented zero', async () => {
-    await post('/api/v1/timetable/slots', { sectionId: sectionA, dayOfWeek: 1, periodNo: 1, subjectId, staffId });
+    await opsPost('/api/v1/timetable/slots', { sectionId: sectionA, dayOfWeek: 1, periodNo: 1, subjectId, staffId });
     const grid = await get(`/api/v1/timetable/section/${sectionA}`);
     expect(grid.body.bell).toBeNull();
     expect(grid.body.slots[0].startTime).toBeNull();
@@ -397,9 +415,9 @@ describe('Bell schedule (e2e)', () => {
   // ── advisory subject load (P2) ────────────────────────────────────────────
 
   it('reports the weekly load as placed-of-target, and never refuses an overshoot', async () => {
-    await patch(`/api/v1/subjects/${subjectId}`, { periodsPerWeek: 2 });
+    await opsPatch(`/api/v1/subjects/${subjectId}`, { periodsPerWeek: 2 });
     for (const periodNo of [1, 2, 3]) {
-      const r = await post('/api/v1/timetable/slots', { sectionId: sectionA, dayOfWeek: 1, periodNo, subjectId, staffId });
+      const r = await opsPost('/api/v1/timetable/slots', { sectionId: sectionA, dayOfWeek: 1, periodNo, subjectId, staffId });
       // Three placed against a target of two. Advisory means advisory — the third is accepted,
       // because a coordinator mid-build overshoots and rebalances, and a rule that blocks that
       // makes the tool worse than paper.
@@ -420,9 +438,9 @@ describe('Bell schedule (e2e)', () => {
   });
 
   it('counts only the subjects this section actually takes', async () => {
-    const elective = (await post('/api/v1/subjects', { classId, name: 'Computer', periodsPerWeek: 2 })).body.id;
+    const elective = (await opsPost('/api/v1/subjects', { classId, name: 'Computer', periodsPerWeek: 2 })).body.id;
     // The section takes Maths and not Computer — which is exactly what `section_subjects` is for.
-    await put(`/api/v1/sections/${sectionA}/subjects`, { subjectIds: [subjectId] });
+    await opsPut(`/api/v1/sections/${sectionA}/subjects`, { subjectIds: [subjectId] });
 
     const grid = await get(`/api/v1/timetable/section/${sectionA}`);
     const names = grid.body.load.map((l: { name: string }) => l.name);
@@ -437,14 +455,14 @@ describe('Bell schedule (e2e)', () => {
 
   it('copies a day onto others, reporting what it could not place and why', async () => {
     const id = await mkSchedule({ campusId, name: 'Regular', isDefault: true });
-    for (const d of [1, 2, 3]) await put(`/api/v1/bell-schedules/${id}/days/${d}`, regularDay);
+    for (const d of [1, 2, 3]) await opsPut(`/api/v1/bell-schedules/${id}/days/${d}`, regularDay);
 
-    await post('/api/v1/timetable/slots', { sectionId: sectionA, dayOfWeek: 1, periodNo: 1, subjectId, staffId });
-    await post('/api/v1/timetable/slots', { sectionId: sectionA, dayOfWeek: 1, periodNo: 2, subjectId, staffId });
+    await opsPost('/api/v1/timetable/slots', { sectionId: sectionA, dayOfWeek: 1, periodNo: 1, subjectId, staffId });
+    await opsPost('/api/v1/timetable/slots', { sectionId: sectionA, dayOfWeek: 1, periodNo: 2, subjectId, staffId });
     // Tuesday period 1 is already taken by hand — a half-built week is the normal state to copy into.
-    await post('/api/v1/timetable/slots', { sectionId: sectionA, dayOfWeek: 2, periodNo: 1, subjectId, staffId });
+    await opsPost('/api/v1/timetable/slots', { sectionId: sectionA, dayOfWeek: 2, periodNo: 1, subjectId, staffId });
 
-    const res = await post('/api/v1/timetable/copy-day', { sectionId: sectionA, fromDay: 1, toDays: [2, 3] });
+    const res = await opsPost('/api/v1/timetable/copy-day', { sectionId: sectionA, fromDay: 1, toDays: [2, 3] });
     expect(res.status).toBe(201);
     expect(res.body.created).toBe(3); // Tue p2, Wed p1, Wed p2
     expect(res.body.skipped).toHaveLength(1);
@@ -455,13 +473,13 @@ describe('Bell schedule (e2e)', () => {
 
   it('never overwrites a lesson somebody placed by hand', async () => {
     const id = await mkSchedule({ campusId, name: 'Regular', isDefault: true });
-    for (const d of [1, 2]) await put(`/api/v1/bell-schedules/${id}/days/${d}`, regularDay);
+    for (const d of [1, 2]) await opsPut(`/api/v1/bell-schedules/${id}/days/${d}`, regularDay);
 
-    const other = (await post('/api/v1/subjects', { classId, name: 'Urdu' })).body.id;
-    await post('/api/v1/timetable/slots', { sectionId: sectionA, dayOfWeek: 1, periodNo: 1, subjectId, staffId });
-    await post('/api/v1/timetable/slots', { sectionId: sectionA, dayOfWeek: 2, periodNo: 1, subjectId: other, staffId });
+    const other = (await opsPost('/api/v1/subjects', { classId, name: 'Urdu' })).body.id;
+    await opsPost('/api/v1/timetable/slots', { sectionId: sectionA, dayOfWeek: 1, periodNo: 1, subjectId, staffId });
+    await opsPost('/api/v1/timetable/slots', { sectionId: sectionA, dayOfWeek: 2, periodNo: 1, subjectId: other, staffId });
 
-    await post('/api/v1/timetable/copy-day', { sectionId: sectionA, fromDay: 1, toDays: [2] });
+    await opsPost('/api/v1/timetable/copy-day', { sectionId: sectionA, fromDay: 1, toDays: [2] });
 
     // `setSlot` on its own would have replaced it. A copy that silently destroys a day somebody
     // built by hand is worse than a copy that does less than it was asked to.
@@ -472,15 +490,15 @@ describe('Bell schedule (e2e)', () => {
 
   it('applies the period rule to copied cells, so a short Friday stays short', async () => {
     const id = await mkSchedule({ campusId, name: 'Regular', isDefault: true });
-    await put(`/api/v1/bell-schedules/${id}/days/1`, regularDay); // 4 periods
-    await put(`/api/v1/bell-schedules/${id}/days/5`, {
+    await opsPut(`/api/v1/bell-schedules/${id}/days/1`, regularDay); // 4 periods
+    await opsPut(`/api/v1/bell-schedules/${id}/days/5`, {
       startsAt: '08:00', rows: [{ isTeaching: true, minutes: 35 }, { isTeaching: true, minutes: 35 }],
     });
     for (const periodNo of [1, 2, 3, 4]) {
-      await post('/api/v1/timetable/slots', { sectionId: sectionA, dayOfWeek: 1, periodNo, subjectId, staffId });
+      await opsPost('/api/v1/timetable/slots', { sectionId: sectionA, dayOfWeek: 1, periodNo, subjectId, staffId });
     }
 
-    const res = await post('/api/v1/timetable/copy-day', { sectionId: sectionA, fromDay: 1, toDays: [5] });
+    const res = await opsPost('/api/v1/timetable/copy-day', { sectionId: sectionA, fromDay: 1, toDays: [5] });
     // Two land, two are refused BY THE SAME RULE a hand-typed cell meets — which is the whole
     // argument for routing every copied cell through `setSlot` instead of writing rows directly.
     expect(res.body.created).toBe(2);
@@ -489,7 +507,7 @@ describe('Bell schedule (e2e)', () => {
   });
 
   it('refuses to copy a day that has nothing on it', async () => {
-    const res = await post('/api/v1/timetable/copy-day', { sectionId: sectionA, fromDay: 7, toDays: [1] });
+    const res = await opsPost('/api/v1/timetable/copy-day', { sectionId: sectionA, fromDay: 7, toDays: [1] });
     expect(res.status).toBe(422);
     expect(res.body.error.message).toMatch(/Sunday has no lessons/i);
   });
@@ -497,7 +515,9 @@ describe('Bell schedule (e2e)', () => {
   // ── campus scope ──────────────────────────────────────────────────────────
 
   it('keeps a campus admin inside their own campus, in both directions', async () => {
-    const far = await mkSchedule({ campusId: farCampusId, name: 'Far Regular', isDefault: true });
+    const farRes = await farOps.post('/api/v1/bell-schedules', { campusId: farCampusId, name: 'Far Regular', isDefault: true });
+    expect(farRes.status).toBe(201);
+    const far = farRes.body.id as string;
     const own = await mkSchedule({ campusId, name: 'Own Regular', isDefault: true });
 
     const blocked = await asCampusAdmin.put(`/api/v1/bell-schedules/${far}/days/1`, regularDay);
@@ -522,11 +542,11 @@ describe('Bell schedule (e2e)', () => {
 
   it('frees the default slot and the name when a schedule is retired', async () => {
     const id = await mkSchedule({ campusId, name: 'Regular', isDefault: true });
-    expect((await del(`/api/v1/bell-schedules/${id}`)).status).toBe(200);
+    expect((await opsDel(`/api/v1/bell-schedules/${id}`)).status).toBe(200);
 
     // Both partial indexes are predicated on `deleted_at IS NULL`, so retiring one releases the
     // seat immediately — same rule as the campus seats.
-    const replacement = await post('/api/v1/bell-schedules', { campusId, name: 'Regular', isDefault: true });
+    const replacement = await opsPost('/api/v1/bell-schedules', { campusId, name: 'Regular', isDefault: true });
     expect(replacement.status).toBe(201);
     expect((await get('/api/v1/bell-schedules')).body.schedules).toHaveLength(1);
   });
@@ -536,13 +556,13 @@ describe('Bell schedule (e2e)', () => {
     const wing = await mkSchedule({ campusId, name: 'Primary Wing', classIds: [classId] });
     // A second class on THIS campus. The first draft used `farClassId` and got a correct 422 —
     // the cross-campus rule firing on a fixture that had no business crossing a campus.
-    const sibling = (await post('/api/v1/classes', { campusId, name: 'Grade 8', order: 8 })).body.id;
+    const sibling = (await opsPost('/api/v1/classes', { campusId, name: 'Grade 8', order: 8 })).body.id;
     const evening = await mkSchedule({ campusId, name: 'Evening Wing', classIds: [sibling] });
 
-    const steal = await patch(`/api/v1/bell-schedules/${evening}`, { classIds: [classId] });
+    const steal = await opsPatch(`/api/v1/bell-schedules/${evening}`, { classIds: [classId] });
     expect(steal.status).toBe(409);
 
-    expect((await patch(`/api/v1/bell-schedules/${wing}`, { classIds: [] })).status).toBe(422);
-    expect((await patch(`/api/v1/bell-schedules/${wing}`, { name: 'Junior Wing' })).status).toBe(200);
+    expect((await opsPatch(`/api/v1/bell-schedules/${wing}`, { classIds: [] })).status).toBe(422);
+    expect((await opsPatch(`/api/v1/bell-schedules/${wing}`, { name: 'Junior Wing' })).status).toBe(200);
   });
 });

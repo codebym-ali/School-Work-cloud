@@ -12,7 +12,7 @@ import {
   Put,
   Query,
 } from '@nestjs/common';
-import { RequiresMfa, Roles } from '@common';
+import { OwnerWritable, RequiresMfa, Roles } from '@common';
 import { StudentsService } from './students.service';
 import { GuardiansService } from './guardians.service';
 import { StudentsImportService } from './students-import.service';
@@ -35,6 +35,7 @@ import {
 // Directory reads are staff-only (§23, P2.1): parents/students use scoped child/self reads.
 // The ADMISSION_CONTROLLER needs the directory + guardian lookup to run admissions, so reads
 // include it; CREATING a student, however, is admission-controller-only (see POST handlers).
+@OwnerWritable()
 @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN', 'ADMISSION_CONTROLLER')
 @Controller('students')
 export class StudentsController {
@@ -167,8 +168,7 @@ export class StudentsController {
     return this.students.changeStatus(id, dto);
   }
 
-  // Deleting a student record is owner-only — it is for mis-keyed admissions, not departures
-  // (the service refuses once payments or certificates exist).
+  @OwnerWritable()
   @Roles('OWNER_ADMIN')
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)

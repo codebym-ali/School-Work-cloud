@@ -86,10 +86,13 @@ export class FeeLinkService {
     const settings = await this.assertEnabled();
     const invoice = await this.db.feeInvoice.findFirst({
       where: { id: invoiceId },
-      select: { id: true, enrollment: { select: { campusId: true } } },
+      select: { id: true, status: true, enrollment: { select: { campusId: true } } },
     });
     if (!invoice) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'Invoice not found');
     assertCampusAccess(this.ctx.user, invoice.enrollment.campusId);
+    if (invoice.status === 'PENDING_APPROVAL') {
+      throw new AppError(ErrorCodes.CONFLICT, HttpStatus.CONFLICT, 'This voucher is awaiting the owner\'s approval — no payment link yet');
+    }
 
     const token = this.issue(invoice.id);
     return {
@@ -183,7 +186,7 @@ export class FeeLinkService {
     });
     // The token verified but the invoice is gone (or belongs to another tenant, which RLS makes
     // indistinguishable from gone). Same message as an invalid token — see above.
-    if (!invoice) {
+    if (!invoice || invoice.status === 'PENDING_APPROVAL') {
       throw new AppError(
         ErrorCodes.NOT_FOUND,
         HttpStatus.NOT_FOUND,

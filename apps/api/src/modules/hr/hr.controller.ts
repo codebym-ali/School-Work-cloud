@@ -1,5 +1,5 @@
 import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Patch, Post, Query } from '@nestjs/common';
-import { RequiresMfa, Roles } from '@common';
+import { OwnerWritable, RequiresMfa, Roles } from '@common';
 import { StaffService } from './staff.service';
 import { PayrollService } from './payroll.service';
 import {
@@ -11,6 +11,7 @@ import {
   RunPayrollDto,
 } from './dto/hr.dto';
 
+@OwnerWritable()
 @Controller('staff')
 export class StaffController {
   constructor(private readonly staff: StaffService) {}
@@ -40,6 +41,7 @@ export class StaffController {
   listSalary(@Param('id') id: string) { return this.staff.listSalaryStructures(id); }
 }
 
+@OwnerWritable()
 @Controller('teacher-assignments')
 export class TeacherAssignmentsController {
   constructor(private readonly staff: StaffService) {}
@@ -60,6 +62,7 @@ export class TeacherAssignmentsController {
   @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN', 'HR_MANAGER') @Delete(':id') remove(@Param('id') id: string) { return this.staff.deleteAssignment(id); }
 }
 
+@OwnerWritable()
 @Controller('payroll-runs')
 export class PayrollController {
   constructor(private readonly payroll: PayrollService) {}
@@ -75,6 +78,7 @@ export class PayrollController {
   @Roles('OWNER_ADMIN') @RequiresMfa() @Post(':id/approve') approve(@Param('id') id: string) { return this.payroll.approve(id); }
 }
 
+@OwnerWritable()
 @Controller('payslips')
 export class PayslipsController {
   constructor(private readonly payroll: PayrollService) {}

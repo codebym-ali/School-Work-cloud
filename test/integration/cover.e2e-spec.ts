@@ -742,10 +742,11 @@ describe('Cover (e2e) — who may mark when the teacher is away', () => {
       });
 
       it('shows an away teacher only the classes this admin could arrange', async () => {
-        await staffMark({
-          date: DAY, session: 'MORNING', allowHolidayOverride: true,
-          records: [{ staffId: absentStaffId, status: 'ABSENT' }, { staffId: farStaffId, status: 'ABSENT' }],
-        });
+        // Each campus's Ops Admin marks their own campus (an Ops Admin cannot span campuses).
+        const base = { date: DAY, session: 'MORNING', allowHolidayOverride: true };
+        await staffMark({ ...base, records: [{ staffId: absentStaffId, status: 'ABSENT' }] });
+        const farOps = await opsAdminSession(app, platform, schoolId, host, 'ops-far@ops.pk', otherCampus);
+        await farOps.post('/api/v1/staff-attendance/bulk', { ...base, records: [{ staffId: farStaffId, status: 'ABSENT' }] });
 
         // The owner sees BOTH away teachers — Nadia here, and the North teacher at the far campus.
         const ownerSees = (await get(`/api/v1/cover/away?date=${DAY}`)).body.away;

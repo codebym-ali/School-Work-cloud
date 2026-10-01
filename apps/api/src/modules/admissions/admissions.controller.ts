@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
-import { Roles } from '@common';
+import { OwnerWritable, Roles } from '@common';
 import { AdmissionsService } from './admissions.service';
 import {
   AdmitDto,
@@ -10,6 +10,7 @@ import {
   ScheduleEntryTestDto,
 } from './dto/admissions.dto';
 
+@OwnerWritable()
 @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN', 'ADMISSION_CONTROLLER')
 @Controller('inquiries')
 export class InquiriesController {

@@ -794,6 +794,44 @@ input.invalid, select.invalid { border-color: var(--danger); }
 .columns .tick { font-size: 11px; color: var(--muted); border-top: 1px solid var(--border);
   width: 100%; text-align: center; padding-top: 4px; }
 
+/* ── Student portal shell ─────────────────────────────────────────────────────
+   A slim top bar (brand · nav · bell · sign out) on a desktop; on a phone the nav moves to the bottom tab
+   bar (`.tabbar`, defined above) and the top bar keeps only the brand and the two actions. */
+.sp { max-width: 900px; margin: 0 auto; padding: 20px 20px 40px; }
+.sp-top { display: flex; align-items: center; gap: 16px; margin-bottom: 20px; }
+.sp-brand { display: inline-flex; align-items: center; gap: 8px; color: var(--brand); font-weight: 700; font-size: 16px; text-decoration: none; }
+.sp-nav { display: flex; gap: 4px; padding: 4px; background: #e7ecf3; border-radius: 10px; margin-left: 8px; }
+.sp-nav a { padding: 7px 14px; border-radius: 7px; color: #3d4656; font-size: 14px; font-weight: 600; text-decoration: none; }
+.sp-nav a:hover { background: rgba(255, 255, 255, .6); color: var(--ink); }
+.sp-nav a[aria-current='page'] { background: #fff; color: var(--ink); box-shadow: 0 1px 3px rgb(23 54 92 / .15); }
+.sp-nav a:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+.sp-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+
+@media (max-width: 720px) {
+  .sp { padding: 12px 14px calc(84px + env(safe-area-inset-bottom, 0px)); }
+  .sp-nav { display: none; }
+  .sp-top { margin-bottom: 14px; }
+  /* The tab bar's own label is the page name; the top bar only needs to say whose portal this is. */
+  .sp-brand span { font-size: 15px; }
+}
+
+/* ── Segmented choice (Results: Term results | Class tests) ───────────────────── */
+.seg { display: inline-flex; gap: 4px; padding: 4px; background: #e7ecf3; border-radius: 10px; max-width: 100%; overflow-x: auto; }
+.seg button { background: none; color: #3d4656; border-radius: 7px; padding: 8px 16px; font-size: 14px; font-weight: 600; min-height: 0; white-space: nowrap; }
+.seg button:hover:not(:disabled) { background: rgba(255, 255, 255, .6); color: var(--ink); }
+.seg button[aria-selected='true'] { background: #fff; color: var(--ink); box-shadow: 0 1px 3px rgb(23 54 92 / .15); }
+@media (max-width: 720px) { .seg { display: flex; } .seg button { flex: 1 1 0; min-height: 44px; } }
+
+/* ── A term as a tappable card (Results) ───────────────────────────────────────── */
+.term-card { display: flex; align-items: center; gap: 14px; width: 100%; text-align: left; background: var(--card); color: var(--ink); border: 1px solid var(--border); border-radius: var(--r-lg); padding: 16px; box-shadow: var(--shadow-card); font: inherit; font-weight: 400; cursor: pointer; }
+.term-card:hover:not(:disabled) { background: var(--brand-tint); border-color: var(--brand); }
+.term-card .t { font-weight: 700; font-size: 16px; }
+.term-card .pct { font-family: var(--font-heading); font-size: 24px; font-weight: 800; color: var(--brand); font-variant-numeric: tabular-nums; }
+.term-card .go { margin-left: auto; color: var(--brand); font-size: 20px; }
+.bar { display: block; height: 8px; border-radius: 99px; background: #e7ecf3; overflow: hidden; }
+.bar > span { display: block; height: 100%; border-radius: 99px; background: var(--brand); }
+.bar > span.low { background: var(--danger); }
+
 /* ── My Timetable, day at a time (M3) ────────────────────────────────────────
    A week IS a grid, so the desktop keeps one. On a phone six columns either scroll
    sideways or shrink past reading, and a teacher looking at their phone wants one

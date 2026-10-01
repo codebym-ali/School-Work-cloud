@@ -108,6 +108,29 @@ export const schoolSettingsSchema = z
      * nothing here touches. Sits beside `promotionRequiresFeeClearance`, which is the same shape.
      */
     payrollDeductsAbsence: z.boolean().default(true),
+    /**
+     * Does the campus admin (the principal) see the school's fee information? (owner's choice, 2026-09-30)
+     *
+     * A campus admin can only ever READ fees — payments and invoicing belong to the accountant / Ops Admin.
+     * Some owners are happy for the principal to see a child's fee status and the defaulters list; others
+     * keep money strictly with the office. So it is the owner's call, per school.
+     *
+     * **Default true**: that is what every existing school already gets, so a school hides it by choosing to.
+     * Off hides fees, payment submissions, defaulters, the fee reports and the dashboard's money figures from
+     * a person whose ONLY money-relevant role is campus admin. The owner, the accountant and the Ops Admin are
+     * unaffected (the server decides — `assertMayReadFees` — the UI merely follows).
+     */
+    campusAdminSeesFees: z.boolean().default(true),
+    /**
+     * Must the owner approve a campus's monthly fee vouchers before they go out? (owner's decision, 2026-09-30)
+     *
+     * **Default true.** The office (Ops Admin / accountant) generates the month's vouchers; they wait as
+     * "Awaiting approval" — invisible to families, unpayable, absent from every "owed" figure — until the owner
+     * approves them on the Approvals page. Turn it off and office-generated vouchers go out immediately, as they did
+     * before approvals existed. The owner's own batches are never held for approval (they are the approver).
+     * One-off per-student invoices (mid-session admissions at the counter) are not held either.
+     */
+    feeVoucherApproval: z.boolean().default(true),
     staffLeaveQuotas: z
       .object({
         CASUAL: z.number().int().min(0),

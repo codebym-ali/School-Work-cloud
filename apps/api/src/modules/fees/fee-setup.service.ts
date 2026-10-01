@@ -1,6 +1,6 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { AppError, assertCampusAccess, AuditActions, ErrorCodes, TenantContext } from '@common';
+import { AppError, assertCampusAccess, assertMayReadFees, AuditActions, ErrorCodes, TenantContext } from '@common';
 import { AuditService, TenantPrismaService } from '@database';
 import type {
   CopyFeePlanDto,
@@ -194,7 +194,9 @@ export class FeeSetupService {
   }
 
   /** `isActive: false` rows are included — the plan screen must show what was switched off. */
-  listStructures(classId?: string) {
+  async listStructures(classId?: string) {
+    // The owner may choose not to show fees to a campus admin (`campusAdminSeesFees`).
+    await assertMayReadFees(this.ctx.user, async () => (await this.db.school.findFirst({ where: { id: this.sid }, select: { settings: true } }))?.settings);
     return this.db.feeStructure.findMany({
       where: { ...(classId ? { classId } : {}) },
       orderBy: [{ effectiveFrom: 'asc' }, { createdAt: 'asc' }],

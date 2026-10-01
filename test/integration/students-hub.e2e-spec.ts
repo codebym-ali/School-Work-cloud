@@ -9,6 +9,7 @@ import { ProvisioningService } from '../../apps/api/src/modules/platform/provisi
 import { admissionController } from './support/admission';
 import { destroyTenant } from './support/tenant';
 import { loginRequest } from './support/login';
+import { opsAdminSession } from './support/ops-admin';
 
 /**
  * The owner's Students hub (Owner UX Phase 1b). The contract that matters: every KPI tile opens onto
@@ -20,6 +21,7 @@ describe('Students hub (e2e, Owner UX 1b)', () => {
   let platform: PlatformPrismaService;
   let schoolId: string;
   let cookies: string[];
+  let ops: Awaited<ReturnType<typeof opsAdminSession>>;
   let classId: string;
   let sectionA: string;
   let sectionB: string;
@@ -50,12 +52,14 @@ describe('Students hub (e2e, Owner UX 1b)', () => {
     schoolId = prov.schoolId;
     const campusId = prov.campusId;
     cookies = (await loginRequest(server(), host, owner.email, owner.password)).headers['set-cookie'] as unknown as string[];
+    ops = await opsAdminSession(app, platform, schoolId, host, 'ops@hub.pk', campusId);
+    const opsPost = (p: string, b: object) => ops.post(p, b);
 
     await post('/api/v1/academic-years', { name: '2026-27', startDate: '2026-04-01', endDate: '2027-03-31', isCurrent: true });
-    classId = (await post('/api/v1/classes', { campusId, name: 'Grade 6', order: 6 })).body.id;
-    sectionA = (await post('/api/v1/sections', { classId, name: 'A' })).body.id;
-    sectionB = (await post('/api/v1/sections', { classId, name: 'B' })).body.id;
-    subjectId = (await post('/api/v1/subjects', { classId, name: 'Maths' })).body.id;
+    classId = (await opsPost('/api/v1/classes', { campusId, name: 'Grade 6', order: 6 })).body.id;
+    sectionA = (await opsPost('/api/v1/sections', { classId, name: 'A' })).body.id;
+    sectionB = (await opsPost('/api/v1/sections', { classId, name: 'B' })).body.id;
+    subjectId = (await opsPost('/api/v1/subjects', { classId, name: 'Maths' })).body.id;
 
     const { admit } = await admissionController(app, platform, schoolId, host, campusId);
     // Three in A (two with a father), one in B with no guardian at all.
@@ -135,8 +139,8 @@ describe('Students hub (e2e, Owner UX 1b)', () => {
   });
 
   it('narrows class performance to one section', async () => {
-    const t = await post('/api/v1/class-tests', { sectionId: sectionA, subjectId, name: 'Quiz', totalMarks: 10, testDate: new Date().toISOString().slice(0, 10) });
-    await post(`/api/v1/class-tests/${t.body.id}/scores`, { rows: [{ enrollmentId: enrolments['Ahmed Butt'], marksObtained: 8 }] });
+    const t = await ops.post('/api/v1/class-tests', { sectionId: sectionA, subjectId, name: 'Quiz', totalMarks: 10, testDate: new Date().toISOString().slice(0, 10) });
+    await ops.post(`/api/v1/class-tests/${t.body.id}/scores`, { rows: [{ enrollmentId: enrolments['Ahmed Butt'], marksObtained: 8 }] });
     const all = (await get(`/api/v1/reports/performance/classes/${classId}?range=1m`)).body.students;
     const onlyB = (await get(`/api/v1/reports/performance/classes/${classId}?range=1m&sectionId=${sectionB}`)).body.students;
     expect(all).toHaveLength(4);

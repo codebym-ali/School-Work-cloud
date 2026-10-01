@@ -1,29 +1,44 @@
-import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Post, Put, Query } from '@nestjs/common';
-import { Roles, STAFF_ROLES } from '@common';
+import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Post, Put, Query, Res } from '@nestjs/common';
+import type { Response } from 'express';
+import { OwnerWritable, Roles, STAFF_ROLES } from '@common';
+import { ProposalsService } from '../approvals/proposals.service';
 import { ExamSetupService } from './exam-setup.service';
 import { ExamsService } from './exams.service';
 import { ReportCardsService } from './report-cards.service';
 import { BulkMarksDto, CreateExamDto, CreateTermDto, SetGradeScaleDto } from './dto/exams.dto';
 
+@OwnerWritable()
 @Controller('grade-scales')
 export class GradeScalesController {
-  constructor(private readonly setup: ExamSetupService) {}
-  @Roles('OWNER_ADMIN', 'OPERATIONS_ADMIN') @Put() set(@Body() dto: SetGradeScaleDto) { return this.setup.setGradeScale(dto); }
+  private readonly setScale;
+  // School-wide setup: the owner acts directly; the Ops Admin PROPOSES and the owner approves (ProposalsService).
+  constructor(private readonly setup: ExamSetupService, proposals: ProposalsService) {
+    this.setScale = proposals.action('gradeScale.set', (dto: SetGradeScaleDto) => this.setup.setGradeScale(dto),
+      (dto) => `Change the grade scale (${dto.bands.length} bands)`);
+  }
+  @Roles('OWNER_ADMIN', 'OPERATIONS_ADMIN') @Put() set(@Body() dto: SetGradeScaleDto, @Res({ passthrough: true }) res: Response) { return this.setScale(dto, res); }
   @Roles(...STAFF_ROLES) @Get() get(@Query('academicYearId') yearId: string) { return this.setup.getGradeScale(yearId); }
 }
 
+@OwnerWritable()
 @Controller('terms')
 export class TermsController {
+  private readonly createTerm;
+  private readonly deleteTerm;
   constructor(
     private readonly setup: ExamSetupService,
     private readonly reportCards: ReportCardsService,
-  ) {}
+    proposals: ProposalsService,
+  ) {
+    this.createTerm = proposals.action('term.create', (dto: CreateTermDto) => this.setup.createTerm(dto), (dto) => `Add term “${dto.name}”`);
+    this.deleteTerm = proposals.action('term.delete', (p: { id: string }) => this.setup.deleteTerm(p.id), () => 'Remove a term');
+  }
 
-  @Roles('OWNER_ADMIN', 'OPERATIONS_ADMIN') @Post() create(@Body() dto: CreateTermDto) { return this.setup.createTerm(dto); }
+  @Roles('OWNER_ADMIN', 'OPERATIONS_ADMIN') @Post() create(@Body() dto: CreateTermDto, @Res({ passthrough: true }) res: Response) { return this.createTerm(dto, res); }
   @Roles(...STAFF_ROLES) @Get() list(@Query('academicYearId') yearId?: string) { return this.setup.listTerms(yearId); }
 
   // Remove a term created by mistake. Blocked (409) once exams/report cards reference it.
-  @Roles('OWNER_ADMIN', 'OPERATIONS_ADMIN') @Delete(':id') remove(@Param('id') id: string) { return this.setup.deleteTerm(id); }
+  @Roles('OWNER_ADMIN', 'OPERATIONS_ADMIN') @Delete(':id') remove(@Param('id') id: string, @Res({ passthrough: true }) res: Response) { return this.deleteTerm({ id }, res); }
 
   @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
   @Post(':id/report-cards/generate')
@@ -35,6 +50,7 @@ export class TermsController {
   termReportCards(@Param('id') id: string) { return this.reportCards.listByTerm(id); }
 }
 
+@OwnerWritable()
 @Controller('exams')
 export class ExamsController {
   constructor(private readonly exams: ExamsService) {}

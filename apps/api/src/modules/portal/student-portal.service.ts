@@ -4,10 +4,12 @@ import {
   attendancePercentFromStatuses,
   ErrorCodes,
   monthlyPerformance,
+  StorageService,
   summarisePerformance,
   TenantContext,
 } from '@common';
 import { TenantPrismaService } from '@database';
+import { gradeFor, subjectTermPercent, type ExamMark, type GradeBand } from '../exams/exam-grading';
 
 const money = (n: number): number => Math.round(n * 100) / 100;
 
@@ -22,6 +24,7 @@ export class StudentPortalService {
   constructor(
     private readonly tenantPrisma: TenantPrismaService,
     private readonly ctx: TenantContext,
+    private readonly storage: StorageService,
   ) {}
 
   private get db() {
@@ -178,7 +181,8 @@ export class StudentPortalService {
         include: { parent: { select: { fullName: true, phone: true } } },
         orderBy: { isPrimary: 'desc' },
       }),
-      this.db.feeInvoice.findMany({ where: { studentId: student.id }, select: { totalAmount: true, paidAmount: true } }),
+      // A voucher the owner has not approved has not been issued — the family must not see or owe it.
+      this.db.feeInvoice.findMany({ where: { studentId: student.id, status: { not: 'PENDING_APPROVAL' } }, select: { totalAmount: true, paidAmount: true } }),
       this.enrollmentIds(student.id),
     ]);
 
@@ -315,6 +319,15 @@ export class StudentPortalService {
     return { overall: summarisePerformance(all), monthly: monthlyPerformance(all), subjects };
   }
 
+  /**
+   * ⚠️ **A podium finish is the only rank a student is shown** (operator, 2026-09-30): first, second or third
+   * in the section. Everyone else sees no rank at all — "17th of 20" is a pressure device, not feedback, while
+   * "you finished in the top three" is recognition. The stored rank is untouched and staff still see it.
+   */
+  private static podium(rank: number | null): 1 | 2 | 3 | null {
+    return rank === 1 || rank === 2 || rank === 3 ? rank : null;
+  }
+
   async results() {
     const student = await this.self();
     const enrolls = await this.enrollmentIds(student.id);
@@ -326,17 +339,122 @@ export class StudentPortalService {
     const terms = await this.db.term.findMany({ where: { id: { in: [...new Set(cards.map((c) => c.termId))] } }, select: { id: true, name: true } });
     const termName = new Map(terms.map((t) => [t.id, t.name]));
     return cards.map((c) => ({
+      termId: c.termId,
       term: termName.get(c.termId) ?? '—',
       overallPercent: Number(c.overallPercent),
       grade: c.gradeLabel,
-      sectionRank: c.sectionRank,
+      sectionRank: StudentPortalService.podium(c.sectionRank),
+      hasFile: c.documentId !== null,
     }));
+  }
+
+  /**
+   * One term, in full: every subject's marks, total, percentage and grade, plus the exam-by-exam breakdown.
+   *
+   * ⚠️ **Self-only and published-only.** The term is looked up through the caller's OWN report card, so another
+   * student's term or an id made up by the client is a 404; and only PUBLISHED exams are read, so a student can
+   * never see marks a teacher is still entering. **No class average** (same rule as the rest of the portal), and
+   * the rank is the podium-only one above.
+   *
+   * The arithmetic is the report card's own (`subjectTermPercent`, `gradeFor`), so the subject figures here add up
+   * to the overall percentage printed on the card — nothing is recomputed differently for the screen.
+   */
+  async termResult(termId: string) {
+    const student = await this.self();
+    const enrolls = await this.enrollmentIds(student.id);
+    const card = await this.db.reportCard.findFirst({ where: { termId, enrollmentId: { in: enrolls.map((e) => e.id) } } });
+    if (!card) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'No result for this term');
+
+    const [term, enrollment] = await Promise.all([
+      this.db.term.findFirst({ where: { id: termId } }),
+      this.db.studentEnrollment.findFirst({ where: { id: card.enrollmentId }, select: { classId: true } }),
+    ]);
+    if (!term || !enrollment) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'No result for this term');
+
+    const [exams, subjects, scaleRows] = await Promise.all([
+      this.db.examDefinition.findMany({ where: { termId, classId: enrollment.classId, status: 'PUBLISHED' }, orderBy: { examDate: 'asc' } }),
+      this.db.subject.findMany({ where: { classId: enrollment.classId }, orderBy: { name: 'asc' } }),
+      this.db.gradeScale.findMany({ where: { academicYearId: term.academicYearId } }),
+    ]);
+    const results = await this.db.examResult.findMany({
+      where: { enrollmentId: card.enrollmentId, examId: { in: exams.map((e) => e.id) } },
+    });
+    const scale: GradeBand[] = scaleRows.map((b) => ({ label: b.label, minPercent: Number(b.minPercent), maxPercent: Number(b.maxPercent), gradePoint: Number(b.gradePoint) }));
+    const gradeOf = (percent: number | null) => (percent === null ? null : gradeFor(scale, percent)?.label ?? null);
+    const round2 = (n: number) => Math.round(n * 100) / 100;
+    const pct = (got: number, of: number) => (of > 0 ? round2((got / of) * 100) : null);
+    const resultFor = (examId: string, subjectId: string) => results.find((r) => r.examId === examId && r.subjectId === subjectId);
+
+    const subjectRows = subjects.map((s) => {
+      const marks: ExamMark[] = exams.map((e) => {
+        const r = resultFor(e.id, s.id);
+        return {
+          weightagePercent: Number(e.weightagePercent),
+          marksObtained: r?.marksObtained != null ? Number(r.marksObtained) : null,
+          totalMarks: r ? Number(r.totalMarks) : 0,
+          isAbsent: r?.isAbsent ?? true,
+        };
+      });
+      const taken = marks.filter((m) => m.totalMarks > 0);
+      const percent = taken.length ? subjectTermPercent(marks) : null;
+      return {
+        subject: s.name,
+        marksObtained: taken.length ? round2(taken.reduce((n, m) => n + (m.isAbsent ? 0 : m.marksObtained ?? 0), 0)) : null,
+        totalMarks: taken.reduce((n, m) => n + m.totalMarks, 0),
+        percent,
+        grade: gradeOf(percent),
+        absent: taken.length > 0 && taken.every((m) => m.isAbsent),
+      };
+    }).filter((s) => s.totalMarks > 0);
+
+    const totalObtained = round2(subjectRows.reduce((n, s) => n + (s.marksObtained ?? 0), 0));
+    const totalMarks = subjectRows.reduce((n, s) => n + s.totalMarks, 0);
+
+    return {
+      termId,
+      term: term.name,
+      overallPercent: Number(card.overallPercent),
+      grade: card.gradeLabel,
+      rank: StudentPortalService.podium(card.sectionRank),
+      totalObtained,
+      totalMarks,
+      hasFile: card.documentId !== null,
+      subjects: subjectRows,
+      exams: exams.map((e) => {
+        const rows = subjects.map((s) => {
+          const r = resultFor(e.id, s.id);
+          if (!r) return null;
+          const got = r.isAbsent || r.marksObtained == null ? null : Number(r.marksObtained);
+          const p = got === null ? null : pct(got, Number(r.totalMarks));
+          return { subject: s.name, marksObtained: got, totalMarks: Number(r.totalMarks), percent: p, grade: gradeOf(p), isAbsent: r.isAbsent };
+        }).filter((x): x is NonNullable<typeof x> => x !== null);
+        const obtained = round2(rows.reduce((n, x) => n + (x.marksObtained ?? 0), 0));
+        const total = rows.reduce((n, x) => n + x.totalMarks, 0);
+        return {
+          id: e.id, name: e.name, examType: e.examType, weightagePercent: Number(e.weightagePercent), examDate: e.examDate,
+          obtained, total, percent: pct(obtained, total), subjects: rows,
+        };
+      }),
+      // The school's own grade bands, so "D" is explained rather than left as a letter.
+      gradeScale: [...scale].sort((a, b) => b.minPercent - a.minPercent).map((b) => ({ label: b.label, minPercent: b.minPercent, maxPercent: b.maxPercent })),
+    };
+  }
+
+  /** A short-lived link to the student's OWN report-card PDF — same self-lookup as `termResult`. */
+  async termResultFile(termId: string): Promise<{ url: string; expiresInSeconds: number }> {
+    const student = await this.self();
+    const enrolls = await this.enrollmentIds(student.id);
+    const card = await this.db.reportCard.findFirst({ where: { termId, enrollmentId: { in: enrolls.map((e) => e.id) } } });
+    const doc = card?.documentId ? await this.db.document.findFirst({ where: { id: card.documentId }, select: { fileKey: true } }) : null;
+    if (!doc) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'No report card file for this term');
+    const expiresInSeconds = 600;
+    return { url: await this.storage.presignGet(doc.fileKey, expiresInSeconds), expiresInSeconds };
   }
 
   async fees() {
     const student = await this.self();
     const invoices = await this.db.feeInvoice.findMany({
-      where: { studentId: student.id },
+      where: { studentId: student.id, status: { not: 'PENDING_APPROVAL' } }, // held vouchers are not the family's yet
       orderBy: [{ year: 'desc' }, { month: 'desc' }],
       select: {
         id: true, month: true, year: true, totalAmount: true, paidAmount: true, status: true, dueDate: true,

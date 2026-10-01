@@ -11,7 +11,7 @@ import {
   Res,
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
-import { CurrentUser, Public, RateLimit, Roles, type RequestUser } from '@common';
+import { CurrentUser, OwnerWritable, Public, RateLimit, Roles, type RequestUser } from '@common';
 import { AuthService } from './auth.service';
 import { REFRESH_COOKIE } from './auth.cookies';
 import {
@@ -27,6 +27,7 @@ import {
 } from './dto/auth.dto';
 
 /** Auth endpoints (blueprint §24 Auth). Cookies are set via passthrough Response. */
+@OwnerWritable()
 @Controller('auth')
 export class AuthController {
   constructor(private readonly auth: AuthService) {}

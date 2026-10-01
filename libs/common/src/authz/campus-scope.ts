@@ -34,8 +34,9 @@ export const NO_CAMPUS = '00000000-0000-0000-0000-000000000000';
  */
 export function restrictedCampusId(user: RequestUser | undefined): string | null {
   if (!user) return NO_CAMPUS;
-  // OWNER_ADMIN and its deputy OPERATIONS_ADMIN are school-wide (no campus restriction).
-  if (user.roles.includes('OWNER_ADMIN') || user.roles.includes('OPERATIONS_ADMIN')) return null;
+  // Only OWNER_ADMIN is school-wide. OPERATIONS_ADMIN is a per-campus head (one per campus) and is
+  // restricted to its own campus like every other campus-bound role — a campus-less one fails closed.
+  if (user.roles.includes('OWNER_ADMIN')) return null;
   return user.campusId ?? NO_CAMPUS;
 }
 

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { api, type NotificationItem } from '@sw/api-client';
+import { Icon } from '@sw/ui';
 
 /**
  * "What changed for you", for a student.
@@ -68,7 +69,7 @@ export function StudentBell() {
         aria-expanded={open}
         aria-label={unread > 0 ? `Notifications, ${unread} new` : 'Notifications'}
       >
-        🔔{unread > 0 && <span className="badge warn" style={{ marginLeft: 6 }}>{unread}</span>}
+        <Icon name="bell" size={16} />{unread > 0 && <span className="badge warn" style={{ marginLeft: 6 }}>{unread}</span>}
       </button>
 
       {open && (
@@ -85,7 +86,7 @@ export function StudentBell() {
             <Link key={n.id} href={n.href} onClick={() => setOpen(false)} style={{ textDecoration: 'none', color: 'inherit' }}>
               <div className="stack" style={{ gap: 2, padding: '6px 0', borderTop: '1px solid var(--border)' }}>
                 <span style={{ fontSize: 14, fontWeight: n.isNew ? 600 : 400 }}>
-                  {n.severity === 'warn' ? '⚠️ ' : ''}{n.text}
+                  {n.severity === 'warn' && <><Icon name="alert" size={14} />{' '}</>}{n.text}
                 </span>
                 <span className="muted" style={{ fontSize: 12 }}>{relativeDay(n.at)}</span>
               </div>

@@ -137,6 +137,11 @@ describe('Malformed path ids never 5xx (e2e, §25.1)', () => {
     ])('%s is a 400, not a Prisma 500', async (_label, path) => {
       const res = await call({ method: 'post', template: path, path });
 
+      // The OwnerReadOnlyGuard may 403 before the pipe runs — that is correct (guards before pipes).
+      if (res.status === 403) {
+        expect(res.body.error.code).toBe('OWNER_READ_ONLY');
+        return;
+      }
       expect(res.status).toBe(400);
       expect(res.body.error.code).toBe('VALIDATION_FAILED');
       expect(res.body.error.details).toEqual([{ field: 'id', issue: 'must be a UUID' }]);

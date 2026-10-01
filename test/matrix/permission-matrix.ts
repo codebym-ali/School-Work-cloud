@@ -160,7 +160,13 @@ export const PERMISSION_MATRIX: MatrixRow[] = [
   // do not set the price. These had no matrix rows at all before the plan rework.
   // A claim is not a payment: reading the queue is admin+cashier, but CONFIRMING one mints a
   // receipt, so verify/reject are the cashier's call and a campus admin is excluded.
-  { label: 'list payment claims', method: 'get', path: '/api/v1/fees/claims', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT'], scopeGated: true },
+  // Approval requests (Campus Ops Admin plan): the owner decides; the office reads the requests it raised.
+  { label: 'list approval requests', method: 'get', path: '/api/v1/approvals', allow: ['OWNER_ADMIN', 'ACCOUNTANT'], scopeGated: true },
+  { label: 'approvals pending count', method: 'get', path: '/api/v1/approvals/pending-count', allow: ['OWNER_ADMIN', 'ACCOUNTANT'] },
+  { label: 'read one approval request', method: 'get', path: '/api/v1/approvals/00000000-0000-0000-0000-000000000000', allow: ['OWNER_ADMIN', 'ACCOUNTANT'], scopeGated: true },
+  { label: 'approve a request', method: 'post', path: '/api/v1/approvals/00000000-0000-0000-0000-000000000000/approve', body: {}, allow: ['OWNER_ADMIN'] },
+  { label: 'reject a request', method: 'post', path: '/api/v1/approvals/00000000-0000-0000-0000-000000000000/reject', body: { reason: 'no' }, allow: ['OWNER_ADMIN'] },
+  { label: 'list payment claims', method: 'get', path: '/api/v1/fees/claims',allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT'], scopeGated: true },
   { label: 'submit a payment claim', method: 'post', path: '/api/v1/fees/claims', body: {}, allow: ['OWNER_ADMIN', 'ACCOUNTANT'] },
   { label: 'verify a payment claim', method: 'post', path: '/api/v1/fees/claims/00000000-0000-0000-0000-000000000000/verify', body: {}, allow: ['OWNER_ADMIN', 'ACCOUNTANT'] },
   { label: 'reject a payment claim', method: 'post', path: '/api/v1/fees/claims/00000000-0000-0000-0000-000000000000/reject', body: {}, allow: ['OWNER_ADMIN', 'ACCOUNTANT'] },

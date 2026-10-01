@@ -26,7 +26,7 @@ const IN_TAB_BAR = ['/home', '/attendance', '/my-timetable', '/me-more'];
 export default function MePage() {
   const me = useMe();
   const router = useRouter();
-  const groups = groupedNav(me?.roles, me?.admissionsMode)
+  const groups = groupedNav(me?.roles, me?.admissionsMode, false, me?.campusAdminSeesFees)
     .map((g) => ({ ...g, items: g.items.filter((i) => !IN_TAB_BAR.includes(i.href)) }))
     .filter((g) => g.items.length > 0);
 

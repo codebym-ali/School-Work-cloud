@@ -11,6 +11,7 @@ import {
   MetricsMiddleware,
   MetricsModule,
   MfaEnrolledGuard,
+  OwnerReadOnlyGuard,
   pinoConfig,
   RateLimitGuard,
   RateLimitModule,
@@ -42,6 +43,8 @@ import { BellScheduleModule } from './modules/bell-schedule/bell-schedule.module
 import { TimetableModule } from './modules/timetable/timetable.module';
 import { CoverModule } from './modules/cover/cover.module';
 import { FeesModule } from './modules/fees/fees.module';
+import { ApprovalsModule } from './modules/approvals/approvals.module';
+import { ProposalsModule } from './modules/approvals/proposals.service';
 import { ExamsModule } from './modules/exams/exams.module';
 import { HrModule } from './modules/hr/hr.module';
 import { DocumentsModule } from './modules/documents/documents.module';
@@ -94,6 +97,8 @@ import { UploadsModule } from './modules/uploads/uploads.module';
     TimetableModule,
     CoverModule,
     FeesModule,
+    ProposalsModule,
+    ApprovalsModule,
     ExamsModule,
     HrModule,
     DocumentsModule,
@@ -117,7 +122,9 @@ import { UploadsModule } from './modules/uploads/uploads.module';
     { provide: APP_GUARD, useClass: RateLimitGuard },
     { provide: APP_GUARD, useClass: TenantScopeGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
-    // After RolesGuard: a caller refused a role should hear "insufficient role", not be told to set up
+    // After RolesGuard: owner accounts are read-only except explicitly @OwnerWritable() routes.
+    { provide: APP_GUARD, useClass: OwnerReadOnlyGuard },
+    // After OwnerReadOnlyGuard: a caller refused a role should hear "insufficient role", not be told to set up
     // two-factor for a route they could never use anyway.
     { provide: APP_GUARD, useClass: MfaEnrolledGuard },
     // ⚠️ Bound HERE and not in `main.ts`: every integration spec builds its app from AppModule

@@ -3,9 +3,11 @@ import { ClaimSource, ClaimStatus, PaymentMethod, Prisma } from '@prisma/client'
 import {
   AppError,
   assertCampusAccess,
+  assertMayReadFees,
   AuditActions,
   effectiveCampusFilter,
   ErrorCodes,
+  feesHiddenFromActor,
   paginate,
   parseSchoolSettings,
   restrictedCampusId,
@@ -46,6 +48,11 @@ export class ClaimsService {
   private get sid(): string {
     return this.ctx.requireSchoolId();
   }
+  private loadSettings = async () => (await this.db.school.findFirst({ where: { id: this.sid }, select: { settings: true } }))?.settings;
+  /** The owner may choose not to show fees to a campus admin (`campusAdminSeesFees`). */
+  private mayReadFees() {
+    return assertMayReadFees(this.ctx.user, this.loadSettings);
+  }
 
   /**
    * Record that a payment is claimed. Does not touch the invoice.
@@ -61,6 +68,9 @@ export class ClaimsService {
     });
     if (!invoice) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'Invoice not found');
     assertCampusAccess(this.ctx.user, invoice.enrollment.campusId);
+    if (invoice.status === 'PENDING_APPROVAL') {
+      throw new AppError(ErrorCodes.CONFLICT, HttpStatus.CONFLICT, 'This voucher is awaiting the owner\'s approval and cannot be paid yet');
+    }
 
     this.assertFileIsOurs(dto.proofFileKey);
     // Shared with the guardian-link path so the two cannot drift apart: the partial unique on
@@ -256,6 +266,7 @@ export class ClaimsService {
   }
 
   async list(q: ClaimListQuery): Promise<Paginated<unknown>> {
+    await this.mayReadFees();
     const where: Prisma.FeePaymentClaimWhereInput = {};
     if (q.status) where.status = q.status as ClaimStatus;
     if (q.studentId) where.studentId = q.studentId;
@@ -282,6 +293,8 @@ export class ClaimsService {
 
   /** How many are waiting on a human — powers the dashboard chip. */
   async pendingCount(): Promise<number> {
+    // Not an error: the dashboard chip and the bell both ask. A hidden school simply has "nothing to show".
+    if (await feesHiddenFromActor(this.ctx.user, this.loadSettings)) return 0;
     const restricted = restrictedCampusId(this.ctx.user);
     return this.db.feePaymentClaim.count({
       where: { status: ClaimStatus.PENDING, ...(restricted !== null ? { invoice: { enrollment: { campusId: restricted } } } : {}) },
@@ -303,6 +316,7 @@ export class ClaimsService {
 
   /** Short-lived link to the submitted evidence — keyed on the claim, never on the file key. */
   async proofUrl(claimId: string) {
+    await this.mayReadFees();
     const claim = await this.claimOr404(claimId);
     if (!claim.proofFileKey) {
       throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'No proof was attached to this submission');

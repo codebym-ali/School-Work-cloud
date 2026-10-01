@@ -1,5 +1,7 @@
-import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Patch, Post, Put, Query } from '@nestjs/common';
-import { Roles, STAFF_ROLES } from '@common';
+import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Patch, Post, Put, Query, Res } from '@nestjs/common';
+import type { Response } from 'express';
+import { OwnerWritable, Roles, STAFF_ROLES } from '@common';
+import { ProposalsService } from '../approvals/proposals.service';
 import { SetupService } from './setup.service';
 import {
   ClassListQuery,
@@ -26,9 +28,15 @@ import {
  * developer writing to the database, so a school could not set its own working week, fee due
  * day, or attendance windows without filing a request.
  */
+@OwnerWritable()
 @Controller('school-settings')
 export class SchoolSettingsController {
-  constructor(private readonly setup: SetupService) {}
+  private readonly updateSettings;
+  // The owner acts directly; the Ops Admin PROPOSES and the owner approves (ProposalsService).
+  constructor(private readonly setup: SetupService, proposals: ProposalsService) {
+    this.updateSettings = proposals.action('schoolSettings.update', (patch: Record<string, unknown>) => this.setup.updateSettings(patch),
+      (patch) => `Change school settings (${Object.keys(patch).filter((k) => patch[k] !== undefined).join(', ') || 'no fields'})`);
+  }
 
   // Readable by both admin roles — a campus admin needs to know the rules they work under
   // (weekly off, backfill window) even though only the owner may change them.
@@ -42,19 +50,27 @@ export class SchoolSettingsController {
    *  may change them on the owner's behalf (audited). Partial — send only what changes. */
   @Roles('OWNER_ADMIN', 'OPERATIONS_ADMIN')
   @Patch()
-  update(@Body() dto: UpdateSchoolSettingsDto) {
-    return this.setup.updateSettings({ ...dto } as Record<string, unknown>);
+  update(@Body() dto: UpdateSchoolSettingsDto, @Res({ passthrough: true }) res: Response) {
+    // Stored payload drops undefined keys (a class-validator DTO materialises every declared property).
+    const patch = Object.fromEntries(Object.entries({ ...dto }).filter(([, v]) => v !== undefined)) as Record<string, unknown>;
+    return this.updateSettings(patch, res);
   }
 }
 
+@OwnerWritable()
 @Controller('academic-years')
 export class AcademicYearController {
-  constructor(private readonly setup: SetupService) {}
+  private readonly createYear;
+  private readonly setCurrentYear;
+  constructor(private readonly setup: SetupService, proposals: ProposalsService) {
+    this.createYear = proposals.action('academicYear.create', (dto: CreateAcademicYearDto) => this.setup.createAcademicYear(dto), (dto) => `Add academic year ${dto.name}`);
+    this.setCurrentYear = proposals.action('academicYear.setCurrent', (p: { id: string }) => this.setup.setCurrentAcademicYear(p.id), () => 'Make a different academic year the current one');
+  }
 
   @Roles('OWNER_ADMIN', 'OPERATIONS_ADMIN')
   @Post()
-  create(@Body() dto: CreateAcademicYearDto) {
-    return this.setup.createAcademicYear(dto);
+  create(@Body() dto: CreateAcademicYearDto, @Res({ passthrough: true }) res: Response) {
+    return this.createYear(dto, res);
   }
 
   // Staff-only (Issue 3): a picker every staff screen uses, but a STUDENT portal session must not
@@ -67,8 +83,8 @@ export class AcademicYearController {
 
   @Roles('OWNER_ADMIN', 'OPERATIONS_ADMIN')
   @Post(':id/set-current')
-  setCurrent(@Param('id') id: string) {
-    return this.setup.setCurrentAcademicYear(id);
+  setCurrent(@Param('id') id: string, @Res({ passthrough: true }) res: Response) {
+    return this.setCurrentYear({ id }, res);
   }
 }
 
@@ -82,6 +98,7 @@ export class AcademicYearController {
  * closures is a teacher who turns up at a locked school. Declaring one is admin-only, because a
  * closure changes the month's working-day count and therefore everybody's absence deduction.
  */
+@OwnerWritable()
 @Controller('holidays')
 export class HolidayController {
   constructor(private readonly setup: SetupService) {}
@@ -113,21 +130,24 @@ export class HolidayController {
   }
 }
 
+@OwnerWritable()
 @Controller('campuses')
 export class CampusController {
   constructor(private readonly setup: SetupService) {}
 
   /**
-   * Campus comparison (GAP-11). School-wide roles only: comparing campuses is a question about campuses a
-   * campus admin does not run. Declared before any `:id` route so it is never read as an id.
+   * Campus comparison (GAP-11). Owner only: comparing campuses is a school-wide question, and a campus's Ops Admin
+   * (like a campus admin) must not see another campus's numbers. Declared before any `:id` route so it is never
+   * read as an id.
    */
-  @Roles('OWNER_ADMIN', 'OPERATIONS_ADMIN')
+  @Roles('OWNER_ADMIN')
   @Get('summary')
   summary() {
     return this.setup.campusSummary();
   }
 
-  @Roles('OWNER_ADMIN', 'OPERATIONS_ADMIN')
+  /** Creating / closing a campus is a school-level act — owner only (the Ops Admin runs one campus). */
+  @Roles('OWNER_ADMIN')
   @Post()
   create(@Body() dto: CreateCampusDto) {
     return this.setup.createCampus(dto);
@@ -145,7 +165,7 @@ export class CampusController {
     return this.setup.updateCampus(id, dto);
   }
 
-  @Roles('OWNER_ADMIN', 'OPERATIONS_ADMIN')
+  @Roles('OWNER_ADMIN')
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   remove(@Param('id') id: string) {
@@ -153,6 +173,7 @@ export class CampusController {
   }
 }
 
+@OwnerWritable()
 @Controller('classes')
 export class ClassController {
   constructor(private readonly setup: SetupService) {}
@@ -196,6 +217,7 @@ export class ClassController {
   }
 }
 
+@OwnerWritable()
 @Controller('sections')
 export class SectionController {
   constructor(private readonly setup: SetupService) {}
@@ -233,6 +255,7 @@ export class SectionController {
   }
 }
 
+@OwnerWritable()
 @Controller('subjects')
 export class SubjectController {
   constructor(private readonly setup: SetupService) {}

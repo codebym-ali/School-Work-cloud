@@ -58,14 +58,14 @@ export default function MyDashboard() {
 
       <div className="card stack">
         <h2 style={{ margin: 0, fontSize: 17 }}>Guardians</h2>
-        <table>
+        <table className="stacked">
           <thead><tr><th>Name</th><th>Relation</th><th>Phone</th></tr></thead>
           <tbody>
             {data.guardians.map((g, i) => (
               <tr key={i}>
-                <td>{g.name}{g.isPrimary && <span className="badge ok" style={{ marginLeft: 6 }}>primary</span>}</td>
-                <td>{g.relation}</td>
-                <td>{g.phone}</td>
+                <td data-label="Name">{g.name}{g.isPrimary && <span className="badge ok" style={{ marginLeft: 6 }}>primary</span>}</td>
+                <td data-label="Relation">{g.relation}</td>
+                <td data-label="Phone">{g.phone}</td>
               </tr>
             ))}
             {data.guardians.length === 0 && <tr><td colSpan={3} className="muted">No guardians on file.</td></tr>}

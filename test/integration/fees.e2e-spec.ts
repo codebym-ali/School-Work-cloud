@@ -12,6 +12,7 @@ import { SMS_QUEUE } from '../../apps/api/src/modules/comms/sms/sms.types';
 import { destroyTenant } from './support/tenant';
 import { drainSmsFor } from './support/sms';
 import { loginRequest } from './support/login';
+import { opsAdminSession } from './support/ops-admin';
 import { enrolMfa } from './support/mfa';
 
 /**
@@ -32,6 +33,8 @@ describe('Fees end-to-end (e2e, §12)', () => {
   let parentId: string;
   let campusId: string;
   let admit: (dto: object) => request.Test;
+  let opsCookies: string[];
+  let opsCsrf: string;
 
   const sub = `fee-${randomUUID().slice(0, 8)}`;
   const host = `${sub}.localhost`;
@@ -42,6 +45,12 @@ describe('Fees end-to-end (e2e, §12)', () => {
   const csrfOf = (c: string[]) => (c.find((x) => x.startsWith('csrf=')) ?? '').split(';')[0].slice(5);
   const post = (p: string, b: object = {}, headers: Record<string, string> = {}) => {
     let r = request(server()).post(p).set('Host', host).set('Cookie', cookies).set('X-CSRF-Token', csrf);
+    for (const [k, v] of Object.entries(headers)) r = r.set(k, v);
+    return r.send(b);
+  };
+  /** POST as Operations Admin — for routes the OwnerReadOnlyGuard blocks. */
+  const opsPost = (p: string, b: object = {}, headers: Record<string, string> = {}) => {
+    let r = request(server()).post(p).set('Host', host).set('Cookie', opsCookies).set('X-CSRF-Token', opsCsrf);
     for (const [k, v] of Object.entries(headers)) r = r.set(k, v);
     return r.send(b);
   };
@@ -74,9 +83,15 @@ describe('Fees end-to-end (e2e, §12)', () => {
     const year = await post('/api/v1/academic-years', { name: '2026-27', startDate: '2026-04-01', endDate: '2027-03-31', isCurrent: true });
     yearId = year.body.id;
     campusId = prov.campusId;
-    const klass = await post('/api/v1/classes', { campusId, name: 'Grade 1', order: 1 });
+
+    // Ops Admin session — for routes the OwnerReadOnlyGuard blocks (fees, classes, sections, students, discounts).
+    const ops = await opsAdminSession(app, platform, schoolId, host);
+    opsCookies = await enrolMfa(server(), host, ops.cookies);
+    opsCsrf = csrfOf(opsCookies);
+
+    const klass = await opsPost('/api/v1/classes', { campusId, name: 'Grade 1', order: 1 });
     classId = klass.body.id;
-    const section = await post('/api/v1/sections', { classId, name: 'A' });
+    const section = await opsPost('/api/v1/sections', { classId, name: 'A' });
     ({ admit } = await admissionController(app, platform, schoolId, host, campusId));
     const student = await admit({
       fullName: 'Sara Khan', gender: 'FEMALE', dateOfBirth: '2020-05-10', campusId, classId, sectionId: section.body.id,
@@ -89,7 +104,7 @@ describe('Fees end-to-end (e2e, §12)', () => {
     // Tuition 1000/month + a 10% discount for this student → invoice 900.
     const head = await post('/api/v1/fee-heads', { name: 'Tuition' });
     await post('/api/v1/fee-structures', { campusId: prov.campusId, classId, feeHeadId: head.body.id, academicYearId: yearId, amount: 1000, frequency: 'MONTHLY' });
-    await post('/api/v1/discounts', { studentId, type: 'PERCENT', value: 10, reason: 'Sibling' });
+    await opsPost('/api/v1/discounts', { studentId, type: 'PERCENT', value: 10, reason: 'Sibling' });
   });
 
   afterAll(async () => {
@@ -104,12 +119,12 @@ describe('Fees end-to-end (e2e, §12)', () => {
   let firstPaymentId: string;
 
   it('generates an idempotent invoice batch with the discount applied', async () => {
-    const batch = await post('/api/v1/fees/invoice-batches', { classId, month: 7, year: 2026 });
+    const batch = await opsPost('/api/v1/fees/invoice-batches', { classId, month: 7, year: 2026 });
     expect(batch.status).toBe(201);
     expect(batch.body).toMatchObject({ alreadyExists: false, generated: 1 });
 
     // Duplicate batch → existing, nothing regenerated.
-    const dup = await post('/api/v1/fees/invoice-batches', { classId, month: 7, year: 2026 });
+    const dup = await opsPost('/api/v1/fees/invoice-batches', { classId, month: 7, year: 2026 });
     expect(dup.body).toMatchObject({ alreadyExists: true, generated: 0 });
 
     const invoices = await get(`/api/v1/fees/invoices?studentId=${studentId}&month=7&year=2026`);
@@ -122,22 +137,22 @@ describe('Fees end-to-end (e2e, §12)', () => {
   it('takes a partial payment; the Idempotency-Key replays instead of double-charging', async () => {
     const key = randomUUID();
     const body = { amountPaid: 500, method: 'CASH' };
-    const first = await post(`/api/v1/fees/invoices/${invoiceId}/payments`, body, { 'Idempotency-Key': key });
+    const first = await opsPost(`/api/v1/fees/invoices/${invoiceId}/payments`, body, { 'Idempotency-Key': key });
     expect(first.status).toBe(201);
     expect(first.body).toMatchObject({ invoiceStatus: 'PARTIAL', paidAmount: 500 });
     firstPaymentId = first.body.paymentId;
 
-    const replay = await post(`/api/v1/fees/invoices/${invoiceId}/payments`, body, { 'Idempotency-Key': key });
+    const replay = await opsPost(`/api/v1/fees/invoices/${invoiceId}/payments`, body, { 'Idempotency-Key': key });
     expect(replay.body.paymentId).toBe(firstPaymentId); // same payment, not a new one
     expect(replay.body.receiptNo).toBe(first.body.receiptNo);
   });
 
   it('rejects overpayment (422 OVERPAYMENT_USE_ADVANCE) and completes to PAID', async () => {
-    const over = await post(`/api/v1/fees/invoices/${invoiceId}/payments`, { amountPaid: 1000, method: 'CASH' }, idem());
+    const over = await opsPost(`/api/v1/fees/invoices/${invoiceId}/payments`, { amountPaid: 1000, method: 'CASH' }, idem());
     expect(over.status).toBe(422);
     expect(over.body.error.code).toBe('OVERPAYMENT_USE_ADVANCE');
 
-    const rest = await post(`/api/v1/fees/invoices/${invoiceId}/payments`, { amountPaid: 400, method: 'CASH' }, idem());
+    const rest = await opsPost(`/api/v1/fees/invoices/${invoiceId}/payments`, { amountPaid: 400, method: 'CASH' }, idem());
     expect(rest.status).toBe(201);
     expect(rest.body.invoiceStatus).toBe('PAID');
   });
@@ -222,7 +237,7 @@ describe('Fees end-to-end (e2e, §12)', () => {
 
   it('answers a double-clicked reversal with one reversal and a clean 409', async () => {
     // A fresh Rs 100 so the race has its own payment; reversing it returns the invoice to where it was.
-    const paid = await post(`/api/v1/fees/invoices/${invoiceId}/payments`, { amountPaid: 100, method: 'CASH' }, idem());
+    const paid = await opsPost(`/api/v1/fees/invoices/${invoiceId}/payments`, { amountPaid: 100, method: 'CASH' }, idem());
     expect(paid.status).toBe(201);
 
     // ⚠️ Fired together: the service's "already reversed?" read cannot see a reversal committed by the
@@ -253,18 +268,18 @@ describe('Fees end-to-end (e2e, §12)', () => {
 
     it('refuses a method the school does not accept, and names what it does', async () => {
       await setMethods(['CASH']);
-      const batch = await post('/api/v1/fees/invoice-batches', { classId, month: 6, year: 2026 });
+      const batch = await opsPost('/api/v1/fees/invoice-batches', { classId, month: 6, year: 2026 });
       expect(batch.body.generated).toBe(1);
       const inv = (await get(`/api/v1/fees/invoices?studentId=${studentId}&month=6&year=2026`)).body.data[0];
 
-      const refused = await post(`/api/v1/fees/invoices/${inv.id}/payments`,
+      const refused = await opsPost(`/api/v1/fees/invoices/${inv.id}/payments`,
         { amountPaid: 100, method: 'JAZZCASH', transactionRef: 'JZ-1' }, idem());
       expect(refused.status).toBe(422);
       expect(refused.body.error.message).toMatch(/does not accept jazzcash/i);
       expect(refused.body.error.message).toMatch(/Accepted: CASH/);
 
       // ...and the accepted one still works, so this is a filter, not a freeze.
-      const ok = await post(`/api/v1/fees/invoices/${inv.id}/payments`, { amountPaid: 100, method: 'CASH' }, idem());
+      const ok = await opsPost(`/api/v1/fees/invoices/${inv.id}/payments`, { amountPaid: 100, method: 'CASH' }, idem());
       expect(ok.status).toBe(201);
     });
 
@@ -272,10 +287,10 @@ describe('Fees end-to-end (e2e, §12)', () => {
       // ADVANCE is not a way of paying — it is the school drawing down a credit the guardian
       // already deposited. Blocking it because "we only take cash" would strand real money.
       await setMethods(['CASH']);
-      const dep = await post('/api/v1/fees/advances', { parentId, amount: 500 }, idem());
+      const dep = await opsPost('/api/v1/fees/advances', { parentId, amount: 500 }, idem());
       expect(dep.status).toBe(201);
 
-      const batch = await post('/api/v1/fees/invoice-batches', { classId, month: 11, year: 2026 });
+      const batch = await opsPost('/api/v1/fees/invoice-batches', { classId, month: 11, year: 2026 });
       expect(batch.body.generated).toBe(1);
       const inv = (await get(`/api/v1/fees/invoices?studentId=${studentId}&month=11&year=2026`)).body.data[0];
       // The advance was applied during generation despite ADVANCE not being an "accepted method".
@@ -290,10 +305,10 @@ describe('Fees end-to-end (e2e, §12)', () => {
       // and it used a cheque only incidentally — but a cheque can no longer be collected directly
       // (D3: it is recorded as a submission and clears first), so using one here would have made
       // this test fail for a reason that has nothing to do with what it is testing.
-      const batch = await post('/api/v1/fees/invoice-batches', { classId, month: 12, year: 2026 });
+      const batch = await opsPost('/api/v1/fees/invoice-batches', { classId, month: 12, year: 2026 });
       expect(batch.body.generated).toBe(1);
       const inv = (await get(`/api/v1/fees/invoices?studentId=${studentId}&month=12&year=2026`)).body.data[0];
-      const paid = await post(`/api/v1/fees/invoices/${inv.id}/payments`,
+      const paid = await opsPost(`/api/v1/fees/invoices/${inv.id}/payments`,
         { amountPaid: 100, method: 'BANK_TRANSFER', transactionRef: 'IBFT-9911' }, idem());
       expect(paid.status).toBe(201);
 
@@ -324,7 +339,7 @@ describe('Fees end-to-end (e2e, §12)', () => {
     // Months must sit INSIDE the academic year (Apr 2026 – Mar 2027): a fee takes effect from
     // the year's first day, so billing a month before it generates nothing at all.
     const invoiceFor = async (month: number, year = 2026) => {
-      const batch = await post('/api/v1/fees/invoice-batches', { classId, month, year });
+      const batch = await opsPost('/api/v1/fees/invoice-batches', { classId, month, year });
       expect(batch.status).toBe(201);
       const inv = (await get(`/api/v1/fees/invoices?studentId=${studentId}&month=${month}&year=${year}`)).body.data[0];
       expect(inv).toBeDefined();
@@ -337,7 +352,7 @@ describe('Fees end-to-end (e2e, §12)', () => {
       // A stored key is a capability. Validating it at the moment it is ACCEPTED — rather than
       // when it is later presigned — is what stops one tenant attaching another's document.
       const inv = await invoiceFor(4);
-      const res = await post(`/api/v1/fees/invoices/${inv.id}/payments`,
+      const res = await opsPost(`/api/v1/fees/invoices/${inv.id}/payments`,
         { amountPaid: 50, method: 'BANK_TRANSFER', transactionRef: 'X-1', proofFileKey: 'uploads/00000000-0000-0000-0000-000000000000/evil.jpg' },
         idem());
       expect(res.status).toBe(403);
@@ -348,14 +363,14 @@ describe('Fees end-to-end (e2e, §12)', () => {
       await setPolicy('REQUIRED');
       const inv = await invoiceFor(10);
 
-      const noProof = await post(`/api/v1/fees/invoices/${inv.id}/payments`,
+      const noProof = await opsPost(`/api/v1/fees/invoices/${inv.id}/payments`,
         { amountPaid: 50, method: 'BANK_TRANSFER', transactionRef: 'NP-1' }, idem());
       expect(noProof.status).toBe(422);
       expect(noProof.body.error.message).toMatch(/requires proof of payment/i);
 
       // Cash over the counter has no screenshot, and demanding one would make the commonest
       // payment in a Pakistani school impossible to record.
-      const cash = await post(`/api/v1/fees/invoices/${inv.id}/payments`, { amountPaid: 50, method: 'CASH' }, idem());
+      const cash = await opsPost(`/api/v1/fees/invoices/${inv.id}/payments`, { amountPaid: 50, method: 'CASH' }, idem());
       expect(cash.status).toBe(201);
     });
 
@@ -363,7 +378,7 @@ describe('Fees end-to-end (e2e, §12)', () => {
       await setPolicy('OPTIONAL');
       const inv = await invoiceFor(1, 2027);
       const key = `uploads/${schoolId}/proof-${randomUUID()}.jpg`;
-      const paid = await post(`/api/v1/fees/invoices/${inv.id}/payments`,
+      const paid = await opsPost(`/api/v1/fees/invoices/${inv.id}/payments`,
         { amountPaid: 50, method: 'JAZZCASH', transactionRef: `JZ-${randomUUID().slice(0, 8)}`, proofFileKey: key }, idem());
       expect(paid.status).toBe(201);
 
@@ -388,7 +403,7 @@ describe('Fees end-to-end (e2e, §12)', () => {
 
     it('says so plainly when a payment has no proof, rather than returning a broken link', async () => {
       const inv = await invoiceFor(2, 2027);
-      const cash = await post(`/api/v1/fees/invoices/${inv.id}/payments`, { amountPaid: 50, method: 'CASH' }, idem());
+      const cash = await opsPost(`/api/v1/fees/invoices/${inv.id}/payments`, { amountPaid: 50, method: 'CASH' }, idem());
       const proof = await get(`/api/v1/fees/payments/${cash.body.paymentId}/proof`);
       expect(proof.status).toBe(404);
       expect(proof.body.error.message).toMatch(/no proof was attached/i);
@@ -406,7 +421,7 @@ describe('Fees end-to-end (e2e, §12)', () => {
    */
   describe('corrections and defaulters', () => {
     const invoiceFor = async (month: number, year = 2028) => {
-      await post('/api/v1/fees/invoice-batches', { classId, month, year });
+      await opsPost('/api/v1/fees/invoice-batches', { classId, month, year });
       const inv = (await get(`/api/v1/fees/invoices?studentId=${studentId}&month=${month}&year=${year}`)).body.data[0];
       expect(inv).toBeDefined();
       return inv;
@@ -434,7 +449,7 @@ describe('Fees end-to-end (e2e, §12)', () => {
     it('FEE-6.3 · a waived invoice refuses further payment', async () => {
       const inv = await invoiceFor(3);
       await post(`/api/v1/fees/invoices/${inv.id}/waive`, { reason: 'Scholarship' });
-      const paid = await post(`/api/v1/fees/invoices/${inv.id}/payments`, { amountPaid: 50, method: 'CASH' }, idem());
+      const paid = await opsPost(`/api/v1/fees/invoices/${inv.id}/payments`, { amountPaid: 50, method: 'CASH' }, idem());
       expect(paid.status).toBe(409);
     });
 
@@ -476,9 +491,9 @@ describe('Fees end-to-end (e2e, §12)', () => {
       // Reversing is not theirs: a cashier who can reverse can unmake their own receipt.
       expect(reversal.status).toBe(403);
 
-      // And the owner still can — the rule is about ROLE, not about the payment being special.
-      const byOwner = await post(`/api/v1/fees/payments/${paid.body.paymentId}/reversals`, { reason: 'Collected in error' });
-      expect(byOwner.status).toBe(201);
+      // And the ops admin still can — the rule is about ROLE, not about the payment being special.
+      const byOps = await opsPost(`/api/v1/fees/payments/${paid.body.paymentId}/reversals`, { reason: 'Collected in error' });
+      expect(byOps.status).toBe(201);
     });
 
     it('FEE-7.1 · a defaulter appears while unpaid and leaves once paid', async () => {
@@ -493,7 +508,7 @@ describe('Fees end-to-end (e2e, §12)', () => {
       //    so billing February produced nothing to be a defaulter about).
       // April 2026 is past, inside the year, and billed by no other case in this file.
       await invoiceFor(4, 2026);
-      await post('/api/v1/fees/jobs/mark-overdue');
+      await opsPost('/api/v1/fees/jobs/mark-overdue');
 
       // ⚠️ Rows are grouped BY STUDENT: `{ student, outstanding, invoices }`. There is no
       // top-level `studentId` — asserting on one silently matches nothing and reads as "the student
@@ -516,7 +531,7 @@ describe('Fees end-to-end (e2e, §12)', () => {
       for (const i of open) {
         const remaining = Number(i.totalAmount) - Number(i.paidAmount);
         if (remaining > 0) {
-          await post(`/api/v1/fees/invoices/${i.id}/payments`, { amountPaid: remaining, method: 'CASH' }, idem());
+          await opsPost(`/api/v1/fees/invoices/${i.id}/payments`, { amountPaid: remaining, method: 'CASH' }, idem());
         }
       }
 
@@ -528,13 +543,13 @@ describe('Fees end-to-end (e2e, §12)', () => {
   describe('payment claims', () => {
     const today = () => new Date().toISOString().slice(0, 10);
     const claimFor = (invoiceId: string, extra: object = {}) =>
-      post('/api/v1/fees/claims', {
+      opsPost('/api/v1/fees/claims', {
         invoiceId, amount: 100, method: 'BANK_TRANSFER',
         transactionRef: `IBFT-${randomUUID().slice(0, 8)}`, paidOn: today(), ...extra,
       });
 
     const invoiceFor = async (month: number, year = 2026) => {
-      await post('/api/v1/fees/invoice-batches', { classId, month, year });
+      await opsPost('/api/v1/fees/invoice-batches', { classId, month, year });
       const inv = (await get(`/api/v1/fees/invoices?studentId=${studentId}&month=${month}&year=${year}`)).body.data[0];
       expect(inv).toBeDefined();
       return inv;
@@ -550,7 +565,7 @@ describe('Fees end-to-end (e2e, §12)', () => {
     describe('cheques', () => {
       it('cannot be collected straight into a receipt', async () => {
         const inv = await invoiceFor(9, 2029);
-        const res = await post(`/api/v1/fees/invoices/${inv.id}/payments`, { amountPaid: 100, method: 'CHEQUE', transactionRef: 'CHQ-001' })
+        const res = await opsPost(`/api/v1/fees/invoices/${inv.id}/payments`, { amountPaid: 100, method: 'CHEQUE', transactionRef: 'CHQ-001' })
           .set('Idempotency-Key', randomUUID());
         expect(res.status).toBe(422);
         expect(res.body.error.message).toMatch(/submission/i);
@@ -572,7 +587,7 @@ describe('Fees end-to-end (e2e, §12)', () => {
         // received, and the school holding a reversal to unwind.
         const inv = await invoiceFor(11, 2029);
         const claim = await claimFor(inv.id, { method: 'CHEQUE', transactionRef: `CHQ-${randomUUID().slice(0, 8)}` });
-        const res = await post(`/api/v1/fees/claims/${claim.body.id}/verify`);
+        const res = await opsPost(`/api/v1/fees/claims/${claim.body.id}/verify`);
         expect(res.status).toBe(409);
         expect(res.body.error.message).toMatch(/clears on/i);
 
@@ -589,7 +604,7 @@ describe('Fees end-to-end (e2e, §12)', () => {
           where: { id: claim.body.id },
           data: { clearsOn: new Date(Date.now() - 86_400_000) },
         });
-        const res = await post(`/api/v1/fees/claims/${claim.body.id}/verify`);
+        const res = await opsPost(`/api/v1/fees/claims/${claim.body.id}/verify`);
         expect(res.status).toBe(201);
         // The receipt is minted by the SAME path every other method uses — not a second one.
         expect(res.body.receiptNo).toBeTruthy();
@@ -598,7 +613,7 @@ describe('Fees end-to-end (e2e, §12)', () => {
       it('a bounced cheque is rejected, and nothing financial has to be unwound', async () => {
         const inv = await invoiceFor(1, 2030);
         const claim = await claimFor(inv.id, { method: 'CHEQUE', transactionRef: `CHQ-${randomUUID().slice(0, 8)}` });
-        const res = await post(`/api/v1/fees/claims/${claim.body.id}/reject`, { reason: 'Cheque returned unpaid' });
+        const res = await opsPost(`/api/v1/fees/claims/${claim.body.id}/reject`, { reason: 'Cheque returned unpaid' });
         expect(res.status).toBe(201);
         const after = (await get(`/api/v1/fees/invoices/${inv.id}`)).body;
         expect(Number(after.paidAmount)).toBe(0);
@@ -624,7 +639,7 @@ describe('Fees end-to-end (e2e, §12)', () => {
       const inv = await invoiceFor(4, 2027);
       const claim = await claimFor(inv.id);
 
-      const verified = await post(`/api/v1/fees/claims/${claim.body.id}/verify`);
+      const verified = await opsPost(`/api/v1/fees/claims/${claim.body.id}/verify`);
       expect(verified.status).toBe(201);
       expect(verified.body.status).toBe('VERIFIED');
       expect(verified.body.receiptNo).toBeGreaterThan(0);
@@ -643,9 +658,9 @@ describe('Fees end-to-end (e2e, §12)', () => {
     it('cannot be verified twice — one claim, one receipt', async () => {
       const inv = await invoiceFor(5, 2027);
       const claim = await claimFor(inv.id);
-      await post(`/api/v1/fees/claims/${claim.body.id}/verify`);
+      await opsPost(`/api/v1/fees/claims/${claim.body.id}/verify`);
 
-      const again = await post(`/api/v1/fees/claims/${claim.body.id}/verify`);
+      const again = await opsPost(`/api/v1/fees/claims/${claim.body.id}/verify`);
       expect(again.status).toBe(409);
       expect(again.body.error.message).toMatch(/already verified/i);
       expect(await platform.feePayment.count({ where: { invoiceId: inv.id } })).toBe(1);
@@ -655,13 +670,13 @@ describe('Fees end-to-end (e2e, §12)', () => {
       const inv = await invoiceFor(6, 2027);
       const claim = await claimFor(inv.id);
 
-      const rejected = await post(`/api/v1/fees/claims/${claim.body.id}/reject`, { reason: 'Reference not on our statement' });
+      const rejected = await opsPost(`/api/v1/fees/claims/${claim.body.id}/reject`, { reason: 'Reference not on our statement' });
       expect(rejected.status).toBe(201);
       expect(rejected.body).toMatchObject({ status: 'REJECTED', rejectionReason: 'Reference not on our statement' });
       expect(await platform.feePayment.count({ where: { invoiceId: inv.id } })).toBe(0);
 
       // A rejected claim is terminal — no quiet second chance that could double-collect.
-      const late = await post(`/api/v1/fees/claims/${claim.body.id}/verify`);
+      const late = await opsPost(`/api/v1/fees/claims/${claim.body.id}/verify`);
       expect(late.status).toBe(409);
     });
 
@@ -704,18 +719,18 @@ describe('Fees end-to-end (e2e, §12)', () => {
     // BEFORE the year began produces nothing — which is correct, and which this fixture used
     // to rely on not being true.
     await put('/api/v1/late-fee-policy', { graceDays: 0, mode: 'FLAT', amount: 100 });
-    await post('/api/v1/fees/invoice-batches', { classId, month: 5, year: 2026 });
+    await opsPost('/api/v1/fees/invoice-batches', { classId, month: 5, year: 2026 });
     const overdueList = await get(`/api/v1/fees/invoices?studentId=${studentId}&month=5&year=2026`);
     const overdueId = overdueList.body.data[0].id;
 
-    const marked = await post('/api/v1/fees/jobs/mark-overdue');
+    const marked = await opsPost('/api/v1/fees/jobs/mark-overdue');
     expect(marked.body.marked).toBeGreaterThanOrEqual(1);
 
     const overdue = await get(`/api/v1/fees/invoices/${overdueId}`);
     expect(overdue.body.status).toBe('OVERDUE');
     expect(Number(overdue.body.totalAmount)).toBe(1000); // 900 + 100 fine
 
-    const waived = await post(`/api/v1/fees/invoices/${overdueId}/waive`, { reason: 'Hardship' });
+    const waived = await opsPost(`/api/v1/fees/invoices/${overdueId}/waive`, { reason: 'Hardship' });
     expect(waived.body.status).toBe('WAIVED');
 
     const integrity = await get('/api/v1/fees/integrity-check');
@@ -723,7 +738,7 @@ describe('Fees end-to-end (e2e, §12)', () => {
   });
 
   it('records an advance deposit into the guardian ledger', async () => {
-    const dep = await post('/api/v1/fees/advances', { parentId, amount: 2000 }, idem());
+    const dep = await opsPost('/api/v1/fees/advances', { parentId, amount: 2000 }, idem());
     expect(dep.status).toBe(201);
     expect(dep.body.balance).toBe(2000);
 
@@ -733,7 +748,7 @@ describe('Fees end-to-end (e2e, §12)', () => {
 
   it('auto-applies the guardian advance to a newly generated invoice (§12)', async () => {
     // parentId carries a 2000 advance from the previous test. Generate next month's batch.
-    const batch = await post('/api/v1/fees/invoice-batches', { classId, month: 8, year: 2026 });
+    const batch = await opsPost('/api/v1/fees/invoice-batches', { classId, month: 8, year: 2026 });
     expect(batch.body.generated).toBe(1);
 
     // Sara's month-8 invoice (tuition 1000 − 10% = 900) is auto-paid from the advance.
@@ -767,7 +782,7 @@ describe('Fees end-to-end (e2e, §12)', () => {
     expect(enrolments.every((e) => e.status !== 'ACTIVE')).toBe(true);
 
     // A fresh batch bills only the remaining student — the removed one gets no invoice.
-    const batch = await post('/api/v1/fees/invoice-batches', { classId, month: 9, year: 2026 });
+    const batch = await opsPost('/api/v1/fees/invoice-batches', { classId, month: 9, year: 2026 });
     expect(batch.body.generated).toBe(1);
     const gonesInvoices = await get(`/api/v1/fees/invoices?studentId=${goneId}&month=9&year=2026`);
     expect(gonesInvoices.body.data).toHaveLength(0);
@@ -785,9 +800,9 @@ describe('Fees end-to-end (e2e, §12)', () => {
     let revStudentId: string;
 
     beforeAll(async () => {
-      const klass = await post('/api/v1/classes', { campusId, name: 'Rev-Grade', order: 7 });
+      const klass = await opsPost('/api/v1/classes', { campusId, name: 'Rev-Grade', order: 7 });
       revClassId = klass.body.id;
-      const section = await post('/api/v1/sections', { classId: revClassId, name: 'A' });
+      const section = await opsPost('/api/v1/sections', { classId: revClassId, name: 'A' });
       const student = await admit({
         fullName: 'Rev Pupil', gender: 'MALE', dateOfBirth: '2019-03-03', campusId,
         classId: revClassId, sectionId: section.body.id,
@@ -814,12 +829,12 @@ describe('Fees end-to-end (e2e, §12)', () => {
     });
 
     it('bills the old price before the rise and the new price after it', async () => {
-      const august = await post('/api/v1/fees/invoice-batches', { classId: revClassId, month: 8, year: 2026 });
+      const august = await opsPost('/api/v1/fees/invoice-batches', { classId: revClassId, month: 8, year: 2026 });
       expect(august.body.generated).toBe(1);
       const aug = await get(`/api/v1/fees/invoices?studentId=${revStudentId}&month=8&year=2026`);
       expect(Number(aug.body.data[0].totalAmount)).toBe(1000);
 
-      const october = await post('/api/v1/fees/invoice-batches', { classId: revClassId, month: 10, year: 2026 });
+      const october = await opsPost('/api/v1/fees/invoice-batches', { classId: revClassId, month: 10, year: 2026 });
       expect(october.body.generated).toBe(1);
       const oct = await get(`/api/v1/fees/invoices?studentId=${revStudentId}&month=10&year=2026`);
       // Only ONE tuition line, at the new price — the two rows are a history, not two charges.
@@ -935,7 +950,7 @@ describe('Fees end-to-end (e2e, §12)', () => {
     });
 
     it('copies a plan to another class, with an across-the-board rise', async () => {
-      const target = await post('/api/v1/classes', { campusId, name: 'Copy-Grade', order: 8 });
+      const target = await opsPost('/api/v1/classes', { campusId, name: 'Copy-Grade', order: 8 });
       const res = await post('/api/v1/fee-structures/copy', {
         fromClassId: revClassId, fromAcademicYearId: yearId,
         toClassIds: [target.body.id], raisePercent: 10, effectiveFrom: '2026-04-01',
@@ -989,9 +1004,9 @@ describe('Fees end-to-end (e2e, §12)', () => {
       // already been billed in returned `generated: 0` and left a brand-new student with no
       // invoice at all. Hunting for an unused month is a fixture that breaks the next time
       // somebody adds a test above this one.
-      const klass = await post('/api/v1/classes', { campusId, name: 'Link Grade', order: 9 });
+      const klass = await opsPost('/api/v1/classes', { campusId, name: 'Link Grade', order: 9 });
       const linkClassId = klass.body.id;
-      const section = await post('/api/v1/sections', { classId: linkClassId, name: 'A' });
+      const section = await opsPost('/api/v1/sections', { classId: linkClassId, name: 'A' });
       const head = await post('/api/v1/fee-heads', { name: 'Link Tuition' });
       await post('/api/v1/fee-structures', {
         campusId, classId: linkClassId, feeHeadId: head.body.id,
@@ -1002,10 +1017,10 @@ describe('Fees end-to-end (e2e, §12)', () => {
         campusId, classId: linkClassId, sectionId: section.body.id,
         guardian: { mode: 'CREATE', fullName: 'Nadia Ahmed', phone: '03331234567', relation: 'MOTHER' },
       });
-      await post('/api/v1/fees/invoice-batches', { classId: linkClassId, month: 9, year: 2026 });
+      await opsPost('/api/v1/fees/invoice-batches', { classId: linkClassId, month: 9, year: 2026 });
       const invs = await get(`/api/v1/fees/invoices?studentId=${child.body.studentId}&month=9&year=2026`);
       linkInvoiceId = invs.body.data[0].id;
-      const issued = await post(`/api/v1/fees/invoices/${linkInvoiceId}/guardian-link`, {});
+      const issued = await opsPost(`/api/v1/fees/invoices/${linkInvoiceId}/guardian-link`, {});
       expect(issued.status).toBe(201);
       token = issued.body.token;
       expect(issued.body.url).toContain(`/p/${token}`);
@@ -1080,7 +1095,7 @@ describe('Fees end-to-end (e2e, §12)', () => {
       await setLink(false);
       // 404, not 403: an unconfigured school should not confirm the surface exists.
       expect((await pub(`/api/v1/public/fee-link/${token}`)).status).toBe(404);
-      expect((await post(`/api/v1/fees/invoices/${linkInvoiceId}/guardian-link`, {})).status).toBe(404);
+      expect((await opsPost(`/api/v1/fees/invoices/${linkInvoiceId}/guardian-link`, {})).status).toBe(404);
       await setLink(true);
     });
   });
@@ -1138,7 +1153,7 @@ describe('Fees end-to-end (e2e, §12)', () => {
       // admission simply could not be invoiced. Mid-session admissions are normal.
       const month = 4;
       const year = 2031;
-      const batch = await post('/api/v1/fees/invoice-batches', { classId, month, year });
+      const batch = await opsPost('/api/v1/fees/invoice-batches', { classId, month, year });
       expect(batch.status).toBe(201);
 
       const section = await get(`/api/v1/sections?classId=${classId}`);
@@ -1151,10 +1166,10 @@ describe('Fees end-to-end (e2e, §12)', () => {
       expect(latecomer.body.studentId).toBeTruthy();
 
       // The batch cannot help: re-running it generates nothing at all.
-      const rerun = await post('/api/v1/fees/invoice-batches', { classId, month, year });
+      const rerun = await opsPost('/api/v1/fees/invoice-batches', { classId, month, year });
       expect(rerun.body.generated).toBe(0);
 
-      const res = await post('/api/v1/fees/invoices',
+      const res = await opsPost('/api/v1/fees/invoices',
         { studentId: latecomer.body.studentId, month, year }, { 'Idempotency-Key': key() });
       expect(res.status).toBe(201);
 
@@ -1167,8 +1182,8 @@ describe('Fees end-to-end (e2e, §12)', () => {
       const month = 5;
       const year = 2031;
       const k = key();
-      const first = await post('/api/v1/fees/invoices', { studentId, month, year }, { 'Idempotency-Key': k });
-      const replay = await post('/api/v1/fees/invoices', { studentId, month, year }, { 'Idempotency-Key': k });
+      const first = await opsPost('/api/v1/fees/invoices', { studentId, month, year }, { 'Idempotency-Key': k });
+      const replay = await opsPost('/api/v1/fees/invoices', { studentId, month, year }, { 'Idempotency-Key': k });
       expect(first.status).toBe(201);
 
       // The endpoint speaks the same {status, body, replayed} envelope as `pay`: a replay returns
@@ -1186,18 +1201,18 @@ describe('Fees end-to-end (e2e, §12)', () => {
       // service checks and — if that ever fails under concurrency — B0's index refuses the row.
       const month = 6;
       const year = 2031;
-      await post('/api/v1/fees/invoices', { studentId, month, year }, { 'Idempotency-Key': key() });
-      const second = await post('/api/v1/fees/invoices', { studentId, month, year }, { 'Idempotency-Key': key() });
+      await opsPost('/api/v1/fees/invoices', { studentId, month, year }, { 'Idempotency-Key': key() });
+      const second = await opsPost('/api/v1/fees/invoices', { studentId, month, year }, { 'Idempotency-Key': key() });
       expect(second.status).toBe(409);
     });
 
     it('requires an Idempotency-Key', async () => {
-      const res = await post('/api/v1/fees/invoices', { studentId, month: 7, year: 2031 });
+      const res = await opsPost('/api/v1/fees/invoices', { studentId, month: 7, year: 2031 });
       expect(res.status).toBe(400);
     });
 
     it('404s a student with no active enrollment rather than inventing one', async () => {
-      const res = await post('/api/v1/fees/invoices',
+      const res = await opsPost('/api/v1/fees/invoices',
         { studentId: randomUUID(), month: 8, year: 2031 }, { 'Idempotency-Key': key() });
       expect(res.status).toBe(404);
     });
@@ -1208,7 +1223,7 @@ describe('Fees end-to-end (e2e, §12)', () => {
       // button the office pressed.
       const month = 9;
       const year = 2031;
-      await post('/api/v1/fees/invoices', { studentId, month, year }, { 'Idempotency-Key': key() });
+      await opsPost('/api/v1/fees/invoices', { studentId, month, year }, { 'Idempotency-Key': key() });
       const invoices = await get(`/api/v1/fees/invoices?studentId=${studentId}&month=${month}&year=${year}`);
       expect(Number(invoices.body.data[0].totalAmount)).toBe(900);
     });
@@ -1255,7 +1270,7 @@ describe('Fees end-to-end (e2e, §12)', () => {
       const month = 3;
       const year = 2032;
       for (const sid of [elder, younger]) {
-        await post('/api/v1/fees/invoices', { studentId: sid, month, year }, { 'Idempotency-Key': randomUUID() });
+        await opsPost('/api/v1/fees/invoices', { studentId: sid, month, year }, { 'Idempotency-Key': randomUUID() });
       }
 
       const elderInv = await get(`/api/v1/fees/invoices?studentId=${elder}&month=${month}&year=${year}`);
@@ -1271,7 +1286,7 @@ describe('Fees end-to-end (e2e, §12)', () => {
 
       const month = 4;
       const year = 2032;
-      await post('/api/v1/fees/invoices', { studentId: second, month, year }, { 'Idempotency-Key': randomUUID() });
+      await opsPost('/api/v1/fees/invoices', { studentId: second, month, year }, { 'Idempotency-Key': randomUUID() });
 
       const inv = await get(`/api/v1/fees/invoices?studentId=${second}&month=${month}&year=${year}`);
       const detail = await get(`/api/v1/fees/invoices/${inv.body.data[0].id}`);
@@ -1288,7 +1303,7 @@ describe('Fees end-to-end (e2e, §12)', () => {
 
       const month = 5;
       const year = 2032;
-      await post('/api/v1/fees/invoices', { studentId: second, month, year }, { 'Idempotency-Key': randomUUID() });
+      await opsPost('/api/v1/fees/invoices', { studentId: second, month, year }, { 'Idempotency-Key': randomUUID() });
       const inv = await get(`/api/v1/fees/invoices?studentId=${second}&month=${month}&year=${year}`);
       expect(Number(inv.body.data[0].totalAmount)).toBe(1000);
     });
@@ -1298,7 +1313,7 @@ describe('Fees end-to-end (e2e, §12)', () => {
       const solo = (await admitUnder('Only Child', undefined, '03219876543')).studentId;
       const month = 6;
       const year = 2032;
-      await post('/api/v1/fees/invoices', { studentId: solo, month, year }, { 'Idempotency-Key': randomUUID() });
+      await opsPost('/api/v1/fees/invoices', { studentId: solo, month, year }, { 'Idempotency-Key': randomUUID() });
       const inv = await get(`/api/v1/fees/invoices?studentId=${solo}&month=${month}&year=${year}`);
       expect(Number(inv.body.data[0].totalAmount)).toBe(1000);
     });
@@ -1314,13 +1329,13 @@ describe('Fees end-to-end (e2e, §12)', () => {
       expect(st.status).toBe(201);
       const fresh = (await admitUnder('Brand New', undefined, '03215550001')).studentId;
 
-      const first = await post('/api/v1/fees/invoices',
+      const first = await opsPost('/api/v1/fees/invoices',
         { studentId: fresh, month: 7, year: 2032 }, { 'Idempotency-Key': randomUUID() });
       expect(first.status).toBe(201);
       const inv1 = await get(`/api/v1/fees/invoices?studentId=${fresh}&month=7&year=2032`);
       expect(Number(inv1.body.data[0].totalAmount)).toBe(6000); // 1000 tuition + 5000 admission
 
-      await post('/api/v1/fees/invoices',
+      await opsPost('/api/v1/fees/invoices',
         { studentId: fresh, month: 8, year: 2032 }, { 'Idempotency-Key': randomUUID() });
       const inv2 = await get(`/api/v1/fees/invoices?studentId=${fresh}&month=8&year=2032`);
       expect(Number(inv2.body.data[0].totalAmount)).toBe(1000); // tuition only — charged once

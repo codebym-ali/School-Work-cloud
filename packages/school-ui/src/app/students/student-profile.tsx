@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, apiGet, ApiError, type Klass, type Paged, type Section, type StudentDetail, type StudentDocumentRow, type StudentLeave, type StudentProfileSummary } from '@sw/api-client';
 import { useMe } from '@sw/session';
-import { hasAnyRole } from '@sw/roles';
+import { feesHiddenFromMe, hasAnyRole } from '@sw/roles';
 import { humanizeStatus } from '@sw/ui';
 import { MoveStudentDialog } from '@school/components/move-student-dialog';
 import { StudentAcademics, type AcademicsTab } from './student-academics';
@@ -494,6 +494,7 @@ function StudentLeavesCard({ studentId }: { studentId: string }) {
 export function StudentProfile({ id, classes, sections, onBack }: { id: string; classes: Klass[]; sections: Section[]; onBack: () => void }) {
   const profileMe = useMe();
   const canSeeAcademics = hasAnyRole(profileMe?.roles, ['OWNER_ADMIN', 'CAMPUS_ADMIN']);
+  const feesHidden = feesHiddenFromMe(profileMe?.roles, profileMe?.campusAdminSeesFees);
   const [s, setS] = useState<StudentDetail | null>(null);
   const [error, setError] = useState<ApiError | null>(null);
   const [moving, setMoving] = useState(false);
@@ -518,7 +519,8 @@ export function StudentProfile({ id, classes, sections, onBack }: { id: string; 
   const tabs: Array<{ key: ProfileTab; label: string }> = [
     { key: 'overview', label: 'Overview' },
     ...(canSeeAcademics ? [{ key: 'academics' as const, label: 'Academics' }] : []),
-    { key: 'fees', label: 'Fees' },
+    // The owner may keep fees from the campus admin (`campusAdminSeesFees`): no Fees tab, no Fees tile.
+    ...(feesHidden ? [] : [{ key: 'fees' as const, label: 'Fees' }]),
     { key: 'records', label: 'Records' },
   ];
   const visibleTab = tabs.some((t) => t.key === tab) ? tab : 'overview';
@@ -592,13 +594,15 @@ export function StudentProfile({ id, classes, sections, onBack }: { id: string; 
                 </span>
                 <span className="ov-sub">{summary?.latestTerm ? `${summary.latestTerm.term}${summary.latestTerm.sectionRank ? ` · rank ${summary.latestTerm.sectionRank}` : ''}` : summary ? 'No report card yet' : ' '}</span>
               </button>
-              <button type="button" className="ov-kpi" onClick={() => setTab('fees')}>
-                <span className="ov-kpi-label">Fees</span>
-                <span className={`ov-num ${summary?.feeStatus === 'OVERDUE' ? 'is-bad' : summary?.feeStatus === 'DUE' ? 'is-warn' : ''}`} style={{ fontSize: 22 }}>
-                  {summary ? (summary.feeStatus === 'CLEAR' ? 'Clear' : `Rs ${summary.outstanding.toLocaleString()}`) : '…'}
-                </span>
-                <span className="ov-sub">{summary?.feeStatus === 'OVERDUE' ? 'overdue' : summary?.feeStatus === 'DUE' ? 'due, not late' : summary ? 'nothing owed' : ' '}</span>
-              </button>
+              {!feesHidden && (
+                <button type="button" className="ov-kpi" onClick={() => setTab('fees')}>
+                  <span className="ov-kpi-label">Fees</span>
+                  <span className={`ov-num ${summary?.feeStatus === 'OVERDUE' ? 'is-bad' : summary?.feeStatus === 'DUE' ? 'is-warn' : ''}`} style={{ fontSize: 22 }}>
+                    {summary ? (summary.feeStatus === 'CLEAR' ? 'Clear' : `Rs ${(summary.outstanding ?? 0).toLocaleString()}`) : '…'}
+                  </span>
+                  <span className="ov-sub">{summary?.feeStatus === 'OVERDUE' ? 'overdue' : summary?.feeStatus === 'DUE' ? 'due, not late' : summary ? 'nothing owed' : ' '}</span>
+                </button>
+              )}
               <div className="ov-kpi">
                 <span className="ov-kpi-label">Today</span>
                 <span className="ov-num" style={{ fontSize: 22 }}>{summary ? (summary.todayStatus ? TODAY_WORD[summary.todayStatus] : 'Not marked') : '…'}</span>

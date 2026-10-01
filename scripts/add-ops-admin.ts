@@ -33,14 +33,17 @@ async function main() {
       console.log('ops@demo.pk already exists — nothing to do.');
       return;
     }
+    // An Ops Admin is a per-campus seat: bind to the demo's first campus (never school-wide).
+    const campus = await db.campus.findFirst({ where: { schoolId: school.id }, orderBy: { createdAt: 'asc' }, select: { id: true } });
+    if (!campus) throw new Error('demo school has no campus');
     const passwordHash = await argon2.hash('Staff!Secret12', { type: argon2.argon2id });
     const user = await db.user.create({
-      data: { schoolId: school.id, email, roles: ['STAFF', 'OPERATIONS_ADMIN'] as never, status: 'ACTIVE', campusId: null, passwordHash, passwordChangedAt: new Date() },
+      data: { schoolId: school.id, email, roles: ['STAFF', 'OPERATIONS_ADMIN'] as never, status: 'ACTIVE', campusId: campus.id, passwordHash, passwordChangedAt: new Date() },
     });
     await db.staffProfile.create({
       data: { schoolId: school.id, userId: user.id, staffType: 'ADMIN', employeeCode: 'EMP-OPS', fullName: 'Kamran Operations', designation: 'Operations Admin', joinedAt: new Date('2024-04-01') },
     });
-    console.log('✔ Created ops@demo.pk / Staff!Secret12 (OPERATIONS_ADMIN, school-wide).');
+    console.log('✔ Created ops@demo.pk / Staff!Secret12 (OPERATIONS_ADMIN, campus-bound).');
   } finally {
     await db.$disconnect();
   }

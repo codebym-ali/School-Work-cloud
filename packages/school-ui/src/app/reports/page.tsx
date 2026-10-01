@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { api, apiGet, ApiError, type ReportStudentOption } from '@sw/api-client';
 import { useMe } from '@sw/session';
-import { hasAnyRole, type Role } from '@sw/roles';
+import { feesHiddenFromMe, hasAnyRole, type Role } from '@sw/roles';
 import { Icon, type IconName } from '@sw/ui';
 import { StudentPicker } from '@school/components/student-picker';
 import { SearchableSelect } from '@school/components/searchable-select';
@@ -91,8 +91,8 @@ const REPORTS: ReportSpec[] = [
 ];
 
 const LIVE: LiveSpec[] = [
-  { key: 'live-attendance', title: 'Attendance overview', category: 'Attendance', icon: 'dashboard', href: '/attendance',
-    question: 'How is today going, and which registers are behind?', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
+  { key: 'live-attendance', title: 'Student attendance', category: 'Attendance', icon: 'dashboard', href: '/attendance?tab=students',
+    question: 'How is today going, and which classes haven’t taken attendance?', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
   { key: 'live-performance', title: 'Class performance', category: 'Exams', icon: 'performance', href: '/students?tab=performance',
     question: 'Which classes are slipping, and which students are at risk?', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
   { key: 'live-staff', title: 'Staff attendance', category: 'Staff', icon: 'staff', href: '/staff-attendance',
@@ -145,7 +145,9 @@ function ago(iso?: string): string {
 export default function ReportsPage() {
   const me = useMe();
   const isAdmin = hasAnyRole(me?.roles, ['OWNER_ADMIN', 'CAMPUS_ADMIN']);
-  const reports = isAdmin ? REPORTS : REPORTS.filter((r) => r.financial);
+  // The owner may keep fees from a campus admin (`campusAdminSeesFees`): then the fee reports go too.
+  const feesHidden = feesHiddenFromMe(me?.roles, me?.campusAdminSeesFees);
+  const reports = (isAdmin ? REPORTS : REPORTS.filter((r) => r.financial)).filter((r) => !(feesHidden && r.financial));
   const live = LIVE.filter((l) => hasAnyRole(me?.roles, l.roles));
   const [open, setOpen] = useState<string | null>(() =>
     (typeof window === 'undefined' ? null : new URLSearchParams(window.location.search).get('report')));

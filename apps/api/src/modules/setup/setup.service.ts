@@ -86,6 +86,11 @@ export class SetupService {
    * rejected as a unit rather than half-applied.
    */
   async updateSettings(patch: Record<string, unknown>) {
+    // Whether campus admins see fees is the OWNER's choice alone — the route admits the Ops Admin for the rest of
+    // the settings, so this one key is guarded here (granted roles, so the hierarchy cannot stand in for the owner).
+    if ((patch.campusAdminSeesFees !== undefined || patch.feeVoucherApproval !== undefined) && !this.ctx.user?.roles.includes('OWNER_ADMIN')) {
+      throw new AppError(ErrorCodes.FORBIDDEN, HttpStatus.FORBIDDEN, 'Only the school owner can change who sees fees and whether vouchers need approval');
+    }
     const school = await this.db.school.findFirst({ where: { id: this.sid }, select: { settings: true } });
     const current = parseSchoolSettings(school?.settings ?? {}) as unknown as Record<string, unknown>;
 
@@ -565,7 +570,9 @@ export class SetupService {
   }
 
   listCampuses() {
-    return this.db.campus.findMany({ orderBy: { name: 'asc' } });
+    // A campus-bound person (Ops Admin, campus admin, teacher…) sees only their own campus; the owner sees all.
+    const restricted = restrictedCampusId(this.ctx.user);
+    return this.db.campus.findMany({ where: restricted !== null ? { id: restricted } : {}, orderBy: { name: 'asc' } });
   }
 
   async updateCampus(id: string, dto: UpdateCampusDto) {

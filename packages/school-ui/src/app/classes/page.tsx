@@ -9,7 +9,7 @@ import {
   type SubjectCatalogueEntry, type TeacherAssignment,
 } from '@sw/api-client';
 import { useMe } from '@sw/session';
-import { hasAnyRole, isSchoolWideAdmin } from '@sw/roles';
+import { hasAnyRole, isOwnerReadOnly, isSchoolWideAdmin } from '@sw/roles';
 import { Metric, MetricFilter, MetricLink } from '@sw/ui';
 import { useCampusLens } from '@sw/session';
 import { subjectCatalogueFrom } from '@school/lib/subject-match';
@@ -30,7 +30,7 @@ export default function ClassesPage() {
   const me = useMe();
   const roles = me?.roles ?? [];
   const schoolWide = isSchoolWideAdmin(roles);
-  const canEdit = hasAnyRole(roles, ['OWNER_ADMIN', 'CAMPUS_ADMIN']);
+  const canEdit = hasAnyRole(roles, ['OWNER_ADMIN', 'CAMPUS_ADMIN']) && !isOwnerReadOnly(roles);
 
   const [campuses, setCampuses] = useState<Campus[]>([]);
   const [classes, setClasses] = useState<Klass[]>([]);

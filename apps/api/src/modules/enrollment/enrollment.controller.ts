@@ -1,10 +1,11 @@
 import { Body, Controller, Get, HttpCode, HttpStatus, Post, Query } from '@nestjs/common';
-import { Roles } from '@common';
+import { OwnerWritable, Roles } from '@common';
 import { EnrollmentService } from './enrollment.service';
 import { PromotionService } from './promotion.service';
 import { EnrollmentListQuery, TransferDto } from './dto/enrollment.dto';
 import { PromoteDto, PromotionCommitDto, PromotionPlanDto } from './dto/promotion.dto';
 
+@OwnerWritable()
 @Controller('enrollments')
 export class EnrollmentController {
   constructor(private readonly enrollment: EnrollmentService) {}
@@ -31,6 +32,7 @@ export class EnrollmentController {
   }
 }
 
+@OwnerWritable()
 @Controller('promotions')
 export class PromotionController {
   constructor(private readonly promotion: PromotionService) {}

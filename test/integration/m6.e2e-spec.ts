@@ -38,11 +38,8 @@ describe('M6 — HR, payroll, documents, reports, promotion (e2e)', () => {
   const csrfOf = (c: string[]) => (c.find((x) => x.startsWith('csrf=')) ?? '').split(';')[0].slice(5);
   const post = (p: string, b: object = {}) =>
     request(server()).post(p).set('Host', host).set('Cookie', cookies).set('X-CSRF-Token', csrf).send(b);
-  // The office keeps the staff register (Owner UX 1c): the owner is refused, so staff marks go through a
-  // school-wide Ops Admin, created on first use.
-  let opsSession: ReturnType<typeof opsAdminSession> | undefined;
-  const staffMark = async (b: object) =>
-    (await (opsSession ??= opsAdminSession(app, platform, schoolId, host))).post('/api/v1/staff-attendance/bulk', b);
+  // The office keeps the staff register (Owner UX 1c): the owner is refused, so staff marks go through the
+  // campus's own Ops Admin (see setupStaff below).
   const get = (p: string) => request(server()).get(p).set('Host', host).set('Cookie', cookies);
   const del = (p: string) =>
     request(server()).delete(p).set('Host', host).set('Cookie', cookies).set('X-CSRF-Token', csrf);
@@ -214,8 +211,10 @@ describe('M6 — HR, payroll, documents, reports, promotion (e2e)', () => {
         designation: 'Teacher', joinedAt: '2026-04-01', campusId: campus,
       });
       await post(`/api/v1/staff/${staff.body.staffId}/salary-structures`, { basic: 30000, effectiveFrom: '2026-04-01' });
+      // This campus's own Ops Admin marks it — an Ops Admin is confined to their campus.
+      const campusOps = await opsAdminSession(app, platform, schoolId, host, `ops-${code.toLowerCase()}@ops.pk`, campus);
       for (const d of absenceDays) {
-        await staffMark({
+        await campusOps.post('/api/v1/staff-attendance/bulk', {
           date: d, session: 'MORNING', records: [{ staffId: staff.body.staffId, status: 'ABSENT' }],
         });
       }

@@ -50,6 +50,8 @@ const KIND: Partial<Record<NotificationItem['kind'], { tone: Tone; icon: IconNam
   // (Phase 3) — the send is still one deliberate press on a screen that states the SMS cost.
   DEFAULTERS: { tone: 'danger', icon: 'fees', action: 'Send reminders', rank: 0 },
   SMS_FAILED: { tone: 'danger', icon: 'message', action: 'Review', rank: 1 },
+  // The owner's own job: vouchers held for sign-off — nothing reaches families until this is done.
+  APPROVALS_PENDING: { tone: 'warn', icon: 'inbox', action: 'Review & approve', rank: 2 },
   CLAIMS_PENDING: { tone: 'warn', icon: 'fee-claims', action: 'Review payments', rank: 3 },
   SALARIES_TO_PAY: { tone: 'warn', icon: 'payslips', action: 'Open payroll', rank: 4 },
   REGISTERS_UNMARKED: { tone: 'warn', icon: 'attendance', action: 'Open registers', rank: 5 },
@@ -138,7 +140,7 @@ export default function DashboardPage() {
   }
 
   const shows = (k: string) => data.visible.includes(k);
-  const reach = (href: string) => canReach(me?.roles, href, me?.admissionsMode);
+  const reach = (href: string) => canReach(me?.roles, href, me?.admissionsMode, me?.campusAdminSeesFees);
   const monthName = MONTHS[new Date().getMonth()];
 
   // ── Is the school running today? ─────────────────────────────────────────────────────────────
@@ -242,7 +244,8 @@ export default function DashboardPage() {
     { href: admitHref, label: 'Admit a student' },
     { href: '/reports', label: 'Reports' },
     { href: '/sms', label: 'Send a notice to parents' },
-  ].filter((q) => reach(q.href));
+  ]
+    .filter((q) => reach(q.href));
 
   return (
     <div className="oh">
@@ -319,9 +322,9 @@ export default function DashboardPage() {
         )}
         {staff && reach('/staff-attendance') && (
           staff.workingDay ? (
-            <Kpi title="Staff at work" icon="staff" tone={staff.unmarked ? 'warn' : 'info'}
+            <Kpi title="Teachers & staff at work" icon="staff" tone={staff.unmarked ? 'warn' : 'info'}
                  value={<>{staff.present + staff.late} <small>of {staff.totalStaff}</small></>}
-                 href={`/staff-attendance?date=${staff.date}`}>
+                 href={`/attendance?tab=staff&date=${staff.date}`}>
               {/* "Not marked" is its own figure, never folded into "absent": nothing derives absence,
                   and calling unrecorded people absent would be a lie about who came to work. */}
               <span className={`oh-kpi-sub ${staff.unmarked ? 'is-warn' : ''}`}>
@@ -329,7 +332,7 @@ export default function DashboardPage() {
               </span>
             </Kpi>
           ) : (
-            <Kpi title="Staff at work" icon="staff" tone="neutral" value="Closed today" href={`/staff-attendance?date=${staff.date}`}>
+            <Kpi title="Teachers & staff at work" icon="staff" tone="neutral" value="Closed today" href={`/attendance?tab=staff&date=${staff.date}`}>
               <span className="oh-kpi-sub">{staff.holidayName ?? 'Weekly off'} — no register today</span>
             </Kpi>
           )

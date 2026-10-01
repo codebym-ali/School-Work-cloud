@@ -1,5 +1,6 @@
 import { Body, Controller, Post } from '@nestjs/common';
 import { IsString, MaxLength, MinLength } from 'class-validator';
+import { OwnerWritable } from '@common';
 import { UploadsService } from './uploads.service';
 
 class RequestUploadDto {
@@ -12,6 +13,7 @@ class ConfirmUploadDto {
   @IsString() @MinLength(1) @MaxLength(100) mimeType!: string;
 }
 
+@OwnerWritable()
 @Controller('uploads')
 export class UploadsController {
   constructor(private readonly uploads: UploadsService) {}

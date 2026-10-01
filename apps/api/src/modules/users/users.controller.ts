@@ -1,5 +1,5 @@
 import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Patch, Post } from '@nestjs/common';
-import { RequiresMfa, Roles } from '@common';
+import { OwnerWritable, RequiresMfa, Roles } from '@common';
 import { UsersService } from './users.service';
 import { AccessService } from '../access/access.service';
 import { BulkDeleteUsersDto, CreateUserDto, ResetUserPasswordDto, SetAccessDto, SetModuleAccessDto, UpdateUserDto } from './dto/users.dto';
@@ -10,6 +10,7 @@ import { BulkDeleteUsersDto, CreateUserDto, ResetUserPasswordDto, SetAccessDto, 
  * admission controller) — the service enforces the campus and role limits (§22.8).
  * Update (role/status change) stays OWNER_ADMIN-only.
  */
+@OwnerWritable()
 @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
 @Controller('users')
 export class UsersController {

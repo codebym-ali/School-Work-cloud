@@ -271,6 +271,8 @@ export class UpdateSchoolSettingsDto {
   @IsOptional() @IsIn(['DIRECT', 'PIPELINE']) admissionsMode?: string;
   @IsOptional() @IsBoolean() promotionRequiresFeeClearance?: boolean;
   @IsOptional() @IsBoolean() payrollDeductsAbsence?: boolean;
+  @IsOptional() @IsBoolean() campusAdminSeesFees?: boolean;
+  @IsOptional() @IsBoolean() feeVoucherApproval?: boolean;
   @IsOptional() @IsInt() @Min(0) smsOverdraftSegments?: number;
 
   @IsOptional() @ValidateNested() @Type(() => StaffLeaveQuotasDto)

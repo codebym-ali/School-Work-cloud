@@ -16,6 +16,7 @@ import { destroyTenant } from './support/tenant';
 import { drainSmsFor } from './support/sms';
 import * as argon2 from 'argon2';
 import { loginRequest } from './support/login';
+import { opsAdminSession } from './support/ops-admin';
 
 /**
  * M3 gate (roadmap M3): mark attendance green + absence SMS verified.
@@ -38,6 +39,7 @@ describe('Attendance + absence SMS (e2e, §9/§14)', () => {
   /** Campus admin — a CORRECTION role for student attendance. The owner is read-only (Owner UX plan 0.1),
    *  so every admin-powered mark in this spec (holiday override, beyond-window backfill) runs as this. */
   let adminCookies: string[];
+  let ops: Awaited<ReturnType<typeof opsAdminSession>>;
 
   const sub = `att-${randomUUID().slice(0, 8)}`;
   const host = `${sub}.localhost`;
@@ -98,9 +100,10 @@ describe('Attendance + absence SMS (e2e, §9/§14)', () => {
     cookies = login.headers['set-cookie'] as unknown as string[];
     csrf = csrfOf(cookies);
 
+    ops = await opsAdminSession(app, platform, schoolId, host, 'ops@att.e2e.pk', campusId);
     await post('/api/v1/academic-years', { name: '2026-27', startDate: '2026-04-01', endDate: '2027-03-31', isCurrent: true });
-    const klass = await post('/api/v1/classes', { campusId, name: 'Grade 1', order: 1 });
-    const section = await post('/api/v1/sections', { classId: klass.body.id, name: 'A' });
+    const klass = await ops.post('/api/v1/classes', { campusId, name: 'Grade 1', order: 1 });
+    const section = await ops.post('/api/v1/sections', { classId: klass.body.id, name: 'A' });
     sectionId = section.body.id;
 
     // Students are created by the admission controller (§8), not the owner.
@@ -142,7 +145,7 @@ describe('Attendance + absence SMS (e2e, §9/§14)', () => {
   async function teacherSession(): Promise<string[]> {
     const email = `t-${randomUUID().slice(0, 8)}@att.pk`;
     const password = 'Teach!Secret12';
-    const staff = (await post('/api/v1/staff', {
+    const staff = (await ops.post('/api/v1/staff', {
       email, staffType: 'TEACHER', employeeCode: `EMP-${randomUUID().slice(0, 6)}`,
       designation: 'Teacher', joinedAt: '2026-04-01', campusId,
     })).body;
@@ -151,7 +154,7 @@ describe('Attendance + absence SMS (e2e, §9/§14)', () => {
       data: { status: 'ACTIVE', passwordHash: await argon2.hash(password, { type: argon2.argon2id }) },
     });
     const year = await platform.academicYear.findFirst({ where: { schoolId, isCurrent: true } });
-    await post('/api/v1/teacher-assignments', { staffId: staff.staffId, academicYearId: year!.id, sectionId });
+    await ops.post('/api/v1/teacher-assignments', { staffId: staff.staffId, academicYearId: year!.id, sectionId });
     const res = await loginRequest(server(), host, email, password);
     return res.headers['set-cookie'] as unknown as string[];
   }
@@ -410,19 +413,9 @@ describe('Attendance + absence SMS (e2e, §9/§14)', () => {
     });
 
     it('lets the Ops Admin (the deputy) correct it, with admin powers', async () => {
-      const password = 'Ops!Secret12Aa';
-      await platform.user.create({
-        data: {
-          schoolId, email: 'ops@att.pk', roles: ['STAFF', 'OPERATIONS_ADMIN'] as never, status: 'ACTIVE', campusId: null,
-          passwordHash: await argon2.hash(password, { type: argon2.argon2id }),
-        },
-      });
-      const ops = (await loginRequest(server(), host, 'ops@att.pk', password)).headers['set-cookie'] as unknown as string[];
       // A far-past day: only an ADMIN may go beyond the teacher's backfill window — so this proves the
       // deputy is treated as an admin in the service, not merely admitted by the route gate.
-      const res = await request(server()).post('/api/v1/attendance/bulk')
-        .set('Host', host).set('Cookie', ops).set('X-CSRF-Token', csrfOf(ops))
-        .send({ sectionId, date: daysAgo(21), session: 'MORNING', allowHolidayOverride: true, records: [{ enrollmentId, status: 'PRESENT' }] });
+      const res = await ops.post('/api/v1/attendance/bulk', { sectionId, date: daysAgo(21), session: 'MORNING', allowHolidayOverride: true, records: [{ enrollmentId, status: 'PRESENT' }] });
       expect(res.status).toBe(200);
       expect(res.body.succeeded).toBe(1);
     });

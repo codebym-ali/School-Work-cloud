@@ -108,7 +108,7 @@ async function createAll(db: PrismaClient, ownerHash: string, staffHash: string)
     { email: 'accountant@demo.pk', roles: ['ACCOUNTANT'], type: 'ACCOUNTANT', designation: 'Accountant', campusBound: true, name: 'Imran Malik' },
     { email: 'hr@demo.pk', roles: ['STAFF', 'HR_MANAGER'], type: 'ADMIN', designation: 'HR Manager', campusBound: true, name: 'Sadia Sheikh' },
     { email: 'admissions@demo.pk', roles: ['ADMISSION_CONTROLLER'], type: 'ADMIN', designation: 'Admission Officer', campusBound: true, name: 'Bilal Qureshi' },
-    { email: 'ops@demo.pk', roles: ['STAFF', 'OPERATIONS_ADMIN'], type: 'ADMIN', designation: 'Operations Admin', campusBound: false, name: 'Kamran Rashid' },
+    { email: 'ops@demo.pk', roles: ['STAFF', 'OPERATIONS_ADMIN'], type: 'ADMIN', designation: 'Operations Admin', campusBound: true, name: 'Kamran Rashid' },
   ];
   const teacherNames = ['Ayesha Farooq', 'Usman Raza', 'Hira Ansari', 'Saad Baig', 'Maryam Javed', 'Danish Ali', 'Rabia Sheikh', 'Talha Nawaz'];
   teacherNames.forEach((name, i) => staffSpecs.push({ email: `teacher${i + 1}@demo.pk`, roles: ['TEACHER'], type: 'TEACHER', designation: 'Teacher', campusBound: true, name }));

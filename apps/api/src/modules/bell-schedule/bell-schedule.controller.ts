@@ -1,5 +1,5 @@
 import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Put, Query } from '@nestjs/common';
-import { Roles } from '@common';
+import { OwnerWritable, Roles } from '@common';
 import { BellScheduleService } from './bell-schedule.service';
 import {
   BellScheduleQuery,
@@ -18,6 +18,7 @@ import {
  * `<entity>Id` is format-checked at the edge for every route in the repo — including ones added
  * later, which is the half a per-route pipe cannot cover.
  */
+@OwnerWritable()
 @Controller('bell-schedules')
 @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
 export class BellScheduleController {

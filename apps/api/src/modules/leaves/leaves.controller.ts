@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
-import { Roles } from '@common';
+import { OwnerWritable, Roles } from '@common';
 import { LeavesService } from './leaves.service';
 import {
   CreateStaffLeaveDto,
@@ -9,6 +9,7 @@ import {
   RejectLeaveDto,
 } from './dto/leaves.dto';
 
+@OwnerWritable()
 @Controller('student-leaves')
 export class StudentLeavesController {
   constructor(private readonly leaves: LeavesService) {}
@@ -43,6 +44,7 @@ export class StudentLeavesController {
   }
 }
 
+@OwnerWritable()
 @Controller('staff-leaves')
 export class StaffLeavesController {
   constructor(private readonly leaves: LeavesService) {}

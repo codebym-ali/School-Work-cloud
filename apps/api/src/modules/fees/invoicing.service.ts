@@ -3,6 +3,7 @@ import { FeeInvoiceStatus, Prisma } from '@prisma/client';
 import {
   AppError,
   assertCampusAccess,
+  assertMayReadFees,
   AuditActions,
   effectiveCampusFilter,
   ErrorCodes,
@@ -60,6 +61,10 @@ export class InvoicingService {
   private get sid(): string {
     return this.ctx.requireSchoolId();
   }
+  /** The owner may choose not to show fees to a campus admin (`campusAdminSeesFees`). */
+  private mayReadFees() {
+    return assertMayReadFees(this.ctx.user, async () => (await this.db.school.findFirst({ where: { id: this.sid }, select: { settings: true } }))?.settings);
+  }
 
   /**
    * Generate one invoice per ACTIVE enrollment in the class for (month, year).
@@ -77,12 +82,16 @@ export class InvoicingService {
     const existing = await this.db.feeInvoiceBatch.findFirst({
       where: { classId: dto.classId, month: dto.month, year: dto.year },
     });
-    if (existing) return { batch: existing, alreadyExists: true, generated: 0 };
+    if (existing) return { batch: existing, alreadyExists: true, generated: 0, pendingApproval: false as boolean, approvalId: null as string | null };
 
     const academicYearId = await this.setup.requireCurrentYearId();
     const year = await this.db.academicYear.findFirst({ where: { id: academicYearId } });
     const annualMonth = year ? new Date(year.startDate).getUTCMonth() + 1 : 4;
     const settings = parseSchoolSettings((await this.school())?.settings ?? {});
+    // The owner signs off a campus's monthly vouchers (Approval Requests): office-generated invoices are created
+    // as PENDING_APPROVAL — not issued, not payable, invisible to families — until the owner approves. The owner's
+    // own batches are never held (they are the approver), and a school may switch the step off.
+    const needsApproval = settings.feeVoucherApproval && !this.ctx.user!.roles.includes('OWNER_ADMIN') && !this.ctx.user!.roles.includes('OPERATIONS_ADMIN');
     const dueDate = new Date(Date.UTC(dto.year, dto.month - 1, settings.feeDueDay));
 
     const batch = await this.db.feeInvoiceBatch.create({
@@ -116,6 +125,7 @@ export class InvoicingService {
         enrollment: enr, structures, annualMonth, dueDate,
         month: dto.month, year: dto.year, batchId: batch.id,
         academicYearId, siblingDiscountPercent: settings.siblingDiscountPercent,
+        status: needsApproval ? FeeInvoiceStatus.PENDING_APPROVAL : FeeInvoiceStatus.PENDING,
       });
       if (!created) continue;
       newInvoiceIds.push(created.id);
@@ -125,12 +135,45 @@ export class InvoicingService {
     // Auto-apply any available guardian advance to each newly-generated invoice (§12): a
     // fresh invoice consumes the primary guardian's standing credit (oldest new invoice
     // first; sibling invoices share the balance as it draws down).
-    for (const invoiceId of newInvoiceIds) {
-      await this.payments.applyAdvanceToInvoice(invoiceId);
+    // ⚠️ Not for held invoices: a voucher nobody has been sent must not quietly spend a family's advance. The
+    // approval does it at the moment the voucher is actually issued.
+    if (!needsApproval) {
+      for (const invoiceId of newInvoiceIds) {
+        await this.payments.applyAdvanceToInvoice(invoiceId);
+      }
     }
 
     await this.db.feeInvoiceBatch.update({ where: { id: batch.id }, data: { status: 'DONE' } });
-    return { batch, alreadyExists: false, generated };
+    const approvalId = needsApproval && generated > 0 ? await this.requestVoucherApproval(klass.campusId, dto.month, dto.year) : null;
+    return { batch, alreadyExists: false, generated, pendingApproval: needsApproval && generated > 0, approvalId };
+  }
+
+  /**
+   * One PENDING approval per (campus, month, year): every class batch the office runs for that campus and month
+   * lands on the same request, so the owner signs off "Gulberg · September" once, not once per class. Find-then-write
+   * (no upsert on tenant models). The request only describes the batch; the PENDING_APPROVAL invoices are the truth.
+   */
+  private async requestVoucherApproval(campusId: string, month: number, year: number): Promise<string> {
+    const open = await this.db.approvalRequest.findMany({ where: { type: 'VOUCHER_BATCH', status: 'PENDING', campusId } });
+    const match = open.find((r) => {
+      const p = r.payload as { month?: number; year?: number } | null;
+      return p?.month === month && p?.year === year;
+    });
+    if (match) return match.id;
+    const campus = await this.db.campus.findFirst({ where: { id: campusId }, select: { name: true } });
+    const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+    const created = await this.db.approvalRequest.create({
+      data: {
+        schoolId: this.sid, type: 'VOUCHER_BATCH', campusId,
+        title: `Fee vouchers · ${campus?.name ?? 'Campus'} · ${MONTHS[month - 1]} ${year}`,
+        payload: { month, year }, requestedById: this.ctx.user!.userId,
+      },
+    });
+    await this.audit.record({
+      action: AuditActions.APPROVAL_REQUESTED, entityType: 'ApprovalRequest', entityId: created.id,
+      newValue: { type: 'VOUCHER_BATCH', campusId, month, year },
+    });
+    return created.id;
   }
 
   /**
@@ -228,6 +271,8 @@ export class InvoicingService {
     batchId: string | null;
     academicYearId: string;
     siblingDiscountPercent: number;
+    /** PENDING_APPROVAL for an office-generated monthly batch awaiting the owner; defaults to issued (PENDING). */
+    status?: FeeInvoiceStatus;
   }): Promise<{ id: string } | null> {
     const { enrollment, structures, annualMonth, dueDate, month, year, batchId } = args;
 
@@ -294,7 +339,7 @@ export class InvoicingService {
         batchId,
         totalAmount: Math.max(total, 0),
         dueDate,
-        status: FeeInvoiceStatus.PENDING,
+        status: args.status ?? FeeInvoiceStatus.PENDING,
         month,
         year,
         // schoolId is derived from the parent invoice's composite relation FK — omit it here.
@@ -400,6 +445,7 @@ export class InvoicingService {
   }
 
   async list(q: InvoiceListQuery): Promise<Paginated<unknown>> {
+    await this.mayReadFees();
     const where: Prisma.FeeInvoiceWhereInput = {};
     if (q.studentId) where.studentId = q.studentId;
     if (q.status) where.status = q.status as FeeInvoiceStatus;
@@ -423,6 +469,7 @@ export class InvoicingService {
   }
 
   async get(id: string) {
+    await this.mayReadFees();
     const inv = await this.db.feeInvoice.findFirst({
       where: { id },
       include: { items: true, payments: true, enrollment: { select: { campusId: true } } },
@@ -452,6 +499,7 @@ export class InvoicingService {
   }
 
   async defaulters(q: DefaultersQuery) {
+    await this.mayReadFees();
     const cutoff = new Date(Date.now() - (q.minDays ?? 0) * 86400000);
     const campusId = effectiveCampusFilter(this.ctx.user, q.campusId);
     const invoices = await this.db.feeInvoice.findMany({

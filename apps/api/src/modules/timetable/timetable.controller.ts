@@ -1,5 +1,5 @@
 import { Body, Controller, Delete, Get, Param, Post, Query } from '@nestjs/common';
-import { Roles } from '@common';
+import { OwnerWritable, Roles } from '@common';
 import { TimetableService } from './timetable.service';
 import { CopyDayDto, SetSlotDto, TimetableQuery } from './dto/timetable.dto';
 
@@ -9,6 +9,7 @@ import { CopyDayDto, SetSlotDto, TimetableQuery } from './dto/timetable.dto';
  * Writes are OWNER_ADMIN and CAMPUS_ADMIN; the campus half is narrowed **in the service**, not
  * here, because §22.8 guards run before the tenant transaction and would read zero rows.
  */
+@OwnerWritable()
 @Controller('timetable')
 export class TimetableController {
   constructor(private readonly timetable: TimetableService) {}

@@ -1,5 +1,5 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
-import { Roles } from '@common';
+import { OwnerWritable, Roles } from '@common';
 import { ClassTestsService } from './class-tests.service';
 import {
   CreateClassTestDto,
@@ -16,6 +16,7 @@ import {
  * rows the check needs. Admins may view and step in; a principal reviewing how often a teacher
  * assesses is legitimate oversight.
  */
+@OwnerWritable()
 @Roles('TEACHER', 'CAMPUS_ADMIN', 'OWNER_ADMIN')
 @Controller('class-tests')
 export class ClassTestsController {

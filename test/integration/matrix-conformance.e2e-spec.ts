@@ -99,9 +99,16 @@ describe('Matrix conformance (e2e, §23 / P1.14)', () => {
             expect((await call(role, row)).status).toBe(403);
           });
         } else if (role === 'OWNER_ADMIN' || !row.scopeGated) {
-          // Admitted + (owner OR not scope-gated) → must NOT be a role-403.
+          // Admitted + (owner OR not scope-gated) → must NOT be a ROLE-403.
+          // The OwnerReadOnlyGuard may 403 an owner write with OWNER_READ_ONLY — that is a separate
+          // guard and proves the roles gate passed (a role-denied caller never reaches it).
           it(`admits ${role} (not 403)`, async () => {
-            expect((await call(role, row)).status).not.toBe(403);
+            const res = await call(role, row);
+            if (res.status === 403 && role === 'OWNER_ADMIN' && row.method !== 'get') {
+              expect(res.body?.error?.code).toBe('OWNER_READ_ONLY');
+            } else {
+              expect(res.status).not.toBe(403);
+            }
           });
         }
         // Admitted + scope-gated non-owner: positive reachability can't be asserted cleanly

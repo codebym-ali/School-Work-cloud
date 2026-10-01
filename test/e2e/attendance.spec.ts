@@ -19,11 +19,18 @@ test.describe('attendance (owner view)', () => {
 
     await page.getByRole('link', { name: 'Attendance', exact: true }).click();
     await page.waitForURL('**/attendance');
-    await expect(page.getByText('View only — class teachers mark the register', { exact: false })).toBeVisible();
 
-    // Phase 1c: the owner lands on the Overview (KPIs, who is behind, the heatmap); the register is a tab.
+    // Attendance hub: the owner lands on TODAY — students and teachers & staff side by side, never one
+    // unlabelled "Attendance" that could mean either.
+    await expect(page.getByRole('heading', { name: 'Students', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Teachers & staff' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Waiting for you' })).toBeVisible();
+
+    // Students: who is behind and the heatmap; a class is one click further.
+    await page.getByRole('tab', { name: /^Students/ }).click();
+    await expect(page.getByText('View only — class teachers mark the register', { exact: false })).toBeVisible();
     await expect(page.getByRole('heading', { name: /Last \d+ days by section/ })).toBeVisible();
-    await page.getByRole('tab', { name: 'Register' }).click();
+    await page.getByRole('button', { name: /Open a class.s attendance/ }).click();
 
     // Selecting a section loads the register directly — there is no "Load roster" step for a viewer.
     await page.locator('label:text-is("Section") + select').selectOption({ label: `${className} — ${sectionName}` });

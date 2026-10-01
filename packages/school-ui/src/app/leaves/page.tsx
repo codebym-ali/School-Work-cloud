@@ -1,10 +1,12 @@
 'use client';
 
-import { humanizeStatus, type IconName } from '@sw/ui';
+import { humanizeStatus } from '@sw/ui';
 import { EmptyState } from '@school/components/oversight';
 import { useCallback, useEffect, useState } from 'react';
 import { api, ApiError, type LeaveBalance, type StaffLeaveRow, type StudentLeaveRow } from '@sw/api-client';
-import { useCampusLens } from '@sw/session';
+import { useRouter } from 'next/navigation';
+import { useCampusLens, useMe } from '@sw/session';
+import { hasAnyRole } from '@sw/roles';
 
 /**
  * Leave approvals — the screen the dashboard has been advertising.
@@ -30,7 +32,17 @@ const dateRange = (from: string, to: string) => {
 const badgeFor = (status: string) =>
   status === 'APPROVED' ? 'ok' : status === 'REJECTED' ? 'bad' : status === 'CANCELLED' ? '' : 'warn';
 
-export default function LeavesPage() {
+/** Owner and campus admin reach this in the Attendance hub (`/attendance?tab=leaves`); an old link forwards there. */
+export default function LeavesPage({ embedded }: { embedded?: boolean } = {}) {
+  const me = useMe();
+  const router = useRouter();
+  const toHub = !embedded && hasAnyRole(me?.roles, ['OWNER_ADMIN', 'CAMPUS_ADMIN']);
+  useEffect(() => { if (toHub) router.replace('/attendance?tab=leaves'); }, [toHub, router]);
+  if (toHub) return <p className="muted">Opening Attendance…</p>;
+  return <LeavesScreen embedded={embedded} />;
+}
+
+function LeavesScreen({ embedded }: { embedded?: boolean }) {
   const lens = useCampusLens();
   const [kind, setKind] = useState<Kind>('students');
   const [status, setStatus] = useState<string>('PENDING');
@@ -155,7 +167,7 @@ export default function LeavesPage() {
 
   return (
     <div className="stack">
-      <h1>Leave requests</h1>
+      {!embedded && <h1>Leave requests</h1>}
       <p className="muted" style={{ margin: 0 }}>
         Approve or reject leave. Approved days are automatically marked as leave in attendance.
       </p>

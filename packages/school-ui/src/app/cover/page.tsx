@@ -2,7 +2,9 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { api, ApiError, type AwayToday, type CoverRow, type CoverSuggestions, type ManagedTeacher, type TimetableCoverage } from '@sw/api-client';
-import { useCampusLens } from '@sw/session';
+import { useRouter } from 'next/navigation';
+import { useCampusLens, useMe } from '@sw/session';
+import { hasAnyRole } from '@sw/roles';
 
 /**
  * Cover — who is taking a class today (Cover Plan, C0 §4.1 + C1).
@@ -29,7 +31,17 @@ const staffName = (s: { fullName: string | null; employeeCode: string }) => s.fu
 const longDate = (d: string) =>
   new Date(d).toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' });
 
-export default function CoverPage() {
+/** Owner and campus admin reach this in the Attendance hub (`/attendance?tab=cover`); an old link forwards there. */
+export default function CoverPage({ embedded }: { embedded?: boolean } = {}) {
+  const me = useMe();
+  const router = useRouter();
+  const toHub = !embedded && hasAnyRole(me?.roles, ['OWNER_ADMIN', 'CAMPUS_ADMIN']);
+  useEffect(() => { if (toHub) router.replace('/attendance?tab=cover'); }, [toHub, router]);
+  if (toHub) return <p className="muted">Opening Attendance…</p>;
+  return <CoverScreen embedded={embedded} />;
+}
+
+function CoverScreen({ embedded }: { embedded?: boolean }) {
   const lens = useCampusLens();
   const [date, setDate] = useState(today());
   const [rows, setRows] = useState<CoverRow[]>([]);
@@ -113,7 +125,7 @@ export default function CoverPage() {
 
   return (
     <div className="stack">
-      <h1>Cover</h1>
+      {!embedded && <h1>Cover</h1>}
       <p className="muted" style={{ margin: 0 }}>
         When a teacher is away, record who is taking their class. Until you do, the person standing
         in that room can&apos;t mark the register — only an admin can.

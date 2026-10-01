@@ -48,7 +48,7 @@ export function AttendanceOverviewPanel({ onOpenRegister }: { onOpenRegister: (s
   const toAttention = () => attentionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
   const tiles: KpiTileSpec[] = [
-    { key: 'present', label: 'Present today', icon: 'check-circle', tone: 'ok',
+    { key: 'present', label: 'Students present today', icon: 'check-circle', tone: 'ok',
       value: !t ? undefined : !t.open ? 'Closed' : t.percent === null ? '—' : `${t.percent}%`,
       sub: !t ? undefined : !t.open ? 'No school today' : t.marked === 0 ? 'No register marked yet' : `${n(t.present)} of ${n(t.marked)} marked`,
       hint: 'Present, late or half-day, out of the students marked so far today' },
@@ -57,12 +57,12 @@ export function AttendanceOverviewPanel({ onOpenRegister }: { onOpenRegister: (s
     { key: 'leave', label: 'On leave', icon: 'leave', tone: 'info', value: t ? n(t.onLeave) : undefined,
       onClick: () => { window.location.href = '/students?show=ON_LEAVE'; }, hint: 'Open the students on leave in the Students hub' },
     { key: 'late', label: 'Late', icon: 'timetable', tone: t && t.late > 0 ? 'warn' : 'neutral', value: t ? n(t.late) : undefined, hint: 'Arrived after the bell (counted as present)' },
-    { key: 'unmarked', label: 'Registers not marked', icon: 'attendance',
+    { key: 'unmarked', label: 'Classes that haven’t taken attendance', icon: 'attendance',
       tone: t && t.registersUnmarked > 0 ? (data?.due ? 'bad' : 'warn') : 'ok',
       value: t ? (t.open ? `${n(t.registersUnmarked)} of ${n(t.registers)}` : '—') : undefined,
       sub: data ? (t?.open ? (data.due ? `Due by ${data.markByTime} — overdue` : `Due by ${data.markByTime}`) : undefined) : undefined,
       onClick: toAttention, hint: 'See which registers, and who is responsible' },
-    { key: 'chronic', label: 'Absent 3+ days', icon: 'alert', tone: data && data.chronic.length > 0 ? 'bad' : 'neutral',
+    { key: 'chronic', label: 'Students absent 3+ days', icon: 'alert', tone: data && data.chronic.length > 0 ? 'bad' : 'neutral',
       value: data ? n(data.chronic.length) : undefined, sub: 'in a row, without leave', onClick: toAttention, hint: 'Children absent three or more school days running' },
   ];
 
@@ -70,12 +70,12 @@ export function AttendanceOverviewPanel({ onOpenRegister }: { onOpenRegister: (s
 
   return (
     <div className="stack" style={{ gap: 16 }}>
-      <KpiStrip label="Attendance today" tiles={tiles} />
+      <KpiStrip label="Student attendance today" tiles={tiles} />
       <ScopeBar state={scopeState} />
 
       <div ref={attentionRef} className="ov-panels" style={{ scrollMarginTop: 16 }}>
         <section className="ov-panel ov-card" aria-labelledby="att-unmarked">
-          <h2 id="att-unmarked" className="ov-h3">Registers not marked today {data && <span className="ov-sub">· {unmarked.length}</span>}</h2>
+          <h2 id="att-unmarked" className="ov-h3">Classes that haven’t taken attendance today {data && <span className="ov-sub">· {unmarked.length}</span>}</h2>
           {!data ? <span className="ov-skel" style={{ height: 80, display: 'block' }} /> : !t?.open ? (
             <p className="ov-sub" style={{ margin: 0 }}>No school today — nothing to mark.</p>
           ) : unmarked.length === 0 ? (

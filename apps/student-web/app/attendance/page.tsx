@@ -57,14 +57,14 @@ export default function MyAttendance() {
       </p>
 
       <div style={{ overflowX: 'auto' }}>
-        <table>
+        <table className="stacked">
           <thead><tr><th>Date</th><th>Session</th><th>Status</th></tr></thead>
           <tbody>
             {visible.map((r, i) => (
               <tr key={i}>
-                <td>{new Date(r.date).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })}</td>
-                <td>{r.session}</td>
-                <td><span className={`badge ${attendanceBadge(r.status)}`}>{humanizeStatus(r.status)}</span></td>
+                <td data-label="Date">{new Date(r.date).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })}</td>
+                <td data-label="Session">{humanizeStatus(r.session)}</td>
+                <td data-label="Status"><span className={`badge ${attendanceBadge(r.status)}`}>{humanizeStatus(r.status)}</span></td>
               </tr>
             ))}
             {visible.length === 0 && <tr><td colSpan={3} className="muted">

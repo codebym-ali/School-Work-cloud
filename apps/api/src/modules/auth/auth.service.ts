@@ -587,7 +587,7 @@ export class AuthService {
     await this.resignAccess(user.id, res);
   }
 
-  async me(principal: RequestUser): Promise<{ id: string; email: string; name: string | null; roles: Role[]; campusId: string | null; modules: string[]; mfaEnabled: boolean; admissionsMode: SchoolSettings['admissionsMode'] }> {
+  async me(principal: RequestUser): Promise<{ id: string; email: string; name: string | null; roles: Role[]; campusId: string | null; modules: string[]; mfaEnabled: boolean; admissionsMode: SchoolSettings['admissionsMode']; campusAdminSeesFees: boolean }> {
     // SA5: a break-glass session has no tenant user row — synthesise a read-only "me" so the shell
     // loads (roles come from the token; every write is blocked by the BreakGlassReadonlyGuard).
     if (principal.breakGlass) {
@@ -601,6 +601,7 @@ export class AuthService {
         modules: [],
         mfaEnabled: false,
         admissionsMode: parseSchoolSettings(bgSchool?.settings).admissionsMode,
+        campusAdminSeesFees: true,
       };
     }
     const user = await this.db.user.findFirst({ where: { id: principal.userId } });
@@ -613,9 +614,11 @@ export class AuthService {
     // Shipped on /auth/me (not a separate fetch) because the UI needs it to decide which
     // admissions surface to render at all — a later fetch would flash the wrong page first.
     const school = await this.db.school.findFirst({ where: { id: principal.schoolId } });
-    const { admissionsMode } = parseSchoolSettings(school?.settings);
+    const { admissionsMode, campusAdminSeesFees } = parseSchoolSettings(school?.settings);
     // Staff name first (HR owns it); otherwise the account's own name — how an owner gets one (Owner UX Phase 2).
-    return { id: user.id, email: user.email, name: staff?.fullName ?? user.fullName ?? null, roles: user.roles, campusId: user.campusId, modules, mfaEnabled: user.mfaEnabled, admissionsMode };
+    // `campusAdminSeesFees` rides here for the same reason as `admissionsMode`: the shell must decide which money
+    // screens to draw before any of them loads (the API enforces it regardless).
+    return { id: user.id, email: user.email, name: staff?.fullName ?? user.fullName ?? null, roles: user.roles, campusId: user.campusId, modules, mfaEnabled: user.mfaEnabled, admissionsMode, campusAdminSeesFees };
   }
 
   /**

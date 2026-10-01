@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { effectiveCampusFilter, PdfService, restrictedCampusId, TenantContext } from '@common';
+import { assertMayReadFees, effectiveCampusFilter, PdfService, restrictedCampusId, TenantContext } from '@common';
 import { TenantPrismaService } from '@database';
 
 type Row = Record<string, unknown>;
@@ -43,7 +43,13 @@ export class ReportsService {
     return restricted ? { enrollment: { campusId: restricted } } : {};
   }
 
+  /** The owner may choose not to show fees to a campus admin (`campusAdminSeesFees`) — the three fee reports. */
+  private mayReadFees() {
+    return assertMayReadFees(this.ctx.user, async () => (await this.db.school.findFirst({ where: { id: this.ctx.requireSchoolId() }, select: { settings: true } }))?.settings);
+  }
+
   async dailyCollection(date: string): Promise<Row[]> {
+    await this.mayReadFees();
     const day = new Date(date);
     const next = new Date(day.getTime() + 86400000);
     const restricted = restrictedCampusId(this.ctx.user);
@@ -63,6 +69,7 @@ export class ReportsService {
   }
 
   async feeLedger(studentId: string): Promise<Row[]> {
+    await this.mayReadFees();
     const invoices = await this.db.feeInvoice.findMany({ where: { studentId, ...this.campusEnrollmentFilter }, include: { payments: true }, orderBy: { createdAt: 'asc' } });
     return invoices.map((i) => ({
       // "Aug 2026", as the challan and the parent say it — not "8/2026".
@@ -112,6 +119,7 @@ export class ReportsService {
   }
 
   async defaulters(campusId?: string, minDays = 0): Promise<Row[]> {
+    await this.mayReadFees();
     const cutoff = new Date(Date.now() - minDays * 86400000);
     // Campus-bound users are forced to their own campus; the client value is used only school-wide.
     const eff = effectiveCampusFilter(this.ctx.user, campusId);

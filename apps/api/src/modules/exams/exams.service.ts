@@ -235,5 +235,5 @@ export class ExamsService {
 }
 
 function isAdmin(user: RequestUser): boolean {
-  return user.roles.includes('OWNER_ADMIN') || user.roles.includes('CAMPUS_ADMIN');
+  return user.roles.includes('OWNER_ADMIN') || user.roles.includes('CAMPUS_ADMIN') || user.roles.includes('OPERATIONS_ADMIN');
 }

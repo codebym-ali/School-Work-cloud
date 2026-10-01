@@ -9,6 +9,19 @@ updated: 2026-08-20
 The locked, cross-cutting decisions every note and every developer must respect.
 Full ledger: [[consistency-register]] (LOCKED). This is the digest.
 
+## @OwnerWritable is the opt-in for owner writes, not @Roles (2026-10-01)
+- **Rule:** `OwnerReadOnlyGuard` (global) blocks POST/PUT/PATCH/DELETE for a pure `OWNER_ADMIN` user unless the handler or controller carries `@OwnerWritable()`. `@Roles('OWNER_ADMIN', …)` on a mutating method means the owner *should* be able to use it, but without `@OwnerWritable` the guard refuses it — a 403 that looks like a role problem but is a decorator gap.
+- **Class-level is safe:** the guard only fires on mutating HTTP methods, so `@OwnerWritable()` on a controller with mixed GET/POST methods does not weaken GET.
+- **The audit rule:** every controller where a mutating endpoint carries `@Roles('OWNER_ADMIN', …)` MUST have `@OwnerWritable()` at class level (or method level if only some mutating methods are owner-accessible).
+- **OPERATIONS_ADMIN and service-level checks:** the role hierarchy grants Ops Admin route access via `@Roles`, but service code using `roles.includes('CAMPUS_ADMIN')` does NOT match `OPERATIONS_ADMIN` — those checks must also list `OPERATIONS_ADMIN` explicitly.
+- ⚠️ **Controllers deliberately WITHOUT @OwnerWritable** (owner must not write): `AttendanceController` POST (teacher/campus-admin marks the register), `StaffAttendanceController` POST, `AdmissionsController` (`ADMISSION_CONTROLLER` only), `DocumentsController` (GET-only), reports controllers (GET-only).
+
+## Ops Admin is a per-campus head; only the owner is school-wide (2026-09-30)
+- **Decision (owner):** Owner Admin is the read-only, all-campus overseer; **Ops Admin** is the doer, **one per campus**, doing the owner's day-to-day work for that campus only. Campus Admin is **not** merged into it — both exist, and one person may hold several roles (`User.roles[]`). Ops Admin is above Campus Admin; Campus Admin will lose money access (phase 2). The owner approves fee-voucher batches and school-wide setup changes (phases 3–5). Full plan: [[Campus Ops Admin & Read-only Owner Plan]].
+- **Mechanics:** `restrictedCampusId()` — only `OWNER_ADMIN` returns null. `OPERATIONS_ADMIN` is in `SOLE_CAMPUS_SEAT_ROLES` (service check + partial unique index). A campus-less Ops Admin fails closed (`NO_CAMPUS`), it is not school-wide. Campus create/close and `/campuses/summary` are owner-only.
+- ⚠️ **Gotcha:** tests/seeds that created a school-wide Ops Admin to "mark across campuses" no longer work — mark per campus (`opsAdminSession(..., campusId)`).
+- ⚠️ **Open leak:** `failedSmsCount` on the dashboard is school-wide (`SmsLog` has no campus).
+
 ## Campus lens is a convenience filter, never the boundary (2026-09-30)
 - Every list a page filters by the top-bar lens takes an optional `campusId` and resolves it with `effectiveCampusFilter(user, q.campusId)` — a campus-bound user's own campus always wins over the client value.
 - Any page that keeps local scope state (`useScope`, payroll's picker) must **sync from `lens.campusId` on change**, not only seed from it — seeding once is what made the dropdown look broken.

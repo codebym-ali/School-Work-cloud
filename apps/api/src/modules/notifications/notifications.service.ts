@@ -39,6 +39,8 @@ export type NotificationItem = {
     | 'LEAVE_DECIDED' | 'REGISTER_UNMARKED' | 'MARKED_ABSENT' | 'SALARY_PAID'
     // "What the school needs from you" (N2) — previously derived in `dashboard/page.tsx`.
     | 'DEFAULTERS' | 'LEAVES_PENDING' | 'SMS_FAILED' | 'CLAIMS_PENDING'
+    // The owner's sign-offs: a campus's monthly vouchers (and, later, setup changes) waiting on them.
+    | 'APPROVALS_PENDING'
     | 'REGISTERS_UNMARKED' | 'STAFF_UNMARKED' | 'STAFF_ABSENT'
     | 'READY_TO_ADMIT' | 'TESTS_TODAY'
     // Cover (C2): one for the person taking the class, one for the person whose class it is.
@@ -78,6 +80,8 @@ const NEEDS = {
   staffDay: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'HR_MANAGER'],
   /** `GET /fees/claims/pending-count` */
   claims: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT'],
+  /** `GET /approvals/pending-count` — the owner decides; nobody else is asked. */
+  approvals: ['OWNER_ADMIN'],
   /** `GET /inquiries/summary` */
   admissions: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ADMISSION_CONTROLLER'],
   /** `GET /dashboard` — self-shaping: it returns `visible` and nulls what a role may not see. */
@@ -286,6 +290,13 @@ export class NotificationsService {
         if (unpaid === 0) return;
         out.push({ id: `salaries-to-pay:${unpaid}`, kind: 'SALARIES_TO_PAY', severity: 'warn', at,
           text: `${unpaid} approved ${plural(unpaid, 'salary', 'salaries')} not yet paid.`, href: '/payroll' });
+      }),
+
+      attempt(NEEDS.approvals, async () => {
+        const waiting = await this.db.approvalRequest.count({ where: { status: 'PENDING' } });
+        if (waiting === 0) return;
+        out.push({ id: `approvals:${waiting}`, kind: 'APPROVALS_PENDING', severity: 'warn', at,
+          text: `${waiting} ${plural(waiting, 'request', 'requests')} waiting for your approval.`, href: '/approvals' });
       }),
 
       attempt(NEEDS.claims, async () => {

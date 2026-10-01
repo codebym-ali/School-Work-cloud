@@ -62,6 +62,18 @@ export class StudentPortalController {
     return this.portal.results();
   }
 
+  /** One term in full (every subject's marks, total, percent, grade). Self-only: the term is found through the caller's own report card. */
+  @Get('results/:termId')
+  termResult(@Param('termId') termId: string) {
+    return this.portal.termResult(termId);
+  }
+
+  /** The caller's own report-card PDF for a term, as a short-lived link. */
+  @Get('results/:termId/file')
+  termResultFile(@Param('termId') termId: string) {
+    return this.portal.termResultFile(termId);
+  }
+
   @Get('fees')
   fees() {
     return this.portal.fees();

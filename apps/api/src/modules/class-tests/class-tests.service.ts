@@ -293,6 +293,6 @@ export class ClassTestsService {
   }
 
   private isAdmin(): boolean {
-    return this.user.roles.includes('OWNER_ADMIN') || this.user.roles.includes('CAMPUS_ADMIN');
+    return this.user.roles.includes('OWNER_ADMIN') || this.user.roles.includes('CAMPUS_ADMIN') || this.user.roles.includes('OPERATIONS_ADMIN');
   }
 }

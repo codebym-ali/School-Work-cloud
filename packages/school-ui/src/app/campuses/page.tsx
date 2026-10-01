@@ -23,6 +23,7 @@ type Msg = { ok: boolean; text: string } | null;
  * groups are.
  */
 const ROLE_GROUPS: Array<{ role: string; label: string; seat?: boolean; hint?: string }> = [
+  { role: 'OPERATIONS_ADMIN', label: 'Ops admin', seat: true, hint: 'Nobody runs operations here — the owner must appoint an Ops Admin.' },
   { role: 'CAMPUS_ADMIN', label: 'Campus admin', seat: true, hint: 'Nobody runs this campus day to day.' },
   { role: 'ADMISSION_CONTROLLER', label: 'Admission officer', seat: true, hint: 'Nobody can admit students here.' },
   { role: 'ACCOUNTANT', label: 'Accountant', seat: true, hint: 'Nobody but an owner can take a fee payment here.' },
@@ -112,11 +113,11 @@ export default function CampusesPage() {
     }
     return held;
   };
-  // A user with no campus is only correct for the school-wide roles (owner + deputy). Anyone else with no
+  // A user with no campus is only correct for the school-wide role (the owner). Anyone else with no
   // campus is MIS-CONFIGURED — a campus-scoped role (HR, teacher, accountant…) that sees nothing until it
   // has a campus. Surface those separately with an "assign a campus" control, so the office can repair a
   // user the seat groups above never show (the gap that stranded the seeded HR manager). (QA 2026-09-24.)
-  const schoolWideRoles = ['OWNER_ADMIN', 'OPERATIONS_ADMIN'];
+  const schoolWideRoles = ['OWNER_ADMIN'];
   const campusLess = users.filter((u) => u.campusId == null);
   const schoolWide = campusLess.filter((u) => u.roles.some((r) => schoolWideRoles.includes(r)));
   const needsCampus = campusLess.filter((u) => !u.roles.some((r) => schoolWideRoles.includes(r)));

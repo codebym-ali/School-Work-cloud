@@ -90,6 +90,13 @@ CREATE UNIQUE INDEX IF NOT EXISTS users_one_accountant_per_campus
   ON users (campus_id)
   WHERE 'ACCOUNTANT' = ANY (roles) AND deleted_at IS NULL AND campus_id IS NOT NULL;
 
+-- The Ops Admin is the fourth seat (Campus Ops Admin plan, 2026-09-30): the campus head who does the
+-- owner's day-to-day work for ONE campus. Exactly one per campus; campus-less ones are refused by the
+-- service (and fail closed in restrictedCampusId), so the index only needs the bound case.
+CREATE UNIQUE INDEX IF NOT EXISTS users_one_ops_admin_per_campus
+  ON users (campus_id)
+  WHERE 'OPERATIONS_ADMIN' = ANY (roles) AND deleted_at IS NULL AND campus_id IS NOT NULL;
+
 -- Cover: one owner per class, per period — or per day when the school runs no timetable.
 --
 -- Two PARTIAL indexes rather than one `UNIQUE (section_id, date, period_no)`, because

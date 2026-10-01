@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { api, ApiError } from '@sw/api-client';
-import { PasswordInput } from '@sw/ui';
+import { Icon, PasswordInput } from '@sw/ui';
 
 /**
  * Read-only student portal sign-in (#34/#35). Students have no password — they authenticate
@@ -35,9 +35,9 @@ export default function StudentLoginPage() {
 
   return (
     <main className="center">
-      <form className="card stack" style={{ width: 380 }} onSubmit={onSubmit}>
+      <form className="card stack" style={{ width: 'min(380px, 100%)' }} onSubmit={onSubmit}>
         <div>
-          <h1>🎒 Student Portal</h1>
+          <h1 style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Icon name="school" size={26} /> Student Portal</h1>
           <p className="sub">Sign in with your registration number and CNIC / B-Form.</p>
         </div>
         <div>

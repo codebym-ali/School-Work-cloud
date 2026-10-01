@@ -1,5 +1,5 @@
 import { Body, Controller, Delete, Get, Param, Put } from '@nestjs/common';
-import { Roles } from '@common';
+import { OwnerWritable, Roles } from '@common';
 import { UsersService } from './users.service';
 import { SetAdmissionOfficerDto } from './dto/users.dto';
 
@@ -16,6 +16,7 @@ import { SetAdmissionOfficerDto } from './dto/users.dto';
  * writes are OWNER_ADMIN + OPERATIONS_ADMIN — the deputy staffs the school's roles on the owner's
  * behalf, and the admission seat is one of them (Operations Admin Role Plan §3).
  */
+@OwnerWritable()
 @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
 @Controller('admission-officers')
 export class AdmissionOfficersController {

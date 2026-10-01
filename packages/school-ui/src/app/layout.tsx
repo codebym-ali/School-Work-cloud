@@ -4,12 +4,12 @@ import { Icon } from '@sw/ui';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { api, ApiError, type ClosureNotice, type Me } from '@sw/api-client';
+import { api, ApiError, PROPOSAL_EVENT, type ClosureNotice, type Me } from '@sw/api-client';
 import { MeContext } from '@sw/session';
 import { CampusLensContext, CAMPUS_LENS_KEY } from '@sw/session';
 import type { Campus } from '@sw/api-client';
 import { NotificationBell } from '@school/components/notification-bell';
-import { COLLAPSIBLE_GROUPS, groupedNav, hasAnyRole, isSchoolWideAdmin, navItemFor, needsHomeLink, panelLabel, roleLabels, servesRoute, usesPersonalShell, MFA_REQUIRED_ROLES, type AppName } from '@sw/roles';
+import { COLLAPSIBLE_GROUPS, feesHiddenFromMe, groupedNav, hasAnyRole, isFeeRoute, isSchoolWideAdmin, navItemFor, needsHomeLink, panelLabel, roleLabels, servesRoute, usesPersonalShell, MFA_REQUIRED_ROLES, type AppName } from '@sw/roles';
 import { TeacherSidebarNav, TeacherTabs } from '@school/components/teacher-tabs';
 
 /**
@@ -51,6 +51,20 @@ export default function AppLayout({ children, app }: { children: React.ReactNode
 
   // Close on navigation — otherwise the drawer covers the page you just opened.
   useEffect(() => { setNavOpen(false); }, [pathname]);
+
+  // A setup change by the Ops Admin is only a proposal until the owner approves it. The API client announces that for
+  // every write; saying it once here means no screen reports "Saved" about something that has not happened yet.
+  const [proposalSent, setProposalSent] = useState(false);
+  useEffect(() => {
+    let timer: number | undefined;
+    const onProposal = () => {
+      setProposalSent(true);
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => setProposalSent(false), 12000);
+    };
+    window.addEventListener(PROPOSAL_EVENT, onProposal);
+    return () => { window.removeEventListener(PROPOSAL_EVENT, onProposal); window.clearTimeout(timer); };
+  }, []);
 
   // A sidebar click gives feedback at once: the route may take seconds to compile or load, and with no sign
   // that the click landed people click again. Cleared when the route changes, or after 10s if it never does.
@@ -128,7 +142,7 @@ export default function AppLayout({ children, app }: { children: React.ReactNode
   // Curated order is the default since the Owner Dashboard Redesign (Phase 1, 2026-09-27): daily-use
   // groups first, configure-once groups (School structure, Administration) collapsed. It was the
   // B2 pilot behind ?ff=ownerHomeV2; the flag is retired.
-  const nav = groupedNav(me.roles, me.admissionsMode, true)
+  const nav = groupedNav(me.roles, me.admissionsMode, true, me.campusAdminSeesFees)
     .map((g) => ({ ...g, items: g.items.filter((i) => servesRoute(app, i.href, me.admissionsMode)) }))
     .filter((g) => g.items.length > 0);
   /**
@@ -140,7 +154,7 @@ export default function AppLayout({ children, app }: { children: React.ReactNode
     .filter((h) => pathname === h || pathname.startsWith(`${h}/`))
     .sort((a, b) => b.length - a.length)[0] ?? null;
   const current = navItemFor(pathname);
-  const authorized = !current || hasAnyRole(me.roles, current.roles);
+  const authorized = !current || (hasAnyRole(me.roles, current.roles) && !(isFeeRoute(current.href) && feesHiddenFromMe(me.roles, me.campusAdminSeesFees)));
   const needsMfa = !me.mfaEnabled && me.roles.some((r) => (MFA_REQUIRED_ROLES as readonly string[]).includes(r));
   /**
    * TEACHER only (Teacher Mobile Home Plan 7.1). `has-tabbar` lets CSS swap the drawer for the
@@ -306,6 +320,13 @@ export default function AppLayout({ children, app }: { children: React.ReactNode
             * Shown only for today or tomorrow (the API decides). A closure three weeks out
             * belongs on the calendar; a banner that is always there stops being read.
             */}
+          {proposalSent && (
+            <div className="toast ok" role="status">
+              <Icon name="inbox" size={17} /> <strong>Sent to the owner for approval.</strong>{' '}
+              This change takes effect once the owner approves it — you can follow it on{' '}
+              <Link href="/approvals">Approvals</Link>.
+            </div>
+          )}
           {closure && (
             <div className="toast warn" role="status">
               <Icon name="alert" size={17} /> <strong>School {closure.when === 'TODAY' ? 'is closed today' : 'is closed tomorrow'} — {closure.name}.</strong>{' '}

@@ -83,6 +83,10 @@ export interface NavItem {
   /** Reachable by link but not listed in the sidebar. Kept in NAV so `navItemFor` still
    *  role-gates the route — dropping the entry entirely would make it open to everyone. */
   hidden?: boolean;
+  /** Not listed in the sidebar FOR these roles only — the screen is reached another way (the Attendance hub).
+   *  Unlike `hidden` it leaves the entry in place for everyone else (an HR manager still lists Staff
+   *  Attendance), and like `hidden` it never changes who may open the route (`canReach`/`navItemFor`). */
+  hiddenFor?: Role[];
 }
 
 export const NAV: NavItem[] = [
@@ -106,7 +110,8 @@ export const NAV: NavItem[] = [
   // Year-end promotion (GAP-03). Mirrors `@Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')` on /promotions.
   { href: '/promotion', label: 'Year-end promotion', icon: 'trend-up', group: 'School structure', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
   { href: '/attendance', label: 'Attendance', icon: 'attendance', group: 'Teaching', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'TEACHER'] },
-  { href: '/leaves', label: 'Leave requests', icon: 'leaves', group: 'Teaching', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
+  // Reached from the Attendance hub ("Waiting for you"); still a real route, so old links keep working.
+  { href: '/leaves', label: 'Leave requests', icon: 'leaves', group: 'Teaching', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'], hiddenFor: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
   { href: '/my-classes', label: 'My Classes', icon: 'classes', group: 'Teaching', roles: ['TEACHER'] },
   // The editor is admin-only (§23: CRUD for owner, own-campus for a campus admin). A teacher gets
   // `/my-timetable` below rather than this screen — they read their week, they do not build it.
@@ -117,13 +122,16 @@ export const NAV: NavItem[] = [
   { href: '/timings', label: 'School Timings', icon: 'timings', group: 'School structure', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
   // Arranging cover is a permission grant — it lets one teacher write to another class's
   // register — so it sits with the people who approve leave, not with teachers.
-  { href: '/cover', label: 'Cover', icon: 'cover', group: 'Teaching', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
+  { href: '/cover', label: 'Cover', icon: 'cover', group: 'Teaching', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'], hiddenFor: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
   { href: '/exams', label: 'Exams & Results', icon: 'exams', group: 'Teaching', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'TEACHER'] },
   { href: '/reports', label: 'Reports', icon: 'reports', group: 'Overview', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT'] },
   // Academic performance, not money — the accountant is deliberately excluded.
   { href: '/performance', label: 'Performance', icon: 'performance', group: 'Overview', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
 
   { href: '/fees', label: 'Fees', icon: 'fees', group: 'Finance', roles: ['OWNER_ADMIN', 'ACCOUNTANT'] },
+  // What the owner signs off (a campus's monthly vouchers); the office sees the status of what it raised.
+  // Mirrors `@Roles('OWNER_ADMIN','ACCOUNTANT')` on /approvals — the Ops Admin reaches it through ACCOUNTANT.
+  { href: '/approvals', label: 'Approvals', icon: 'inbox', group: 'Finance', roles: ['OWNER_ADMIN', 'ACCOUNTANT'] },
   // A campus admin may READ the queue (it is their campus's money) but only the cashier and the
   // owner may verify — confirming a submission is what issues the receipt.
   { href: '/fee-claims', label: 'Payment submissions', icon: 'fee-claims', group: 'Finance', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT'] },
@@ -191,7 +199,9 @@ export const NAV: NavItem[] = [
 
   // HR reads the register but never marks it — attendance feeds pay, and the same boundary
   // that keeps salary structures owner-only applies here.
-  { href: '/staff-attendance', label: 'Staff Attendance', icon: 'leaves', group: 'People', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'HR_MANAGER'] },
+  // Owner and campus admin reach it from the Attendance hub (Staff); the HR manager, who has no hub, lists it.
+  // Its own icon: it used to share `leaves` with Leave requests, two different things wearing one symbol.
+  { href: '/staff-attendance', label: 'Staff Attendance', icon: 'attendance', group: 'People', roles: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'HR_MANAGER'], hiddenFor: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
 
   // Account security is every user's own business — no `roles` (any authenticated) and reached
   // from the top bar rather than the sidebar.
@@ -397,8 +407,39 @@ export function navItemFor(pathname: string): NavItem | undefined {
  */
 export type AdmissionsMode = 'DIRECT' | 'PIPELINE';
 
-function isUsable(item: NavItem, userRoles: string[] | undefined, admissionsMode?: AdmissionsMode): boolean {
+/**
+ * The owner's choice (`campusAdminSeesFees`, default on): may the campus admin see the school's fees?
+ * When off, a person whose ONLY money-relevant role is CAMPUS_ADMIN loses the fee screens a campus admin could
+ * open. Uses the GRANTED roles (not `effectiveRoles`): an Ops Admin covers CAMPUS_ADMIN but runs money, so they
+ * are never caught here. Mirrors `isCampusAdminOnlyForMoney` on the API, which is what actually enforces it.
+ */
+export function feesHiddenFromMe(userRoles: string[] | undefined, campusAdminSeesFees: boolean | undefined): boolean {
+  if (campusAdminSeesFees !== false) return false;
+  const r = userRoles ?? [];
+  return r.includes('CAMPUS_ADMIN') && !r.includes('OWNER_ADMIN') && !r.includes('ACCOUNTANT') && !r.includes('OPERATIONS_ADMIN');
+}
+
+/**
+ * True when the signed-in user is an owner with no operating role — their portal is read-only
+ * and action buttons (create, edit, delete, mark) should be hidden. A person who holds both
+ * OWNER_ADMIN and e.g. OPERATIONS_ADMIN is NOT read-only (they are also a doer).
+ */
+export function isOwnerReadOnly(userRoles: string[] | undefined): boolean {
+  const r = userRoles ?? [];
+  if (!r.includes('OWNER_ADMIN')) return false;
+  const OPERATING: string[] = ['OPERATIONS_ADMIN', 'CAMPUS_ADMIN', 'ADMISSION_CONTROLLER', 'HR_MANAGER', 'ACCOUNTANT', 'TEACHER', 'STAFF'];
+  return !r.some((role) => OPERATING.includes(role));
+}
+
+/** The screens that are about money and that a campus admin could otherwise open. */
+export const FEE_ROUTES: readonly string[] = ['/fees', '/fee-claims', '/defaulters'];
+export function isFeeRoute(href: string): boolean {
+  return FEE_ROUTES.some((h) => href === h || href.startsWith(`${h}/`));
+}
+
+function isUsable(item: NavItem, userRoles: string[] | undefined, admissionsMode?: AdmissionsMode, campusAdminSeesFees?: boolean): boolean {
   if (!hasAnyRole(userRoles, item.roles)) return false;
+  if (isFeeRoute(item.href) && feesHiddenFromMe(userRoles, campusAdminSeesFees)) return false;
   if (item.href === '/admissions' && admissionsMode === 'DIRECT') {
     return effectiveRoles(userRoles).includes('ADMISSION_CONTROLLER');
   }
@@ -411,9 +452,9 @@ function isUsable(item: NavItem, userRoles: string[] | undefined, admissionsMode
  * e.g. a dashboard metric whose destination this role can't reach. An unknown href is
  * treated as reachable (nothing gates it).
  */
-export function canReach(userRoles: string[] | undefined, href: string, admissionsMode?: AdmissionsMode): boolean {
+export function canReach(userRoles: string[] | undefined, href: string, admissionsMode?: AdmissionsMode, campusAdminSeesFees?: boolean): boolean {
   const item = navItemFor(href);
-  return !item || isUsable(item, userRoles, admissionsMode);
+  return !item || isUsable(item, userRoles, admissionsMode, campusAdminSeesFees);
 }
 
 /**
@@ -424,8 +465,11 @@ export function groupedNav(
   userRoles: string[] | undefined,
   admissionsMode?: AdmissionsMode,
   curated = false,
+  campusAdminSeesFees?: boolean,
 ): { group: NavGroup; items: NavItem[] }[] {
-  const visible = NAV.filter((n) => !n.hidden && isUsable(n, userRoles, admissionsMode));
+  const visible = NAV.filter((n) => !n.hidden
+    && !(n.hiddenFor && n.hiddenFor.some((r) => effectiveRoles(userRoles).includes(r)))
+    && isUsable(n, userRoles, admissionsMode, campusAdminSeesFees));
   const order = curated ? CURATED_GROUP_ORDER : NAV_GROUPS;
   return order.map((group) => ({
     group,

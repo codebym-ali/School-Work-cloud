@@ -9,7 +9,7 @@ import {
   type FeeStructure, type Section, type Subject, type SubjectCatalogueEntry, type TeacherAssignment,
 } from '@sw/api-client';
 import { useMe } from '@sw/session';
-import { hasAnyRole, isSchoolWideAdmin } from '@sw/roles';
+import { hasAnyRole, isOwnerReadOnly, isSchoolWideAdmin } from '@sw/roles';
 import { subjectCatalogueFrom } from '@school/lib/subject-match';
 import { SubjectCatalogue } from './subject-catalogue';
 import { SectionList } from './section-list';
@@ -33,7 +33,7 @@ export default function ClassDetailPage() {
   const router = useRouter();
   const me = useMe();
   const classId = String(params?.id ?? '');
-  const canEdit = hasAnyRole(me?.roles, ['OWNER_ADMIN', 'CAMPUS_ADMIN']);
+  const canEdit = hasAnyRole(me?.roles, ['OWNER_ADMIN', 'CAMPUS_ADMIN']) && !isOwnerReadOnly(me?.roles);
   const schoolWide = isSchoolWideAdmin(me?.roles);
 
   const [klass, setKlass] = useState<Klass | null>(null);
@@ -66,7 +66,9 @@ export default function ClassDetailPage() {
     setStaff(st); setYears(y); setAssignments(a);
     // Fees are the owner's business and live on their own screen; this is a read-only figure,
     // fetched separately so a failure never blocks the structural view the page exists for.
-    api.feeSetup.structures(classId).then(setFeeStructures).catch(() => setFeeStructures([]));
+    // On failure (incl. the owner having chosen not to show fees to a campus admin) show nothing — never a
+    // false "No fees set for this class".
+    api.feeSetup.structures(classId).then(setFeeStructures).catch(() => setFeeStructures(null));
   }, [classId]);
 
   useEffect(() => { load().catch(() => {}).finally(() => setLoaded(true)); }, [load]);

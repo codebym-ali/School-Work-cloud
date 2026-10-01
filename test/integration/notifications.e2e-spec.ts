@@ -292,7 +292,7 @@ describe('Notifications — derived, self-scoped (e2e, N0)', () => {
   // ── "what the school needs from you" (N2) ─────────────────────────────────
   /** Every kind that is about the SCHOOL rather than about you. */
   const SCHOOL_KINDS = [
-    'DEFAULTERS', 'LEAVES_PENDING', 'SMS_FAILED', 'CLAIMS_PENDING',
+    'DEFAULTERS', 'LEAVES_PENDING', 'SMS_FAILED', 'CLAIMS_PENDING', 'APPROVALS_PENDING',
     'REGISTERS_UNMARKED', 'STAFF_UNMARKED', 'STAFF_ABSENT', 'READY_TO_ADMIT', 'TESTS_TODAY',
   ];
 

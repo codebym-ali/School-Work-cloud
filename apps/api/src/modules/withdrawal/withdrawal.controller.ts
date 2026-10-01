@@ -1,6 +1,6 @@
 import { Body, Controller, Param, Post } from '@nestjs/common';
 import { IsBoolean, IsDateString, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
-import { Roles } from '@common';
+import { OwnerWritable, Roles } from '@common';
 import { WithdrawalService } from './withdrawal.service';
 
 class WithdrawDto {
@@ -14,6 +14,7 @@ class WithdrawDto {
   @IsOptional() @IsDateString() leavingDate?: string;
 }
 
+@OwnerWritable()
 @Controller('students')
 export class WithdrawalController {
   constructor(private readonly withdrawal: WithdrawalService) {}

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { api, ApiError, type StaffDaySummary, type StaffRegisterRow } from '@sw/api-client';
 import { useCampusLens, useMe } from '@sw/session';
 import { hasAnyRole } from '@sw/roles';
@@ -33,14 +34,37 @@ const MARKS = ['PRESENT', 'LATE', 'HALF_DAY', 'ON_LEAVE', 'ABSENT'] as const;
 
 type Filter = '' | 'PRESENT' | 'LATE' | 'ABSENT' | 'ON_LEAVE' | 'UNMARKED';
 
-export default function StaffAttendancePage() {
+/**
+ * Owner and campus admin reach this inside the Attendance hub (`/attendance?tab=staff`); an old link to
+ * `/staff-attendance` forwards there, date and filter kept. The HR manager has no hub, so for them this stays
+ * a page of its own.
+ */
+export default function StaffAttendancePage({ embedded }: { embedded?: boolean } = {}) {
+  const me = useMe();
+  const router = useRouter();
+  const toHub = !embedded && hasAnyRole(me?.roles, ['OWNER_ADMIN', 'CAMPUS_ADMIN']);
+  useEffect(() => {
+    if (!toHub) return;
+    const q = new URLSearchParams(window.location.search);
+    const next = new URLSearchParams({ tab: 'staff', ...(q.get('date') ? { date: q.get('date')! } : {}), ...(q.get('status') ? { status: q.get('status')! } : {}) });
+    router.replace(`/attendance?${next.toString()}`);
+  }, [toHub, router]);
+  if (toHub) return <p className="muted">Opening Attendance…</p>;
+  return <StaffAttendanceScreen embedded={embedded} />;
+}
+
+function StaffAttendanceScreen({ embedded }: { embedded?: boolean }) {
   const me = useMe();
   // The office marks; the owner and HR oversee. Mirrors the API gate on POST /staff-attendance/bulk.
   const canMark = hasAnyRole(me?.roles, ['CAMPUS_ADMIN', 'OPERATIONS_ADMIN']);
   const lens = useCampusLens();
   const campusId = lens.campusId ?? '';
-  const [date, setDate] = useState(today());
-  const [status, setStatus] = useState<Filter>('');
+  // Seeded from the URL when the screen is CREATED, not in an effect: an effect that reads the URL races the
+  // effect that writes it back, and in development (effects run twice) the second pass read a date the first had
+  // already overwritten with today.
+  const initialQuery = typeof window === 'undefined' ? null : new URLSearchParams(window.location.search);
+  const [date, setDate] = useState(() => (/^\d{4}-\d{2}-\d{2}$/.test(initialQuery?.get('date') ?? '') ? initialQuery!.get('date')! : today()));
+  const [status, setStatus] = useState<Filter>(() => (initialQuery?.get('status') as Filter | null) ?? '');
   const [summary, setSummary] = useState<StaffDaySummary | null>(null);
   const [rows, setRows] = useState<StaffRegisterRow[] | null>(null);
   const [err, setErr] = useState(false);
@@ -48,12 +72,6 @@ export default function StaffAttendancePage() {
   const [busy, setBusy] = useState<string>('');
 
   // Filters live in the URL so "look at Tuesday's absences" is a link that survives Back.
-  useEffect(() => {
-    const q = new URLSearchParams(window.location.search);
-    if (q.get('date')) setDate(q.get('date')!);
-    if (q.get('status')) setStatus(q.get('status') as Filter);
-  }, []);
-
   const load = useCallback(async () => {
     const [s, r] = await Promise.all([
       api.staffAttendance.daySummary(date, campusId || undefined),
@@ -66,7 +84,10 @@ export default function StaffAttendancePage() {
   useEffect(() => {
     setRows(null);
     load().catch(() => setErr(true));
-    const q = new URLSearchParams({ date, ...(status ? { status } : {}) });
+    // Merge, don't replace: inside the hub the URL also carries `?tab=staff`, which must survive.
+    const q = new URLSearchParams(window.location.search);
+    q.set('date', date);
+    if (status) q.set('status', status); else q.delete('status');
     window.history.replaceState(null, '', `?${q.toString()}`);
   }, [load, date, status, campusId]);
 
@@ -139,7 +160,7 @@ export default function StaffAttendancePage() {
     <div className="oh">
       <div className="ov-head">
         <div>
-          <h1 style={{ margin: 0 }}>Staff attendance</h1>
+          {!embedded && <h1 style={{ margin: 0 }}>Staff attendance</h1>}
           <p className="ov-lede">
             {summary?.workingDay === false
               ? `${summary.holidayName ?? 'Weekly off'} — no register on this day.`

@@ -9,6 +9,7 @@ import { ProvisioningService } from '../../apps/api/src/modules/platform/provisi
 import { destroyTenant } from './support/tenant';
 import { loginRequest } from './support/login';
 import { enrolMfa } from './support/mfa';
+import { opsAdminSession } from './support/ops-admin';
 
 /**
  * HR access (RBAC): only OWNER_ADMIN may grant the HR_MANAGER role on an EXISTING employee,
@@ -24,6 +25,7 @@ describe('HR access grant (e2e, RBAC)', () => {
   let campusAId: string;
   let campusBId: string;
   let teacherUserId: string;
+  let ops: Awaited<ReturnType<typeof opsAdminSession>>;
 
   const sub = `hra-${randomUUID().slice(0, 8)}`;
   const host = `${sub}.localhost`;
@@ -61,6 +63,8 @@ describe('HR access grant (e2e, RBAC)', () => {
     await send('post', '/api/v1/users', { email: campusAdmin.email, roles: ['CAMPUS_ADMIN'], campusId: campusAId, password: campusAdmin.password }, ownerCookies);
     const t = await send('post', '/api/v1/users', { email: teacher.email, roles: ['TEACHER'], campusId: campusBId, password: teacher.password }, ownerCookies);
     teacherUserId = t.body.id;
+
+    ops = await opsAdminSession(app, platform, schoolId, host, 'ops@hra.pk', campusAId);
   });
 
   afterAll(async () => {
@@ -130,25 +134,26 @@ describe('HR access grant (e2e, RBAC)', () => {
   // someone — or reusing a mis-typed address — was impossible with no visible record to clear.
   it("frees a removed teacher's email for reuse", async () => {
     const email = `rehire-${Date.now()}@demo.pk`;
-    const first = await send('post', '/api/v1/staff', {
+    const opsPost = (b: object) => ops.post('/api/v1/staff', b);
+    const first = await opsPost({
       email, staffType: 'TEACHER', fullName: 'First Hire', employeeCode: `EMP-R${Date.now()}`,
       designation: 'Teacher', joinedAt: '2026-07-01', campusId: campusAId, password: 'Teach!Secret12',
-    }, ownerCookies);
+    });
     expect(first.status).toBe(201);
 
     // Still taken while the account is live.
-    const clash = await send('post', '/api/v1/staff', {
+    const clash = await opsPost({
       email, staffType: 'TEACHER', fullName: 'Clash', employeeCode: `EMP-C${Date.now()}`,
       designation: 'Teacher', joinedAt: '2026-07-01', campusId: campusAId,
-    }, ownerCookies);
+    });
     expect(clash.status).toBe(409);
 
     // Remove the account (soft-delete), then the address is free again.
     await send('delete', `/api/v1/users/${first.body.userId}`, {}, ownerCookies);
-    const rehired = await send('post', '/api/v1/staff', {
+    const rehired = await opsPost({
       email, staffType: 'TEACHER', fullName: 'Re-hired', employeeCode: `EMP-N${Date.now()}`,
       designation: 'Teacher', joinedAt: '2026-08-01', campusId: campusAId, password: 'Teach!Secret12',
-    }, ownerCookies);
+    });
     expect(rehired.status).toBe(201);
 
     // Both rows coexist: one removed, one live — no duplication of a LIVE address.
@@ -170,10 +175,10 @@ describe('HR access grant (e2e, RBAC)', () => {
   it('a teacher created WITH a password is ACTIVE and can sign in straight away', async () => {
     const email = `instant-${Date.now()}@demo.pk`;
     const password = 'Teach!Secret12';
-    const res = await send('post', '/api/v1/staff', {
+    const res = await ops.post('/api/v1/staff', {
       email, staffType: 'TEACHER', fullName: 'Instant Teacher', employeeCode: `EMP-${Date.now()}`,
       designation: 'Physics Teacher', joinedAt: '2026-07-01', campusId: campusAId, password,
-    }, ownerCookies);
+    });
     expect(res.status).toBe(201);
     expect(res.body.loginActive).toBe(true);
 
@@ -188,10 +193,10 @@ describe('HR access grant (e2e, RBAC)', () => {
 
   it('a teacher created WITHOUT a password stays INVITED and cannot sign in', async () => {
     const email = `invited-${Date.now()}@demo.pk`;
-    const res = await send('post', '/api/v1/staff', {
+    const res = await ops.post('/api/v1/staff', {
       email, staffType: 'TEACHER', fullName: 'Invited Teacher', employeeCode: `EMP-B${Date.now()}`,
       designation: 'Maths Teacher', joinedAt: '2026-07-01', campusId: campusAId,
-    }, ownerCookies);
+    });
     expect(res.status).toBe(201);
     expect(res.body.loginActive).toBe(false);
 

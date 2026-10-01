@@ -41,6 +41,12 @@ function refreshSession(): Promise<boolean> {
   return refreshInFlight;
 }
 
+/** Fired on `window` when a write was accepted as a proposal awaiting the owner's approval. */
+export const PROPOSAL_EVENT = 'sw:proposal';
+/** True when a write's response is a proposal ("sent to the owner") rather than the change itself. */
+export const isProposal = (r: unknown): r is { pendingApproval: true; approvalId: string; message: string } =>
+  typeof r === 'object' && r !== null && (r as { pendingApproval?: unknown }).pendingApproval === true;
+
 async function request<T>(path: string, opts: { method?: string; body?: unknown; headers?: Record<string, string>; signal?: AbortSignal; _retried?: boolean } = {}): Promise<T> {
   const method = opts.method ?? 'GET';
   const headers: Record<string, string> = { 'Content-Type': 'application/json', ...opts.headers };
@@ -62,6 +68,12 @@ async function request<T>(path: string, opts: { method?: string; body?: unknown;
   }
 
   const data = res.status === 204 ? null : await res.json().catch(() => null);
+  // A school-wide setup change made by the Ops Admin is only a PROPOSAL until the owner approves it. Every verb
+  // signals that with this header (a 204 DELETE has no body), so the shell can say so once, for every screen, instead
+  // of each page announcing "Saved" for something that has not happened yet.
+  if (res.ok && method !== 'GET' && res.headers.get('x-pending-approval') && typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent(PROPOSAL_EVENT, { detail: { approvalId: res.headers.get('x-pending-approval') } }));
+  }
   if (!res.ok) {
     const err = (data as { error?: { code?: string; message?: string; details?: unknown; requestId?: string } } | null)?.error;
     throw new ApiError(res.status, err?.code, err?.message ?? res.statusText, err?.details, err?.requestId);
@@ -88,7 +100,7 @@ export function idemKey(): Record<string, string> {
 // ── Types ──────────────────────────────────────────────────────────────────
 /** `admissionsMode` is a school-level setting: DIRECT hides the enquiry pipeline entirely
  *  (the form IS the admission), PIPELINE restores lead → entry test → admit. */
-export interface Me { id: string; email: string; name?: string | null; roles: string[]; campusId: string | null; modules: string[]; mfaEnabled: boolean; admissionsMode: 'DIRECT' | 'PIPELINE' }
+export interface Me { id: string; email: string; name?: string | null; roles: string[]; campusId: string | null; modules: string[]; mfaEnabled: boolean; admissionsMode: 'DIRECT' | 'PIPELINE'; campusAdminSeesFees: boolean }
 /** Login either establishes a session, or (when the account has MFA on) hands back a short-lived
  *  `mfaToken` that must be exchanged for a session via `api.mfa.challenge`. */
 export type LoginResult =
@@ -159,7 +171,7 @@ export interface NotificationItem {
    *  as something it was not, and a `kind ===` check could not be trusted. */
   kind:
     | 'LEAVE_DECIDED' | 'REGISTER_UNMARKED' | 'MARKED_ABSENT' | 'SALARY_PAID'
-    | 'DEFAULTERS' | 'LEAVES_PENDING' | 'SMS_FAILED' | 'CLAIMS_PENDING'
+    | 'DEFAULTERS' | 'LEAVES_PENDING' | 'SMS_FAILED' | 'CLAIMS_PENDING' | 'APPROVALS_PENDING'
     | 'REGISTERS_UNMARKED' | 'STAFF_UNMARKED' | 'STAFF_ABSENT'
     | 'READY_TO_ADMIT' | 'TESTS_TODAY'
     | 'COVERING_TODAY' | 'COVERED_TODAY'
@@ -232,8 +244,9 @@ export interface StudentProfileSummary {
   enrollment: { className: string; sectionName: string; campusName: string; rollNumber: number | null; startedAt: string } | null;
   todayStatus: AttendanceStatus | null;
   attendancePercent: number | null;
-  feeStatus: 'OVERDUE' | 'DUE' | 'CLEAR';
-  outstanding: number;
+  /** `null` when the owner has chosen not to show fees to a campus admin (`campusAdminSeesFees`). */
+  feeStatus: 'OVERDUE' | 'DUE' | 'CLEAR' | null;
+  outstanding: number | null;
   latestTerm: { term: string; overallPercent: number; grade: string; sectionRank: number | null } | null;
 }
 /** `UNMARKED` = a school day nobody took the register; `CLOSED` = weekly off or holiday (`note` says which). */
@@ -638,7 +651,20 @@ export interface PortalOverview {
   reportCards: number;
 }
 export interface PortalAttendance { date: string; session: string; status: string }
-export interface PortalResult { term: string; overallPercent: number; grade: string; sectionRank: number | null }
+/** `sectionRank` is 1–3 for a podium finish and `null` for everyone else — a student is never shown a lower rank. */
+export interface PortalResult { termId: string; term: string; overallPercent: number; grade: string; sectionRank: 1 | 2 | 3 | null; hasFile: boolean }
+/** One term in full. Self-only, published exams only, no class average. */
+export interface PortalTermResult {
+  termId: string; term: string; overallPercent: number; grade: string; rank: 1 | 2 | 3 | null;
+  totalObtained: number; totalMarks: number; hasFile: boolean;
+  subjects: Array<{ subject: string; marksObtained: number | null; totalMarks: number; percent: number | null; grade: string | null; absent: boolean }>;
+  exams: Array<{
+    id: string; name: string; examType: string; weightagePercent: number; examDate: string;
+    obtained: number; total: number; percent: number | null;
+    subjects: Array<{ subject: string; marksObtained: number | null; totalMarks: number; percent: number | null; grade: string | null; isAbsent: boolean }>;
+  }>;
+  gradeScale: Array<{ label: string; minPercent: number; maxPercent: number }>;
+}
 export interface PortalPayment { id: string; receiptNo: number; amount: number; method: string; paidAt: string; reversed: boolean }
 export interface PortalFee {
   id: string; month: number | null; year: number; total: number; paid: number; remaining: number;
@@ -884,9 +910,30 @@ export interface SchoolSettings {
   attendanceMarkByTime: string;
   /** Whether an unexplained absence reduces pay. Unpaid leave is deducted either way. */
   payrollDeductsAbsence: boolean;
+  /** Owner's choice: may the campus admin see fees? (Default on.) Enforced by the API. */
+  campusAdminSeesFees: boolean;
+  /** Owner's choice: must the owner approve a campus's monthly vouchers before they go out? (Default on.) */
+  feeVoucherApproval: boolean;
   staffAttendance: { selfMarking: boolean; autoMarkAbsent: boolean; dayStartTime: string; graceMinutes: number; closeAtTime: string };
 }
-type DeepPartial<T> = { [K in keyof T]?: T[K] extends object ? Partial<T[K]> : T[K] };
+/** An owner sign-off. `summary` is counted live while PENDING, and frozen at the decision afterwards. */
+export interface ApprovalRequest {
+  id: string;
+  type: 'VOUCHER_BATCH' | 'SETUP_CHANGE';
+  status: 'PENDING' | 'APPROVED' | 'REJECTED';
+  title: string;
+  campusId: string | null;
+  campusName: string | null;
+  requestedBy: string | null;
+  requestedAt: string;
+  decidedBy: string | null;
+  decidedAt: string | null;
+  decisionNote: string | null;
+  summary: { vouchers: number; total: number; classes: string[]; period: string } | null;
+  /** For a setup change: what it would do, in the proposer's own values (label → value). */
+  changes: Array<{ label: string; value: string }> | null;
+}
+type DeepPartial<T> ={ [K in keyof T]?: T[K] extends object ? Partial<T[K]> : T[K] };
 
 export interface StaffDaySummary {
   date: string;
@@ -1155,6 +1202,13 @@ export const api = {
     /** Owner / campus admin. Campus-scoped on BOTH ends in the service, and capacity-checked. */
     transfer: (studentId: string, toSectionId: string) =>
       apiPost<Enrollment>('/enrollments/transfer', { studentId, toSectionId }),
+  },
+  /** What the owner must sign off: a campus's monthly vouchers (and, later, setup changes). */
+  approvals: {
+    list: (status?: ApprovalRequest['status']) => apiGet<ApprovalRequest[]>(`/approvals${status ? `?status=${status}` : ''}`),
+    pendingCount: () => apiGet<{ pending: number }>('/approvals/pending-count'),
+    approve: (id: string, note?: string) => apiPost<ApprovalRequest>(`/approvals/${id}/approve`, { note }),
+    reject: (id: string, reason: string) => apiPost<ApprovalRequest>(`/approvals/${id}/reject`, { reason }),
   },
   schoolSettings: {
     get: () => apiGet<SchoolSettings>('/school-settings'),
@@ -1549,6 +1603,10 @@ export const api = {
     overview: () => apiGet<PortalOverview>('/portal/overview'),
     attendance: () => apiGet<PortalAttendance[]>('/portal/attendance'),
     results: () => apiGet<PortalResult[]>('/portal/results'),
+    /** One term in full — every subject's marks, total, percent and grade. */
+    termResult: (termId: string) => apiGet<PortalTermResult>(`/portal/results/${termId}`),
+    /** A short-lived link to the student's OWN report-card PDF for a term. */
+    termResultFile: (termId: string) => apiGet<{ url: string; expiresInSeconds: number }>(`/portal/results/${termId}/file`),
     performance: () => apiGet<PortalPerformance>('/portal/performance'),
     attendanceSummary: () => apiGet<PortalAttendanceSummary>('/portal/attendance/summary'),
     fees: () => apiGet<PortalFee[]>('/portal/fees'),

@@ -4,8 +4,9 @@ import { useEffect, useRef, useState } from 'react';
 import { api, apiGet, apiPost, ApiError, type Campus, type Enrollment, type Klass, type Section, type TeacherClass, type UnmarkedRegisters } from '@sw/api-client';
 import { sectionLabeller } from '@school/lib/labels';
 import { useCampusLens, useMe } from '@sw/session';
-import { AttendanceOverviewPanel } from './owner-overview';
-import { ReadOnlyRegister, RegisterEmptyState, RegisterFilters } from './register-overview';
+import { hasAnyRole } from '@sw/roles';
+import { AttendanceHub } from './hub';
+import { ReadOnlyRegister, RegisterEmptyState, RegisterFilters, WeekStrip } from './register-overview';
 
 /** Roles that mark attendance across the school; everyone else marking is a teacher scoped to their own
  *  sections. Drives whether the section picker is fed by the school-wide list or by /teaching/my-classes. */
@@ -35,111 +36,18 @@ const earliest = () => {
   return d.toISOString().slice(0, 10);
 };
 
-/**
- * The last 7 days at a glance, so a teacher can SEE which days are unmarked instead of
- * remembering them. Backfill without this is technically possible and practically unused —
- * nobody navigates date by date on the chance a day is missing.
- *
- * Non-working days are shown as "off", never as gaps: a strip that flags every Sunday is a
- * strip that gets ignored. A partly-marked day is called out separately from an untouched one
- * because they are different problems — one was interrupted, the other never started.
- */
-function CoverageStrip({ days, selected, onPick, readOnly = false }: {
-  days: DayCoverage[]; selected: string; onPick: (date: string) => void; readOnly?: boolean;
-}) {
-  if (!days.length) return null;
-  const gaps = days.filter((d) => d.working && d.marked < d.expected).length;
-
-  return (
-    <div className="card stack" style={{ gap: 8 }}>
-      <div className="row">
-        <strong style={{ fontSize: 14 }}>Last {days.length} days</strong>
-        {gaps === 0
-          ? <span className="badge ok">All marked</span>
-          : <span className="badge warn">{gaps} day{gaps === 1 ? '' : 's'} need attention</span>}
-      </div>
-      <div className="chips">
-        {days.map((d) => {
-          const dt = new Date(`${d.date}T00:00:00`);
-          const label = dt.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric' });
-          const isSel = d.date === selected;
-          const complete = d.marked >= d.expected && d.expected > 0;
-          const partial = d.marked > 0 && d.marked < d.expected;
-          const state = !d.working ? 'off' : complete ? 'done' : partial ? 'partial' : 'missing';
-          // Name the closure. "Holiday or weekly off" made a teacher wonder which, and why.
-          const tip = !d.working ? (d.closedFor ?? 'Weekly off')
-            : complete ? `All ${d.expected} marked`
-            : partial ? `Only ${d.marked} of ${d.expected} marked`
-            : `Not marked (${d.expected} students)`;
-          return (
-            <button
-              key={d.date}
-              type="button"
-              className={`chip ${isSel ? 'active' : ''}`}
-              disabled={!d.working}
-              title={tip}
-              onClick={() => onPick(d.date)}
-              style={!isSel && d.working && state !== 'done' ? { borderColor: '#d97706' } : undefined}
-            >
-              {state === 'done' ? '✓' : state === 'off' ? '—' : '⚠'} {label}
-              {state === 'partial' && <span className="muted" style={{ fontSize: 11 }}> {d.marked}/{d.expected}</span>}
-            </button>
-          );
-        })}
-      </div>
-      {gaps > 0 && (
-        <p className="muted" style={{ margin: 0, fontSize: 12 }}>
-          {readOnly
-            ? 'Click a day to view its register. Days marked ⚠ have not been fully marked by the class teacher yet.'
-            : <>Click a day to fill it in. Absences on past days are recorded but parents aren&apos;t texted.</>}
-        </p>
-      )}
-    </div>
-  );
-}
 
 /**
- * The owner gets an Overview (Owner UX 1c) beside the read-only register; every marking role gets the
- * register exactly as before. The owner never marks — the Overview is the oversight view.
+ * Owner and campus admin get the Attendance hub (Today · Students · Staff); a teacher, and any other role that
+ * may open this route, gets the register exactly as before. The hub's class view is this same register: read-only
+ * for the owner (who never marks), the marking screen for a campus admin.
  */
 export default function AttendancePage() {
   const me = useMe();
-  const ownerView = !!me && me.roles.includes('OWNER_ADMIN') && !me.roles.some((r) => MARKING_ROLES.includes(r));
-  const [tab, setTab] = useState<'overview' | 'register'>(() =>
-    (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('view') === 'register') ? 'register' : 'overview');
-  // Remounts the register so it re-reads ?sectionId&date when a heatmap cell or attention row opens one.
-  const [registerKey, setRegisterKey] = useState(0);
-
   if (!me) return <p className="muted">Loading…</p>;
-  if (!ownerView) return <AttendanceRegister />;
-
-  const go = (next: 'overview' | 'register', params: Record<string, string> = {}) => {
-    const url = new URL(window.location.href);
-    for (const k of ['view', 'sectionId', 'date']) url.searchParams.delete(k);
-    if (next === 'register') url.searchParams.set('view', 'register');
-    for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
-    window.history.replaceState(window.history.state, '', url);
-    setRegisterKey((k) => k + 1);
-    setTab(next);
-  };
-
-  return (
-    <div className="oh">
-      <div className="ov-head">
-        <div>
-          <h1 style={{ margin: 0 }}>Attendance</h1>
-          <p className="ov-lede">View only — class teachers mark the register; your campus admin or Ops Admin makes corrections.</p>
-        </div>
-        <div className="ov-tabs" role="tablist" aria-label="Attendance view">
-          <button type="button" role="tab" aria-selected={tab === 'overview'} className={`ov-tab${tab === 'overview' ? ' is-active' : ''}`} onClick={() => go('overview')}>Overview</button>
-          <button type="button" role="tab" aria-selected={tab === 'register'} className={`ov-tab${tab === 'register' ? ' is-active' : ''}`} onClick={() => go('register')}>Register</button>
-        </div>
-      </div>
-      {tab === 'overview'
-        ? <AttendanceOverviewPanel onOpenRegister={(sectionId, date) => go('register', { sectionId, date })} />
-        : <AttendanceRegister key={registerKey} embedded />}
-    </div>
-  );
+  if (!hasAnyRole(me.roles, ['OWNER_ADMIN', 'CAMPUS_ADMIN'])) return <AttendanceRegister />;
+  const viewOnly = !me.roles.some((r) => MARKING_ROLES.includes(r));
+  return <AttendanceHub viewOnly={viewOnly} renderClass={(key) => <AttendanceRegister key={key} embedded />} />;
 }
 
 function AttendanceRegister({ embedded = false }: { embedded?: boolean }) {
@@ -154,7 +62,12 @@ function AttendanceRegister({ embedded = false }: { embedded?: boolean }) {
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   const [coverage, setCoverage] = useState<DayCoverage[]>([]);
-  const [autoLoaded, setAutoLoaded] = useState(false);
+  // Roster loading is automatic for someone who marks (below); these say where it is, so the screen is never blank.
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState(false);
+  const latestRequest = useRef(0);
+  // True once a mark has been changed and not yet saved — so a date or class change cannot silently throw it away.
+  const dirty = useRef(false);
   const [unmarked, setUnmarked] = useState<UnmarkedRegisters | null>(null);
   // Today's outstanding registers, for the empty state. Separate from `unmarked` (the banner a dashboard deep link asks for).
   const [outstanding, setOutstanding] = useState<UnmarkedRegisters | null | 'unavailable'>(null);
@@ -197,14 +110,14 @@ function AttendanceRegister({ embedded = false }: { embedded?: boolean }) {
     if (me && schoolWide) api.staff.unmarkedRegisters().then(setOutstanding).catch(() => setOutstanding('unavailable'));
   }, [me, schoolWide]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Once the deep-linked section is set, load its roster automatically (one time).
+  // ⚠️ Whoever marks gets the roster the moment a section and a day are set — chosen, preselected, deep-linked or
+  // stepped to. It used to wait for a "Load roster" click that nothing said was needed, and a preselected class
+  // (one assignment, or the last one used) left the screen blank under a section that looked already done.
+  // A date change reloads too: stepping to another day used to leave the PREVIOUS day's marks under the new date.
   useEffect(() => {
-    const sid = new URLSearchParams(window.location.search).get('sectionId');
-    if (sid && sectionId === sid && !autoLoaded) {
-      setAutoLoaded(true);
-      loadRoster().catch(() => {});
-    }
-  }); // eslint-disable-line react-hooks/exhaustive-deps
+    if (readOnly || !sectionId) return;
+    loadRoster(date, sectionId).catch(() => {});
+  }, [sectionId, date, readOnly]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function loadCoverage(sid = sectionId) {
     if (!sid) return setCoverage([]);
@@ -217,23 +130,35 @@ function AttendanceRegister({ embedded = false }: { embedded?: boolean }) {
   // Read-only viewers get the week strip and the whole register from one server read (`ReadOnlyRegister`).
   useEffect(() => { if (!readOnly) loadCoverage().catch(() => {}); }, [sectionId, session, readOnly]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  async function loadRoster(d: string = date) {
-    if (!sectionId) return;
-    const enr = await apiGet<{ data: Enrollment[] }>(`/enrollments?sectionId=${sectionId}&status=ACTIVE`);
-    const existing = await apiGet<Array<{ enrollmentId: string; status: string }>>(`/attendance?sectionId=${sectionId}&date=${d}`);
-    const m: Record<string, string> = {};
-    // Marking defaults everyone to PRESENT (the teacher flips the exceptions). A READ-ONLY view must not:
-    // a child with no record is "Not marked", never shown as present.
-    for (const e of enr.data) m[e.id] = readOnly ? NOT_MARKED : 'PRESENT';
-    for (const a of existing) m[a.enrollmentId] = a.status;
-    // Set marks BEFORE rows: the editable table renders on `rows.length > 0`, so seeding
-    // marks first ensures the <select>s never render (and can't be changed then clobbered)
-    // before their backing state exists — otherwise a status picked during the gap between
-    // these two setState calls is overwritten by this setMarks. (Same race we fixed in exams.)
-    setMarks(m);
-    setRows(enr.data);
-    setMsg(null);
-    setLoaded(true);
+  async function loadRoster(d: string = date, sid: string = sectionId) {
+    if (!sid) return;
+    const request = ++latestRequest.current;
+    setLoading(true);
+    setLoadError(false);
+    try {
+      const enr = await apiGet<{ data: Enrollment[] }>(`/enrollments?sectionId=${sid}&status=ACTIVE`);
+      const existing = await apiGet<Array<{ enrollmentId: string; status: string }>>(`/attendance?sectionId=${sid}&date=${d}`);
+      // A newer request (another class or day picked meanwhile) owns the screen now; this answer is stale.
+      if (request !== latestRequest.current) return;
+      const m: Record<string, string> = {};
+      // Marking defaults everyone to PRESENT (the teacher flips the exceptions). A READ-ONLY view must not:
+      // a child with no record is "Not marked", never shown as present.
+      for (const e of enr.data) m[e.id] = readOnly ? NOT_MARKED : 'PRESENT';
+      for (const a of existing) m[a.enrollmentId] = a.status;
+      // Set marks BEFORE rows: the editable table renders on `rows.length > 0`, so seeding
+      // marks first ensures the <select>s never render (and can't be changed then clobbered)
+      // before their backing state exists — otherwise a status picked during the gap between
+      // these two setState calls is overwritten by this setMarks. (Same race we fixed in exams.)
+      setMarks(m);
+      setRows(enr.data);
+      setMsg(null);
+      setLoaded(true);
+      dirty.current = false;
+    } catch {
+      if (request === latestRequest.current) setLoadError(true);
+    } finally {
+      if (request === latestRequest.current) setLoading(false);
+    }
   }
 
   async function save() {
@@ -246,6 +171,7 @@ function AttendanceRegister({ embedded = false }: { embedded?: boolean }) {
         ? `${res.absenceNotifiedSuppressed} absence(s) recorded — parents not texted for a past date`
         : `absence SMS queued ${res.absenceQueued}`;
       setMsg({ ok: res.failed === 0, text: `Saved ${res.succeeded}, failed ${res.failed}, ${sms}` });
+      if (res.failed === 0) dirty.current = false;
       await loadCoverage(); // the day just filled should stop showing as a gap
     } catch (e) {
       setMsg({ ok: false, text: e instanceof ApiError ? e.message : 'Failed to save' });
@@ -263,9 +189,11 @@ function AttendanceRegister({ embedded = false }: { embedded?: boolean }) {
     ? visibleSections.map((s) => ({ id: s.id, label: sectionLabel(s) }))
     : Array.from(new Map(myClasses.map((c) => [c.sectionId, `${c.className} ${c.sectionName}`])).entries())
         .map(([id, label]) => ({ id, label }));
+  // ⚠️ Only once the sections have LOADED. The campus filter is restored from storage a moment after this screen
+  // mounts; acting before the list arrived saw "no visible sections" and wiped a section the link had just chosen.
   useEffect(() => {
-    if (sectionId && schoolWide && !visibleSections.some((s) => s.id === sectionId)) { setSectionId(''); setRows([]); setLoaded(false); }
-  }, [lens.campusId]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (sectionId && schoolWide && sections.length > 0 && !visibleSections.some((s) => s.id === sectionId)) { setSectionId(''); setRows([]); setLoaded(false); }
+  }, [lens.campusId, sections.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Start somewhere sensible: a link's section wins; else the one remembered for this session; else, if there is
   // only one section to choose from, that one. Runs once the picker has options. Never overrides a choice.
@@ -275,7 +203,9 @@ function AttendanceRegister({ embedded = false }: { embedded?: boolean }) {
     if (new URLSearchParams(window.location.search).get('sectionId')) return;
     let remembered: string | null = null;
     try { remembered = window.sessionStorage.getItem('sw.attendance.section'); } catch { /* storage blocked */ }
-    const pick = pickerOptions.find((o) => o.id === remembered) ?? (pickerOptions.length === 1 ? pickerOptions[0] : null);
+    // Inside the hub the class view always starts at the picker (and "needs attention" list): reopening the
+    // last class there looked like the button had picked one for you. The memory is for the standalone register.
+    const pick = (embedded ? null : pickerOptions.find((o) => o.id === remembered)) ?? (pickerOptions.length === 1 ? pickerOptions[0] : null);
     if (pick) setSectionId(pick.id);
   }, [pickerOptions.length]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
@@ -287,6 +217,11 @@ function AttendanceRegister({ embedded = false }: { embedded?: boolean }) {
     setSectionId(id); setRows([]); setLoaded(false); setMsg(null);
     if (d) setDate(d);
   };
+  // Changing class or day reloads the roster, which would drop marks the teacher has not saved — ask first.
+  const confirmDiscard = () => !dirty.current || window.confirm('You have attendance marked that is not saved yet. Discard it?');
+  const pickDate = (d: string) => { if (d !== date && confirmDiscard()) setDate(d); };
+  const pickSection = (id: string) => { if (id !== sectionId && confirmDiscard()) chooseSection(id); };
+  const selectedLabel = pickerOptions.find((o) => o.id === sectionId)?.label ?? '';
   // Only registers in the campus being viewed; the server list is school-wide.
   const attention = outstanding && outstanding !== 'unavailable'
     ? { ...outstanding, sections: outstanding.sections.filter((s) => !lens.campusId || s.campusId === lens.campusId)
@@ -327,7 +262,7 @@ function AttendanceRegister({ embedded = false }: { embedded?: boolean }) {
           <div className="row" style={{ justifyContent: 'flex-start', flexWrap: 'wrap', gap: 8 }}>
             {unmarked.sections.map((u) => (
               <button key={u.sectionId} type="button" className="chip"
-                onClick={() => { setSectionId(u.sectionId); setDate(today()); }}>
+                onClick={() => { if (!confirmDiscard()) return; setSectionId(u.sectionId); setDate(today()); }}>
                 {u.className} {u.sectionName}
                 {/* Half-done and never-started are different problems needing different effort. */}
                 {u.partial ? ` — ${u.marked}/${u.expected} done` : ''}
@@ -347,12 +282,52 @@ function AttendanceRegister({ embedded = false }: { embedded?: boolean }) {
       )}
 
       {/* The backfill bound is a MARKING rule; a viewer may look at any past day. */}
-      <RegisterFilters options={pickerOptions} sectionId={sectionId} onSection={(id) => chooseSection(id)}
-        date={date} onDate={setDate} min={readOnly ? undefined : earliest()} max={today()} today={today()}>
-        {!readOnly && <button className="ghost" onClick={() => loadRoster()} disabled={!sectionId}>Load roster</button>}
+      <RegisterFilters options={pickerOptions} sectionId={sectionId} onSection={readOnly ? (id) => chooseSection(id) : pickSection}
+        date={date} onDate={readOnly ? setDate : pickDate} min={readOnly ? undefined : earliest()} max={today()} today={today()}>
+        {/* The roster loads by itself now; this only re-reads it (and keeps its old name for anyone who looks for it). */}
+        {!readOnly && sectionId && (
+          <button type="button" className="ghost small" onClick={() => loadRoster()} disabled={loading}>{loading ? 'Loading…' : 'Reload roster'}</button>
+        )}
       </RegisterFilters>
 
-      {!readOnly && <CoverageStrip days={coverage} selected={date} readOnly={false} onPick={(d) => { setDate(d); loadRoster(d); }} />}
+      {!readOnly && (
+        <WeekStrip days={coverage} selected={date} today={today()} onPick={pickDate}
+          hint="Tap a day to fill it in. Absences on past days are recorded but parents aren’t texted." />
+      )}
+
+      {/* The class, the day, and how the register stands — so a teacher sees WHICH register this is and never a blank page. */}
+      {!readOnly && sectionId && loading && rows.length === 0 && <span className="ov-skel" style={{ height: 140, display: 'block' }} />}
+      {!readOnly && sectionId && loadError && (
+        <div className="toast err" role="alert">
+          Couldn’t load {selectedLabel || 'this class'}’s students.{' '}
+          <button type="button" className="ghost small" onClick={() => loadRoster()}>Try again</button>
+        </div>
+      )}
+      {!readOnly && sectionId && loaded && rows.length > 0 && (
+        <div className="card stack" style={{ gap: 12 }}>
+          <div className="row" style={{ flexWrap: 'wrap', gap: 8 }}>
+            <div>
+              <h2 style={{ margin: 0, fontSize: 18 }}>{selectedLabel || 'Register'}</h2>
+              <p className="ov-sub" style={{ margin: '2px 0 0', fontSize: 13 }}>
+                {new Date(`${date}T00:00:00Z`).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' })} · {rows.length} student{rows.length === 1 ? '' : 's'}
+              </p>
+            </div>
+          </div>
+          <div className="ov-kpis" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(88px, 1fr))' }} aria-live="polite">
+            {[
+              ['Present', tally.PRESENT ?? 0, ''], ['Absent', tally.ABSENT ?? 0, (tally.ABSENT ?? 0) > 0 ? 'is-bad' : ''],
+              ['Late', tally.LATE ?? 0, (tally.LATE ?? 0) > 0 ? 'is-warn' : ''], ['Half day', tally.HALF_DAY ?? 0, ''],
+              ...((tally.ON_LEAVE ?? 0) > 0 ? [['On leave', tally.ON_LEAVE ?? 0, '']] : []),
+            ].map(([label, n, tone]) => (
+              <div key={label as string} className="ov-kpi">
+                <span className="ov-kpi-label">{label}</span>
+                <span className={`ov-num ${tone}`} style={{ fontSize: 24 }}>{n}</span>
+              </div>
+            ))}
+          </div>
+          <p className="muted" style={{ margin: 0, fontSize: 13 }}>Everyone starts as Present. Tap <b>A</b>, <b>L</b> or <b>½</b> for the exceptions, then Save.</p>
+        </div>
+      )}
 
       {!sectionId && (
         <RegisterEmptyState readOnly={readOnly} date={date} today={today()} schoolWide={schoolWide} attention={attention}
@@ -396,7 +371,7 @@ function AttendanceRegister({ embedded = false }: { embedded?: boolean }) {
                               className={`mark${mark === sTatus ? ' on' : ''} ${sTatus.toLowerCase()}`}
                               aria-label={STATUS_LABEL[sTatus]}
                               aria-pressed={mark === sTatus}
-                              onClick={() => setMarks((prev) => ({ ...prev, [r.id]: sTatus }))}
+                              onClick={() => { dirty.current = true; setMarks((prev) => ({ ...prev, [r.id]: sTatus })); }}
                             >
                               {STATUS_SHORT[sTatus]}
                             </button>

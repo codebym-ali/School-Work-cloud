@@ -4,6 +4,7 @@ import { FeeInvoiceStatus, PaymentMethod, Prisma } from '@prisma/client';
 import {
   AppError,
   assertCampusAccess,
+  assertMayReadFees,
   AuditActions,
   ErrorCodes,
   paginate,
@@ -48,6 +49,10 @@ export class PaymentsService {
   private get sid(): string {
     return this.ctx.requireSchoolId();
   }
+  /** The owner may choose not to show fees to a campus admin (`campusAdminSeesFees`). */
+  private mayReadFees() {
+    return assertMayReadFees(this.ctx.user, async () => (await this.db.school.findFirst({ where: { id: this.sid }, select: { settings: true } }))?.settings);
+  }
 
   async pay(invoiceId: string, dto: PayInvoiceDto, idempotencyKey: string, opts: { viaClaim?: boolean } = {}) {
     await this.access.assert('fees.payments');
@@ -80,6 +85,10 @@ export class PaymentsService {
       if (!invoice) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'Invoice not found');
       // Campus scoping (§22.8, P1.7): a campus-bound cashier may only collect for their campus.
       assertCampusAccess(this.ctx.user, invoice.enrollment.campusId);
+      // A voucher the owner has not yet approved has not been issued: nothing can be paid against it.
+      if (invoice.status === FeeInvoiceStatus.PENDING_APPROVAL) {
+        throw new AppError(ErrorCodes.CONFLICT, HttpStatus.CONFLICT, 'This voucher is awaiting the owner\'s approval and cannot be paid yet');
+      }
       if (invoice.status === FeeInvoiceStatus.WAIVED || invoice.status === FeeInvoiceStatus.PAID) {
         throw new AppError(ErrorCodes.CONFLICT, HttpStatus.CONFLICT, `Invoice is ${invoice.status}`);
       }
@@ -183,6 +192,7 @@ export class PaymentsService {
   }
 
   async creditBalance(parentId: string): Promise<number> {
+    await this.mayReadFees();
     const agg = await this.db.guardianCredit.aggregate({ _sum: { amount: true }, where: { parentId } });
     return money(Number(agg._sum.amount ?? 0));
   }
@@ -223,6 +233,7 @@ export class PaymentsService {
   }
 
   async listPayments(q: PaymentListQuery): Promise<Paginated<unknown>> {
+    await this.mayReadFees();
     const where: Prisma.FeePaymentWhereInput = {};
     if (q.method) where.method = q.method;
     if (q.collectedById) where.collectedById = q.collectedById;
@@ -324,6 +335,7 @@ export class PaymentsService {
    * cannot be bypassed. Same shape as the documents and payslip readers.
    */
   async proofUrl(paymentId: string): Promise<{ url: string; expiresInSeconds: number }> {
+    await this.mayReadFees();
     const payment = await this.db.feePayment.findFirst({
       where: { id: paymentId },
       select: { proofFileKey: true, receiptNo: true, invoice: { select: { enrollment: { select: { campusId: true } } } } },
@@ -354,6 +366,7 @@ export class PaymentsService {
    * check is in the service because it reads tenant rows (§22.8).
    */
   async receiptPdf(paymentId: string): Promise<{ url: string; expiresInSeconds: number }> {
+    await this.mayReadFees();
     const payment = await this.db.feePayment.findFirst({
       where: { id: paymentId },
       select: {

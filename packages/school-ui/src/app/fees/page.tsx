@@ -9,7 +9,7 @@ import {
   type Paged, type PaymentMethodKey, type SchoolSettings, type Student,
 } from '@sw/api-client';
 import { hasModule, useCampusLens, useMe } from '@sw/session';
-import { isSchoolWideAdmin } from '@sw/roles';
+import { isOwnerReadOnly, isSchoolWideAdmin } from '@sw/roles';
 import { classLabeller } from '@school/lib/labels';
 import { FeePlanPanel } from './fee-plan-panel';
 import { ConfirmDialog } from '../classes/confirm-dialog';
@@ -41,9 +41,10 @@ function FeesInvoicesPanel() {
   const now = new Date();
   const me = useMe();
   const lens = useCampusLens();
-  const canConfigure = isSchoolWideAdmin(me?.roles);
-  const canInvoicing = hasModule(me, 'fees.invoicing');
-  const canPayments = hasModule(me, 'fees.payments');
+  const readOnly = isOwnerReadOnly(me?.roles);
+  const canConfigure = isSchoolWideAdmin(me?.roles) && !readOnly;
+  const canInvoicing = hasModule(me, 'fees.invoicing') && !readOnly;
+  const canPayments = hasModule(me, 'fees.payments') && !readOnly;
   const [classes, setClasses] = useState<Klass[]>([]);
   const [campuses, setCampuses] = useState<Campus[]>([]);
   const [years, setYears] = useState<AcademicYear[]>([]);
@@ -115,8 +116,14 @@ function FeesInvoicesPanel() {
 
   async function generate() {
     try {
-      const res = await apiPost<{ generated: number; alreadyExists: boolean }>('/fees/invoice-batches', { classId: batch.classId, month: Number(batch.month), year: Number(batch.year) });
-      setMsg({ ok: true, text: res.alreadyExists ? 'Batch already existed' : `Generated ${res.generated} invoice(s)` });
+      const res = await apiPost<{ generated: number; alreadyExists: boolean; pendingApproval?: boolean }>('/fees/invoice-batches', { classId: batch.classId, month: Number(batch.month), year: Number(batch.year) });
+      setMsg({
+        ok: true,
+        // Held for the owner: say so plainly — "generated" alone would read as "sent to families".
+        text: res.alreadyExists ? 'Batch already existed'
+          : res.pendingApproval ? `Generated ${res.generated} voucher(s) — sent to the owner for approval. Families see them once approved.`
+            : `Generated ${res.generated} invoice(s)`,
+      });
       await loadInvoices();
     } catch (e) { setMsg({ ok: false, text: e instanceof ApiError ? e.message : 'Failed' }); }
   }

@@ -100,6 +100,55 @@ export function RegisterEmptyState({ readOnly, date, today, schoolWide, attentio
   );
 }
 
+/**
+ * The last seven days as tiles — a dot and a head-count each — so a day's state reads without opening it.
+ * Shared by the owner's read-only register and the teacher's marking screen: one week strip, not two.
+ *
+ * Replaced the marking screen's ✓ / — / ⚠ chips: three different glyphs, an amber outline on every unmarked
+ * day, and a "need attention" warning that made an ordinary day of not-yet-marked look like an emergency.
+ * Closed days (weekly off, holidays) are shown as closed, never as gaps.
+ */
+export function WeekStrip({ days, selected, today, onPick, hint }: {
+  days: Array<{ date: string; working: boolean; closedFor: string | null; marked: number; expected: number }>;
+  selected: string; today: string; onPick: (date: string) => void; hint?: string;
+}) {
+  if (!days.length) return null;
+  const gaps = days.filter((d) => d.working && d.marked < d.expected && d.date < today).length;
+  return (
+    <div className="card stack" style={{ gap: 8 }}>
+      <div className="row">
+        <strong style={{ fontSize: 14 }}>Last {days.length} days</strong>
+        {gaps > 0 && <span className="badge warn">{gaps} earlier day{gaps === 1 ? '' : 's'} not fully marked</span>}
+      </div>
+      <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 2 }}>
+        {days.map((d) => {
+          const sel = d.date === selected;
+          const complete = d.expected > 0 && d.marked >= d.expected;
+          const colour = !d.working ? '#c6cedb' : complete ? '#2f8f5b' : d.marked > 0 ? '#c98a12' : d.date < today ? '#c0392b' : '#9aa6b8';
+          const text = !d.working ? 'Closed' : `${d.marked}/${d.expected}`;
+          return (
+            <button key={d.date} type="button" disabled={!d.working} onClick={() => onPick(d.date)}
+              title={!d.working ? d.closedFor ?? 'Weekly off' : complete ? `All ${d.expected} marked` : d.marked > 0 ? `Only ${d.marked} of ${d.expected} marked` : `Not taken (${d.expected} students)`}
+              aria-pressed={sel}
+              style={{ flex: '1 0 64px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, padding: '8px 6px', borderRadius: 10,
+                background: sel ? 'var(--brand)' : 'var(--card)', color: sel ? '#fff' : 'var(--ink)', border: `1px solid ${sel ? 'var(--brand)' : '#d9e0ea'}`, fontWeight: 600, fontSize: 13 }}>
+              <span>{new Date(`${d.date}T00:00:00Z`).toLocaleDateString('en-GB', { weekday: 'short', timeZone: 'UTC' })} {Number(d.date.slice(8))}</span>
+              <span aria-hidden style={{ width: 9, height: 9, borderRadius: '50%', background: colour, boxShadow: sel ? '0 0 0 2px #fff' : undefined }} />
+              <span style={{ fontSize: 11, fontWeight: 500, opacity: sel ? 0.9 : 0.75, fontVariantNumeric: 'tabular-nums' }}>{text}</span>
+            </button>
+          );
+        })}
+      </div>
+      <div className="ov-sub" style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+        {[['#2f8f5b', 'Complete'], ['#c98a12', 'Partly marked'], ['#c0392b', 'Not taken'], ['#c6cedb', 'Closed']].map(([c, w]) => (
+          <span key={w} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><span style={{ width: 8, height: 8, borderRadius: '50%', background: c }} />{w}</span>
+        ))}
+      </div>
+      {hint && <p className="muted" style={{ margin: 0, fontSize: 12 }}>{hint}</p>}
+    </div>
+  );
+}
+
 // ── The read-only register ───────────────────────────────────────────────────
 
 const STATUS_WORD: Record<AttendanceStatus, { word: string; tone: Tone }> = {
@@ -154,34 +203,7 @@ export function ReadOnlyRegister({ sectionId, date, today, onDate }: { sectionId
 
   return (
     <div className="stack" style={{ gap: 16 }}>
-      {/* This week: dot + head-count, so a day's state is readable without opening it. */}
-      <div className="card stack" style={{ gap: 8 }}>
-        <strong style={{ fontSize: 14 }}>Last 7 days</strong>
-        <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 2 }}>
-          {data.week.map((d) => {
-            const sel = d.date === data.date;
-            const complete = d.expected > 0 && d.marked >= d.expected;
-            const colour = !d.working ? '#c6cedb' : complete ? '#2f8f5b' : d.marked > 0 ? '#c98a12' : d.date < today ? '#c0392b' : '#9aa6b8';
-            const text = !d.working ? 'Closed' : `${d.marked}/${d.expected}`;
-            return (
-              <button key={d.date} type="button" disabled={!d.working} onClick={() => onDate(d.date)}
-                title={!d.working ? d.closedFor ?? 'Weekly off' : complete ? `All ${d.expected} marked` : d.marked > 0 ? `Only ${d.marked} of ${d.expected} marked` : `Not taken (${d.expected} students)`}
-                aria-pressed={sel}
-                style={{ flex: '1 0 64px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, padding: '8px 6px', borderRadius: 10,
-                  background: sel ? 'var(--brand)' : 'var(--card)', color: sel ? '#fff' : 'var(--ink)', border: `1px solid ${sel ? 'var(--brand)' : '#d9e0ea'}`, fontWeight: 600, fontSize: 13 }}>
-                <span>{new Date(`${d.date}T00:00:00Z`).toLocaleDateString('en-GB', { weekday: 'short', timeZone: 'UTC' })} {Number(d.date.slice(8))}</span>
-                <span aria-hidden style={{ width: 9, height: 9, borderRadius: '50%', background: colour, boxShadow: sel ? '0 0 0 2px #fff' : undefined }} />
-                <span style={{ fontSize: 11, fontWeight: 500, opacity: sel ? 0.9 : 0.75, fontVariantNumeric: 'tabular-nums' }}>{text}</span>
-              </button>
-            );
-          })}
-        </div>
-        <div className="ov-sub" style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
-          {[['#2f8f5b', 'Complete'], ['#c98a12', 'Partly marked'], ['#c0392b', 'Not taken'], ['#c6cedb', 'Closed']].map(([c, w]) => (
-            <span key={w} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><span style={{ width: 8, height: 8, borderRadius: '50%', background: c }} />{w}</span>
-          ))}
-        </div>
-      </div>
+      <WeekStrip days={data.week} selected={data.date} today={today} onPick={onDate} />
 
       <div className="card stack" style={{ gap: 14 }}>
         <div className="row" style={{ flexWrap: 'wrap', gap: 8, alignItems: 'flex-start' }}>

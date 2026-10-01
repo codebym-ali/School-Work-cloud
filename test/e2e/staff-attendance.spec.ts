@@ -166,7 +166,7 @@ test.describe('staff attendance', () => {
     await gotoApp(page);
     // The owner-home redesign (2026-09-27) turned the "Staff today" panel into the "Staff at work"
     // headline card; what is under test — that it leads with the unmarked, or says no register — holds.
-    const card = page.locator('.oh-kpi').filter({ hasText: 'Staff at work' });
+    const card = page.locator('.oh-kpi').filter({ hasText: 'staff at work' });
     // Skipped rather than failed on a non-working day: the card correctly says so instead of
     // reporting every member of staff as absent, and that is the behaviour under test below.
     await expect(card).toBeVisible();

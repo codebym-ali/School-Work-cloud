@@ -42,19 +42,19 @@ export default function MyFees() {
       <h1>My Fees</h1>
       <p className="muted">Pay at the school counter or via bank. Total outstanding: <b>Rs {outstanding.toLocaleString()}</b>.</p>
       {msg && <div className="toast err">{msg}</div>}
-      <table>
+      <table className="stacked">
         <thead><tr><th>Period</th><th>Total</th><th>Paid</th><th>Remaining</th><th>Due</th><th>Status</th><th></th></tr></thead>
         <tbody>
           {rows.map((r) => (
             <Fragment key={r.id}>
               <tr>
-                <td>{monthYear(r.month, r.year)}</td>
-                <td>Rs {r.total.toLocaleString()}</td>
-                <td>Rs {r.paid.toLocaleString()}</td>
-                <td>Rs {r.remaining.toLocaleString()}</td>
-                <td>{new Date(r.dueDate).toLocaleDateString()}</td>
-                <td><span className={`badge ${feeBadge(r.status)}`}>{r.status}</span></td>
-                <td style={{ textAlign: 'right' }}>
+                <td data-label="Period"><strong style={{ fontWeight: 600 }}>{monthYear(r.month, r.year)}</strong></td>
+                <td data-label="Total">Rs {r.total.toLocaleString()}</td>
+                <td data-label="Paid">Rs {r.paid.toLocaleString()}</td>
+                <td data-label="Remaining">Rs {r.remaining.toLocaleString()}</td>
+                <td data-label="Due">{new Date(r.dueDate).toLocaleDateString()}</td>
+                <td data-label="Status"><span className={`badge ${feeBadge(r.status)}`}>{r.status}</span></td>
+                <td data-label="" style={{ textAlign: 'right' }}>
                   {/* Only where there is something to show. A "Receipts" control on a bill with
                       no payments is a button that opens an empty box. */}
                   {r.payments.length > 0 && (
@@ -66,7 +66,7 @@ export default function MyFees() {
               </tr>
               {open === r.id && (
                 <tr>
-                  <td colSpan={7} style={{ background: '#f8fafc' }}>
+                  <td colSpan={7} data-label="" style={{ background: '#f8fafc' }}>
                     <div className="stack" style={{ gap: 6, padding: '4px 0' }}>
                       {r.payments.map((p) => (
                         <div className="row" key={p.id} style={{ gap: 10, justifyContent: 'flex-start' }}>

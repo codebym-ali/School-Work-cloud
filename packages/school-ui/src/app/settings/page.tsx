@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { api, ApiError, PAYMENT_METHODS, PAYMENT_METHOD_LABEL, type SchoolSettings, type WeekDay } from '@sw/api-client';
+import { api, ApiError, isProposal, PAYMENT_METHODS, PAYMENT_METHOD_LABEL, type SchoolSettings, type WeekDay } from '@sw/api-client';
 import { useMe } from '@sw/session';
 import { isSchoolWideAdmin } from '@sw/roles';
 
@@ -22,6 +22,8 @@ const short = (d: WeekDay) => d.slice(0, 3);
 export default function SettingsPage() {
   const me = useMe();
   const canEdit = isSchoolWideAdmin(me?.roles);
+  // Whether fees are shown to campus admins is the OWNER's call — not the Ops Admin's.
+  const isOwner = (me?.roles ?? []).includes('OWNER_ADMIN');
   const [s, setS] = useState<SchoolSettings | null>(null);
   const [err, setErr] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
@@ -33,7 +35,14 @@ export default function SettingsPage() {
     setBusy(key);
     setMsg(null);
     try {
-      setS(await api.schoolSettings.update(patch));
+      const res = await api.schoolSettings.update(patch);
+      if (isProposal(res)) {
+        // An Ops Admin's change is only a proposal: show what is actually stored, and say where it went.
+        setMsg({ ok: true, text: 'Sent to the owner for approval — it takes effect once approved.' });
+        api.schoolSettings.get().then(setS).catch(() => {});
+        return;
+      }
+      setS(res);
       setMsg({ ok: true, text: 'Saved' });
     } catch (e) {
       setMsg({ ok: false, text: e instanceof ApiError ? e.message : 'Could not save that.' });
@@ -188,6 +197,27 @@ export default function SettingsPage() {
         <Hint>
           Applies to payroll generated from now on. A run already generated keeps the figures it
           was computed with, and an approved run never changes.
+        </Hint>
+      </Section>
+
+      <Section title="Fees and the campus admin" blurb="Whether your campus admins (principals) can see the school's fee information. Only you, the owner, can change this.">
+        <Toggle label="Let campus admins see fees"
+          checked={s.campusAdminSeesFees} disabled={!isOwner || busy === 'campusAdminSeesFees'}
+          onChange={(v) => save('campusAdminSeesFees', { campusAdminSeesFees: v })}
+          hint="Covers a child's fee status and fee history, the defaulters list, payment submissions, the fee reports and the money figures on the dashboard. A campus admin can only ever look — recording payments stays with the accountant and Ops Admin." />
+        <Hint>
+          {s.campusAdminSeesFees
+            ? 'On: a campus admin can see fee information for their own campus (read-only).'
+            : 'Off: fees are hidden from campus admins everywhere. Your accountant, Ops Admin and you are unaffected.'}
+        </Hint>
+        <Toggle label="I approve each campus's monthly fee vouchers before they go out"
+          checked={s.feeVoucherApproval} disabled={!isOwner || busy === 'feeVoucherApproval'}
+          onChange={(v) => save('feeVoucherApproval', { feeVoucherApproval: v })}
+          hint="When the Ops Admin or accountant generates a month's vouchers, they wait on your Approvals page. Families see nothing, and nothing can be paid against them, until you approve." />
+        <Hint>
+          {s.feeVoucherApproval
+            ? 'On: office-generated vouchers are held for you. Vouchers you generate yourself, and single-student invoices at the counter, are never held.'
+            : 'Off: vouchers go out as soon as the office generates them.'}
         </Hint>
       </Section>
 

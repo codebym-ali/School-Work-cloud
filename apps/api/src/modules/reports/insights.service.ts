@@ -4,6 +4,7 @@ import {
   isAdminRole,
   restrictedCampusId,
   effectiveCampusFilter,
+  feesHiddenFromActor,
   TenantContext,
   KeysetQuery,
   type KeysetPage,
@@ -31,6 +32,8 @@ const TREND_MONTHS = 6;
 const FINANCIAL_METRICS = ['enrollmentCount', 'monthCollections', 'defaulterCount'] as const;
 /** Everything — OWNER_ADMIN / CAMPUS_ADMIN. */
 const ALL_METRICS = [...FINANCIAL_METRICS, 'todayAttendancePercent', 'pendingLeaves', 'failedSmsCount'] as const;
+/** The cards that are about payments — dropped when the owner hides fees from a campus admin. */
+const MONEY_METRICS: readonly string[] = ['monthCollections', 'defaulterCount'];
 
 /**
  * Role-shaped dashboard (blueprint §28, §22.8). Two shapings:
@@ -52,11 +55,19 @@ export class DashboardService {
     return this.tenantPrisma.client;
   }
 
+  /** True when the owner has chosen not to show fees to a campus admin and this caller is one. */
+  private async moneyHidden(): Promise<boolean> {
+    return feesHiddenFromActor(this.ctx.user, async () => (await this.db.school.findFirst({ where: { id: this.ctx.requireSchoolId() }, select: { settings: true } }))?.settings);
+  }
+
   async get(campusId?: string) {
     void this.ctx.requireSchoolId();
     const eff = effectiveCampusFilter(this.ctx.user, campusId); // campus-bound users forced to own campus; owner gets the selected lens (undefined = whole school)
     const isAdmin = isAdminRole(this.ctx.user); // OWNER_ADMIN or CAMPUS_ADMIN
-    const visible = isAdmin ? ALL_METRICS : FINANCIAL_METRICS;
+    // The owner's choice: hide the money from a campus admin (`campusAdminSeesFees`). The figures are neither
+    // computed-for-show nor sent — `visible` drops the money cards and every money field is zeroed below.
+    const moneyHidden = await this.moneyHidden();
+    const visible = (isAdmin ? ALL_METRICS : FINANCIAL_METRICS).filter((k) => !(moneyHidden && MONEY_METRICS.includes(k)));
 
     const now = new Date();
     const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
@@ -124,7 +135,7 @@ export class DashboardService {
     // month's bills mixes two different questions into one percentage.
     const billed = await this.db.feeInvoice.aggregate({
       _sum: { totalAmount: true, paidAmount: true },
-      where: { month: now.getUTCMonth() + 1, year: now.getUTCFullYear(), status: { not: 'WAIVED' }, ...(eff ? { enrollment: { campusId: eff } } : {}) },
+      where: { month: now.getUTCMonth() + 1, year: now.getUTCFullYear(), status: { notIn: ['WAIVED', 'PENDING_APPROVAL'] }, ...(eff ? { enrollment: { campusId: eff } } : {}) },
     });
     const monthBilled = Number(billed._sum.totalAmount ?? 0);
     const monthBilledPaid = Number(billed._sum.paidAmount ?? 0);
@@ -219,7 +230,7 @@ export class DashboardService {
 
       const [studentLeaves, staffLeaves, failedSms] = await Promise.all([
         this.db.studentLeave.count({ where: { status: 'PENDING', ...(eff ? { student: { enrollments: { some: { status: 'ACTIVE', campusId: eff } } } } : {}) } }),
-        this.db.staffLeave.count({ where: { status: 'PENDING' } }), // staff have no campus dimension
+        this.db.staffLeave.count({ where: { status: 'PENDING', ...(eff ? { staff: { user: { campusId: eff } } } : {}) } }), // a staff member's campus is their user's
         // Withheld messages (opted out / unverified number) now carry their own WITHHELD status, so a
         // plain FAILED count is real gateway failures only — no message-text special-casing needed.
         this.db.smsLog.count({ where: { status: 'FAILED' } }), // real gateway failures only, school-wide
@@ -228,7 +239,7 @@ export class DashboardService {
       failedSmsCount = failedSms;
     }
 
-    return {
+    const result = {
       enrollmentCount,
       todayAttendancePercent,
       todayAttendanceMarked,
@@ -252,6 +263,13 @@ export class DashboardService {
       attendanceBreakdown,
       visible: [...visible],
     };
+    return moneyHidden
+      ? {
+        ...result,
+        monthCollections: 0, defaulterCount: 0, outstandingTotal: 0, monthBilled: 0, monthBilledPaid: 0,
+        lastMonthToDate: 0, todayCollections: 0, todayPayments: 0, collectionsTrend: [] as CollectionPoint[],
+      }
+      : result;
   }
 
   /**
@@ -271,13 +289,14 @@ export class DashboardService {
    */
   async collectionByClass(campusId?: string) {
     void this.ctx.requireSchoolId();
-    const eff = effectiveCampusFilter(this.ctx.user, campusId);
     const now = new Date();
+    if (await this.moneyHidden()) return { month: `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`, classes: [] as Array<{ classId: string; name: string; order: number; billed: number; paid: number; percentPaid: number | null }> };
+    const eff = effectiveCampusFilter(this.ctx.user, campusId);
     const month = now.getUTCMonth() + 1;
     const year = now.getUTCFullYear();
 
     const invoices = await this.db.feeInvoice.findMany({
-      where: { month, year, status: { not: 'WAIVED' }, ...(eff ? { enrollment: { campusId: eff } } : {}) },
+      where: { month, year, status: { notIn: ['WAIVED', 'PENDING_APPROVAL'] }, ...(eff ? { enrollment: { campusId: eff } } : {}) },
       select: { totalAmount: true, paidAmount: true, enrollment: { select: { classId: true } } },
     });
     const sums = new Map<string, { billed: number; paid: number }>();

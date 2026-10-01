@@ -11,8 +11,11 @@ import {
   Post,
   Put,
   Query,
+  Res,
 } from '@nestjs/common';
-import { RequiresMfa, Roles } from '@common';
+import type { Response } from 'express';
+import { OwnerWritable, RequiresMfa, Roles } from '@common';
+import { ProposalsService } from '../approvals/proposals.service';
 import { ClaimSource } from '@prisma/client';
 import { ClaimsService } from './claims.service';
 import { FeeSetupService } from './fee-setup.service';
@@ -43,54 +46,81 @@ import {
   ImportStatementDto,
 } from './dto/fees.dto';
 
+@OwnerWritable()
 @Controller('fee-heads')
 export class FeeHeadsController {
-  constructor(private readonly setup: FeeSetupService) {}
-  @Roles('OWNER_ADMIN', 'OPERATIONS_ADMIN') @Post() create(@Body() dto: CreateFeeHeadDto) { return this.setup.createHead(dto); }
+  // School-wide setup: the owner acts directly; the Ops Admin PROPOSES and the owner approves (ProposalsService).
+  private readonly createHead;
+  private readonly updateHead;
+  private readonly deleteHead;
+  constructor(private readonly setup: FeeSetupService, proposals: ProposalsService) {
+    this.createHead = proposals.action('feeHead.create', (dto: CreateFeeHeadDto) => this.setup.createHead(dto), (dto) => `Add fee head “${dto.name}”`);
+    this.updateHead = proposals.action('feeHead.update', (p: { id: string; dto: CreateFeeHeadDto }) => this.setup.updateHead(p.id, p.dto), (p) => `Rename a fee head to “${p.dto.name}”`);
+    this.deleteHead = proposals.action('feeHead.delete', (p: { id: string }) => this.setup.deleteHead(p.id), () => 'Remove a fee head');
+  }
+  @Roles('OWNER_ADMIN', 'OPERATIONS_ADMIN') @Post() create(@Body() dto: CreateFeeHeadDto, @Res({ passthrough: true }) res: Response) { return this.createHead(dto, res); }
   // Reads were left unguarded here while every write was owner-only, so the whole fee catalogue
   // was readable by any authenticated session — teacher, student, parent. An endpoint's read is
   // not "the safe half"; it is the half that leaks. `/fees` is the only caller (owner+cashier).
   @Roles('OWNER_ADMIN', 'ACCOUNTANT') @Get() list() { return this.setup.listHeads(); }
   // Renaming and removing were missing entirely, so the list only ever grew — a school could
   // not clear a typo, let alone anything a test run left behind.
-  @Roles('OWNER_ADMIN', 'OPERATIONS_ADMIN') @Patch(':id') update(@Param('id') id: string, @Body() dto: CreateFeeHeadDto) {
-    return this.setup.updateHead(id, dto);
+  @Roles('OWNER_ADMIN', 'OPERATIONS_ADMIN') @Patch(':id') update(@Param('id') id: string, @Body() dto: CreateFeeHeadDto, @Res({ passthrough: true }) res: Response) {
+    return this.updateHead({ id, dto }, res);
   }
-  @Roles('OWNER_ADMIN', 'OPERATIONS_ADMIN') @Delete(':id') @HttpCode(HttpStatus.NO_CONTENT) remove(@Param('id') id: string) {
-    return this.setup.deleteHead(id);
+  @Roles('OWNER_ADMIN', 'OPERATIONS_ADMIN') @Delete(':id') @HttpCode(HttpStatus.NO_CONTENT) remove(@Param('id') id: string, @Res({ passthrough: true }) res: Response) {
+    return this.deleteHead({ id }, res);
   }
 }
 
+@OwnerWritable()
 @Controller('fee-structures')
 export class FeeStructuresController {
-  constructor(private readonly setup: FeeSetupService) {}
-  @Roles('OWNER_ADMIN', 'OPERATIONS_ADMIN') @Post() create(@Body() dto: CreateFeeStructureDto) { return this.setup.createStructure(dto); }
+  private readonly createStructure;
+  private readonly copyPlan;
+  private readonly updateStructure;
+  private readonly deleteStructure;
+  constructor(private readonly setup: FeeSetupService, proposals: ProposalsService) {
+    this.createStructure = proposals.action('feeStructure.create', (dto: CreateFeeStructureDto) => this.setup.createStructure(dto),
+      (dto) => `Add a fee to a class plan (Rs ${dto.amount})`);
+    this.copyPlan = proposals.action('feeStructure.copy', (dto: CopyFeePlanDto) => this.setup.copyPlan(dto), () => 'Copy a fee plan to other classes / next year');
+    this.updateStructure = proposals.action('feeStructure.update', (p: { id: string; dto: UpdateFeeStructureDto }) => this.setup.updateStructure(p.id, p.dto),
+      (p) => `Change a fee plan row${p.dto.amount !== undefined ? ` to Rs ${p.dto.amount}` : p.dto.isActive === false ? ' — switch it off' : ''}`);
+    this.deleteStructure = proposals.action('feeStructure.delete', (p: { id: string }) => this.setup.deleteStructure(p.id), () => 'Remove a fee plan row');
+  }
+  @Roles('OWNER_ADMIN', 'OPERATIONS_ADMIN') @Post() create(@Body() dto: CreateFeeStructureDto, @Res({ passthrough: true }) res: Response) { return this.createStructure(dto, res); }
   // CAMPUS_ADMIN included: the class workbench (`/classes/[id]`) shows the class's fee plan, and
   // that screen is theirs. They may read the plan for their campus's classes, never change it.
   @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT')
   @Get() list(@Query('classId') classId?: string) { return this.setup.listStructures(classId); }
 
   /** Copy a plan across classes, or roll a year forward with an optional rise. */
-  @Roles('OWNER_ADMIN', 'OPERATIONS_ADMIN') @Post('copy') copy(@Body() dto: CopyFeePlanDto) { return this.setup.copyPlan(dto); }
+  @Roles('OWNER_ADMIN', 'OPERATIONS_ADMIN') @Post('copy') copy(@Body() dto: CopyFeePlanDto, @Res({ passthrough: true }) res: Response) { return this.copyPlan(dto, res); }
 
   // Amount is editable only until something has been billed from it; after that the honest
   // change is a revision from a later month. Switching a fee off is always allowed.
-  @Roles('OWNER_ADMIN', 'OPERATIONS_ADMIN') @Patch(':id') update(@Param('id') id: string, @Body() dto: UpdateFeeStructureDto) {
-    return this.setup.updateStructure(id, dto);
+  @Roles('OWNER_ADMIN', 'OPERATIONS_ADMIN') @Patch(':id') update(@Param('id') id: string, @Body() dto: UpdateFeeStructureDto, @Res({ passthrough: true }) res: Response) {
+    return this.updateStructure({ id, dto }, res);
   }
 
-  @Roles('OWNER_ADMIN', 'OPERATIONS_ADMIN') @Delete(':id') @HttpCode(HttpStatus.NO_CONTENT) remove(@Param('id') id: string) {
-    return this.setup.deleteStructure(id);
+  @Roles('OWNER_ADMIN', 'OPERATIONS_ADMIN') @Delete(':id') @HttpCode(HttpStatus.NO_CONTENT) remove(@Param('id') id: string, @Res({ passthrough: true }) res: Response) {
+    return this.deleteStructure({ id }, res);
   }
 }
 
+@OwnerWritable()
 @Controller('late-fee-policy')
 export class LateFeePolicyController {
-  constructor(private readonly setup: FeeSetupService) {}
-  @Roles('OWNER_ADMIN', 'OPERATIONS_ADMIN') @Put() upsert(@Body() dto: UpsertLateFeePolicyDto) { return this.setup.upsertLateFeePolicy(dto); }
+  private readonly upsertPolicy;
+  constructor(private readonly setup: FeeSetupService, proposals: ProposalsService) {
+    this.upsertPolicy = proposals.action('lateFeePolicy.upsert', (dto: UpsertLateFeePolicyDto) => this.setup.upsertLateFeePolicy(dto),
+      (dto) => `Change the late-fee policy (Rs ${dto.amount} ${dto.mode === 'PER_DAY' ? 'per day' : 'flat'} after ${dto.graceDays} days)`);
+  }
+  @Roles('OWNER_ADMIN', 'OPERATIONS_ADMIN') @Put() upsert(@Body() dto: UpsertLateFeePolicyDto, @Res({ passthrough: true }) res: Response) { return this.upsertPolicy(dto, res); }
   @Roles('OWNER_ADMIN', 'ACCOUNTANT') @Get() get() { return this.setup.getLateFeePolicy(); }
 }
 
+@OwnerWritable()
 @Controller('discounts')
 export class DiscountsController {
   constructor(private readonly setup: FeeSetupService) {}
@@ -110,6 +140,7 @@ export class DiscountsController {
  * human verifies one. The office may record and verify in a single call because the clerk who
  * took the money is the verifier; anything self-submitted waits.
  */
+@OwnerWritable()
 @Controller('fees/claims')
 export class FeeClaimsController {
   constructor(private readonly claims: ClaimsService) {}
@@ -154,6 +185,7 @@ export class FeeClaimsController {
   }
 }
 
+@OwnerWritable()
 @Controller('fees')
 export class FeesController {
   constructor(
@@ -213,6 +245,7 @@ export class FeesController {
 
   // Ops Admin included (Operations Admin Role Plan, decision D-B: waivers allowed + audited). The
   // deputy runs finance on the owner's behalf; the write is recorded under their own id.
+  @OwnerWritable()
   @Roles('OWNER_ADMIN', 'OPERATIONS_ADMIN')
   @RequiresMfa()
   @Post('invoices/:id/waive')
@@ -249,6 +282,7 @@ export class FeesController {
   }
 
   // Ops Admin included (Operations Admin Role Plan, decision D-B: reversals allowed + audited).
+  @OwnerWritable()
   @Roles('OWNER_ADMIN', 'OPERATIONS_ADMIN')
   @RequiresMfa()
   @Post('payments/:id/reversals')

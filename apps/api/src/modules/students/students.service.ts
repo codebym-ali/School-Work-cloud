@@ -13,6 +13,7 @@ import {
   AuditActions,
   computeAge,
   effectiveCampusFilter,
+  feesHiddenFromActor,
   ENV,
   FIELD_ENCRYPTION,
   FieldEncryption,
@@ -439,7 +440,10 @@ export class StudentsService {
   private async rowSignals(studentIds: string[], enrollmentIds: string[]) {
     const now = new Date();
     const { day } = StudentsService.hubPredicates(now);
-    const empty = () => ({ todayStatus: null, attendancePercent: null, performancePercent: null, feeStatus: 'CLEAR' as const, outstanding: 0 });
+    // The owner may choose not to show fees to a campus admin (`campusAdminSeesFees`): then fee standing is
+    // neither queried nor returned (null, not "CLEAR" — "clear" would be a false statement).
+    const feesHidden = await feesHiddenFromActor(this.ctx.user, async () => (await this.db.school.findFirst({ where: { id: this.ctx.requireSchoolId() }, select: { settings: true } }))?.settings);
+    const empty = () => ({ todayStatus: null, attendancePercent: null, performancePercent: null, feeStatus: (feesHidden ? null : 'CLEAR') as 'OVERDUE' | 'DUE' | 'CLEAR' | null, outstanding: (feesHidden ? null : 0) as number | null });
     if (!studentIds.length) return () => empty();
 
     const [marks, today, scores, invoices] = await Promise.all([
@@ -450,10 +454,12 @@ export class StudentsService {
         where: { enrollmentId: { in: enrollmentIds }, classTest: { testDate: { gte: rangeStart('3m', now) } } },
         select: { enrollmentId: true, marksObtained: true, isAbsent: true, classTest: { select: { totalMarks: true, testDate: true } } },
       }),
-      this.db.feeInvoice.findMany({
-        where: { studentId: { in: studentIds }, status: { in: ['PENDING', 'PARTIAL', 'OVERDUE'] } },
-        select: { studentId: true, totalAmount: true, paidAmount: true, dueDate: true },
-      }),
+      feesHidden
+        ? Promise.resolve([] as Array<{ studentId: string; totalAmount: Prisma.Decimal; paidAmount: Prisma.Decimal; dueDate: Date }>)
+        : this.db.feeInvoice.findMany({
+          where: { studentId: { in: studentIds }, status: { in: ['PENDING', 'PARTIAL', 'OVERDUE'] } },
+          select: { studentId: true, totalAmount: true, paidAmount: true, dueDate: true },
+        }),
     ]);
 
     const statuses = new Map<string, string[]>();
@@ -488,8 +494,8 @@ export class StudentsService {
         attendancePercent: enrollmentId ? attendancePercentFromStatuses(statuses.get(enrollmentId) ?? []) : null,
         performancePercent: enrollmentId ? summarisePerformance(scored.get(enrollmentId) ?? []).percent : null,
         // OVERDUE = the dashboard's defaulter; DUE = billed, not yet late; CLEAR = nothing owed.
-        feeStatus: (f && f.outstanding > 0 ? (f.overdue ? 'OVERDUE' : 'DUE') : 'CLEAR') as 'OVERDUE' | 'DUE' | 'CLEAR',
-        outstanding: Math.round((f?.outstanding ?? 0) * 100) / 100,
+        feeStatus: (feesHidden ? null : f && f.outstanding > 0 ? (f.overdue ? 'OVERDUE' : 'DUE') : 'CLEAR') as 'OVERDUE' | 'DUE' | 'CLEAR' | null,
+        outstanding: feesHidden ? null : Math.round((f?.outstanding ?? 0) * 100) / 100 as number | null,
       };
     };
   }

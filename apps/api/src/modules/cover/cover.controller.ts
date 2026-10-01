@@ -1,5 +1,5 @@
 import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Post, Query } from '@nestjs/common';
-import { Roles } from '@common';
+import { OwnerWritable, Roles } from '@common';
 import { CoverService } from './cover.service';
 import { CoverQuery, CoverSuggestionQuery, CreateCoverDto, CreateCoverRangeDto } from './dto/cover.dto';
 
@@ -17,6 +17,7 @@ import { CoverQuery, CoverSuggestionQuery, CreateCoverDto, CreateCoverRangeDto }
  * open to every signed-in user; the permission matrix has a row per route here, which is what
  * turns that from a silent hole into a failing test.
  */
+@OwnerWritable()
 @Controller('cover')
 export class CoverController {
   constructor(private readonly cover: CoverService) {}

@@ -33,6 +33,7 @@ describe('Staff attendance marking (e2e)', () => {
   let ownerUserId: string;
   /** The office marks staff attendance (Owner UX 1c) — a school-wide Ops Admin, since staff sit on two campuses. */
   let ops: Awaited<ReturnType<typeof opsAdminSession>>;
+  let opsB: Awaited<ReturnType<typeof opsAdminSession>>;
   let markerUserId: string;
 
   let staffA: string; // campus A, joined long ago
@@ -69,7 +70,7 @@ describe('Staff attendance marking (e2e)', () => {
     ops.post('/api/v1/staff-attendance/bulk', { date, session: 'MORNING', records: [{ staffId, status }], ...extra });
 
   async function createStaff(email: string, campusId: string, joinedAt: string): Promise<string> {
-    const res = await ownerPost('/api/v1/staff', {
+    const res = await ops.post('/api/v1/staff', {
       email, campusId, staffType: 'TEACHER', employeeCode: `EMP-${randomUUID().slice(0, 6)}`,
       designation: 'Teacher', joinedAt, fullName: `T ${email.split('@')[0]}`,
     });
@@ -100,9 +101,18 @@ describe('Staff attendance marking (e2e)', () => {
     await ownerPost('/api/v1/academic-years', { name: '2026-27', startDate: '2026-04-01', endDate: '2027-03-31', isCurrent: true });
     campusB = (await ownerPost('/api/v1/campuses', { name: 'Campus B' })).body.id;
 
+    ops = await opsAdminSession(app, platform, schoolId, host);
+
     const longAgo = iso(new Date(Date.now() - 400 * 86400000));
     staffA = await createStaff('sa@sat.pk', campusA, longAgo);
-    staffB = await createStaff('sb@sat.pk', campusB, longAgo);
+    // Campus B staff: create via a campus-B ops admin (campus-scoped creation).
+    opsB = await opsAdminSession(app, platform, schoolId, host, 'ops-b-seed@sat.pk', campusB);
+    const sbRes = await opsB.post('/api/v1/staff', {
+      email: 'sb@sat.pk', campusId: campusB, staffType: 'TEACHER', employeeCode: `EMP-${randomUUID().slice(0, 6)}`,
+      designation: 'Teacher', joinedAt: longAgo, fullName: 'T sb',
+    });
+    expect(sbRes.status).toBe(201);
+    staffB = sbRes.body.staffId;
     newJoiner = await createStaff('nj@sat.pk', campusA, iso(new Date()));
 
     await platform.user.create({
@@ -113,8 +123,7 @@ describe('Staff attendance marking (e2e)', () => {
     });
     adminCookies = await login(admin.email, admin.password);
     adminCsrf = csrfOf(adminCookies);
-    ops = await opsAdminSession(app, platform, schoolId, host);
-    markerUserId = (await platform.user.findFirstOrThrow({ where: { schoolId, roles: { has: 'OPERATIONS_ADMIN' as never } } })).id;
+    markerUserId = (await platform.user.findFirstOrThrow({ where: { schoolId, email: `ops-${schoolId.slice(0, 8)}@ops.pk` } })).id;
   });
 
   afterAll(async () => {
@@ -557,7 +566,7 @@ describe('Staff attendance marking (e2e)', () => {
     const typed = await createStaff('paytyped@sat.pk', campusA, joined);
     const derived = await createStaff('payderived@sat.pk', campusA, joined);
     for (const id of [typed, derived]) {
-      const res = await ownerPost(`/api/v1/staff/${id}/salary-structures`, { basic: 30000, effectiveFrom: joined });
+      const res = await ops.post(`/api/v1/staff/${id}/salary-structures`, { basic: 30000, effectiveFrom: joined });
       expect(res.status).toBe(201);
     }
 
@@ -566,7 +575,7 @@ describe('Staff attendance marking (e2e)', () => {
       data: { schoolId, staffId: derived, date: d, session: 'MORNING', status: 'ABSENT', source: 'SYSTEM' },
     });
 
-    const run = await ownerPost('/api/v1/payroll-runs', { campusId: campusA, month: d.getUTCMonth() + 1, year: d.getUTCFullYear() });
+    const run = await ops.post('/api/v1/payroll-runs', { campusId: campusA, month: d.getUTCMonth() + 1, year: d.getUTCFullYear() });
     expect(run.status).toBe(201);
 
     const detail = await authed('get', `/api/v1/payroll-runs/${run.body.runId}`, ownerCookies);
@@ -587,7 +596,8 @@ describe('Staff attendance marking (e2e)', () => {
     // campus A must not take campus B's register away for the rest of the month, which a
     // campus-blind lock did. Sent as ONE request spanning both campuses, because that is the
     // shape that made the original defect invisible: a single-campus fixture cannot tell a
-    // scoped guard from an unscoped one.
+    // scoped guard from an unscoped one. (Each campus now has its own Ops Admin, so the two marks
+    // are two requests — one per campus — against the same month.)
     await platform.payrollRun.create({
       data: {
         schoolId, campusId: campusA, month: d.getUTCMonth() + 1, year: d.getUTCFullYear(),
@@ -597,12 +607,19 @@ describe('Staff attendance marking (e2e)', () => {
 
     const res = await ops.post('/api/v1/staff-attendance/bulk', {
       date: day, session: 'MORNING',
-      records: [{ staffId: staffA, status: 'ABSENT' }, { staffId: staffB, status: 'ABSENT' }],
+      records: [{ staffId: staffA, status: 'ABSENT' }],
     });
     expect(res.status).toBe(200);
-    expect(res.body).toMatchObject({ succeeded: 1, failed: 1 });
+    expect(res.body).toMatchObject({ succeeded: 0, failed: 1 });
     expect(res.body.errors[0]).toMatchObject({ index: 0, code: 'CONFLICT' });
     expect(res.body.errors[0].message).toMatch(/approved for this campus, so attendance for that month can no longer be changed/i);
+
+    const resB = await opsB.post('/api/v1/staff-attendance/bulk', {
+      date: day, session: 'MORNING',
+      records: [{ staffId: staffB, status: 'ABSENT' }],
+    });
+    expect(resB.status).toBe(200);
+    expect(resB.body).toMatchObject({ succeeded: 1, failed: 0 });
 
     // A payslip was computed from campus A's rows, so they hold still...
     expect(await platform.staffAttendance.count({ where: { staffId: staffA } })).toBe(0);

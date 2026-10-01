@@ -10,7 +10,7 @@ import {
   Put,
   Query,
 } from '@nestjs/common';
-import { Public, Roles } from '@common';
+import { OwnerWritable, Public, Roles } from '@common';
 import { CommsService } from './comms.service';
 import { BroadcastAudienceDto, BroadcastSendDto, ManualSendDto, SmsLogQuery, SmsWebhookDto, UpsertTemplateDto } from './dto/comms.dto';
 
@@ -20,6 +20,7 @@ import { BroadcastAudienceDto, BroadcastSendDto, ManualSendDto, SmsLogQuery, Sms
 // was no screen, and it surfaced when the route-coverage gate asked why these routes had no UI.
 // PUT templates narrows further to the owner (below); the delivery webhook is a SEPARATE @Public
 // controller.
+@OwnerWritable()
 @Controller('sms')
 @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
 export class SmsController {

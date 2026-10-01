@@ -9,6 +9,7 @@ import { ProvisioningService } from '../../apps/api/src/modules/platform/provisi
 import { admissionController } from './support/admission';
 import { destroyTenant } from './support/tenant';
 import { loginRequest } from './support/login';
+import { opsAdminSession } from './support/ops-admin';
 
 /**
  * Student lifecycle status (SUSPENDED / RESTRICTED / STRUCK_OFF …) and the owner-only
@@ -21,6 +22,7 @@ describe('Student status + delete guard (e2e)', () => {
   let platform: PlatformPrismaService;
   let schoolId: string;
   let cookies: string[];
+  let opsCookies: string[];
   let studentId: string;
   let regNo: string;
   const cnic = '42101-7654321-1';
@@ -40,7 +42,7 @@ describe('Student status + delete guard (e2e)', () => {
   const portalLogin = (b: object) => request(server()).post('/api/v1/portal/auth/login').set('Host', host).send(b);
 
   const setStatus = (status: string, extra: object = {}) =>
-    patch(`/api/v1/students/${studentId}/status`, { status, reason: 'e2e check', ...extra }, cookies);
+    patch(`/api/v1/students/${studentId}/status`, { status, reason: 'e2e check', ...extra }, opsCookies);
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
@@ -57,9 +59,11 @@ describe('Student status + delete guard (e2e)', () => {
 
     const login = await loginRequest(server(), host, owner.email, owner.password);
     cookies = login.headers['set-cookie'] as unknown as string[];
+    const ops = await opsAdminSession(app, platform, schoolId, host, 'ops@sst.pk', prov.campusId);
+    opsCookies = ops.cookies;
     await post('/api/v1/academic-years', { name: '2026-27', startDate: '2026-04-01', endDate: '2027-03-31', isCurrent: true }, cookies);
-    const klass = await post('/api/v1/classes', { campusId: prov.campusId, name: 'Grade 9', order: 9 }, cookies);
-    const section = await post('/api/v1/sections', { classId: klass.body.id, name: 'A' }, cookies);
+    const klass = await post('/api/v1/classes', { campusId: prov.campusId, name: 'Grade 9', order: 9 }, opsCookies);
+    const section = await post('/api/v1/sections', { classId: klass.body.id, name: 'A' }, opsCookies);
 
     const { admit } = await admissionController(app, platform, schoolId, host, prov.campusId);
     const created = await admit({
@@ -85,9 +89,9 @@ describe('Student status + delete guard (e2e)', () => {
   // DTO-shape failures are rejected by the global ValidationPipe (400); business-rule
   // failures are AppErrors thrown in the service (422). Both paths are asserted.
   it('rejects a status change with no reason, and SUSPENDED with no end date (400)', async () => {
-    const noReason = await patch(`/api/v1/students/${studentId}/status`, { status: 'SUSPENDED' }, cookies);
+    const noReason = await patch(`/api/v1/students/${studentId}/status`, { status: 'SUSPENDED' }, opsCookies);
     expect(noReason.status).toBe(400);
-    const noEnd = await patch(`/api/v1/students/${studentId}/status`, { status: 'SUSPENDED', reason: 'fighting' }, cookies);
+    const noEnd = await patch(`/api/v1/students/${studentId}/status`, { status: 'SUSPENDED', reason: 'fighting' }, opsCookies);
     expect(noEnd.status).toBe(400);
   });
 
@@ -95,7 +99,7 @@ describe('Student status + delete guard (e2e)', () => {
     const res = await patch(
       `/api/v1/students/${studentId}/status`,
       { status: 'SUSPENDED', reason: 'bad dates', effectiveFrom: '2026-09-01', endsOn: '2026-08-01' },
-      cookies,
+      opsCookies,
     );
     expect(res.status).toBe(422);
     expect(res.body.error.message).toContain('after it starts');

@@ -1,11 +1,11 @@
 /**
  * Rebuild the database with ONE realistic school for hands-on testing.
  *
- * Replaces the accumulated dummy/E2E/QA data with a believable Falcon School System: an owner, the
- * full staff bench (campus admin, accountant, HR, admission officer, teachers), classes/sections/
- * subjects, ~30 students with guardians and enrolments, a fee head + per-class fee structures +
- * this month's invoices (some paid, some pending, some overdue), and ~2 weeks of student AND staff
- * attendance history — enough to exercise every screen with lifelike numbers.
+ * Replaces the accumulated dummy/E2E/QA data with a believable Falcon School System: an owner,
+ * TWO campuses (Main Campus + Girls Campus), the full staff bench, classes/sections/subjects,
+ * students with guardians and enrolments, fees + invoices + payments, attendance, exams + marks +
+ * report cards, leave records, salary structures + payroll + payslips — enough to exercise every
+ * screen with lifelike numbers and a working campus-lens dropdown.
  *
  * All login credentials are written to SEED-CREDENTIALS.md (gitignored) so future testing is a
  * copy-paste away.
@@ -56,7 +56,24 @@ const FEMALE = ['Ayesha', 'Fatima', 'Zainab', 'Maryam', 'Hira', 'Sana', 'Iqra', 
 const LAST = ['Khan', 'Malik', 'Sheikh', 'Butt', 'Chaudhry', 'Qureshi', 'Ansari', 'Siddiqui', 'Baig', 'Raza', 'Farooq', 'Javed', 'Nawaz', 'Iqbal', 'Aslam'];
 const pick = <T>(a: T[], i: number) => a[i % a.length];
 
+const SUBJECTS = ['Mathematics', 'English', 'Urdu', 'Islamiyat', 'Science', 'Computer'];
+const CLASSES = [
+  { name: 'Grade 6', order: 6, tuition: 3500 },
+  { name: 'Grade 7', order: 7, tuition: 4000 },
+  { name: 'Grade 8', order: 8, tuition: 4500 },
+];
+
+function gradeOf(pct: number): string {
+  if (pct >= 90) return 'A+';
+  if (pct >= 80) return 'A';
+  if (pct >= 70) return 'B';
+  if (pct >= 60) return 'C';
+  if (pct >= 50) return 'D';
+  return 'F';
+}
+
 interface Cred { role: string; who: string; email?: string; password?: string; note?: string }
+interface Counters { empSeq: number; grSeq: number; regSeq: number; receiptNo: number; studentUserSeq: number }
 
 async function main() {
   const db = new PrismaClient({ datasourceUrl: process.env.PLATFORM_DATABASE_URL ?? process.env.DATABASE_URL });
@@ -95,18 +112,23 @@ async function main() {
 
 class ROLLBACK extends Error {}
 
+// ── shared types ──────────────────────────────────────────────────────────────
+interface StaffSpec { email: string; roles: Role[]; type: StaffType; designation: string; campusBound: boolean; name: string }
+interface SectionInfo { id: string; classId: string; className: string; label: string; subjectIds: string[] }
+interface StaffInfo { staffId: string; userId: string; spec: StaffSpec }
+
 async function createAll(db: PrismaClient, ownerHash: string, staffHash: string): Promise<Cred[]> {
   const creds: Cred[] = [];
+  const counters: Counters = { empSeq: 1, grSeq: 1, regSeq: 1, receiptNo: 1, studentUserSeq: 1 };
+
   const school = await db.school.create({ data: { name: 'Falcon School System', subdomain: SUBDOMAIN } });
   const sid = school.id;
-  const campus = await db.campus.create({ data: { schoolId: sid, name: 'Main Campus', address: 'Model Town, Lahore' } });
+  const mainCampus = await db.campus.create({ data: { schoolId: sid, name: 'Main Campus', address: 'Model Town, Lahore' } });
   const year = await db.academicYear.create({
     data: { schoolId: sid, name: '2026-27', startDate: new Date('2026-04-01'), endDate: new Date('2027-03-31'), isCurrent: true },
   });
-  await db.term.create({ data: { schoolId: sid, academicYearId: year.id, name: 'Term 1', startDate: new Date('2026-04-01'), endDate: new Date('2026-09-30') } });
+  const term = await db.term.create({ data: { schoolId: sid, academicYearId: year.id, name: 'Term 1', startDate: new Date('2026-04-01'), endDate: new Date('2026-09-30') } });
 
-  // A standard grade scale so report cards can be generated out of the box (empty scale → no grade letter).
-  // (QA 2026-09-25.)
   await db.gradeScale.createMany({
     data: [
       { label: 'A+', minPercent: 90, maxPercent: 100, gradePoint: 4.0 },
@@ -125,131 +147,185 @@ async function createAll(db: PrismaClient, ownerHash: string, staffHash: string)
   const owner = await mkUser('owner@demo.pk', ['OWNER_ADMIN'], ownerHash, null);
   creds.push({ role: 'Owner (OWNER_ADMIN)', who: 'School owner', email: owner.email, password: OWNER_PASSWORD, note: 'owner door /login' });
 
-  // Staff bench. StaffType + designation + employeeCode + campus binding.
-  const staffSpecs: { email: string; roles: Role[]; type: StaffType; designation: string; campusBound: boolean; name: string }[] = [
-    { email: 'admin@demo.pk', roles: ['CAMPUS_ADMIN'], type: 'ADMIN', designation: 'Campus Administrator', campusBound: true, name: 'Nadia Khan' },
-    { email: 'accountant@demo.pk', roles: ['ACCOUNTANT'], type: 'ACCOUNTANT', designation: 'Accountant', campusBound: true, name: 'Imran Malik' },
-    // HR_MANAGER is an ACCESS capability granted on top of a base identity — not a standalone role. A user
-    // with only ['HR_MANAGER'] is invisible to user admin (not in MANAGEABLE_ROLES) and, campus-less, sees
-    // zero staff. So HR is a campus-bound STAFF member WITH the HR_MANAGER capability. (QA 2026-09-24.)
-    { email: 'hr@demo.pk', roles: ['STAFF', 'HR_MANAGER'], type: 'ADMIN', designation: 'HR Manager', campusBound: true, name: 'Sadia Sheikh' },
-    { email: 'admissions@demo.pk', roles: ['ADMISSION_CONTROLLER'], type: 'ADMIN', designation: 'Admission Officer', campusBound: true, name: 'Bilal Qureshi' },
-    // The campus head — one Ops Admin per campus (a seat; campus required), a base STAFF identity with the
-    // OPERATIONS_ADMIN capability. No longer school-wide: only the owner sees every campus. (2026-09-30.)
-    { email: 'ops@demo.pk', roles: ['STAFF', 'OPERATIONS_ADMIN'], type: 'ADMIN', designation: 'Operations Admin', campusBound: true, name: 'Kamran Rashid' },
-  ];
-  const teacherNames = ['Ayesha Farooq', 'Usman Raza', 'Hira Ansari', 'Saad Baig', 'Maryam Javed'];
-  teacherNames.forEach((name, i) =>
-    staffSpecs.push({ email: `teacher${i + 1}@demo.pk`, roles: ['TEACHER'], type: 'TEACHER', designation: 'Teacher', campusBound: true, name }));
-
-  const teachers: { staffId: string; userId: string }[] = [];
-  let empSeq = 1;
-  for (const s of staffSpecs) {
-    const u = await mkUser(s.email, s.roles, staffHash, s.campusBound ? campus.id : null);
-    const staff = await db.staffProfile.create({
-      data: {
-        schoolId: sid, userId: u.id, staffType: s.type, employeeCode: `EMP-${String(empSeq++).padStart(3, '0')}`,
-        fullName: s.name, designation: s.designation, joinedAt: new Date('2024-04-01'),
-      },
-    });
-    if (s.type === 'TEACHER') teachers.push({ staffId: staff.id, userId: u.id });
-    creds.push({ role: s.roles.join(', '), who: s.name, email: s.email, password: STAFF_PASSWORD });
-  }
-
-  // Classes → sections → subjects.
-  const SUBJECTS = ['Mathematics', 'English', 'Urdu', 'Islamiyat', 'Science', 'Computer'];
-  const CLASSES = [
-    { name: 'Grade 6', order: 6, tuition: 3500 },
-    { name: 'Grade 7', order: 7, tuition: 4000 },
-    { name: 'Grade 8', order: 8, tuition: 4500 },
-  ];
   const feeHead = await db.feeHead.create({ data: { schoolId: sid, name: 'Tuition' } });
-
-  const sections: { id: string; classId: string; className: string; label: string }[] = [];
-  for (const c of CLASSES) {
-    const klass = await db.class.create({ data: { schoolId: sid, campusId: campus.id, name: c.name, order: c.order } });
-    for (const sub of SUBJECTS) {
-      await db.subject.create({ data: { schoolId: sid, classId: klass.id, name: sub, periodsPerWeek: sub === 'Mathematics' || sub === 'English' ? 6 : 4 } });
-    }
-    await db.feeStructure.create({
-      data: { schoolId: sid, campusId: campus.id, classId: klass.id, feeHeadId: feeHead.id, academicYearId: year.id, amount: c.tuition, frequency: 'MONTHLY', effectiveFrom: new Date('2026-04-01') },
-    });
-    for (const secName of ['A', 'B']) {
-      const sec = await db.section.create({ data: { schoolId: sid, classId: klass.id, name: secName } });
-      sections.push({ id: sec.id, classId: klass.id, className: c.name, label: `${c.name}-${secName}` });
-    }
-  }
-
-  // Homeroom teachers: one teacher per section (cycling), as class-teacher (subjectId null).
-  for (let i = 0; i < sections.length; i++) {
-    const t = teachers[i % teachers.length];
-    await db.teacherAssignment.create({ data: { schoolId: sid, staffId: t.staffId, academicYearId: year.id, sectionId: sections[i].id, subjectId: null } });
-  }
-
-  // Students + guardians + enrolments, then invoices + attendance.
   const now = new Date();
   const curMonth = now.getUTCMonth() + 1;
   const curYear = now.getUTCFullYear();
-  const tuitionOf = (className: string) => CLASSES.find((c) => c.name === className)!.tuition;
   const markDays = recentWorkingDays(12);
 
-  let grSeq = 1;
-  let regSeq = 1;
-  let receiptNo = 1;
-  let idx = 0;
-  const sampleStudentLogins: Cred[] = [];
+  // ── Main Campus ─────────────────────────────────────────────────────────────
+  const mainStaffSpecs: StaffSpec[] = [
+    { email: 'admin@demo.pk', roles: ['CAMPUS_ADMIN'], type: 'ADMIN', designation: 'Campus Administrator', campusBound: true, name: 'Nadia Khan' },
+    { email: 'accountant@demo.pk', roles: ['ACCOUNTANT'], type: 'ACCOUNTANT', designation: 'Accountant', campusBound: true, name: 'Imran Malik' },
+    { email: 'hr@demo.pk', roles: ['STAFF', 'HR_MANAGER'], type: 'ADMIN', designation: 'HR Manager', campusBound: true, name: 'Sadia Sheikh' },
+    { email: 'admissions@demo.pk', roles: ['ADMISSION_CONTROLLER'], type: 'ADMIN', designation: 'Admission Officer', campusBound: true, name: 'Bilal Qureshi' },
+    { email: 'ops@demo.pk', roles: ['STAFF', 'OPERATIONS_ADMIN'], type: 'ADMIN', designation: 'Operations Admin', campusBound: true, name: 'Kamran Rashid' },
+  ];
+  const mainTeacherNames = ['Ayesha Farooq', 'Usman Raza', 'Hira Ansari', 'Saad Baig', 'Maryam Javed'];
+  mainTeacherNames.forEach((name, i) =>
+    mainStaffSpecs.push({ email: `teacher${i + 1}@demo.pk`, roles: ['TEACHER'], type: 'TEACHER', designation: 'Teacher', campusBound: true, name }));
+
+  const mainStaff = await createStaff(db, sid, mainCampus.id, mainStaffSpecs, staffHash, mkUser, counters);
+  creds.push(...mainStaff.map((s) => ({ role: s.spec.roles.join(', '), who: s.spec.name, email: s.spec.email, password: STAFF_PASSWORD })));
+  const mainTeachers = mainStaff.filter((s) => s.spec.type === 'TEACHER');
+
+  const mainSections = await createClassesAndSections(db, sid, mainCampus.id, feeHead.id, year.id, ['A', 'B']);
+
+  // Homeroom teachers: one teacher per section (cycling).
+  for (let i = 0; i < mainSections.length; i++) {
+    const t = mainTeachers[i % mainTeachers.length];
+    await db.teacherAssignment.create({ data: { schoolId: sid, staffId: t.staffId, academicYearId: year.id, sectionId: mainSections[i].id, subjectId: null } });
+  }
+
+  const mainStudentLogins = await createStudents(db, sid, mainCampus.id, year.id, owner.id, feeHead.id, mainSections, markDays, curMonth, curYear, counters, 3);
+  await createStaffAttendance(db, sid, mainStaff, markDays, owner.id);
+  const mainEnrollments = await collectEnrollments(db, sid, mainSections);
+  await createExamsAndReportCards(db, sid, term.id, owner.id, mainSections, mainEnrollments, 0);
+  await createLeaveRecords(db, sid, owner.id, mainStaff, mainEnrollments);
+  await createPayroll(db, sid, mainCampus.id, owner.id, mainStaff);
+
+  // ── Girls Campus ────────────────────────────────────────────────────────────
+  const girlsCampus = await db.campus.create({ data: { schoolId: sid, name: 'Falcon School Girls Campus', address: 'Gulberg III, Lahore' } });
+
+  const girlsStaffSpecs: StaffSpec[] = [
+    { email: 'g.admin@demo.pk', roles: ['CAMPUS_ADMIN'], type: 'ADMIN', designation: 'Campus Administrator', campusBound: true, name: 'Samina Akram' },
+    { email: 'g.accountant@demo.pk', roles: ['ACCOUNTANT'], type: 'ACCOUNTANT', designation: 'Accountant', campusBound: true, name: 'Rubina Nawaz' },
+    { email: 'g.teacher1@demo.pk', roles: ['TEACHER'], type: 'TEACHER', designation: 'Teacher', campusBound: true, name: 'Sobia Iqbal' },
+    { email: 'g.teacher2@demo.pk', roles: ['TEACHER'], type: 'TEACHER', designation: 'Teacher', campusBound: true, name: 'Asma Farooq' },
+    { email: 'g.teacher3@demo.pk', roles: ['TEACHER'], type: 'TEACHER', designation: 'Teacher', campusBound: true, name: 'Nazia Raza' },
+  ];
+
+  const girlsStaff = await createStaff(db, sid, girlsCampus.id, girlsStaffSpecs, staffHash, mkUser, counters);
+  creds.push(...girlsStaff.map((s) => ({ role: s.spec.roles.join(', '), who: s.spec.name, email: s.spec.email, password: STAFF_PASSWORD })));
+  const girlsTeachers = girlsStaff.filter((s) => s.spec.type === 'TEACHER');
+
+  const girlsSections = await createClassesAndSections(db, sid, girlsCampus.id, feeHead.id, year.id, ['A']);
+
+  for (let i = 0; i < girlsSections.length; i++) {
+    const t = girlsTeachers[i % girlsTeachers.length];
+    await db.teacherAssignment.create({ data: { schoolId: sid, staffId: t.staffId, academicYearId: year.id, sectionId: girlsSections[i].id, subjectId: null } });
+  }
+
+  const girlsStudentLogins = await createStudents(db, sid, girlsCampus.id, year.id, owner.id, feeHead.id, girlsSections, markDays, curMonth, curYear, counters, 2, true);
+  await createStaffAttendance(db, sid, girlsStaff, markDays, owner.id);
+  const girlsEnrollments = await collectEnrollments(db, sid, girlsSections);
+  await createExamsAndReportCards(db, sid, term.id, owner.id, girlsSections, girlsEnrollments, 50);
+  await createLeaveRecords(db, sid, owner.id, girlsStaff, girlsEnrollments);
+  await createPayroll(db, sid, girlsCampus.id, owner.id, girlsStaff);
+
+  // ── Finalise counters ───────────────────────────────────────────────────────
+  await db.school.update({
+    where: { id: sid },
+    data: { grPrefix: 'GR-', nextGrNumber: counters.grSeq, registrationPrefix: 'REG-2026-', nextRegistrationNo: counters.regSeq },
+  });
+  await db.school.update({ where: { id: sid }, data: { nextReceiptNo: counters.receiptNo } });
+
+  creds.push(...mainStudentLogins, ...girlsStudentLogins);
+  return creds;
+}
+
+// ── helper: create staff ──────────────────────────────────────────────────────
+async function createStaff(
+  db: PrismaClient, sid: string, campusId: string, specs: StaffSpec[], staffHash: string,
+  mkUser: (email: string, roles: Role[], hash: string, campusId: string | null) => Promise<{ id: string; email: string }>,
+  counters: Counters,
+): Promise<StaffInfo[]> {
+  const result: StaffInfo[] = [];
+  for (const s of specs) {
+    const u = await mkUser(s.email, s.roles, staffHash, s.campusBound ? campusId : null);
+    const staff = await db.staffProfile.create({
+      data: {
+        schoolId: sid, userId: u.id, staffType: s.type, employeeCode: `EMP-${String(counters.empSeq++).padStart(3, '0')}`,
+        fullName: s.name, designation: s.designation, joinedAt: new Date('2024-04-01'),
+      },
+    });
+    result.push({ staffId: staff.id, userId: u.id, spec: s });
+  }
+  return result;
+}
+
+// ── helper: create classes, sections, subjects, fee structures ────────────────
+async function createClassesAndSections(
+  db: PrismaClient, sid: string, campusId: string, feeHeadId: string, yearId: string,
+  sectionNames: string[],
+): Promise<SectionInfo[]> {
+  const sections: SectionInfo[] = [];
+  for (const c of CLASSES) {
+    const klass = await db.class.create({ data: { schoolId: sid, campusId, name: c.name, order: c.order } });
+    const subjectIds: string[] = [];
+    for (const sub of SUBJECTS) {
+      const s = await db.subject.create({ data: { schoolId: sid, classId: klass.id, name: sub, periodsPerWeek: sub === 'Mathematics' || sub === 'English' ? 6 : 4 } });
+      subjectIds.push(s.id);
+    }
+    await db.feeStructure.create({
+      data: { schoolId: sid, campusId, classId: klass.id, feeHeadId, academicYearId: yearId, amount: c.tuition, frequency: 'MONTHLY', effectiveFrom: new Date('2026-04-01') },
+    });
+    for (const secName of sectionNames) {
+      const sec = await db.section.create({ data: { schoolId: sid, classId: klass.id, name: secName } });
+      sections.push({ id: sec.id, classId: klass.id, className: c.name, label: `${c.name}-${secName}`, subjectIds });
+    }
+  }
+  return sections;
+}
+
+// ── helper: create students with guardians, enrolments, invoices, attendance ──
+async function createStudents(
+  db: PrismaClient, sid: string, campusId: string, yearId: string, ownerId: string,
+  feeHeadId: string, sections: SectionInfo[], markDays: Date[], curMonth: number, curYear: number,
+  counters: Counters, portalCount: number, allFemale = false,
+): Promise<Cred[]> {
+  const tuitionOf = (className: string) => CLASSES.find((c) => c.name === className)!.tuition;
+  const logins: Cred[] = [];
+  let localIdx = 0;
 
   for (const sec of sections) {
     for (let r = 1; r <= 5; r++) {
-      const male = idx % 2 === 0;
-      const first = male ? pick(MALE, idx) : pick(FEMALE, idx);
-      const last = pick(LAST, idx + 3);
+      const male = allFemale ? false : localIdx % 2 === 0;
+      const nameOffset = allFemale ? localIdx + 30 : localIdx;
+      const first = male ? pick(MALE, nameOffset) : pick(FEMALE, nameOffset);
+      const last = pick(LAST, nameOffset + 3);
       const fullName = `${first} ${last}`;
-      const gr = `GR-${String(grSeq++).padStart(4, '0')}`;
-      const regNo = `REG-2026-${String(regSeq++).padStart(4, '0')}`;
-      const cnic = `35201${String(1000000 + idx).padStart(7, '0')}${male ? '1' : '2'}`; // 13-digit, realistic shape
+      const gr = `GR-${String(counters.grSeq++).padStart(4, '0')}`;
+      const regNo = `REG-2026-${String(counters.regSeq++).padStart(4, '0')}`;
+      const globalIdx = counters.grSeq - 2;
+      const cnic = `35201${String(1000000 + globalIdx).padStart(7, '0')}${male ? '1' : '2'}`;
 
-      // A few students get a working student-portal login (registration no + CNIC).
-      const givePortal = idx < 3;
+      const givePortal = localIdx < portalCount;
       let studentUserId: string | null = null;
       if (givePortal) {
-        const su = await db.user.create({ data: { schoolId: sid, email: `student${idx + 1}@demo.pk`, roles: ['STUDENT'], status: 'ACTIVE', campusId: campus.id } });
+        const su = await db.user.create({ data: { schoolId: sid, email: `student${counters.studentUserSeq++}@demo.pk`, roles: ['STUDENT'], status: 'ACTIVE', campusId } });
         studentUserId = su.id;
       }
 
       const student = await db.student.create({
         data: {
           schoolId: sid, grNumber: gr, registrationNo: regNo, fullName, gender: male ? 'MALE' : 'FEMALE',
-          dateOfBirth: new Date(Date.UTC(2013 - Math.floor(idx / 6), (idx % 12), 5)),
-          city: 'Lahore', addressLine: `House ${100 + idx}, Model Town`, nationality: 'Pakistani',
-          status: 'ACTIVE', isActive: true, createdById: owner.id,
+          dateOfBirth: new Date(Date.UTC(2013 - Math.floor(globalIdx / 6), (globalIdx % 12), 5)),
+          city: 'Lahore', addressLine: `House ${100 + globalIdx}, ${allFemale ? 'Gulberg III' : 'Model Town'}`, nationality: 'Pakistani',
+          status: 'ACTIVE', isActive: true, createdById: ownerId,
           ...(givePortal ? { userId: studentUserId, cnicHash: hashCnic(cnic) } : {}),
         },
       });
 
-      const guardianName = `${pick(MALE, idx + 5)} ${last}`;
-      // Most guardians have a VERIFIED phone so SMS/broadcast reaches real recipients and can be tested;
-      // every 10th is left unverified on purpose, to exercise the withheld/unverified path (Obs-2).
-      const phoneVerified = idx % 10 !== 0;
+      const guardianName = `${pick(MALE, globalIdx + 5)} ${last}`;
+      const phoneVerified = globalIdx % 10 !== 0;
       const parent = await db.parentProfile.create({
         data: {
-          schoolId: sid,
-          fullName: guardianName,
-          phone: `+92300${String(1000000 + idx).padStart(7, '0')}`,
-          occupation: pick(['Businessman', 'Doctor', 'Engineer', 'Teacher', 'Shopkeeper'], idx),
+          schoolId: sid, fullName: guardianName,
+          phone: `+92300${String(1000000 + globalIdx).padStart(7, '0')}`,
+          occupation: pick(['Businessman', 'Doctor', 'Engineer', 'Teacher', 'Shopkeeper'], globalIdx),
           ...(phoneVerified ? { phoneVerifiedAt: new Date('2026-04-05') } : {}),
         },
       });
       await db.studentGuardian.create({ data: { schoolId: sid, studentId: student.id, parentId: parent.id, relation: 'FATHER', isPrimary: true } });
 
       const enrol = await db.studentEnrollment.create({
-        data: { schoolId: sid, studentId: student.id, academicYearId: year.id, campusId: campus.id, classId: sec.classId, sectionId: sec.id, rollNumber: r, status: 'ACTIVE', startedAt: new Date('2026-04-01') },
+        data: { schoolId: sid, studentId: student.id, academicYearId: yearId, campusId, classId: sec.classId, sectionId: sec.id, rollNumber: r, status: 'ACTIVE', startedAt: new Date('2026-04-01') },
       });
 
-      // This month's tuition invoice: ~55% paid, ~15% partial, ~15% pending, ~15% overdue.
       const tuition = tuitionOf(sec.className);
       const dueDay = 10;
-      const bucket = idx % 20;
+      const bucket = globalIdx % 20;
       const overdue = bucket < 3;
       const dueDate = overdue ? new Date(Date.UTC(curYear, curMonth - 2, dueDay)) : new Date(Date.UTC(curYear, curMonth - 1, dueDay));
       const paidFull = bucket >= 3 && bucket < 14;
@@ -262,49 +338,189 @@ async function createAll(db: PrismaClient, ownerHash: string, staffHash: string)
           dueDate, status, month: overdue ? (curMonth === 1 ? 12 : curMonth - 1) : curMonth, year: curYear,
         },
       });
-      await db.feeInvoiceItem.create({ data: { schoolId: sid, invoiceId: invoice.id, type: 'FEE', feeHeadId: feeHead.id, description: `Tuition — ${sec.className}`, amount: tuition } });
+      await db.feeInvoiceItem.create({ data: { schoolId: sid, invoiceId: invoice.id, type: 'FEE', feeHeadId, description: `Tuition — ${sec.className}`, amount: tuition } });
       if (paidAmount > 0) {
         await db.feePayment.create({
-          data: { schoolId: sid, invoiceId: invoice.id, receiptNo: receiptNo++, amountPaid: paidAmount, method: 'CASH', collectedById: owner.id, paidAt: new Date(Date.UTC(curYear, curMonth - 1, 5)) },
+          data: { schoolId: sid, invoiceId: invoice.id, receiptNo: counters.receiptNo++, amountPaid: paidAmount, method: 'CASH', collectedById: ownerId, paidAt: new Date(Date.UTC(curYear, curMonth - 1, 5)) },
         });
       }
 
-      // Attendance history: mostly present, some absent/late.
       for (const d of markDays) {
-        const seed = (idx * 7 + d.getUTCDate()) % 20;
+        const seed = (globalIdx * 7 + d.getUTCDate()) % 20;
         const st = seed === 0 ? 'ABSENT' : seed === 1 ? 'LATE' : seed === 2 ? 'ON_LEAVE' : 'PRESENT';
-        await db.attendanceRecord.create({ data: { schoolId: sid, enrollmentId: enrol.id, date: d, session: 'MORNING', status: st, markedById: owner.id } });
+        await db.attendanceRecord.create({ data: { schoolId: sid, enrollmentId: enrol.id, date: d, session: 'MORNING', status: st, markedById: ownerId } });
       }
 
-      if (givePortal) sampleStudentLogins.push({ role: 'Student (portal)', who: fullName, note: `door /login (student) · Registration No ${regNo} · CNIC ${cnic}` });
-      idx++;
+      if (givePortal) logins.push({ role: 'Student (portal)', who: fullName, note: `door /login (student) · Registration No ${regNo} · CNIC ${cnic}` });
+      localIdx++;
     }
   }
+  return logins;
+}
 
-  // Continue the register from where the seed left off, in the SAME format the app's generator produces
-  // (prefixed + zero-padded), so the next LIVE admission is GR-0031 / REG-2026-0031 — never a bare number,
-  // and never colliding with a seeded GR. (QA C, 2026-09-24.)
-  await db.school.update({
-    where: { id: sid },
-    data: { grPrefix: 'GR-', nextGrNumber: grSeq, registrationPrefix: 'REG-2026-', nextRegistrationNo: regSeq },
-  });
-
-  // Staff attendance history for the teachers (present, occasional absence).
-  for (const [ti, t] of teachers.entries()) {
+// ── helper: staff attendance ──────────────────────────────────────────────────
+async function createStaffAttendance(db: PrismaClient, sid: string, staff: StaffInfo[], markDays: Date[], ownerId: string) {
+  for (const [ti, s] of staff.entries()) {
     for (const d of markDays) {
       const seed = (ti * 5 + d.getUTCDate()) % 15;
       const st = seed === 0 ? 'ABSENT' : seed === 1 ? 'LATE' : 'PRESENT';
-      await db.staffAttendance.create({ data: { schoolId: sid, staffId: t.staffId, date: d, session: 'MORNING', status: st, source: 'ADMIN', markedById: owner.id } });
+      await db.staffAttendance.create({ data: { schoolId: sid, staffId: s.staffId, date: d, session: 'MORNING', status: st, source: 'ADMIN', markedById: ownerId } });
     }
   }
-
-  // Advance the school's gap-free receipt sequence past the receipts we hand-assigned above, or the
-  // first real payment/reversal would reuse receiptNo 1 and hit the (schoolId, receiptNo) unique.
-  await db.school.update({ where: { id: sid }, data: { nextReceiptNo: receiptNo } });
-
-  creds.push(...sampleStudentLogins);
-  return creds;
 }
+
+// ── helper: collect enrollments from sections ─────────────────────────────────
+async function collectEnrollments(db: PrismaClient, sid: string, sections: SectionInfo[]) {
+  const enrollments: { id: string; sectionId: string; classId: string; studentId: string }[] = [];
+  for (const sec of sections) {
+    const rows = await db.studentEnrollment.findMany({
+      where: { schoolId: sid, sectionId: sec.id, status: 'ACTIVE' },
+      select: { id: true, sectionId: true, classId: true, studentId: true },
+    });
+    enrollments.push(...rows);
+  }
+  return enrollments;
+}
+
+// ── helper: exams, marks, report cards ────────────────────────────────────────
+async function createExamsAndReportCards(
+  db: PrismaClient, sid: string, termId: string, ownerId: string,
+  sections: SectionInfo[],
+  enrollments: { id: string; sectionId: string; classId: string; studentId: string }[],
+  markSeed: number,
+) {
+  const classIds = [...new Set(sections.map((s) => s.classId))];
+
+  for (const classId of classIds) {
+    const exam = await db.examDefinition.create({
+      data: {
+        schoolId: sid, termId, classId, name: 'Mid-Term', examType: 'MID_TERM',
+        weightagePercent: 100, examDate: new Date('2026-08-15'), status: 'PUBLISHED',
+        publishedAt: new Date('2026-08-20'), publishedById: ownerId,
+      },
+    });
+
+    const classSections = sections.filter((s) => s.classId === classId);
+    const classEnrollments = enrollments.filter((e) => e.classId === classId);
+
+    const studentMarks = new Map<string, number[]>();
+
+    for (const enrol of classEnrollments) {
+      const sec = classSections.find((s) => s.id === enrol.sectionId)!;
+      const marks: number[] = [];
+      for (let si = 0; si < sec.subjectIds.length; si++) {
+        const m = 40 + ((markSeed + parseInt(enrol.id.slice(-4), 16) + si * 17) % 56);
+        marks.push(m);
+        await db.examResult.create({
+          data: {
+            schoolId: sid, examId: exam.id, enrollmentId: enrol.id, subjectId: sec.subjectIds[si],
+            marksObtained: m, totalMarks: 100, isAbsent: false, enteredById: ownerId,
+          },
+        });
+      }
+      studentMarks.set(enrol.id, marks);
+    }
+
+    // Report cards per section (dense rank within section).
+    for (const sec of classSections) {
+      const secEnrollments = classEnrollments.filter((e) => e.sectionId === sec.id);
+      const scored = secEnrollments.map((e) => {
+        const marks = studentMarks.get(e.id)!;
+        const avg = marks.reduce((a, b) => a + b, 0) / marks.length;
+        return { enrollmentId: e.id, avg };
+      }).sort((a, b) => b.avg - a.avg);
+
+      let rank = 0;
+      let prevAvg = -1;
+      for (const s of scored) {
+        if (s.avg !== prevAvg) rank++;
+        prevAvg = s.avg;
+        await db.reportCard.create({
+          data: { schoolId: sid, termId, enrollmentId: s.enrollmentId, overallPercent: Math.round(s.avg * 100) / 100, gradeLabel: gradeOf(s.avg), sectionRank: rank },
+        });
+      }
+    }
+  }
+}
+
+// ── helper: leave records ─────────────────────────────────────────────────────
+async function createLeaveRecords(
+  db: PrismaClient, sid: string, ownerId: string, staff: StaffInfo[],
+  enrollments: { id: string; sectionId: string; classId: string; studentId: string }[],
+) {
+  const adminUser = staff.find((s) => s.spec.roles.includes('CAMPUS_ADMIN'));
+  const deciderId = adminUser?.userId ?? ownerId;
+
+  // Student leaves
+  if (enrollments.length >= 3) {
+    await db.studentLeave.create({
+      data: { schoolId: sid, studentId: enrollments[0].studentId, fromDate: new Date('2026-08-10'), toDate: new Date('2026-08-12'), reason: 'Family wedding', status: 'APPROVED', requestedById: ownerId, decidedById: deciderId, decidedAt: new Date('2026-08-09') },
+    });
+    await db.studentLeave.create({
+      data: { schoolId: sid, studentId: enrollments[1].studentId, fromDate: new Date('2026-10-05'), toDate: new Date('2026-10-06'), reason: 'Medical appointment', status: 'PENDING', requestedById: ownerId },
+    });
+    await db.studentLeave.create({
+      data: { schoolId: sid, studentId: enrollments[2].studentId, fromDate: new Date('2026-09-15'), toDate: new Date('2026-09-17'), reason: 'Vacation trip', status: 'REJECTED', rejectionReason: 'Exams approaching', requestedById: ownerId, decidedById: deciderId, decidedAt: new Date('2026-09-14') },
+    });
+  }
+
+  // Staff leaves
+  const teachers = staff.filter((s) => s.spec.type === 'TEACHER');
+  if (teachers.length >= 2) {
+    await db.staffLeave.create({
+      data: { schoolId: sid, staffId: teachers[0].staffId, leaveType: 'CASUAL', fromDate: new Date('2026-08-20'), toDate: new Date('2026-08-21'), reason: 'Personal work', status: 'APPROVED', decidedById: ownerId, decidedAt: new Date('2026-08-19') },
+    });
+    await db.staffLeave.create({
+      data: { schoolId: sid, staffId: teachers[1].staffId, leaveType: 'SICK', fromDate: new Date('2026-10-03'), toDate: new Date('2026-10-04'), reason: 'Flu', status: 'PENDING' },
+    });
+  }
+  if (staff.length >= 3) {
+    const nonTeacher = staff.find((s) => s.spec.type !== 'TEACHER');
+    if (nonTeacher) {
+      await db.staffLeave.create({
+        data: { schoolId: sid, staffId: nonTeacher.staffId, leaveType: 'UNPAID', fromDate: new Date('2026-09-25'), toDate: new Date('2026-09-26'), reason: 'Out of station', status: 'REJECTED', isUnpaid: true, rejectionReason: 'Month-end closing', decidedById: ownerId, decidedAt: new Date('2026-09-24') },
+      });
+    }
+  }
+}
+
+// ── helper: salary + payroll ──────────────────────────────────────────────────
+async function createPayroll(db: PrismaClient, sid: string, campusId: string, ownerId: string, staff: StaffInfo[]) {
+  const salaryByDesignation: Record<string, number> = {
+    'Operations Admin': 45000, 'Campus Administrator': 40000, 'HR Manager': 38000,
+    'Accountant': 35000, 'Admission Officer': 32000, 'Teacher': 30000,
+  };
+  const allowances = { 'House Rent': 5000, 'Transport': 3000 };
+  const deductions = { EOBI: 500 };
+  const allowanceTotal = Object.values(allowances).reduce((a, b) => a + b, 0);
+  const deductionTotal = Object.values(deductions).reduce((a, b) => a + b, 0);
+
+  for (const s of staff) {
+    const basic = salaryByDesignation[s.spec.designation] ?? 30000;
+    await db.salaryStructure.create({
+      data: { schoolId: sid, staffId: s.staffId, basic, allowances, fixedDeductions: deductions, effectiveFrom: new Date('2026-04-01') },
+    });
+  }
+
+  const run = await db.payrollRun.create({
+    data: { schoolId: sid, campusId, month: 9, year: 2026, status: 'DRAFT', createdById: ownerId },
+  });
+
+  for (const s of staff) {
+    const basic = salaryByDesignation[s.spec.designation] ?? 30000;
+    const gross = basic + allowanceTotal;
+    const netPay = gross - deductionTotal;
+    await db.payslip.create({
+      data: {
+        schoolId: sid, runId: run.id, staffId: s.staffId, gross, attendanceDeduction: 0,
+        otherDeductions: deductionTotal, netPay,
+        breakdown: { basic, allowances, deductions, gross, netPay },
+      },
+    });
+  }
+}
+
+// ── utility ───────────────────────────────────────────────────────────────────
 
 /** The last `n` working days (skip Sundays), oldest first, as UTC date-only. */
 function recentWorkingDays(n: number): Date[] {
@@ -322,7 +538,7 @@ function writeCreds(creds: Cred[]) {
   const lines = [
     '# Seed credentials — Falcon School System (demo tenant)',
     '',
-    `Host: **${(COMMIT ? 'demo' : 'demo')}.localhost** · owner-web :3005 · staff-web :3006 · student-web :3003`,
+    'Host: **demo.localhost** · owner-web :3005 · staff-web :3006 · student-web :3003',
     '',
     '| Role | Name | Email / login | Password |',
     '|------|------|---------------|----------|',

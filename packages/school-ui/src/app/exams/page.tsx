@@ -285,15 +285,15 @@ function ExamClassGroup({ className, exams, termName, sections, subjects, gradeB
 
   return (
     <div className="card stack" style={{ gap: 0 }}>
-      <button type="button" className="row" onClick={() => setCollapsed(!collapsed)}
-        style={{ cursor: 'pointer', background: 'none', border: 'none', padding: '12px 0', textAlign: 'left', width: '100%' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+      <div className="row" onClick={() => setCollapsed(!collapsed)}
+        style={{ cursor: 'pointer', padding: '12px 0' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1 }}>
           <span style={{ fontSize: 11, color: 'var(--text-muted)', transform: collapsed ? 'rotate(-90deg)' : 'rotate(0)', transition: 'transform 0.15s' }}>▼</span>
-          <h2 style={{ margin: 0, fontSize: 16 }}>{className}</h2>
+          <h2 style={{ margin: 0, fontSize: 16, color: 'var(--text, #1a1a1a)' }}>{className}</h2>
           <span className="badge" style={{ fontSize: 12 }}>{total} exam{total !== 1 ? 's' : ''}</span>
           {published > 0 && <span className="badge ok" style={{ fontSize: 12 }}>{published} published</span>}
         </div>
-      </button>
+      </div>
       {!collapsed && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
           {exams.map((ex) => (

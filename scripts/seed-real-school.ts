@@ -1,7 +1,7 @@
 /**
  * Rebuild the database with ONE realistic school for hands-on testing.
  *
- * Replaces the accumulated dummy/E2E/QA data with a believable City Grammar School: an owner, the
+ * Replaces the accumulated dummy/E2E/QA data with a believable Falcon School System: an owner, the
  * full staff bench (campus admin, accountant, HR, admission officer, teachers), classes/sections/
  * subjects, ~30 students with guardians and enrolments, a fee head + per-class fee structures +
  * this month's invoices (some paid, some pending, some overdue), and ~2 weeks of student AND staff
@@ -74,7 +74,7 @@ async function main() {
       const creds = await createAll(db, ownerHash, staffHash);
       writeCreds(creds);
       // eslint-disable-next-line no-console
-      console.log(`\n✔ Committed. City Grammar School is live at ${SUBDOMAIN}.localhost. Credentials in SEED-CREDENTIALS.md`);
+      console.log(`\n✔ Committed. Falcon School System is live at ${SUBDOMAIN}.localhost. Credentials in SEED-CREDENTIALS.md`);
       return;
     }
 
@@ -97,7 +97,7 @@ class ROLLBACK extends Error {}
 
 async function createAll(db: PrismaClient, ownerHash: string, staffHash: string): Promise<Cred[]> {
   const creds: Cred[] = [];
-  const school = await db.school.create({ data: { name: 'City Grammar School', subdomain: SUBDOMAIN } });
+  const school = await db.school.create({ data: { name: 'Falcon School System', subdomain: SUBDOMAIN } });
   const sid = school.id;
   const campus = await db.campus.create({ data: { schoolId: sid, name: 'Main Campus', address: 'Model Town, Lahore' } });
   const year = await db.academicYear.create({
@@ -320,7 +320,7 @@ function recentWorkingDays(n: number): Date[] {
 
 function writeCreds(creds: Cred[]) {
   const lines = [
-    '# Seed credentials — City Grammar School (demo tenant)',
+    '# Seed credentials — Falcon School System (demo tenant)',
     '',
     `Host: **${(COMMIT ? 'demo' : 'demo')}.localhost** · owner-web :3005 · staff-web :3006 · student-web :3003`,
     '',

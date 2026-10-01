@@ -83,7 +83,7 @@ async function main() {
 
 async function createAll(db: PrismaClient, ownerHash: string, staffHash: string): Promise<Cred[]> {
   const creds: Cred[] = [];
-  const school = await db.school.create({ data: { name: 'City Grammar School', subdomain: SUBDOMAIN } });
+  const school = await db.school.create({ data: { name: 'Falcon School System', subdomain: SUBDOMAIN } });
   const sid = school.id;
   const campus = await db.campus.create({ data: { schoolId: sid, name: 'Main Campus', address: 'Model Town, Lahore' } });
   const year = await db.academicYear.create({ data: { schoolId: sid, name: '2026-27', startDate: new Date('2026-04-01'), endDate: new Date('2027-03-31'), isCurrent: true } });
@@ -267,7 +267,7 @@ async function createAll(db: PrismaClient, ownerHash: string, staffHash: string)
 
 function writeCreds(creds: Cred[]) {
   const lines = [
-    '# Seed credentials — City Grammar School (demo tenant, BULK dataset)', '',
+    '# Seed credentials — Falcon School System (demo tenant, BULK dataset)', '',
     'Host: **demo.localhost** · owner-web :3005 · staff-web :3006 · student-web :3003', '',
     '| Role | Name | Email / login | Password |', '|------|------|---------------|----------|',
     ...creds.map((c) => `| ${c.role} | ${c.who} | ${c.email ?? c.note ?? ''} | ${c.password ?? '(reg-no + CNIC)'} |`),

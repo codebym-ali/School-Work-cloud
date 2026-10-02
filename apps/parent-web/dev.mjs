@@ -1,8 +1,7 @@
 /**
- * Dev launcher for the Student portal (Front-End Instance Separation Plan, Phase 2). Same tenant-aware
- * setup as apps/web: the student signs in by registration-no + CNIC, which is PER-SCHOOL, so the API
- * proxy must carry a tenant host. Pins NEXT_API_ORIGIN to the demo school and preloads the *.localhost
- * DNS shim so Node resolves it. Prod builds don't use this.
+ * Dev launcher for the Parent portal. Pins NEXT_API_ORIGIN to the demo school's API and preloads the
+ * *.localhost DNS shim so Node resolves it. Open http://parent.localhost:3003 in the browser.
+ * Prod builds don't use this.
  */
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';

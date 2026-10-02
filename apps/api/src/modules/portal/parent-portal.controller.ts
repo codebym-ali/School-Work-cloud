@@ -28,16 +28,15 @@ export class ParentPortalController {
   }
 
   @Get('children')
-  children() {
-    return this.portal.children();
+  children(@Req() req: Request) {
+    return this.portal.children(this.activeChild(req));
   }
 
   @Post('switch-child')
   @HttpCode(HttpStatus.OK)
   async switchChild(@Body() dto: SwitchChildDto, @Res({ passthrough: true }) res: Response) {
-    const result = await this.portal.switchChild(dto.studentId);
     setActiveChildCookie(res, this.env, dto.studentId);
-    return result;
+    return this.portal.switchChild(dto.studentId);
   }
 
   @Get('photo')

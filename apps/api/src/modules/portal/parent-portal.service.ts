@@ -115,12 +115,12 @@ export class ParentPortalService {
   }
 
   /** All children the logged-in parent can see, with enrollment info and photo URLs. */
-  async children() {
+  async children(activeChildId?: string | null) {
     const userId = this.ctx.user?.userId;
     if (!userId) throw new AppError(ErrorCodes.FORBIDDEN, HttpStatus.FORBIDDEN, 'Not authenticated');
 
     const allChildren = await this.resolveChildren(userId);
-    const activeStudent = await this.self();
+    const activeStudent = await this.self(activeChildId);
 
     const result = await Promise.all(
       allChildren.map(async (s) => {
@@ -165,15 +165,12 @@ export class ParentPortalService {
 
   /** Validate and switch to a sibling. Returns the updated children list. */
   async switchChild(studentId: string) {
-    const loginStudent = await this.self();
-    if (studentId === loginStudent.id) return this.children();
-
-    const siblings = await this.findSiblings(loginStudent.id);
-    if (!siblings.find((s) => s.id === studentId)) {
+    const allChildren = await this.resolveChildren(this.ctx.user!.userId);
+    if (!allChildren.find((s) => s.id === studentId)) {
       throw new AppError(ErrorCodes.FORBIDDEN, HttpStatus.FORBIDDEN, 'Not your child');
     }
 
-    return this.children();
+    return this.children(studentId);
   }
 
   /** Presigned URL for the active child's photo. */

@@ -11,7 +11,6 @@ import { ChildSwitcher } from './child-switcher';
 const NAV: Array<{ href: string; label: string; icon: IconName }> = [
   { href: '/', label: 'Home', icon: 'home' },
   { href: '/attendance', label: 'Attendance', icon: 'attendance' },
-  { href: '/timetable', label: 'Timetable', icon: 'timetable' },
   { href: '/results', label: 'Results', icon: 'exams' },
   { href: '/fees', label: 'Fees', icon: 'fees' },
 ];
@@ -34,8 +33,8 @@ export function ParentShell({ children }: { children: React.ReactNode }) {
 
   const handleChildSwitch = useCallback(() => {
     setRefreshKey((k) => k + 1);
-    router.refresh();
-  }, [router]);
+    window.dispatchEvent(new Event('child-switched'));
+  }, []);
 
   if (isPublic) return <>{children}</>;
   if (!ready) return <main className="container"><p className="muted">Loading…</p></main>;
@@ -45,22 +44,29 @@ export function ParentShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="sp" key={refreshKey}>
-      <header className="sp-top">
-        <Link href="/" className="sp-brand">
-          <Icon name="school" size={22} />
-          <span>{me.schoolName ?? 'Parent Portal'}{me.campusName ? ` · ${me.campusName}` : ''}</span>
-        </Link>
-        <nav className="sp-nav" aria-label="Parent portal">
-          {NAV.map((n) => (
-            <Link key={n.href} href={n.href} aria-current={isActive(n.href) ? 'page' : undefined}>{n.label}</Link>
-          ))}
-        </nav>
-        <div className="sp-actions">
+      <header className="sp-header">
+        <div className="sp-row-top">
+          <Link href="/" className="sp-brand">
+            <Icon name="school" size={22} />
+            <span>{me.schoolName ?? 'Parent Portal'}</span>
+          </Link>
+          <div className="sp-actions">
+            <ParentBell />
+            <button type="button" className="ghost small" onClick={async () => { await api.logout().catch(() => {}); router.replace('/login'); }}>
+              Sign out
+            </button>
+          </div>
+        </div>
+        <div className="sp-row-nav">
           <ChildSwitcher onSwitch={handleChildSwitch} />
-          <ParentBell />
-          <button type="button" className="ghost small" onClick={async () => { await api.logout().catch(() => {}); router.replace('/login'); }}>
-            Sign out
-          </button>
+          <nav className="sp-nav" aria-label="Parent portal">
+            {NAV.map((n) => (
+              <Link key={n.href} href={n.href} className={isActive(n.href) ? 'active' : ''} aria-current={isActive(n.href) ? 'page' : undefined}>
+                <Icon name={n.icon} size={16} />
+                {n.label}
+              </Link>
+            ))}
+          </nav>
         </div>
       </header>
 

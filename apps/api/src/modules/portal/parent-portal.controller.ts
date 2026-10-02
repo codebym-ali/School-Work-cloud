@@ -5,7 +5,7 @@ import type { Request, Response } from 'express';
 import { ParentPortalService } from './parent-portal.service';
 import { PaymentsService } from '../fees/payments.service';
 import { SwitchChildDto } from '../auth/dto/auth.dto';
-import { ACTIVE_CHILD_COOKIE, setActiveChildCookie, clearActiveChildCookie } from '../auth/auth.cookies';
+import { ACTIVE_CHILD_COOKIE, setActiveChildCookie } from '../auth/auth.cookies';
 
 /**
  * Parent portal (§28). STUDENT-role; every route is read-only and resolves the caller's
@@ -34,7 +34,7 @@ export class ParentPortalController {
 
   @Post('switch-child')
   @HttpCode(HttpStatus.OK)
-  async switchChild(@Body() dto: SwitchChildDto, @Req() req: Request, @Res({ passthrough: true }) res: Response) {
+  async switchChild(@Body() dto: SwitchChildDto, @Res({ passthrough: true }) res: Response) {
     const result = await this.portal.switchChild(dto.studentId);
     setActiveChildCookie(res, this.env, dto.studentId);
     return result;

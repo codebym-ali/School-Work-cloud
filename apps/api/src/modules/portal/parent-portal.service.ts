@@ -14,13 +14,12 @@ import { gradeFor, subjectTermPercent, type ExamMark, type GradeBand } from '../
 const money = (n: number): number => Math.round(n * 100) / 100;
 
 /**
- * Student self-service portal (blueprint §5, §28, permission matrix §23 — STUDENT column).
+ * Parent portal service (blueprint §5, §28, permission matrix §23 — STUDENT column).
  * Strictly read-only and self-scoped: every query resolves the `Student` linked to the
- * logged-in user (`Student.userId`), so a student can only ever see their own data
- * (SelfGuard, §22.8). No relation to other students, staff, or admin data is reachable.
+ * logged-in user (`Student.userId`), so the parent can only ever see their child's data.
  */
 @Injectable()
-export class StudentPortalService {
+export class ParentPortalService {
   constructor(
     private readonly tenantPrisma: TenantPrismaService,
     private readonly ctx: TenantContext,
@@ -36,14 +35,25 @@ export class StudentPortalService {
    *  banner instead; RESTRICTED is the opposite case, still attending but cut off here. */
   private static readonly PORTAL_BLOCKED = ['RESTRICTED', 'STRUCK_OFF', 'WITHDRAWN'] as const;
 
-  /** The Student row for the logged-in STUDENT user, or 403 if the account isn't linked.
-   *  Status is re-checked on every read so revoking access takes effect immediately rather
-   *  than at the next login — an already-issued session must not outlive the restriction. */
-  private async self() {
+  /** The Student row for the active child (or the login child if none is selected).
+   *  When `activeChildId` is provided (from the cookie), it is validated against the
+   *  sibling graph — a parent can only view children linked via StudentGuardian. */
+  private async self(activeChildId?: string | null) {
     const userId = this.ctx.user?.userId;
-    const student = userId ? await this.db.student.findFirst({ where: { userId, deletedAt: null } }) : null;
-    if (!student) throw new AppError(ErrorCodes.FORBIDDEN, HttpStatus.FORBIDDEN, 'No student is linked to this account');
-    if ((StudentPortalService.PORTAL_BLOCKED as readonly string[]).includes(student.status)) {
+    const loginStudent = userId ? await this.db.student.findFirst({ where: { userId, deletedAt: null } }) : null;
+    if (!loginStudent) throw new AppError(ErrorCodes.FORBIDDEN, HttpStatus.FORBIDDEN, 'No student is linked to this account');
+
+    let student = loginStudent;
+    if (activeChildId && activeChildId !== loginStudent.id) {
+      const siblings = await this.findSiblings(loginStudent.id);
+      const target = siblings.find((s) => s.id === activeChildId);
+      if (!target) throw new AppError(ErrorCodes.FORBIDDEN, HttpStatus.FORBIDDEN, 'Not your child');
+      const full = await this.db.student.findFirst({ where: { id: activeChildId, deletedAt: null } });
+      if (!full) throw new AppError(ErrorCodes.FORBIDDEN, HttpStatus.FORBIDDEN, 'Not your child');
+      student = full;
+    }
+
+    if ((ParentPortalService.PORTAL_BLOCKED as readonly string[]).includes(student.status)) {
       throw new AppError(
         ErrorCodes.FORBIDDEN,
         HttpStatus.FORBIDDEN,
@@ -51,6 +61,84 @@ export class StudentPortalService {
       );
     }
     return student;
+  }
+
+  /**
+   * Discover all siblings via the StudentGuardian graph:
+   * Student → StudentGuardian → ParentProfile → StudentGuardian → Student
+   */
+  private async findSiblings(studentId: string) {
+    const guardianLinks = await this.db.studentGuardian.findMany({
+      where: { studentId },
+      select: { parentId: true },
+    });
+    if (!guardianLinks.length) return [];
+
+    const parentIds = guardianLinks.map((g) => g.parentId);
+    const allLinks = await this.db.studentGuardian.findMany({
+      where: { parentId: { in: parentIds } },
+      select: { studentId: true },
+    });
+
+    const uniqueStudentIds = [...new Set(allLinks.map((l) => l.studentId))];
+    return this.db.student.findMany({
+      where: {
+        id: { in: uniqueStudentIds },
+        deletedAt: null,
+        status: { notIn: ['STRUCK_OFF', 'WITHDRAWN'] },
+      },
+      select: { id: true, fullName: true, grNumber: true, photoKey: true, status: true },
+    });
+  }
+
+  /** All children the logged-in parent can see, with enrollment info and photo URLs. */
+  async children() {
+    const loginStudent = await this.self();
+    const siblings = await this.findSiblings(loginStudent.id);
+
+    const result = await Promise.all(
+      siblings.map(async (s) => {
+        const enrollment = await this.db.studentEnrollment.findFirst({
+          where: { studentId: s.id, status: 'ACTIVE' },
+          include: { section: { include: { class: { select: { name: true } } } } },
+          orderBy: { startedAt: 'desc' },
+        });
+        return {
+          id: s.id,
+          fullName: s.fullName,
+          grNumber: s.grNumber,
+          className: enrollment?.section.class.name ?? null,
+          sectionName: enrollment?.section.name ?? null,
+          photoUrl: s.photoKey ? await this.storage.presignGet(s.photoKey, 600) : null,
+          status: s.status,
+          isCurrent: s.id === loginStudent.id,
+        };
+      }),
+    );
+
+    return result;
+  }
+
+  /** Validate and switch to a sibling. Returns the updated children list. */
+  async switchChild(studentId: string) {
+    const loginStudent = await this.self();
+    if (studentId === loginStudent.id) return this.children();
+
+    const siblings = await this.findSiblings(loginStudent.id);
+    if (!siblings.find((s) => s.id === studentId)) {
+      throw new AppError(ErrorCodes.FORBIDDEN, HttpStatus.FORBIDDEN, 'Not your child');
+    }
+
+    return this.children();
+  }
+
+  /** Presigned URL for the active child's photo. */
+  async photo(activeChildId?: string | null) {
+    const student = await this.self(activeChildId);
+    if (!student.photoKey) {
+      throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'No photo on file');
+    }
+    return { url: await this.storage.presignGet(student.photoKey, 600), expiresInSeconds: 600 };
   }
 
   private enrollmentIds(studentId: string): Promise<Array<{ id: string }>> {
@@ -74,8 +162,8 @@ export class StudentPortalService {
    * overdue" in front of a fourteen-year-old is pressure applied to the wrong human. The invoice is
    * on their Fees page if they look; it is not pushed at them.
    */
-  async notifications() {
-    const student = await this.self();
+  async notifications(activeChildId?: string | null) {
+    const student = await this.self(activeChildId);
     const today = startOfUtcDay(new Date());
     const tomorrow = new Date(today.getTime() + 86_400_000);
 
@@ -168,17 +256,17 @@ export class StudentPortalService {
     return { ok: true };
   }
 
-  async overview() {
-    const student = await this.self();
+  async overview(activeChildId?: string | null) {
+    const student = await this.self(activeChildId);
     const [enrollment, guardians, invoices, enrolls] = await Promise.all([
       this.db.studentEnrollment.findFirst({
         where: { studentId: student.id, status: 'ACTIVE' },
-        include: { section: { include: { class: { select: { name: true } } } }, academicYear: { select: { name: true } } },
+        include: { section: { include: { class: { select: { name: true } } } }, academicYear: { select: { name: true } }, campus: { select: { name: true } } },
         orderBy: { startedAt: 'desc' },
       }),
       this.db.studentGuardian.findMany({
         where: { studentId: student.id },
-        include: { parent: { select: { fullName: true, phone: true } } },
+        include: { parent: { select: { fullName: true, phone: true, email: true, occupation: true } } },
         orderBy: { isPrimary: 'desc' },
       }),
       // A voucher the owner has not approved has not been issued — the family must not see or owe it.
@@ -198,25 +286,47 @@ export class StudentPortalService {
 
     return {
       student: {
-        fullName: student.fullName, grNumber: student.grNumber, gender: student.gender, dateOfBirth: student.dateOfBirth,
-        // Drives the dashboard banner — a suspended student can still sign in and must be
-        // told why, along with the reason and the date it lifts.
+        id: student.id,
+        fullName: student.fullName,
+        grNumber: student.grNumber,
+        gender: student.gender,
+        dateOfBirth: student.dateOfBirth,
+        religion: student.religion,
+        bloodGroup: student.bloodGroup,
+        medicalNotes: student.medicalNotes,
+        addressLine: student.addressLine,
+        city: student.city,
+        photoUrl: student.photoKey ? await this.storage.presignGet(student.photoKey, 600) : null,
         status: student.status,
         statusReason: student.statusReason,
         statusEndsOn: student.statusEndsOn,
       },
       enrollment: enrollment
-        ? { className: enrollment.section.class.name, sectionName: enrollment.section.name, rollNumber: enrollment.rollNumber, year: enrollment.academicYear.name }
+        ? {
+            className: enrollment.section.class.name,
+            sectionName: enrollment.section.name,
+            rollNumber: enrollment.rollNumber,
+            year: enrollment.academicYear.name,
+            campusName: enrollment.campus.name,
+            admissionDate: enrollment.startedAt,
+          }
         : null,
-      guardians: guardians.map((g) => ({ name: g.parent.fullName, phone: g.parent.phone, relation: g.relation, isPrimary: g.isPrimary })),
+      guardians: guardians.map((g) => ({
+        name: g.parent.fullName,
+        phone: g.parent.phone,
+        email: g.parent.email,
+        occupation: g.parent.occupation,
+        relation: g.relation,
+        isPrimary: g.isPrimary,
+      })),
       attendancePercent,
       outstandingFees,
       reportCards,
     };
   }
 
-  async attendance() {
-    const student = await this.self();
+  async attendance(activeChildId?: string | null) {
+    const student = await this.self(activeChildId);
     const enrolls = await this.enrollmentIds(student.id);
     return this.db.attendanceRecord.findMany({
       where: { enrollmentId: { in: enrolls.map((e) => e.id) } },
@@ -230,8 +340,8 @@ export class StudentPortalService {
    * Attendance with the counts already worked out — "how many days was I absent?" is the
    * question, and making a student tally 60 rows to answer it is not an answer.
    */
-  async attendanceSummary(days = 30) {
-    const student = await this.self();
+  async attendanceSummary(days = 30, activeChildId?: string | null) {
+    const student = await this.self(activeChildId);
     const enrolls = await this.enrollmentIds(student.id);
     const from = new Date(Date.now() - days * 86400000);
 
@@ -262,8 +372,8 @@ export class StudentPortalService {
    * not feedback; their own month-on-month trend is what they can act on. Comparison stays on the
    * staff side. (Operator agreed; see Key Decisions.)
    */
-  async testPerformance() {
-    const student = await this.self();
+  async testPerformance(activeChildId?: string | null) {
+    const student = await this.self(activeChildId);
     const enrolls = await this.enrollmentIds(student.id);
     const enrollmentIds = enrolls.map((e) => e.id);
 
@@ -328,8 +438,8 @@ export class StudentPortalService {
     return rank === 1 || rank === 2 || rank === 3 ? rank : null;
   }
 
-  async results() {
-    const student = await this.self();
+  async results(activeChildId?: string | null) {
+    const student = await this.self(activeChildId);
     const enrolls = await this.enrollmentIds(student.id);
     const cards = await this.db.reportCard.findMany({
       where: { enrollmentId: { in: enrolls.map((e) => e.id) } },
@@ -343,7 +453,7 @@ export class StudentPortalService {
       term: termName.get(c.termId) ?? '—',
       overallPercent: Number(c.overallPercent),
       grade: c.gradeLabel,
-      sectionRank: StudentPortalService.podium(c.sectionRank),
+      sectionRank: ParentPortalService.podium(c.sectionRank),
       hasFile: c.documentId !== null,
     }));
   }
@@ -359,8 +469,8 @@ export class StudentPortalService {
    * The arithmetic is the report card's own (`subjectTermPercent`, `gradeFor`), so the subject figures here add up
    * to the overall percentage printed on the card — nothing is recomputed differently for the screen.
    */
-  async termResult(termId: string) {
-    const student = await this.self();
+  async termResult(termId: string, activeChildId?: string | null) {
+    const student = await this.self(activeChildId);
     const enrolls = await this.enrollmentIds(student.id);
     const card = await this.db.reportCard.findFirst({ where: { termId, enrollmentId: { in: enrolls.map((e) => e.id) } } });
     if (!card) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'No result for this term');
@@ -415,7 +525,7 @@ export class StudentPortalService {
       term: term.name,
       overallPercent: Number(card.overallPercent),
       grade: card.gradeLabel,
-      rank: StudentPortalService.podium(card.sectionRank),
+      rank: ParentPortalService.podium(card.sectionRank),
       totalObtained,
       totalMarks,
       hasFile: card.documentId !== null,
@@ -441,8 +551,8 @@ export class StudentPortalService {
   }
 
   /** A short-lived link to the student's OWN report-card PDF — same self-lookup as `termResult`. */
-  async termResultFile(termId: string): Promise<{ url: string; expiresInSeconds: number }> {
-    const student = await this.self();
+  async termResultFile(termId: string, activeChildId?: string | null): Promise<{ url: string; expiresInSeconds: number }> {
+    const student = await this.self(activeChildId);
     const enrolls = await this.enrollmentIds(student.id);
     const card = await this.db.reportCard.findFirst({ where: { termId, enrollmentId: { in: enrolls.map((e) => e.id) } } });
     const doc = card?.documentId ? await this.db.document.findFirst({ where: { id: card.documentId }, select: { fileKey: true } }) : null;
@@ -451,8 +561,8 @@ export class StudentPortalService {
     return { url: await this.storage.presignGet(doc.fileKey, expiresInSeconds), expiresInSeconds };
   }
 
-  async fees() {
-    const student = await this.self();
+  async fees(activeChildId?: string | null) {
+    const student = await this.self(activeChildId);
     const invoices = await this.db.feeInvoice.findMany({
       where: { studentId: student.id, status: { not: 'PENDING_APPROVAL' } }, // held vouchers are not the family's yet
       orderBy: [{ year: 'desc' }, { month: 'desc' }],

@@ -208,7 +208,7 @@ export const PERMISSION_MATRIX: MatrixRow[] = [
   // ⚠️ These rows do NOT pin that: STUDENT is not a seeded matrix role, so adding `'STUDENT'` to
   // the decorator changes nothing here — verified by doing it and watching all 461 tests still
   // pass. What actually stops a student is the **guardian check in the service**, and
-  // `student-portal.e2e` asserts it with a real student session. These rows cover the seeded
+  // `parent-portal.e2e` asserts it with a real student session. These rows cover the seeded
   // staff/admin roles: they catch an accountant or admission officer being handed leave filing.
   { label: 'file a student leave', method: 'post', path: '/api/v1/student-leaves', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'TEACHER'], scopeGated: true },
   // Deciding is the office's, never the teacher's: a teacher who could approve the leave they
@@ -273,8 +273,8 @@ export const PERMISSION_MATRIX: MatrixRow[] = [
   { label: 'dashboard', method: 'get', path: '/api/v1/dashboard', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT'] },
   { label: 'dashboard collection by class', method: 'get', path: '/api/v1/dashboard/collection-by-class', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN', 'ACCOUNTANT'] },
   // STUDENT-only. STUDENT isn't one of the seeded matrix roles, so allow:[] asserts every
-  // seeded admin/staff role is denied (the STUDENT positive path is in student-portal.e2e).
-  { label: 'student portal', method: 'get', path: '/api/v1/portal/overview', allow: [] },
+  // seeded admin/staff role is denied (the STUDENT positive path is in parent-portal.e2e).
+  { label: 'parent portal', method: 'get', path: '/api/v1/portal/overview', allow: [] },
   // Users & roles: create/list is admin; a campus admin is scoped + limited in-service.
   { label: 'list users', method: 'get', path: '/api/v1/users', allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },
   { label: 'create user', method: 'post', path: '/api/v1/users', body: {}, allow: ['OWNER_ADMIN', 'CAMPUS_ADMIN'] },

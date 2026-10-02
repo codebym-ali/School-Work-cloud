@@ -6,19 +6,13 @@ import { api, type NotificationItem } from '@sw/api-client';
 import { Icon } from '@sw/ui';
 
 /**
- * "What changed for you", for a student.
+ * Notification bell for the parent portal.
  *
- * ⚠️ **Its own component against its own endpoint, deliberately not the staff `NotificationBell`.**
- * That one calls `/notifications`, which is role-gated and would 403 for every student who ever
- * opened this portal. Sharing the component would have meant sharing the audience, and the two
- * audiences are genuinely different: a student is told the school is shut, that they were marked
- * absent, and how their leave was decided. They are never told about fees — a child is not the
- * person who pays, and putting a debt in front of them is a thing a school should not do.
- *
- * Silent when empty, like the staff bell: a control that is always there and always says nothing
- * teaches people not to look at it.
+ * Its own component against its own endpoint, deliberately not the staff `NotificationBell`.
+ * That one calls `/notifications`, which is role-gated and would 403 for a portal session.
+ * Silent when empty, like the staff bell.
  */
-export function StudentBell() {
+export function ParentBell() {
   const [items, setItems] = useState<NotificationItem[]>([]);
   const [unread, setUnread] = useState(0);
   const [open, setOpen] = useState(false);

@@ -16,12 +16,12 @@
  *   prod  `owner.<school>.<apex>`  →  swap the leading door label
  *   dev   `<school>.localhost:3005` →  keep the host, swap the port (each door is its own dev server)
  */
-export type Door = 'owner' | 'staff' | 'student';
+export type Door = 'owner' | 'staff' | 'parent';
 
-const DOOR_LABELS: readonly Door[] = ['owner', 'staff', 'student'];
+const DOOR_LABELS: readonly Door[] = ['owner', 'staff', 'parent'];
 
 /** Local dev ports, matching each app's `next dev -p`. */
-export const DEV_DOOR_PORTS: Record<Door, string> = { owner: '3005', staff: '3006', student: '3003' };
+export const DEV_DOOR_PORTS: Record<Door, string> = { owner: '3005', staff: '3006', parent: '3003' };
 
 export interface LocationLike {
   protocol: string;

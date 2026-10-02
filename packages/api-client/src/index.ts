@@ -18,7 +18,7 @@ function csrfToken(): string {
 }
 
 // Login/refresh endpoints must never trigger a refresh-retry (they define the session and would loop).
-const AUTH_NO_REFRESH = ['/auth/refresh', '/auth/login', '/auth/owner-login', '/auth/student-login', '/auth/mfa', '/auth/logout'];
+const AUTH_NO_REFRESH = ['/auth/refresh', '/auth/login', '/auth/owner-login', '/portal/auth/login', '/auth/mfa', '/auth/logout'];
 
 /**
  * Single-flight access-token refresh. When the short-lived access token expires, one POST
@@ -1454,9 +1454,22 @@ export const api = {
     setDocument: (id: string, type: string, body: { received: boolean; fileKey?: string; note?: string }) =>
       apiPut<StudentDocumentRow>(`/students/${id}/documents/${type}`, body),
   },
-  // Read-only student portal sign-in: registration-no + CNIC (no password), §28/#34.
-  studentPortal: {
+  // Parent portal sign-in: child's registration-no + guardian CNIC (no password), §28.
+  parentPortal: {
     login: (registrationNo: string, cnic: string) => apiPost<{ user: Me }>('/portal/auth/login', { registrationNo, cnic }),
+    overview: () => apiGet<any>('/portal/overview'),
+    children: () => apiGet<any[]>('/portal/children'),
+    switchChild: (studentId: string) => apiPost<any[]>('/portal/switch-child', { studentId }),
+    photo: () => apiGet<{ url: string; expiresInSeconds: number }>('/portal/photo'),
+    notifications: () => apiGet<any>('/portal/notifications'),
+    markSeen: () => apiPost<{ ok: true }>('/portal/notifications/seen', {}),
+    attendance: () => apiGet<any[]>('/portal/attendance'),
+    attendanceSummary: () => apiGet<any>('/portal/attendance/summary'),
+    performance: () => apiGet<any>('/portal/performance'),
+    results: () => apiGet<any[]>('/portal/results'),
+    termResult: (termId: string) => apiGet<any>(`/portal/results/${termId}`),
+    termResultFile: (termId: string) => apiGet<{ url: string; expiresInSeconds: number }>(`/portal/results/${termId}/file`),
+    fees: () => apiGet<any[]>('/portal/fees'),
   },
   /**
    * The activity log (GAP-06). Cursor-paged: pass back `nextCursor` for the next older batch. There are no

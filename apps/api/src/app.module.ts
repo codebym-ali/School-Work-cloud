@@ -50,7 +50,7 @@ import { HrModule } from './modules/hr/hr.module';
 import { DocumentsModule } from './modules/documents/documents.module';
 import { WithdrawalModule } from './modules/withdrawal/withdrawal.module';
 import { ReportsModule } from './modules/reports/reports.module';
-import { StudentPortalModule } from './modules/portal/student-portal.module';
+import { ParentPortalModule } from './modules/portal/parent-portal.module';
 import { TeachingModule } from './modules/teaching/teaching.module';
 import { ClassTestsModule } from './modules/class-tests/class-tests.module';
 import { UsersModule } from './modules/users/users.module';
@@ -105,7 +105,7 @@ import { UploadsModule } from './modules/uploads/uploads.module';
     WithdrawalModule,
     ReportsModule,
     UploadsModule,
-    StudentPortalModule,
+    ParentPortalModule,
     TeachingModule,
     ClassTestsModule,
     UsersModule,

@@ -187,7 +187,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        app: [web, superadmin-web, owner-web, staff-web, student-web]
+        app: [web, superadmin-web, owner-web, staff-web, parent-web]
     steps:
       - uses: actions/checkout@v4
 

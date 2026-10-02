@@ -18,7 +18,7 @@ x-fe: &fe-build
   args:
     NEXT_PUBLIC_OWNER_URL: https://owner.demo.${APEX_DOMAIN}
     NEXT_PUBLIC_STAFF_URL: https://staff.demo.${APEX_DOMAIN}
-    NEXT_PUBLIC_STUDENT_URL: https://student.demo.${APEX_DOMAIN}
+    NEXT_PUBLIC_PARENT_URL: https://parent.demo.${APEX_DOMAIN}
     NEXT_PUBLIC_SUPERADMIN_URL: https://superadmin.${APEX_DOMAIN}
 
 services:
@@ -67,7 +67,7 @@ services:
   #
   # The five front-ends also receive the cross-app URLs as BUILD args: they are NEXT_PUBLIC_*, so
   # they are inlined into the client bundle at build time and cannot be supplied at runtime. Owner,
-  # staff and student are TENANT-scoped, so their URLs carry the demo school's subdomain --- the apex
+  # staff and parent are TENANT-scoped, so their URLs carry the demo school's subdomain --- the apex
   # chooser has no tenant context of its own and would otherwise link at localhost.
   # ⚠️ deploy/docker-compose.prod.yml declares `env_file: [../.env]`. Compose resolves env_file
   # relative to the PROJECT directory (the repo root, set by the first -f file), NOT relative to the
@@ -103,7 +103,7 @@ services:
         APP: web
         NEXT_PUBLIC_OWNER_URL: https://owner.demo.${APEX_DOMAIN}
         NEXT_PUBLIC_STAFF_URL: https://staff.demo.${APEX_DOMAIN}
-        NEXT_PUBLIC_STUDENT_URL: https://student.demo.${APEX_DOMAIN}
+        NEXT_PUBLIC_PARENT_URL: https://parent.demo.${APEX_DOMAIN}
         NEXT_PUBLIC_SUPERADMIN_URL: https://superadmin.${APEX_DOMAIN}
   superadmin-web:
     build: !override
@@ -112,7 +112,7 @@ services:
         APP: superadmin-web
         NEXT_PUBLIC_OWNER_URL: https://owner.demo.${APEX_DOMAIN}
         NEXT_PUBLIC_STAFF_URL: https://staff.demo.${APEX_DOMAIN}
-        NEXT_PUBLIC_STUDENT_URL: https://student.demo.${APEX_DOMAIN}
+        NEXT_PUBLIC_PARENT_URL: https://parent.demo.${APEX_DOMAIN}
         NEXT_PUBLIC_SUPERADMIN_URL: https://superadmin.${APEX_DOMAIN}
   owner-web:
     build: !override
@@ -121,7 +121,7 @@ services:
         APP: owner-web
         NEXT_PUBLIC_OWNER_URL: https://owner.demo.${APEX_DOMAIN}
         NEXT_PUBLIC_STAFF_URL: https://staff.demo.${APEX_DOMAIN}
-        NEXT_PUBLIC_STUDENT_URL: https://student.demo.${APEX_DOMAIN}
+        NEXT_PUBLIC_PARENT_URL: https://parent.demo.${APEX_DOMAIN}
         NEXT_PUBLIC_SUPERADMIN_URL: https://superadmin.${APEX_DOMAIN}
   staff-web:
     build: !override
@@ -130,16 +130,16 @@ services:
         APP: staff-web
         NEXT_PUBLIC_OWNER_URL: https://owner.demo.${APEX_DOMAIN}
         NEXT_PUBLIC_STAFF_URL: https://staff.demo.${APEX_DOMAIN}
-        NEXT_PUBLIC_STUDENT_URL: https://student.demo.${APEX_DOMAIN}
+        NEXT_PUBLIC_PARENT_URL: https://parent.demo.${APEX_DOMAIN}
         NEXT_PUBLIC_SUPERADMIN_URL: https://superadmin.${APEX_DOMAIN}
-  student-web:
+  parent-web:
     build: !override
       <<: *fe-build
       args:
-        APP: student-web
+        APP: parent-web
         NEXT_PUBLIC_OWNER_URL: https://owner.demo.${APEX_DOMAIN}
         NEXT_PUBLIC_STAFF_URL: https://staff.demo.${APEX_DOMAIN}
-        NEXT_PUBLIC_STUDENT_URL: https://student.demo.${APEX_DOMAIN}
+        NEXT_PUBLIC_PARENT_URL: https://parent.demo.${APEX_DOMAIN}
         NEXT_PUBLIC_SUPERADMIN_URL: https://superadmin.${APEX_DOMAIN}
 
 volumes:

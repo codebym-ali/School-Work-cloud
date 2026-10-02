@@ -7,9 +7,9 @@
 # leaner images once this is validated on the host).
 #
 #   docker build -f deploy/Dockerfile --build-arg APP=owner-web -t sw-owner .
-#   APP ∈ { web, superadmin-web, owner-web, staff-web, student-web }   (dir under apps/)
+#   APP ∈ { web, superadmin-web, owner-web, staff-web, parent-web }   (dir under apps/)
 #
-# Ports (each app's `start` script): web 3001 · superadmin-web 3004 · student-web 3003
+# Ports (each app's `start` script): web 3001 · superadmin-web 3004 · parent-web 3003
 #                                     owner-web 3005 · staff-web 3006
 # /api is handled by the edge proxy (deploy/Caddyfile), so these images need no NEXT_API_ORIGIN.
 
@@ -25,9 +25,9 @@ ARG APP
 # apex chooser reads them (apps/web/lib/app-urls.ts), and it falls back to localhost ports.
 ARG NEXT_PUBLIC_OWNER_URL
 ARG NEXT_PUBLIC_STAFF_URL
-ARG NEXT_PUBLIC_STUDENT_URL
+ARG NEXT_PUBLIC_PARENT_URL
 ARG NEXT_PUBLIC_SUPERADMIN_URL
-ENV NEXT_PUBLIC_OWNER_URL=${NEXT_PUBLIC_OWNER_URL}     NEXT_PUBLIC_STAFF_URL=${NEXT_PUBLIC_STAFF_URL}     NEXT_PUBLIC_STUDENT_URL=${NEXT_PUBLIC_STUDENT_URL}     NEXT_PUBLIC_SUPERADMIN_URL=${NEXT_PUBLIC_SUPERADMIN_URL}
+ENV NEXT_PUBLIC_OWNER_URL=${NEXT_PUBLIC_OWNER_URL}     NEXT_PUBLIC_STAFF_URL=${NEXT_PUBLIC_STAFF_URL}     NEXT_PUBLIC_PARENT_URL=${NEXT_PUBLIC_PARENT_URL}     NEXT_PUBLIC_SUPERADMIN_URL=${NEXT_PUBLIC_SUPERADMIN_URL}
 # Workspace manifests + install first (better layer caching), then the source.
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
 COPY apps ./apps

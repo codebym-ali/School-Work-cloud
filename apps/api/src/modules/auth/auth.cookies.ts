@@ -28,15 +28,15 @@ function base(env: Env): CookieOptions {
  * This cookie used to carry `Domain=<apex>` so one session was shared across every tenant
  * subdomain. That made sense when the doors were paths inside one app. After the front-end split
  * each door is its own origin with **its own login page** (`staff-web/app/login`,
- * `owner-web/app/login`, `student-web/app/login`), so a session is always issued on, and read back
+ * `owner-web/app/login`, `parent-web/app/login`), so a session is always issued on, and read back
  * from, the same host — nothing needed the sharing any more.
  *
  * What the sharing DID do was make the three doors mutually exclusive in one browser: same cookie
- * name, same domain, so signing into the student portal silently evicted the staff session. An
+ * name, same domain, so signing into the parent portal silently evicted the staff session. An
  * office computer where the clerk cannot have the fee screen and a parent's portal view open at
  * once is a worse outcome than a re-login that no longer happens.
  *
- * ⚠️ **Signing out is therefore per-door too.** Logging out of staff does not end a student session
+ * ⚠️ **Signing out is therefore per-door too.** Logging out of staff does not end a parent session
  * in the same browser. That is the honest consequence of separate sessions, and the logout copy
  * says so rather than leaving someone to assume otherwise.
  *
@@ -59,8 +59,19 @@ export function setCsrfCookie(res: Response, env: Env, token: string): void {
   res.cookie(CSRF_COOKIE, token, { ...base(env), httpOnly: false });
 }
 
+export const ACTIVE_CHILD_COOKIE = 'active_child';
+
+export function setActiveChildCookie(res: Response, env: Env, studentId: string): void {
+  res.cookie(ACTIVE_CHILD_COOKIE, studentId, { ...base(env), maxAge: 30 * 24 * 60 * 60 * 1000 });
+}
+
+export function clearActiveChildCookie(res: Response, env: Env): void {
+  res.clearCookie(ACTIVE_CHILD_COOKIE, { ...base(env) });
+}
+
 export function clearAuthCookies(res: Response, env: Env): void {
   res.clearCookie(ACCESS_COOKIE, { ...base(env) });
   res.clearCookie(REFRESH_COOKIE, { ...base(env), path: REFRESH_PATH });
   res.clearCookie(CSRF_COOKIE, { ...base(env), httpOnly: false });
+  res.clearCookie(ACTIVE_CHILD_COOKIE, { ...base(env) });
 }

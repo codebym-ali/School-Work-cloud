@@ -6,7 +6,7 @@
 # (Traefik path-routing, one `web`). Compose this over the base for the DB services:
 #   docker compose -f docker-compose.yml -f deploy/docker-compose.prod.yml up -d --build
 # Set real secrets/domains in .env (APP_APEX_DOMAIN=schoolworks.com; RESERVED_SUBDOMAINS include
-# superadmin,admin,owner,staff,student,www). TEMPLATE — validate on the deploy host.
+# superadmin,admin,owner,staff,parent,student,www). TEMPLATE — validate on the deploy host.
 
 x-web-build: &web-build
   context: ..
@@ -43,8 +43,8 @@ services:
   staff-web:
     build: { <<: *web-build, args: { APP: staff-web } }
     expose: ['3006']
-  student-web:
-    build: { <<: *web-build, args: { APP: student-web } }
+  parent-web:
+    build: { <<: *web-build, args: { APP: parent-web } }
     expose: ['3003']
 
   caddy:
@@ -55,7 +55,7 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data      # persists issued certs
       - caddy_config:/config
-    depends_on: [web, superadmin-web, owner-web, staff-web, student-web, api]
+    depends_on: [web, superadmin-web, owner-web, staff-web, parent-web, api]
 
 volumes:
   caddy_data:

@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 
 /**
- * Student self-service portal (§28) against the live stack: a student signs in, lands on their
+ * Parent portal (§28) against the live stack: a student signs in, lands on their
  * own portal (/me), sees only their read-only screens (not the admin nav), and can open fees.
  *
  * ⚠️ It used to post `student@demo.pk` / a password to the **staff** login form. No student can
@@ -22,8 +22,8 @@ import { test, expect } from '@playwright/test';
 const regNo = process.env.E2E_STUDENT_REG_NO;
 const cnic = process.env.E2E_STUDENT_CNIC;
 
-test.describe('student portal', () => {
-  // Since the split the portal is its own app (student-web:3003), serving the student door at
+test.describe('parent portal', () => {
+  // Since the split the portal is its own app (parent-web:3003), serving the student door at
   // `/login` and the portal at root (`/me`, `/me/fees`). Run the whole spec on that origin.
   test.use({ baseURL: 'http://localhost:3003', storageState: { cookies: [], origins: [] } });
 

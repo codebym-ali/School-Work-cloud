@@ -11,12 +11,12 @@ same-origin, so session cookies stay first-party + `SameSite=Strict`.
 | `apps/superadmin-web` (vendor console) | 3004 | `superadmin.schoolworks.com` | platform |
 | `apps/owner-web` | 3005 | `owner.<school>.schoolworks.com` | owner door |
 | `apps/staff-web` | 3006 | `staff.<school>.schoolworks.com` | staff door |
-| `apps/student-web` | 3003 | `student.<school>.schoolworks.com` | reg-no + CNIC |
+| `apps/parent-web` | 3003 | `parent.<school>.schoolworks.com` | reg-no + CNIC |
 | `apps/api` (NestJS) | 4000 | internal (behind the proxy) | — |
 
 ## Local dev
 Start the API + worker (`pnpm start:api:dev`, `pnpm start:worker:dev`), then each front-end you need:
-`cd apps/<app> && pnpm dev`. The tenant apps (web/owner/staff/student) use `dev.mjs`, which pins the
+`cd apps/<app> && pnpm dev`. The tenant apps (web/owner/staff/parent) use `dev.mjs`, which pins the
 API proxy to `demo.localhost:4000` and shims `*.localhost` DNS; the console proxies to `127.0.0.1:4000`
 (platform routes are tenant-agnostic). Cross-app links resolve via the `NEXT_PUBLIC_*_URL` defaults
 (the ports above). ⚠️ **Windows:** run `next build` with the dev servers stopped — stray node
@@ -24,10 +24,10 @@ processes crash Next's static-generation workers (`0xC0000142`).
 
 ## Env (per front-end, production)
 - `NEXT_API_ORIGIN` — internal API origin the app's `/api` proxy targets (or omit to follow the host).
-- `apps/web` cross-app links: `NEXT_PUBLIC_OWNER_URL`, `NEXT_PUBLIC_STAFF_URL`, `NEXT_PUBLIC_STUDENT_URL`,
-  `NEXT_PUBLIC_SUPERADMIN_URL` (owner/staff/student are tenant-scoped → per-school subdomains).
+- `apps/web` cross-app links: `NEXT_PUBLIC_OWNER_URL`, `NEXT_PUBLIC_STAFF_URL`, `NEXT_PUBLIC_PARENT_URL`,
+  `NEXT_PUBLIC_SUPERADMIN_URL` (owner/staff/parent are tenant-scoped → per-school subdomains).
 - API: `APP_APEX_DOMAIN=schoolworks.com`, `RESERVED_SUBDOMAINS` including `superadmin`, `admin`, `owner`,
-  `staff`, `student`, `www` (so those role labels never resolve as a tenant).
+  `staff`, `parent`, `student`, `www` (so those role labels never resolve as a tenant).
 
 ## Reverse proxy
 `Caddyfile` routes each subdomain to its app and proxies `/api` to the NestJS API. For the tenant
@@ -45,7 +45,7 @@ against the app layout, not run in this environment** — smoke them on the depl
 
 ## Done in Phase 4
 - ✅ `apps/web` **trimmed to marketing** — apex marketing + login chooser + `p/[token]` public link +
-  `student-login` redirect (7 routes, down from 42). The school app + doors live in owner/staff-web;
+  `parent-login` redirect (7 routes, down from 42). The school app + doors live in owner/staff-web;
   the edge pages (break-glass, admission-portal, set-password) moved into `@sw/school-ui/pages` and are
   thin-routed on the role apps (same-origin cookies + redirects).
 - ✅ Cross-app URL wiring (`app-urls.ts`, `NEXT_PUBLIC_*_URL`).

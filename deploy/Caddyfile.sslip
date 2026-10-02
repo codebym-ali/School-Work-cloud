@@ -90,12 +90,18 @@ https:// {
 		}
 	}
 
-	@student header_regexp Host ^student\.[^.]+\.{$APEX_REGEX}$
-	handle @student {
+	@parent header_regexp Host ^parent\.[^.]+\.{$APEX_REGEX}$
+	handle @parent {
 		import tenant_api
 		handle {
-			reverse_proxy student-web:3003
+			reverse_proxy parent-web:3003
 		}
+	}
+
+	# ── Backward-compat: student.<school> → parent.<school> ─────────
+	@student-compat header_regexp student_host Host ^student\.([^.]+\.{$APEX_REGEX})$
+	handle @student-compat {
+		redir https://parent.{re.student_host.1}{uri} permanent
 	}
 
 	# ── Bare tenant host <school>.<apex> → marketing/chooser ──────────

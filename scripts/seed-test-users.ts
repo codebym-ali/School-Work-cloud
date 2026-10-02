@@ -134,7 +134,7 @@ async function main(): Promise<void> {
       }
     }
 
-    console.log('\nDone. Log in at http://demo.localhost:3001');
+    console.log('\nDone. Log in at http://demo.localhost:3001 (marketing) · :3005 (owner) · :3006 (staff) · :3003 (parent)');
   } finally {
     await prisma.$disconnect();
   }

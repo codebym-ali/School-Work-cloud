@@ -268,7 +268,7 @@ async function createAll(db: PrismaClient, ownerHash: string, staffHash: string)
 function writeCreds(creds: Cred[]) {
   const lines = [
     '# Seed credentials — Falcon School System (demo tenant, BULK dataset)', '',
-    'Host: **demo.localhost** · owner-web :3005 · staff-web :3006 · student-web :3003', '',
+    'Host: **demo.localhost** · owner-web :3005 · staff-web :3006 · parent-web :3003', '',
     '| Role | Name | Email / login | Password |', '|------|------|---------------|----------|',
     ...creds.map((c) => `| ${c.role} | ${c.who} | ${c.email ?? c.note ?? ''} | ${c.password ?? '(reg-no + CNIC)'} |`),
     '', '_Students sign in at the student door with Registration No + CNIC (no password). Staff and owner use email + password._',

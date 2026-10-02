@@ -9,6 +9,12 @@ export class LoginDto {
   password!: string;
 }
 
+export class SwitchChildDto {
+  @IsString()
+  @MinLength(1)
+  studentId!: string;
+}
+
 /** Student portal sign-in: registration number + CNIC/B-Form (no email/password). */
 export class StudentLoginDto {
   @IsString()

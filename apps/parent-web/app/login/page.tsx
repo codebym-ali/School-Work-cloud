@@ -6,12 +6,11 @@ import { api, ApiError } from '@sw/api-client';
 import { Icon, PasswordInput } from '@sw/ui';
 
 /**
- * Read-only student portal sign-in (#34/#35). Students have no password — they authenticate
- * with their registration number + CNIC/B-Form (a convenience credential, acceptable because
- * the portal is strictly read-only). Auth is enumeration-safe: a wrong reg-no and a wrong CNIC
- * return the same generic error.
+ * Parent portal sign-in. Parents authenticate with their child's registration number + guardian
+ * CNIC (a convenience credential, acceptable because the portal is strictly read-only). Auth is
+ * enumeration-safe: a wrong reg-no and a wrong CNIC return the same generic error.
  */
-export default function StudentLoginPage() {
+export default function ParentLoginPage() {
   const router = useRouter();
   const [registrationNo, setRegistrationNo] = useState('');
   const [cnic, setCnic] = useState('');
@@ -23,7 +22,7 @@ export default function StudentLoginPage() {
     setBusy(true);
     setError(null);
     try {
-      await api.studentPortal.login(registrationNo.trim(), cnic.trim());
+      await api.parentPortal.login(registrationNo.trim(), cnic.trim());
       // On this dedicated origin the portal home is the root route.
       router.push('/');
     } catch (err) {
@@ -37,8 +36,8 @@ export default function StudentLoginPage() {
     <main className="center">
       <form className="card stack" style={{ width: 'min(380px, 100%)' }} onSubmit={onSubmit}>
         <div>
-          <h1 style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Icon name="school" size={26} /> Student Portal</h1>
-          <p className="sub">Sign in with your registration number and CNIC / B-Form.</p>
+          <h1 style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Icon name="school" size={26} /> Parent Portal</h1>
+          <p className="sub">Sign in with your child's registration number and your guardian CNIC.</p>
         </div>
         <div>
           <label htmlFor="registrationNo">Registration number</label>
@@ -46,12 +45,7 @@ export default function StudentLoginPage() {
             autoComplete="username" autoFocus required />
         </div>
         <div>
-          <label htmlFor="cnic">CNIC / B-Form</label>
-          {/* ⚠️ Masked, like a password, because on THIS door it is one. The student portal
-              authenticates on registration number + CNIC, so the CNIC is the secret half — and a
-              child signing in from a shared school computer should not leave their family's
-              identity number on screen. `inputMode` stays numeric so the phone keypad is right.
-              The toggle is there because a mistyped CNIC is the likeliest reason a sign-in fails. */}
+          <label htmlFor="cnic">Guardian CNIC</label>
           <PasswordInput id="cnic" value={cnic} onChange={(e) => setCnic(e.target.value)}
             inputMode="numeric" placeholder="12345-1234567-1" autoComplete="off" required />
         </div>

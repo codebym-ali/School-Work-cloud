@@ -87,7 +87,7 @@ describe('Route coverage — every route has a UI or a listed exception (Law 3)'
       'packages',
       join('apps', 'web', 'lib'),
       join('apps', 'web', 'components'),
-      ...['web', 'owner-web', 'staff-web', 'student-web', 'superadmin-web'].map((a) => join('apps', a, 'app')),
+      ...['web', 'owner-web', 'staff-web', 'parent-web', 'superadmin-web'].map((a) => join('apps', a, 'app')),
     ];
     let out = '';
     const walk = (dir: string) => {

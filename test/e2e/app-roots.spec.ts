@@ -26,7 +26,7 @@ const APPS = [
   { name: 'web (marketing)', origin: 'http://localhost:3001' },
   { name: 'owner-web', origin: 'http://localhost:3005' },
   { name: 'staff-web', origin: 'http://localhost:3006' },
-  { name: 'student-web', origin: 'http://localhost:3003' },
+  { name: 'parent-web', origin: 'http://localhost:3003' },
   { name: 'superadmin-web', origin: 'http://localhost:3004' },
 ];
 

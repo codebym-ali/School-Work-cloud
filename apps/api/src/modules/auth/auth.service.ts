@@ -192,15 +192,8 @@ export class AuthService {
     );
   }
 
-  // ── Student portal login: registration no + CNIC (§28) ──────────────────────
-  /**
-   * Students sign in with their registration number + CNIC/B-Form (no email/password) —
-   * a convenience credential acceptable because the student portal is strictly read-only.
-   * The CNIC is compared as a constant-time HMAC against `Student.cnicHash`; failures are
-   * rate-limited + lockout-tracked on the linked User; the response is enumeration-safe
-   * (same error whether the reg-no, the CNIC, or the account state is the problem).
-   */
-  async studentLogin(dto: StudentLoginDto, res: Response): Promise<SessionResult> {
+  // ── Parent portal login: child's registration no + guardian CNIC (§28) ──────
+  async parentLogin(dto: StudentLoginDto, res: Response): Promise<SessionResult> {
     const invalid = () =>
       new AppError(ErrorCodes.INVALID_CREDENTIALS, HttpStatus.UNAUTHORIZED, 'Invalid registration number or CNIC');
 

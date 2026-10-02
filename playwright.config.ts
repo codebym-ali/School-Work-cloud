@@ -12,8 +12,8 @@ import { STORAGE_STATE } from './test/e2e/helpers';
  *
  * Assumes the dev stack is already running — for this suite that means **API :4000, owner-web :3005
  * (default baseURL), staff-web :3006, superadmin-web :3004, and apps/web :3001** (the marketing
- * chooser, for the owner-login door spec) (+ docker infra). student-web :3003 is only needed for the
- * student-portal spec, which skips unless `E2E_STUDENT_REG_NO`/`E2E_STUDENT_CNIC` are set. No
+ * chooser, for the owner-login door spec) (+ docker infra). parent-web :3003 is only needed for the
+ * parent-portal spec, which skips unless `E2E_STUDENT_REG_NO`/`E2E_STUDENT_CNIC` are set. No
  * webServer block on purpose: these specs run against the live dev stack, not a freshly spawned one.
  * (On Windows, stop background node before `next build`; run the apps via `next start` to avoid
  * dev-compile latency.)

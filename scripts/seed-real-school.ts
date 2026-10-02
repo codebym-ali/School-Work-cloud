@@ -538,7 +538,7 @@ function writeCreds(creds: Cred[]) {
   const lines = [
     '# Seed credentials — Falcon School System (demo tenant)',
     '',
-    'Host: **demo.localhost** · owner-web :3005 · staff-web :3006 · student-web :3003',
+    'Host: **demo.localhost** · owner-web :3005 · staff-web :3006 · parent-web :3003',
     '',
     '| Role | Name | Email / login | Password |',
     '|------|------|---------------|----------|',

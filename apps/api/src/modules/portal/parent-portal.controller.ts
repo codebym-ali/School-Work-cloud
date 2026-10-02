@@ -14,7 +14,7 @@ import { ACTIVE_CHILD_COOKIE, setActiveChildCookie } from '../auth/auth.cookies'
  * The `active_child` cookie selects which child the parent is viewing when they have
  * multiple children enrolled. Every read endpoint passes it through to the service.
  */
-@Roles('STUDENT')
+@Roles('STUDENT', 'PARENT')
 @Controller('portal')
 export class ParentPortalController {
   constructor(

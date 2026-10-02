@@ -462,7 +462,7 @@ tr:last-child td { border-bottom: 0; }
 .chip:hover { background: var(--brand-tint); }
 .chip.active { background: var(--brand); color: #fff; border-color: var(--brand); }
 .chip.active .badge { background: rgba(255,255,255,.25); color: #fff; }
-.badge { display: inline-block; padding: 2px 8px; border-radius: var(--r-pill); font-size: 12px; background: var(--info-tint); color: var(--info-ink); }
+.badge { display: inline-flex; align-items: center; padding: 3px 10px; border-radius: var(--r-pill); font-size: 12px; font-weight: 600; line-height: 1.3; background: var(--info-tint); color: var(--info-ink); }
 .badge.ok { background: var(--ok-tint); color: var(--ok-ink); }
 .badge.warn { background: var(--warn-tint); color: var(--warn-ink); }
 .badge.bad { background: var(--danger-tint); color: var(--danger-ink); }
@@ -597,6 +597,7 @@ input.invalid, select.invalid { border-color: var(--danger); }
     text-decoration: none; color: var(--muted); font-size: 11px;
   }
   .tabbar .tab.active { color: var(--brand); font-weight: 600; }
+  .tabbar .tab:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; border-radius: 4px; }
   .tabbar .tab-icon { display: inline-flex; align-items: center; justify-content: center; height: 22px; }
   /* The bar is fixed, so the last thing on every page would sit underneath it. */
   .has-tabbar .content { padding-bottom: calc(76px + env(safe-area-inset-bottom, 0px)); }
@@ -795,23 +796,26 @@ input.invalid, select.invalid { border-color: var(--danger); }
   width: 100%; text-align: center; padding-top: 4px; }
 
 /* ── Parent portal shell ──────────────────────────────────────────────────────
-   A slim top bar (brand · nav · bell · sign out) on a desktop; on a phone the nav moves to the bottom tab
-   bar (`.tabbar`, defined above) and the top bar keeps only the brand and the two actions. */
-.sp { max-width: 900px; margin: 0 auto; padding: 20px 20px 40px; }
-.sp-top { display: flex; align-items: center; gap: 16px; margin-bottom: 20px; }
-.sp-brand { display: inline-flex; align-items: center; gap: 8px; color: var(--brand); font-weight: 700; font-size: 16px; text-decoration: none; }
-.sp-nav { display: flex; gap: 4px; padding: 4px; background: #e7ecf3; border-radius: 10px; margin-left: 8px; }
-.sp-nav a { padding: 7px 14px; border-radius: 7px; color: #3d4656; font-size: 14px; font-weight: 600; text-decoration: none; }
-.sp-nav a:hover { background: rgba(255, 255, 255, .6); color: var(--ink); }
-.sp-nav a[aria-current='page'] { background: #fff; color: var(--ink); box-shadow: 0 1px 3px rgb(23 54 92 / .15); }
-.sp-nav a:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+   Two-row header: top row = brand + actions, second row = child switcher + nav tabs.
+   On mobile the nav moves to a bottom tab bar. */
+.sp { max-width: 900px; margin: 0 auto; padding: 0 20px 40px; }
+.sp-header { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 10; background: var(--bg); padding-top: 16px; padding-bottom: 12px; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
+.sp-row-top { display: flex; align-items: center; gap: 16px; margin-bottom: 10px; }
+.sp-brand { display: inline-flex; align-items: center; gap: 8px; color: var(--brand); font-weight: 700; font-size: 17px; text-decoration: none; }
+.sp-brand:hover { color: var(--brand-dark); }
 .sp-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+.sp-row-nav { display: flex; align-items: center; gap: 12px; }
+.sp-nav { display: flex; gap: 2px; padding: 3px; background: #e7ecf3; border-radius: 10px; margin-left: auto; }
+.sp-nav a { display: inline-flex; align-items: center; gap: 5px; padding: 7px 14px; border-radius: 7px; color: var(--muted); font-size: 13px; font-weight: 600; text-decoration: none; transition: background .12s ease; }
+.sp-nav a:hover { background: rgba(255, 255, 255, .6); color: var(--ink); }
+.sp-nav a.active { background: #fff; color: var(--brand); box-shadow: 0 1px 3px rgb(23 54 92 / .15); }
+.sp-nav a:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
 
 @media (max-width: 720px) {
-  .sp { padding: 12px 14px calc(84px + env(safe-area-inset-bottom, 0px)); }
+  .sp { padding: 0 14px calc(84px + env(safe-area-inset-bottom, 0px)); }
+  .sp-header { padding-top: 12px; padding-bottom: 6px; }
   .sp-nav { display: none; }
-  .sp-top { margin-bottom: 14px; }
-  /* The tab bar's own label is the page name; the top bar only needs to say whose portal this is. */
+  .sp-row-nav { justify-content: center; }
   .sp-brand span { font-size: 15px; }
 }
 
@@ -843,35 +847,38 @@ input.invalid, select.invalid { border-color: var(--danger); }
    Avatar chip bar for parents with multiple children. Each chip shows the child's
    photo (or initials fallback) and first name. The active child is visually distinct. */
 .child-switcher {
-  display: flex; align-items: center; gap: 6px;
+  display: flex; align-items: center; gap: 8px;
   padding: 2px; overflow-x: auto;
 }
 .child-chip {
-  display: inline-flex; align-items: center; gap: 6px;
-  padding: 4px 10px 4px 4px; border-radius: var(--r-pill);
-  border: 2px solid transparent; background: var(--card);
-  font-size: 13px; font-weight: 600; color: var(--muted);
-  cursor: pointer; white-space: nowrap; min-height: 36px;
-  transition: border-color .15s ease, background .15s ease;
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 5px 14px 5px 5px; border-radius: var(--r-pill);
+  border: 2px solid var(--border); background: var(--card);
+  font-size: 14px; font-weight: 600; color: var(--muted);
+  cursor: pointer; white-space: nowrap; min-height: 40px;
+  transition: all .15s ease; box-shadow: 0 1px 2px rgb(23 54 92 / .06);
 }
-.child-chip:hover { background: var(--brand-tint); border-color: var(--brand-tint); }
+.child-chip:hover { background: var(--brand-tint); border-color: var(--brand); color: var(--brand); transform: translateY(-1px); }
+.child-chip:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
 .child-chip.active {
-  border-color: var(--brand); background: var(--brand-tint); color: var(--brand);
+  border-color: var(--brand); background: var(--brand); color: #fff;
+  box-shadow: 0 2px 8px rgb(23 54 92 / .25);
 }
+.child-chip.active .child-avatar--fallback { background: rgba(255,255,255,.25); color: #fff; }
+.child-chip.active .child-name { color: #fff; }
 .child-avatar {
-  width: 28px; height: 28px; border-radius: var(--r-pill);
+  width: 30px; height: 30px; border-radius: var(--r-pill);
   object-fit: cover; flex: none;
 }
 .child-avatar--fallback {
   display: grid; place-items: center;
   background: var(--brand); color: #fff;
-  font-size: 11px; font-weight: 700; line-height: 1;
+  font-size: 12px; font-weight: 700; line-height: 1;
 }
-.child-name { max-width: 80px; overflow: hidden; text-overflow: ellipsis; }
+.child-name { max-width: 100px; overflow: hidden; text-overflow: ellipsis; }
 
 @media (max-width: 720px) {
-  .child-switcher { order: -1; width: 100%; justify-content: center; padding: 4px 0; }
-  .sp-top { flex-wrap: wrap; }
+  .child-switcher { justify-content: center; }
 }
 
 /* ── Profile card (Phase 4) ───────────────────────────────────────────────────
@@ -902,12 +909,13 @@ input.invalid, select.invalid { border-color: var(--danger); }
   border-radius: 10px; overflow-x: auto;
 }
 .detail-tabs button {
-  background: none; color: #3d4656; border-radius: 7px;
+  background: none; color: var(--muted); border-radius: 7px;
   padding: 8px 16px; font-size: 14px; font-weight: 600;
   min-height: 0; white-space: nowrap;
 }
 .detail-tabs button:hover:not(:disabled) { background: rgba(255, 255, 255, .6); color: var(--ink); }
-.detail-tabs button[aria-selected='true'] { background: #fff; color: var(--ink); box-shadow: 0 1px 3px rgb(23 54 92 / .15); }
+.detail-tabs button[aria-selected='true'] { background: #fff; color: var(--brand); box-shadow: 0 1px 3px rgb(23 54 92 / .15); }
+.detail-tabs button:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
 
 .detail-grid {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px;
@@ -919,6 +927,7 @@ input.invalid, select.invalid { border-color: var(--danger); }
   .profile-hero { gap: 14px; }
   .profile-photo, .profile-photo--fallback { width: 64px; height: 64px; font-size: 22px; }
   .profile-info h1 { font-size: 19px; }
+  .detail-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
   .detail-tabs { display: flex; }
   .detail-tabs button { flex: 1 1 0; min-height: 44px; }
 }

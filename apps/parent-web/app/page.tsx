@@ -18,15 +18,17 @@ export default function ParentHome() {
   const [err, setErr] = useState(false);
   const [tab, setTab] = useState<DetailTab>('academic');
 
-  useEffect(() => { api.parentPortal.overview().then(setData).catch(() => setErr(true)); }, []);
+  const load = () => { setData(null); setErr(false); api.parentPortal.overview().then(setData).catch(() => setErr(true)); };
+  useEffect(() => { load(); }, []);
+  useEffect(() => { const h = () => load(); window.addEventListener('child-switched', h); return () => window.removeEventListener('child-switched', h); }, []);
 
-  if (err) return <p className="error">Couldn&apos;t load your dashboard.</p>;
-  if (!data) return <p className="muted">Loading…</p>;
+  if (err) return <div className="container"><p className="error">Couldn&apos;t load your dashboard. Please try refreshing.</p></div>;
+  if (!data) return <div className="container"><p className="muted">Loading…</p></div>;
   const s = data.student;
 
   return (
     <div className="stack">
-      {/* Profile hero — photo, name, class badge */}
+      {/* Profile hero */}
       <div className="card">
         <div className="profile-hero">
           {s.photoUrl ? (
@@ -69,13 +71,15 @@ export default function ParentHome() {
         </div>
       )}
 
-      {/* Quick stats — each is a link to its full page */}
+      {/* Quick stats */}
       <div className="grid">
         <MetricLink label="Attendance" href="/attendance"
           value={data.attendancePercent == null ? '—' : `${data.attendancePercent}%`} />
-        <MetricLink label="Outstanding fees" href="/fees" alert={data.outstandingFees > 0}
+        <MetricLink label="Outstanding fees" href="/fees"
+          alert={data.outstandingFees > 0}
           value={`Rs ${data.outstandingFees.toLocaleString()}`} />
-        <MetricLink label="Report cards" href="/results" value={data.reportCards} />
+        <MetricLink label="Report cards" href="/results"
+          value={data.reportCards || '0'} />
       </div>
 
       {/* Tabbed details */}

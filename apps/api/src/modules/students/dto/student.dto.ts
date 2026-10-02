@@ -48,8 +48,8 @@ export class GuardianResolutionDto {
   @IsEnum(GuardianRelation)
   relation!: GuardianRelation;
 
-  /** CNIC — required for FATHER on CREATE (Pakistani ID, sibling matching key). */
-  @ValidateIf((o: GuardianResolutionDto) => o.mode === 'CREATE' && o.relation === 'FATHER')
+  /** CNIC — required for FATHER and MOTHER on CREATE (sibling matching key). */
+  @ValidateIf((o: GuardianResolutionDto) => o.mode === 'CREATE' && (o.relation === 'FATHER' || o.relation === 'MOTHER'))
   @IsString() @Matches(/^\d{5}-?\d{7}-?\d$/, { message: 'CNIC must be 13 digits (XXXXX-XXXXXXX-X)' })
   cnic?: string;
 

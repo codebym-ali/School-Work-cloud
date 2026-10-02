@@ -97,7 +97,108 @@ async function ensureStaff(prisma: PrismaClient, schoolId: string, campusId: str
       },
     });
   }
-  return { created: missing, password };
+  return { created, password: created.length > 0 ? password : undefined };
+}
+
+const SIBLING_GR = 'GR-0002';
+const SIBLING_NAME = 'Fatima Butt';
+
+async function ensureParent(prisma: PrismaClient, schoolId: string): Promise<void> {
+  const existing = await prisma.user.findFirst({ where: { schoolId, email: PARENT_EMAIL } });
+  if (existing) {
+    console.log(`• ${PARENT_EMAIL} already exists`);
+    const profile = await prisma.parentProfile.findFirst({ where: { schoolId, userId: existing.id } });
+    if (profile) await ensureSibling(prisma, schoolId, profile.id);
+    return;
+  }
+
+  const passwordHash = await argon2.hash(PARENT_PASSWORD, { type: argon2.argon2id });
+  const user = await prisma.user.create({
+    data: { schoolId, email: PARENT_EMAIL, passwordHash, roles: ['PARENT'], status: 'ACTIVE' },
+  });
+  const profile = await prisma.parentProfile.create({
+    data: {
+      schoolId, userId: user.id, fullName: 'Test Parent', phone: '03000000001', phoneVerifiedAt: new Date(),
+      fullNameNorm: 'test parent', fatherName: 'Test Grandfather', fatherNameNorm: 'test grandfather',
+      dateOfBirth: new Date('1985-06-15'),
+    },
+  });
+  const student = await prisma.student.findFirst({ where: { schoolId, deletedAt: null }, orderBy: { createdAt: 'asc' } });
+  if (student) {
+    await prisma.studentGuardian.create({
+      data: { schoolId, studentId: student.id, parentId: profile.id, relation: 'GUARDIAN', isPrimary: true },
+    });
+  }
+  console.log(`✔ ${PARENT_EMAIL} / ${PARENT_PASSWORD}  [PARENT${student ? ` → guardian of ${student.fullName}` : ''}]`);
+
+  await ensureSibling(prisma, schoolId, profile.id);
+}
+
+async function ensureSibling(prisma: PrismaClient, schoolId: string, parentProfileId: string): Promise<void> {
+  const existingSibling = await prisma.student.findFirst({ where: { schoolId, grNumber: SIBLING_GR, deletedAt: null } });
+  if (existingSibling) {
+    const link = await prisma.studentGuardian.findFirst({ where: { schoolId, studentId: existingSibling.id, parentId: parentProfileId } });
+    if (!link) {
+      await prisma.studentGuardian.create({
+        data: { schoolId, studentId: existingSibling.id, parentId: parentProfileId, relation: 'GUARDIAN', isPrimary: false },
+      });
+      console.log(`  ✔ linked ${SIBLING_NAME} to parent`);
+    } else {
+      console.log(`  • ${SIBLING_NAME} (${SIBLING_GR}) already exists and linked — skipped`);
+    }
+    return;
+  }
+
+  const campus = await prisma.campus.findFirst({ where: { schoolId }, orderBy: { name: 'asc' } });
+  const year = await prisma.academicYear.findFirst({ where: { schoolId, isCurrent: true } });
+  if (!campus || !year) {
+    console.log(`  • skipped sibling — no campus or academic year`);
+    return;
+  }
+
+  let klass = await prisma.class.findFirst({ where: { schoolId, name: 'Grade 3' } });
+  if (!klass) {
+    klass = await prisma.class.create({
+      data: { schoolId, campusId: campus.id, name: 'Grade 3', order: 3 },
+    });
+  }
+  let section = await prisma.section.findFirst({ where: { schoolId, classId: klass.id, name: 'A' } });
+  if (!section) {
+    section = await prisma.section.create({
+      data: { schoolId, classId: klass.id, name: 'A' },
+    });
+  }
+
+  const sibling = await prisma.student.create({
+    data: {
+      schoolId,
+      grNumber: SIBLING_GR,
+      fullName: SIBLING_NAME,
+      gender: 'FEMALE',
+      dateOfBirth: new Date('2018-09-15'),
+      status: 'ACTIVE',
+      isActive: true,
+    },
+  });
+
+  await prisma.studentEnrollment.create({
+    data: {
+      schoolId,
+      studentId: sibling.id,
+      academicYearId: year.id,
+      campusId: campus.id,
+      classId: klass.id,
+      sectionId: section.id,
+      rollNumber: 1,
+      status: 'ACTIVE',
+    },
+  });
+
+  await prisma.studentGuardian.create({
+    data: { schoolId, studentId: sibling.id, parentId: parentProfileId, relation: 'GUARDIAN', isPrimary: false },
+  });
+
+  console.log(`  ✔ ${SIBLING_NAME} (${SIBLING_GR}) → Grade 3 — A, linked to parent`);
 }
 
 async function main(): Promise<void> {

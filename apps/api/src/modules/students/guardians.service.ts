@@ -1,13 +1,18 @@
 import { HttpStatus, Inject, Injectable } from '@nestjs/common';
-import { Prisma, type GuardianRelation } from '@prisma/client';
+import { createHmac, randomBytes } from 'node:crypto';
+import { Prisma, Role, type GuardianRelation } from '@prisma/client';
 import {
   AppError,
   ErrorCodes,
   FIELD_ENCRYPTION,
   FieldEncryption,
   normalizePkPhone,
+  normalizePkName,
+  normalizeCnic,
   AuditActions,
   TenantContext,
+  ENV,
+  type Env,
 } from '@common';
 import { AuditService, TenantPrismaService } from '@database';
 import type { GuardianResolutionDto, UpdateGuardianContactDto } from './dto/student.dto';
@@ -24,6 +29,7 @@ export class GuardiansService {
     private readonly tenantPrisma: TenantPrismaService,
     private readonly ctx: TenantContext,
     @Inject(FIELD_ENCRYPTION) private readonly crypto: FieldEncryption,
+    @Inject(ENV) private readonly env: Env,
     private readonly audit: AuditService,
   ) {}
 
@@ -33,6 +39,11 @@ export class GuardiansService {
 
   private get sid(): string {
     return this.ctx.requireSchoolId();
+  }
+
+  private hashCnic(cnic: string): string {
+    const normalized = normalizeCnic(cnic);
+    return createHmac('sha256', this.env.ENCRYPTION_MASTER_KEY).update(normalized ?? cnic).digest('hex');
   }
 
   /** Find existing parents by normalized phone (feeds the admit "link?" UI). */
@@ -67,22 +78,35 @@ export class GuardiansService {
       );
     }
 
-    // A guardian is a ParentProfile and nothing else — no User row (scope B, 2026-07-29).
-    // Parents do not get logins (locked decision in Key Decisions), so minting one per guardian
-    // created a login-less INVITED account with a synthetic `p-<uuid>@invite.local` address that
-    // nothing could ever use. It also made the guardian's email collide with the staff/admin
-    // namespace, so a real address already held by a live account returned a 409 the front desk
-    // could not clear. Both the placeholder and that entire failure mode are gone with the row.
+    const cnicHash = res.cnic ? this.hashCnic(res.cnic) : null;
+    if (cnicHash) {
+      const byCnic = await this.db.parentProfile.findFirst({
+        where: { cnicHash },
+        select: { id: true, fullName: true },
+      });
+      if (byCnic) {
+        throw new AppError(
+          ErrorCodes.CONFLICT,
+          HttpStatus.CONFLICT,
+          `A parent with this CNIC already exists (${byCnic.fullName}) — link instead of creating`,
+          [{ field: 'parentId', issue: byCnic.id }],
+        );
+      }
+    }
+
     const parent = await this.db.parentProfile.create({
       data: {
         schoolId: this.sid,
         fullName: res.fullName!,
+        fullNameNorm: normalizePkName(res.fullName!),
         email: res.email?.toLowerCase() ?? null,
         phone,
-        // CREATE only — a LINK must never rewrite an existing parent's record from a form filled
-        // in about a different child.
         occupation: res.occupation ?? null,
         cnicEnc: res.cnic ? this.crypto.encrypt(res.cnic, this.sid) : null,
+        cnicHash,
+        fatherName: res.fatherName ?? null,
+        fatherNameNorm: res.fatherName ? normalizePkName(res.fatherName) : null,
+        dateOfBirth: res.dateOfBirth ? new Date(res.dateOfBirth) : null,
       },
     });
     return parent.id;
@@ -194,7 +218,10 @@ export class GuardiansService {
     const parent = link.parent;
 
     const data: Prisma.ParentProfileUpdateInput = {};
-    if (dto.fullName !== undefined) data.fullName = dto.fullName.trim();
+    if (dto.fullName !== undefined) {
+      data.fullName = dto.fullName.trim();
+      data.fullNameNorm = normalizePkName(dto.fullName.trim());
+    }
     if (dto.email !== undefined) data.email = dto.email.trim() === '' ? null : dto.email.trim().toLowerCase();
     if (dto.occupation !== undefined) data.occupation = dto.occupation.trim() === '' ? null : dto.occupation.trim();
 

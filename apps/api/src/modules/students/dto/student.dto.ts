@@ -48,8 +48,20 @@ export class GuardianResolutionDto {
   @IsEnum(GuardianRelation)
   relation!: GuardianRelation;
 
-  @IsOptional() @IsString() @MaxLength(20)
+  /** CNIC — required for FATHER on CREATE (Pakistani ID, sibling matching key). */
+  @ValidateIf((o: GuardianResolutionDto) => o.mode === 'CREATE' && o.relation === 'FATHER')
+  @IsString() @Matches(/^\d{5}-?\d{7}-?\d$/, { message: 'CNIC must be 13 digits (XXXXX-XXXXXXX-X)' })
   cnic?: string;
+
+  /** Date of birth — required for FATHER and MOTHER on CREATE. */
+  @ValidateIf((o: GuardianResolutionDto) => o.mode === 'CREATE' && (o.relation === 'FATHER' || o.relation === 'MOTHER'))
+  @IsDateString()
+  dateOfBirth?: string;
+
+  /** Father's name — required for FATHER on CREATE (standard Pakistani form field). */
+  @ValidateIf((o: GuardianResolutionDto) => o.mode === 'CREATE' && o.relation === 'FATHER')
+  @IsString() @MinLength(1) @MaxLength(120)
+  fatherName?: string;
 
   @IsOptional() @IsEmail()
   email?: string;

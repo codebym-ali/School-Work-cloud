@@ -157,7 +157,7 @@ export class ParentPortalService {
 
     const guardianLinks = await this.db.studentGuardian.findMany({
       where: { parentId: parentProfile.id },
-      include: { student: { select: { id: true, fullName: true, grNumber: true, photoKey: true, status: true } } },
+      include: { student: { select: { id: true, fullName: true, grNumber: true, photoKey: true, status: true, deletedAt: true } } },
       orderBy: { isPrimary: 'desc' },
     });
     return guardianLinks.map((g) => g.student).filter((s) => s.deletedAt === null);

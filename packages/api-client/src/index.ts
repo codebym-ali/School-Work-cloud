@@ -652,6 +652,7 @@ export interface PortalOverview {
   reportCards: number;
 }
 export interface ParentChild { studentId: string; fullName: string; grNumber: string; gender: string; status: string; relation: string; className: string | null; sectionName: string | null }
+export interface PortalChild { id: string; fullName: string; grNumber: string; className: string | null; sectionName: string | null; photoUrl: string | null; status: string; isCurrent: boolean }
 export interface PortalAttendance { date: string; session: string; status: string }
 /** `sectionRank` is 1–3 for a podium finish and `null` for everyone else — a student is never shown a lower rank. */
 export interface PortalResult { termId: string; term: string; overallPercent: number; grade: string; sectionRank: 1 | 2 | 3 | null; hasFile: boolean }
@@ -1628,8 +1629,8 @@ export const api = {
   },
   parentPortal: {
     login: (email: string, password: string) => apiPost<LoginResult>('/auth/parent-login', { email, password }),
-    children: () => apiGet<ParentChild[]>('/portal/children'),
-    switchChild: (studentId: string) => apiPost<{ ok: true }>('/portal/switch-child', { studentId }),
+    children: () => apiGet<PortalChild[]>('/portal/children'),
+    switchChild: (studentId: string) => apiPost<PortalChild[]>('/portal/switch-child', { studentId }),
     overview: () => apiGet<PortalOverview>('/portal/overview'),
     attendance: () => apiGet<PortalAttendance[]>('/portal/attendance'),
     attendanceSummary: () => apiGet<PortalAttendanceSummary>('/portal/attendance/summary'),

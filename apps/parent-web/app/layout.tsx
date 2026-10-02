@@ -24,6 +24,7 @@ export const metadata: Metadata = {
     icon: [{ url: '/favicon-32.png', sizes: '32x32', type: 'image/png' }],
     apple: [{ url: '/apple-icon.png', sizes: '180x180', type: 'image/png' }],
   },
+  manifest: '/manifest.json',
 };
 
 export const viewport: Viewport = {

@@ -794,7 +794,7 @@ input.invalid, select.invalid { border-color: var(--danger); }
 .columns .tick { font-size: 11px; color: var(--muted); border-top: 1px solid var(--border);
   width: 100%; text-align: center; padding-top: 4px; }
 
-/* ── Student portal shell ─────────────────────────────────────────────────────
+/* ── Parent portal shell ──────────────────────────────────────────────────────
    A slim top bar (brand · nav · bell · sign out) on a desktop; on a phone the nav moves to the bottom tab
    bar (`.tabbar`, defined above) and the top bar keeps only the brand and the two actions. */
 .sp { max-width: 900px; margin: 0 auto; padding: 20px 20px 40px; }

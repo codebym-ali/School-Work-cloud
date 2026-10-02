@@ -27,6 +27,12 @@ Full ledger: [[consistency-register]] (LOCKED). This is the digest.
 - Any page that keeps local scope state (`useScope`, payroll's picker) must **sync from `lens.campusId` on change**, not only seed from it — seeding once is what made the dropdown look broken.
 - Staff have no campus of their own: staff-leave filtering goes through `staff.user.campusId`; cover/away through the sections' class campus.
 
+## Parent portal: activeChildId is a cookie, not in the JWT (2026-10-02)
+- **Decision:** The active child selection for multi-child parents is stored in a separate `active_child` httpOnly cookie, NOT embedded in the JWT.
+- **Why:** Putting it in the JWT would require re-signing on every child switch, invalidating all outstanding tokens, and couples the auth token to UI state. A separate cookie keeps auth stateless (JWT carries only `userId` + `role`) while the selection persists across page loads. The cookie uses the same security options as auth cookies (httpOnly, secure, sameSite strict, host-only domain), 30-day maxAge.
+- **Sibling discovery:** `Student → StudentGuardian → ParentProfile → StudentGuardian → Student`. Every portal endpoint validates that the `activeChildId` belongs to the logged-in parent's sibling graph — a parent cannot view a child that isn't theirs.
+- **Database STUDENT role unchanged:** it describes the data entity (student record), not the portal user. The rename is UI/routing only.
+
 ## Campus Admin loses money access by default (2026-10-01)
 - **Decision (operator):** `campusAdminSeesFees` default flipped from `true` to `false`. Campus Admin is the principal-level academic/admin seat **without money access** out of the box. The owner can re-enable via Settings → "Campus admins can see fees".
 - **Scope:** all schools (existing schools with `campusAdminSeesFees: undefined` in their JSON inherit the new default). This is a breaking change for schools that relied on the implicit `true`.

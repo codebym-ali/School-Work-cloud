@@ -9,6 +9,14 @@ updated: 2026-08-20
 The locked, cross-cutting decisions every note and every developer must respect.
 Full ledger: [[consistency-register]] (LOCKED). This is the digest.
 
+## Parent auto-match uses CNIC hash as definitive identifier (2026-10-02)
+- **Decision:** CNIC (national ID) is the definitive parent match key for FATHER and MOTHER relations. Phone is tier-2 (possible match) for GUARDIAN only.
+- **CNIC is compulsory** for both Father and Mother on CREATE (not optional). GUARDIAN relation uses phone-only matching.
+- **Phone uniqueness relaxed:** duplicate phone on CREATE is a soft warning (409 with `phoneConflict` flag), not a hard block. Frontend sends `phoneConflictAck: true` to proceed. Handles shared-phone households.
+- **Progressive fill on LINK:** when linking to an existing parent, NULL fields (cnicHash, fatherName, DOB, norms) are backfilled from the form without overwriting existing values. Audit-logged.
+- **CNIC hash storage:** HMAC-SHA256 of normalised 13-digit CNIC using `ENCRYPTION_MASTER_KEY`. Stored as `cnicHash` on `ParentProfile`, indexed with `schoolId`.
+- **Name normalisation:** Pakistani name variants (Muhammad/Mohammad/Mohd → muhammad, Abd/Abdl → abdul) normalised for matching via `normalizePkName()`.
+
 ## @OwnerWritable is the opt-in for owner writes, not @Roles (2026-10-01)
 - **Rule:** `OwnerReadOnlyGuard` (global) blocks POST/PUT/PATCH/DELETE for a pure `OWNER_ADMIN` user unless the handler or controller carries `@OwnerWritable()`. `@Roles('OWNER_ADMIN', …)` on a mutating method means the owner *should* be able to use it, but without `@OwnerWritable` the guard refuses it — a 403 that looks like a role problem but is a decorator gap.
 - **Class-level is safe:** the guard only fires on mutating HTTP methods, so `@OwnerWritable()` on a controller with mixed GET/POST methods does not weaken GET.

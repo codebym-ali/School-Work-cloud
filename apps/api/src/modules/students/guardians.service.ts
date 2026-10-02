@@ -15,7 +15,7 @@ import {
   type Env,
 } from '@common';
 import { AuditService, TenantPrismaService } from '@database';
-import type { GuardianResolutionDto, UpdateGuardianContactDto } from './dto/student.dto';
+import type { GuardianResolutionDto, ParentMatchQuery, UpdateGuardianContactDto } from './dto/student.dto';
 
 /**
  * Parent-account resolution + student↔guardian links (blueprint §8).
@@ -56,11 +56,79 @@ export class GuardiansService {
     });
   }
 
+  /**
+   * Tiered parent matching for sibling detection during admission.
+   * FATHER/MOTHER: CNIC hash (definitive). GUARDIAN: phone (possible).
+   */
+  async matchParent(q: ParentMatchQuery) {
+    const select = {
+      id: true, fullName: true, phone: true, fatherName: true,
+      dateOfBirth: true, fullNameNorm: true,
+      guardianLinks: {
+        select: { student: { select: { id: true, fullName: true } } },
+      },
+    } as const;
+
+    // Tier 1: CNIC hash match (Father / Mother)
+    if (q.cnic && (q.relation === 'FATHER' || q.relation === 'MOTHER')) {
+      const hash = this.hashCnic(q.cnic);
+      const match = await this.db.parentProfile.findFirst({
+        where: { cnicHash: hash },
+        select,
+      });
+      if (match) {
+        return {
+          matches: [this.toMatchResult(match, 'definitive')],
+          matchedBy: 'cnic' as const,
+        };
+      }
+    }
+
+    // Tier 2: Phone match (Guardian, or fallback for Father/Mother with no CNIC match)
+    if (q.phone) {
+      const phone = normalizePkPhone(q.phone);
+      if (phone) {
+        const byPhone = await this.db.parentProfile.findMany({
+          where: { phone },
+          select,
+        });
+        if (byPhone.length > 0) {
+          return {
+            matches: byPhone.map((p) => this.toMatchResult(p, 'possible')),
+            matchedBy: 'phone' as const,
+          };
+        }
+      }
+    }
+
+    return { matches: [], matchedBy: null };
+  }
+
+  private toMatchResult(
+    p: { id: string; fullName: string; phone: string; fatherName: string | null; dateOfBirth: Date | null; guardianLinks: Array<{ student: { id: string; fullName: string } }> },
+    confidence: 'definitive' | 'possible',
+  ) {
+    return {
+      id: p.id,
+      fullName: p.fullName,
+      phone: p.phone.replace(/(\d{4})\d{3}(\d{4})/, '$1-xxx-$2'),
+      fatherName: p.fatherName,
+      dateOfBirth: p.dateOfBirth,
+      childCount: p.guardianLinks.length,
+      children: p.guardianLinks.map((l) => ({ id: l.student.id, fullName: l.student.fullName })),
+      confidence,
+    };
+  }
+
   /** Resolve a guardian to a parentId per the explicit LINK/CREATE choice (§8). */
   async resolveParent(res: GuardianResolutionDto): Promise<string> {
     if (res.mode === 'LINK') {
-      const parent = await this.db.parentProfile.findFirst({ where: { id: res.parentId } });
+      const parent = await this.db.parentProfile.findFirst({
+        where: { id: res.parentId },
+        select: { id: true, cnicHash: true, cnicEnc: true, fatherName: true, fatherNameNorm: true, dateOfBirth: true, fullNameNorm: true },
+      });
       if (!parent) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'Parent not found');
+      await this.progressiveFill(parent, res);
       return parent.id;
     }
 
@@ -68,16 +136,6 @@ export class GuardiansService {
     if (!phone) {
       throw new AppError(ErrorCodes.VALIDATION_FAILED, HttpStatus.UNPROCESSABLE_ENTITY, 'Invalid phone number');
     }
-    const existing = await this.db.parentProfile.findFirst({ where: { phone } });
-    if (existing) {
-      throw new AppError(
-        ErrorCodes.CONFLICT,
-        HttpStatus.CONFLICT,
-        'A parent with this phone already exists — link instead of creating',
-        [{ field: 'parentId', issue: existing.id }],
-      );
-    }
-
     const cnicHash = res.cnic ? this.hashCnic(res.cnic) : null;
     if (cnicHash) {
       const byCnic = await this.db.parentProfile.findFirst({
@@ -92,6 +150,19 @@ export class GuardiansService {
           [{ field: 'parentId', issue: byCnic.id }],
         );
       }
+    }
+
+    const existing = await this.db.parentProfile.findFirst({
+      where: { phone },
+      select: { id: true, fullName: true },
+    });
+    if (existing && !(res as any).phoneConflictAck) {
+      throw new AppError(
+        ErrorCodes.CONFLICT,
+        HttpStatus.CONFLICT,
+        `A parent with this phone already exists (${existing.fullName}). Link them, or re-submit with phoneConflictAck to create anyway.`,
+        [{ field: 'parentId', issue: existing.id }],
+      );
     }
 
     const parent = await this.db.parentProfile.create({
@@ -110,6 +181,47 @@ export class GuardiansService {
       },
     });
     return parent.id;
+  }
+
+  /**
+   * Fill NULL fields on an existing parent from new form data (LINK mode only).
+   * Never overwrites a non-null value — the first admission's data wins.
+   */
+  private async progressiveFill(
+    parent: { id: string; cnicHash: string | null; cnicEnc: string | null; fatherName: string | null; fatherNameNorm: string | null; dateOfBirth: Date | null; fullNameNorm: string | null },
+    res: GuardianResolutionDto,
+  ): Promise<void> {
+    const data: Prisma.ParentProfileUpdateInput = {};
+    const filled: string[] = [];
+
+    if (!parent.cnicHash && res.cnic) {
+      data.cnicHash = this.hashCnic(res.cnic);
+      data.cnicEnc = this.crypto.encrypt(res.cnic, this.sid);
+      filled.push('cnic');
+    }
+    if (!parent.fatherName && res.fatherName) {
+      data.fatherName = res.fatherName;
+      data.fatherNameNorm = normalizePkName(res.fatherName);
+      filled.push('fatherName');
+    }
+    if (!parent.dateOfBirth && res.dateOfBirth) {
+      data.dateOfBirth = new Date(res.dateOfBirth);
+      filled.push('dateOfBirth');
+    }
+    if (!parent.fullNameNorm && res.fullName) {
+      data.fullNameNorm = normalizePkName(res.fullName);
+      filled.push('fullNameNorm');
+    }
+
+    if (filled.length > 0) {
+      await this.db.parentProfile.update({ where: { id: parent.id }, data });
+      await this.audit.record({
+        action: AuditActions.GUARDIAN_PROGRESSIVE_FILL,
+        entityType: 'ParentProfile',
+        entityId: parent.id,
+        newValue: { filledFields: filled },
+      });
+    }
   }
 
   /** Link a parent to a student; enforce exactly one primary per student (§8.3). */

@@ -70,6 +70,10 @@ export class GuardianResolutionDto {
    *  CREATE — linking an existing parent must not silently rewrite their record from a new form. */
   @IsOptional() @IsString() @MaxLength(120)
   occupation?: string;
+
+  /** Acknowledge a phone-number conflict and proceed with CREATE anyway. */
+  @IsOptional() @IsBoolean()
+  phoneConflictAck?: boolean;
 }
 
 export class CreateStudentDto {
@@ -379,6 +383,23 @@ export class StudentSummaryQuery {
 
   @IsOptional() @IsUUID()
   sectionId?: string;
+}
+
+export class ParentMatchQuery {
+  @IsOptional() @IsString() @MaxLength(20)
+  cnic?: string;
+
+  @IsOptional() @IsString()
+  phone?: string;
+
+  @IsOptional() @IsString() @MaxLength(120)
+  fullName?: string;
+
+  @IsOptional() @IsDateString()
+  dateOfBirth?: string;
+
+  @IsEnum(GuardianRelation)
+  relation!: GuardianRelation;
 }
 
 export class AddGuardianDto extends GuardianResolutionDto {

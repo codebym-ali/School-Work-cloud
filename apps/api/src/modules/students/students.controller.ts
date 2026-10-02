@@ -24,6 +24,7 @@ import {
   ConfirmOtpDto,
   CreateStudentDto,
   ImportStudentsDto,
+  ParentMatchQuery,
   StudentSearchQuery,
   StudentSummaryQuery,
   UpdateGuardianContactDto,
@@ -61,6 +62,12 @@ export class StudentsController {
   @Get('parents/search')
   findParents(@Query('phone') phone: string) {
     return this.guardians.findByPhone(phone ?? '');
+  }
+
+  /** Tiered parent match for sibling detection during admission. */
+  @Get('parents/match')
+  matchParent(@Query() q: ParentMatchQuery) {
+    return this.guardians.matchParent(q);
   }
 
   // Only the admission controller may ADD a student (segregation of duties, not owner/campus).

@@ -1,10 +1,13 @@
 /**
  * Dev seed: provisions a demo tenant so you can log in and exercise the API locally.
- * Idempotent — re-running is a no-op if the `demo` subdomain already exists.
+ * Idempotent — re-running tops up missing fixtures without touching existing ones.
  *
  *   pnpm db:seed
- *   Then: POST http://localhost:3000/api/v1/auth/login  (Host: demo.localhost)
- *         { "email": "owner@demo.pk", "password": "Owner!Secret12" }
+ *
+ * Logins created:
+ *   Owner:   owner@demo.pk / Owner!Secret12       → http://parent.localhost:3005
+ *   Parent:  parent@demo.pk / Parent!Secret12      → http://parent.localhost:3003
+ *   Staff:   see console output after run
  *
  * Uses the platform (BYPASSRLS) connection since it creates a brand-new tenant.
  */
@@ -14,7 +17,6 @@ import { PrismaClient } from '@prisma/client';
 import * as argon2 from 'argon2';
 import { randomBytes, randomInt } from 'node:crypto';
 import type { Role, StaffType } from '@prisma/client';
-
 
 // Minimal .env loader (scripts don't get node --env-file automatically).
 const envPath = join(process.cwd(), '.env');
@@ -34,7 +36,8 @@ const OWNER_EMAIL = 'owner@demo.pk';
 const OWNER_PASSWORD = 'Owner!Secret12';
 const PLATFORM_EMAIL = 'admin@platform.pk';
 const PLATFORM_PASSWORD = 'Admin!Secret12';
-
+const PARENT_EMAIL = 'parent@demo.pk';
+const PARENT_PASSWORD = 'Parent!Secret12';
 
 type StaffSpec = { email: string; roles: Role[]; staffType: StaffType; designation: string };
 
@@ -47,23 +50,13 @@ const STAFF: StaffSpec[] = [
   { email: `assistant@${SUBDOMAIN}.pk`, roles: ['STAFF'], staffType: 'CLERK', designation: 'Office Assistant' },
 ];
 
-/**
- * Create any staff account that does not exist yet, and return the generated password if it made
- * one. Idempotent PER USER, deliberately.
- *
- * ⚠️ The seed used to create ONLY an owner, which left the staff door untestable in every
- * environment — laptop, CI and deployed demo alike. It is a hole in the seed, not missing data on
- * one box: the owner is REJECTED by the staff login (`auth/login`), because the owner door has its
- * own endpoint (`auth/owner-login`), so an owner account cannot stand in for staff.
- *
- * ⚠️ Per-USER rather than per-tenant idempotence matters: the seed returns early when the tenant
- * exists, so before this, adding fixtures could never reach an environment that had already been
- * seeded once — the change would be invisible exactly where it was needed.
- *
- * ⚠️ ACCOUNTANT and ADMISSION_CONTROLLER are per-campus SEATS, one each; a second on the same
- * campus is a 409 by design, which is why exactly one of each appears above.
- */
-async function ensureStaff(prisma: PrismaClient, schoolId: string, campusId: string): Promise<{ created: StaffSpec[]; password?: string }> {
+const SEAT_ROLES: Role[] = ['CAMPUS_ADMIN', 'ADMISSION_CONTROLLER', 'ACCOUNTANT'];
+
+async function ensureStaff(
+  prisma: PrismaClient,
+  schoolId: string,
+  campuses: Array<{ id: string; name: string }>,
+): Promise<{ created: StaffSpec[]; password?: string }> {
   const existing = await prisma.user.findMany({
     where: { schoolId, email: { in: STAFF.map((s) => s.email) } },
     select: { email: true },
@@ -72,19 +65,40 @@ async function ensureStaff(prisma: PrismaClient, schoolId: string, campusId: str
   const missing = STAFF.filter((s) => !have.has(s.email));
   if (missing.length === 0) return { created: [] };
 
-  // Generated per run and printed once. A literal would be published in the repo — which is how the
-  // old `Owner!Secret12` came to need rotation on a public box before it could be shown to anyone.
   const password = `Sw-${randomBytes(9).toString('base64url').replace(/[-_]/g, '')}-${randomInt(1000, 9999)}`;
   const passwordHash = await argon2.hash(password, { type: argon2.argon2id });
 
   const used = await prisma.staffProfile.count({ where: { schoolId } });
   let code = used + 1;
+  const created: StaffSpec[] = [];
+
   for (const person of missing) {
+    const seatRole = person.roles.find((r) => SEAT_ROLES.includes(r));
+    let campusId: string | null = null;
+
+    if (seatRole) {
+      let found = false;
+      for (const c of campuses) {
+        const holder = await prisma.user.findFirst({
+          where: { schoolId, campusId: c.id, deletedAt: null, roles: { has: seatRole } },
+        });
+        if (!holder) {
+          campusId = c.id;
+          found = true;
+          break;
+        }
+      }
+      if (!found) {
+        console.log(`• ${person.email} skipped — every campus already has a ${seatRole}`);
+        continue;
+      }
+    } else {
+      campusId = campuses[0].id;
+    }
+
     const user = await prisma.user.create({
       data: { schoolId, campusId, email: person.email, roles: person.roles, status: 'ACTIVE', passwordHash },
     });
-    // A staff PROFILE as well as a login: the directory, payroll and attendance all key off it, so a
-    // user without one is a person the school cannot roster, pay, or mark present.
     await prisma.staffProfile.create({
       data: {
         schoolId,
@@ -96,8 +110,32 @@ async function ensureStaff(prisma: PrismaClient, schoolId: string, campusId: str
         joinedAt: new Date('2026-04-01'),
       },
     });
+    created.push(person);
   }
-  return { created: missing, password };
+  return { created, password: created.length > 0 ? password : undefined };
+}
+
+async function ensureParent(prisma: PrismaClient, schoolId: string): Promise<void> {
+  const existing = await prisma.user.findFirst({ where: { schoolId, email: PARENT_EMAIL } });
+  if (existing) {
+    console.log(`• ${PARENT_EMAIL} already exists — skipped`);
+    return;
+  }
+
+  const passwordHash = await argon2.hash(PARENT_PASSWORD, { type: argon2.argon2id });
+  const user = await prisma.user.create({
+    data: { schoolId, email: PARENT_EMAIL, passwordHash, roles: ['PARENT'], status: 'ACTIVE' },
+  });
+  const profile = await prisma.parentProfile.create({
+    data: { schoolId, userId: user.id, fullName: 'Test Parent', phone: '03000000001', phoneVerifiedAt: new Date() },
+  });
+  const student = await prisma.student.findFirst({ where: { schoolId, deletedAt: null }, orderBy: { createdAt: 'asc' } });
+  if (student) {
+    await prisma.studentGuardian.create({
+      data: { schoolId, studentId: student.id, parentId: profile.id, relation: 'GUARDIAN', isPrimary: false },
+    });
+  }
+  console.log(`✔ ${PARENT_EMAIL} / ${PARENT_PASSWORD}  [PARENT${student ? ` → guardian of ${student.fullName}` : ''}]`);
 }
 
 async function main(): Promise<void> {
@@ -105,8 +143,7 @@ async function main(): Promise<void> {
     datasourceUrl: process.env.PLATFORM_DATABASE_URL ?? process.env.DATABASE_URL,
   });
   try {
-    // Platform (vendor) admin — a cross-tenant operator, seeded independently of the
-    // demo tenant so re-running always ensures it exists.
+    // Platform (vendor) admin
     const platformAdmin = await prisma.platformUser.findUnique({ where: { email: PLATFORM_EMAIL } });
     if (platformAdmin) {
       console.log(`Platform admin "${PLATFORM_EMAIL}" already exists — nothing to do.`);
@@ -125,21 +162,20 @@ async function main(): Promise<void> {
 
     const existing = await prisma.school.findFirst({ where: { subdomain: SUBDOMAIN } });
     if (existing) {
-      // Top up rather than bail: fixtures added to this file must be able to reach an environment
-      // that was seeded before they existed, which is every long-lived one.
-      const campus = await prisma.campus.findFirst({ where: { schoolId: existing.id }, select: { id: true } });
-      if (!campus) {
+      const campuses = await prisma.campus.findMany({ where: { schoolId: existing.id }, orderBy: { name: 'asc' } });
+      if (!campuses.length) {
         console.log(`Demo tenant "${SUBDOMAIN}" exists but has no campus — nothing to top up.`);
         return;
       }
-      const { created, password } = await ensureStaff(prisma, existing.id, campus.id);
-      if (created.length === 0) {
-        console.log(`Demo tenant "${SUBDOMAIN}" already exists and its staff fixtures are present — nothing to do.`);
-        return;
+      const { created, password } = await ensureStaff(prisma, existing.id, campuses);
+      if (created.length > 0) {
+        console.log(`✔ Added ${created.length} staff account(s) to existing tenant "${SUBDOMAIN}"`);
+        console.log(`  password (all of them): ${password}`);
+        for (const p of created) console.log(`  ${p.email.padEnd(28)} ${p.roles.join(', ')}`);
+      } else {
+        console.log(`Demo tenant "${SUBDOMAIN}" staff fixtures are present.`);
       }
-      console.log(`✔ Added ${created.length} staff account(s) to existing tenant "${SUBDOMAIN}"`);
-      console.log(`  password (all of them): ${password}`);
-      for (const p of created) console.log(`  ${p.email.padEnd(28)} ${p.roles.join(', ')}`);
+      await ensureParent(prisma, existing.id);
       return;
     }
 
@@ -168,14 +204,18 @@ async function main(): Promise<void> {
     });
     await prisma.section.create({ data: { schoolId: school.id, classId: klass.id, name: 'A' } });
 
-    const seededStaff = await ensureStaff(prisma, school.id, campus.id);
+    const seededStaff = await ensureStaff(prisma, school.id, [campus]);
+    await ensureParent(prisma, school.id);
 
-    console.log('✔ Seeded demo tenant');
+    console.log('\n✔ Seeded demo tenant');
     console.log(`  host:     ${SUBDOMAIN}.localhost (map to 127.0.0.1, or set Host header)`);
-    console.log(`  login:    ${OWNER_EMAIL} / ${OWNER_PASSWORD}`);
+    console.log(`  owner:    ${OWNER_EMAIL} / ${OWNER_PASSWORD}`);
+    console.log(`  parent:   ${PARENT_EMAIL} / ${PARENT_PASSWORD}`);
     console.log(`  year:     ${year.name} (current), campus "${campus.name}", class "Grade 1" section "A"`);
-    console.log(`  staff:    ${seededStaff.created.length} accounts at the STAFF door, password: ${seededStaff.password}`);
-    for (const p of seededStaff.created) console.log(`              ${p.email.padEnd(28)} ${p.roles.join(', ')}`);
+    if (seededStaff.created.length > 0) {
+      console.log(`  staff:    ${seededStaff.created.length} accounts, password: ${seededStaff.password}`);
+      for (const p of seededStaff.created) console.log(`              ${p.email.padEnd(28)} ${p.roles.join(', ')}`);
+    }
   } finally {
     await prisma.$disconnect();
   }

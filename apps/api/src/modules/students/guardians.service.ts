@@ -1,5 +1,6 @@
 import { HttpStatus, Inject, Injectable } from '@nestjs/common';
-import { Prisma, type GuardianRelation } from '@prisma/client';
+import { randomBytes } from 'node:crypto';
+import { Prisma, Role, type GuardianRelation } from '@prisma/client';
 import {
   AppError,
   ErrorCodes,
@@ -10,6 +11,7 @@ import {
   TenantContext,
 } from '@common';
 import { AuditService, TenantPrismaService } from '@database';
+import { PasswordService } from '../auth/password.service';
 import type { GuardianResolutionDto, UpdateGuardianContactDto } from './dto/student.dto';
 
 /**
@@ -25,6 +27,7 @@ export class GuardiansService {
     private readonly ctx: TenantContext,
     @Inject(FIELD_ENCRYPTION) private readonly crypto: FieldEncryption,
     private readonly audit: AuditService,
+    private readonly passwords: PasswordService,
   ) {}
 
   private get db() {
@@ -255,5 +258,54 @@ export class GuardiansService {
       entityId: studentId,
       oldValue: { parentId: link.parentId, name: parent?.fullName, phone: parent?.phone, relation: link.relation },
     });
+  }
+
+  /**
+   * Create a User(PARENT) for a guardian so they can log into the parent portal.
+   * Requires the guardian to have an email on their ParentProfile.
+   */
+  async enablePortal(studentId: string, parentId: string): Promise<{ email: string; temporaryPassword: string }> {
+    const link = await this.db.studentGuardian.findFirst({
+      where: { studentId, parentId },
+      select: { parent: { select: { id: true, fullName: true, email: true, userId: true, schoolId: true } } },
+    });
+    if (!link) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'Guardian not found for this student');
+
+    const parent = link.parent;
+    if (parent.userId) {
+      const existing = await this.db.user.findFirst({ where: { id: parent.userId }, select: { email: true } });
+      throw new AppError(ErrorCodes.CONFLICT, HttpStatus.CONFLICT, `Portal access already enabled (${existing?.email ?? parent.email})`);
+    }
+    if (!parent.email) {
+      throw new AppError(ErrorCodes.VALIDATION_FAILED, HttpStatus.BAD_REQUEST, 'Add an email to this guardian before enabling portal access');
+    }
+
+    const existingUser = await this.db.user.findFirst({ where: { email: parent.email.toLowerCase(), deletedAt: null }, select: { id: true } });
+    if (existingUser) {
+      throw new AppError(ErrorCodes.CONFLICT, HttpStatus.CONFLICT, 'A user with this email already exists');
+    }
+
+    const tempPassword = randomBytes(6).toString('base64url');
+    const passwordHash = await this.passwords.hash(tempPassword);
+    const user = await this.db.user.create({
+      data: {
+        schoolId: parent.schoolId,
+        email: parent.email.toLowerCase(),
+        fullName: parent.fullName,
+        passwordHash,
+        roles: [Role.PARENT],
+        status: 'ACTIVE',
+      },
+    });
+    await this.db.parentProfile.update({ where: { id: parent.id }, data: { userId: user.id } });
+
+    await this.audit.record({
+      action: 'PARENT_PORTAL_ENABLED' as never,
+      entityType: 'ParentProfile',
+      entityId: parent.id,
+      newValue: { userId: user.id, email: parent.email },
+    });
+
+    return { email: parent.email, temporaryPassword: tempPassword };
   }
 }

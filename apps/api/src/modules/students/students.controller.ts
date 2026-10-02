@@ -237,4 +237,11 @@ export class StudentsController {
   async removeGuardian(@Param('id') id: string, @Param('guardianId') guardianId: string) {
     await this.students.removeGuardian(id, guardianId);
   }
+
+  /** Create a User(PARENT) for a guardian so they can log into the parent portal. */
+  @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
+  @Post(':id/guardians/:parentId/enable-portal')
+  enablePortal(@Param('id') id: string, @Param('parentId') parentId: string) {
+    return this.guardians.enablePortal(id, parentId);
+  }
 }

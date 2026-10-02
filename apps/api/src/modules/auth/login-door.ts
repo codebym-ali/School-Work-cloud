@@ -1,12 +1,12 @@
 import { Role } from '@prisma/client';
 
 /**
- * The two staff-facing sign-in entrances (Owner Login Plan).
+ * Sign-in entrances.
  *
- * `owner` → `/owner-login` · `staff` → `/login`. Students have their own credential entirely
- * (registration number + CNIC) and never reach this rule.
+ * `owner` → `/owner-login` · `staff` → `/login` · `parent` → `/parent-login`.
+ * Students have their own credential entirely (registration number + CNIC) and never reach this rule.
  */
-export type LoginDoor = 'staff' | 'owner';
+export type LoginDoor = 'staff' | 'owner' | 'parent';
 
 /**
  * May these roles use this door?
@@ -19,13 +19,11 @@ export type LoginDoor = 'staff' | 'owner';
  */
 export function doorAllows(door: LoginDoor, roles: readonly Role[]): boolean {
   const isOwner = roles.includes(Role.OWNER_ADMIN);
+  const isParent = roles.includes(Role.PARENT);
   if (door === 'owner') return isOwner;
+  if (door === 'parent') return isParent && !isOwner;
 
-  // ⚠️ **The staff door refuses owners (O2).** This is the half that makes the two doors mutually
-  // exclusive; without it the owner simply had a second entrance and the separation was a label.
-  //
-  // The refusal is delivered by the caller as the same `invalid()` a wrong password produces, doing
-  // the same work — otherwise this line would turn `/login` into an owner-detector, leaking which
-  // address owns the school, which is precisely the leak the owner door exists to prevent.
-  return !isOwner;
+  // ⚠️ **The staff door refuses owners (O2) and parents.** Owners are routed to the owner door;
+  // parents are routed to the parent door. Without these refusals, the separation is a label.
+  return !isOwner && !isParent;
 }

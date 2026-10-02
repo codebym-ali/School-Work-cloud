@@ -224,7 +224,7 @@ export const NAV: NavItem[] = [
  * per request in the API regardless of host; narrowing a door cannot grant anything, and widening one
  * cannot leak anything. Never rely on this for access control.
  */
-export type AppName = 'owner-web' | 'staff-web';
+export type AppName = 'owner-web' | 'staff-web' | 'parent-web';
 
 export const APP_AUDIENCE: Record<AppName, readonly Role[]> = {
   // The owner alone. ⚠️ NOT the OPERATIONS_ADMIN deputy: staff-web's layout declares it serves
@@ -235,6 +235,7 @@ export const APP_AUDIENCE: Record<AppName, readonly Role[]> = {
   // Everyone else who works at the school — as staff-web's own layout puts it, it
   // "serves ops/campus-admin/accountant/HR/admission/teacher/staff".
   'staff-web': ['OPERATIONS_ADMIN', 'CAMPUS_ADMIN', 'ADMISSION_CONTROLLER', 'HR_MANAGER', 'ACCOUNTANT', 'TEACHER', 'STAFF'],
+  'parent-web': ['PARENT'],
 };
 
 /**

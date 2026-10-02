@@ -18,7 +18,7 @@ function csrfToken(): string {
 }
 
 // Login/refresh endpoints must never trigger a refresh-retry (they define the session and would loop).
-const AUTH_NO_REFRESH = ['/auth/refresh', '/auth/login', '/auth/owner-login', '/portal/auth/login', '/auth/mfa', '/auth/logout'];
+const AUTH_NO_REFRESH = ['/auth/refresh', '/auth/login', '/auth/owner-login', '/auth/parent-login', '/auth/student-login', '/auth/mfa', '/auth/logout'];
 
 /**
  * Single-flight access-token refresh. When the short-lived access token expires, one POST
@@ -100,7 +100,8 @@ export function idemKey(): Record<string, string> {
 // ── Types ──────────────────────────────────────────────────────────────────
 /** `admissionsMode` is a school-level setting: DIRECT hides the enquiry pipeline entirely
  *  (the form IS the admission), PIPELINE restores lead → entry test → admit. */
-export interface Me { id: string; email: string; name?: string | null; roles: string[]; campusId: string | null; campusName?: string | null; schoolName?: string; modules: string[]; mfaEnabled: boolean; admissionsMode: 'DIRECT' | 'PIPELINE'; campusAdminSeesFees: boolean; feeVoucherApproval?: boolean }
+export interface MeChild { studentId: string; fullName: string; grNumber: string; className: string; sectionName: string; status: string }
+export interface Me { id: string; email: string; name?: string | null; roles: string[]; campusId: string | null; campusName?: string | null; schoolName?: string; modules: string[]; mfaEnabled: boolean; admissionsMode: 'DIRECT' | 'PIPELINE'; campusAdminSeesFees: boolean; feeVoucherApproval?: boolean; children?: MeChild[] }
 /** Login either establishes a session, or (when the account has MFA on) hands back a short-lived
  *  `mfaToken` that must be exchanged for a session via `api.mfa.challenge`. */
 export type LoginResult =
@@ -638,25 +639,19 @@ export interface ReportCard {
   overallPercent: string; gradeLabel: string; sectionRank: number | null; documentId: string;
 }
 
-// ── Parent portal (§28) ──────────────────────────────────────────────────────
-export interface PortalChild {
-  id: string; fullName: string; grNumber: string;
-  className: string | null; sectionName: string | null;
-  photoUrl: string | null; status: string; isCurrent: boolean;
-}
+// ── Student self-service portal (§28) ────────────────────────────────────────
 export interface PortalOverview {
   student: {
-    id: string; fullName: string; grNumber: string; gender: string; dateOfBirth: string;
+    fullName: string; grNumber: string; gender: string; dateOfBirth: string;
     status: StudentStatus; statusReason: string | null; statusEndsOn: string | null;
-    religion: string | null; bloodGroup: string | null; medicalNotes: string | null;
-    addressLine: string | null; city: string | null; photoUrl: string | null;
   };
-  enrollment: { className: string; sectionName: string; campusName: string; rollNumber: number | null; year: string; admissionDate: string } | null;
-  guardians: Array<{ name: string; phone: string; relation: string; isPrimary: boolean; email: string | null; occupation: string | null }>;
+  enrollment: { className: string; sectionName: string; rollNumber: number | null; year: string } | null;
+  guardians: Array<{ name: string; phone: string; relation: string; isPrimary: boolean }>;
   attendancePercent: number | null;
   outstandingFees: number;
   reportCards: number;
 }
+export interface ParentChild { studentId: string; fullName: string; grNumber: string; gender: string; status: string; relation: string; className: string | null; sectionName: string | null }
 export interface PortalAttendance { date: string; session: string; status: string }
 /** `sectionRank` is 1–3 for a podium finish and `null` for everyone else — a student is never shown a lower rank. */
 export interface PortalResult { termId: string; term: string; overallPercent: number; grade: string; sectionRank: 1 | 2 | 3 | null; hasFile: boolean }
@@ -1023,6 +1018,8 @@ export const api = {
    */
   ownerLogin: (email: string, password: string) =>
     apiPost<LoginResult>('/auth/owner-login', { email, password }),
+  parentLogin: (email: string, password: string) =>
+    apiPost<LoginResult>('/auth/parent-login', { email, password }),
   logout: () => apiPost<null>('/auth/logout'),
   me: () => apiGet<Me>('/auth/me'),
   /** Owner only: the display name shown in the header. Empty clears it. */
@@ -1424,6 +1421,8 @@ export const api = {
     setPrimaryGuardian: (id: string, guardianId: string) =>
       apiPatch<null>(`/students/${id}/guardians/${guardianId}`, { isPrimary: true }),
     removeGuardian: (id: string, guardianId: string) => apiDelete<null>(`/students/${id}/guardians/${guardianId}`),
+    enableGuardianPortal: (studentId: string, parentId: string) =>
+      apiPost<{ email: string; temporaryPassword: string }>(`/students/${studentId}/guardians/${parentId}/enable-portal`, {}),
     updateGuardianContact: (id: string, guardianId: string, body: { fullName?: string; phone?: string; email?: string; occupation?: string }) =>
       apiPatch<{ phoneChanged: boolean; phoneVerified: boolean; childCount: number }>(`/students/${id}/guardians/${guardianId}/contact`, body),
     sendGuardianOtp: (parentId: string) =>
@@ -1461,23 +1460,9 @@ export const api = {
     setDocument: (id: string, type: string, body: { received: boolean; fileKey?: string; note?: string }) =>
       apiPut<StudentDocumentRow>(`/students/${id}/documents/${type}`, body),
   },
-  // Parent portal sign-in: child's registration-no + guardian CNIC (no password), §28.
-  parentPortal: {
+  // Read-only student portal sign-in: registration-no + CNIC (no password), §28/#34.
+  studentPortal: {
     login: (registrationNo: string, cnic: string) => apiPost<{ user: Me }>('/portal/auth/login', { registrationNo, cnic }),
-    overview: () => apiGet<PortalOverview>('/portal/overview'),
-    children: () => apiGet<PortalChild[]>('/portal/children'),
-    switchChild: (studentId: string) => apiPost<PortalChild[]>('/portal/switch-child', { studentId }),
-    photo: () => apiGet<{ url: string; expiresInSeconds: number }>('/portal/photo'),
-    notifications: () => apiGet<Notifications>('/portal/notifications'),
-    notificationsSeen: () => apiPost<{ ok: true }>('/portal/notifications/seen', {}),
-    attendance: () => apiGet<PortalAttendance[]>('/portal/attendance'),
-    attendanceSummary: () => apiGet<PortalAttendanceSummary>('/portal/attendance/summary'),
-    performance: () => apiGet<PortalPerformance>('/portal/performance'),
-    results: () => apiGet<PortalResult[]>('/portal/results'),
-    termResult: (termId: string) => apiGet<PortalTermResult>(`/portal/results/${termId}`),
-    termResultFile: (termId: string) => apiGet<{ url: string; expiresInSeconds: number }>(`/portal/results/${termId}/file`),
-    fees: () => apiGet<PortalFee[]>('/portal/fees'),
-    receipt: (paymentId: string) => apiGet<{ url: string }>(`/portal/fees/payments/${paymentId}/receipt`),
   },
   /**
    * The activity log (GAP-06). Cursor-paged: pass back `nextCursor` for the next older batch. There are no
@@ -1620,4 +1605,38 @@ export const api = {
   // `studentLeaves` was removed 2026-08-07. It was kept after the parent portal went (2026-07-28)
   // on the explicit condition "delete it if the admin leave screen is never built" — that screen
   // was built, and it reads `leaveQueue` above, so the condition resolved the other way.
+  portal: {
+    overview: () => apiGet<PortalOverview>('/portal/overview'),
+    attendance: () => apiGet<PortalAttendance[]>('/portal/attendance'),
+    results: () => apiGet<PortalResult[]>('/portal/results'),
+    /** One term in full — every subject's marks, total, percent and grade. */
+    termResult: (termId: string) => apiGet<PortalTermResult>(`/portal/results/${termId}`),
+    /** A short-lived link to the student's OWN report-card PDF for a term. */
+    termResultFile: (termId: string) => apiGet<{ url: string; expiresInSeconds: number }>(`/portal/results/${termId}/file`),
+    performance: () => apiGet<PortalPerformance>('/portal/performance'),
+    attendanceSummary: () => apiGet<PortalAttendanceSummary>('/portal/attendance/summary'),
+    fees: () => apiGet<PortalFee[]>('/portal/fees'),
+    /** A short-lived presigned link to the student's OWN receipt; the server checks ownership. */
+    receipt: (paymentId: string) => apiGet<{ url: string }>(`/portal/fees/payments/${paymentId}/receipt`),
+    /**
+     * ⚠️ A separate endpoint from `notifications.list()`, not a filtered view of it. A student is a
+     * different audience, not a staff member with fewer rows — nothing about unpaid fees belongs
+     * here, because a child is not the person who pays.
+     */
+    notifications: () => apiGet<Notifications>('/portal/notifications'),
+    notificationsSeen: () => apiPost<{ ok: true }>('/portal/notifications/seen', {}),
+  },
+  parentPortal: {
+    children: () => apiGet<ParentChild[]>('/parent-portal/children'),
+    overview: (studentId: string) => apiGet<PortalOverview>(`/parent-portal/${studentId}/overview`),
+    attendance: (studentId: string) => apiGet<PortalAttendance[]>(`/parent-portal/${studentId}/attendance`),
+    attendanceSummary: (studentId: string) => apiGet<PortalAttendanceSummary>(`/parent-portal/${studentId}/attendance/summary`),
+    performance: (studentId: string) => apiGet<PortalPerformance>(`/parent-portal/${studentId}/performance`),
+    results: (studentId: string) => apiGet<PortalResult[]>(`/parent-portal/${studentId}/results`),
+    termResult: (studentId: string, termId: string) => apiGet<PortalTermResult>(`/parent-portal/${studentId}/results/${termId}`),
+    termResultFile: (studentId: string, termId: string) => apiGet<{ url: string; expiresInSeconds: number }>(`/parent-portal/${studentId}/results/${termId}/file`),
+    fees: (studentId: string) => apiGet<PortalFee[]>(`/parent-portal/${studentId}/fees`),
+    notifications: (studentId: string) => apiGet<Notifications>(`/parent-portal/${studentId}/notifications`),
+    notificationsSeen: (studentId: string) => apiPost<{ ok: true }>(`/parent-portal/${studentId}/notifications/seen`, {}),
+  },
 };

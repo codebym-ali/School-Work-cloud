@@ -58,6 +58,15 @@ export class AuthController {
     return this.auth.login(dto, res, 'owner');
   }
 
+  /** Parent portal entrance — email + password, same rate bucket as the other doors. */
+  @Public()
+  @RateLimit('login')
+  @Post('parent-login')
+  @HttpCode(HttpStatus.OK)
+  parentLogin(@Body() dto: LoginDto, @Res({ passthrough: true }) res: Response) {
+    return this.auth.login(dto, res, 'parent');
+  }
+
   @Public()
   @RateLimit('login')
   @Post('mfa/challenge')

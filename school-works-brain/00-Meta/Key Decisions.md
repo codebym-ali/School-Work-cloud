@@ -9,6 +9,13 @@ updated: 2026-08-20
 The locked, cross-cutting decisions every note and every developer must respect.
 Full ledger: [[consistency-register]] (LOCKED). This is the digest.
 
+## Parents DO get logins — reversal of blueprint §24 (2026-10-01)
+- **Decision:** Parents now get portal access (email + password login on `apps/parent-web`, port 3007). This reverses the locked blueprint decision from 2026-07-28 ("parents do NOT get logins").
+- **Data model:** No schema migration — `ParentProfile.userId` (nullable) is populated when staff enables portal access; `StudentGuardian` provides the many-to-many link; `PARENT` role (already in enum) is now granted.
+- **Security boundary:** `resolveChild(studentId)` validates the guardian link on every API call (not just login); blocked student statuses re-checked on every read.
+- **Student portal unchanged:** students still log in with reg-no + CNIC on `apps/student-web` (:3003). Both portals coexist.
+- **Why:** School owners requested it — parents want to see their children's attendance and fees without calling the office.
+
 ## @OwnerWritable is the opt-in for owner writes, not @Roles (2026-10-01)
 - **Rule:** `OwnerReadOnlyGuard` (global) blocks POST/PUT/PATCH/DELETE for a pure `OWNER_ADMIN` user unless the handler or controller carries `@OwnerWritable()`. `@Roles('OWNER_ADMIN', …)` on a mutating method means the owner *should* be able to use it, but without `@OwnerWritable` the guard refuses it — a 403 that looks like a role problem but is a decorator gap.
 - **Class-level is safe:** the guard only fires on mutating HTTP methods, so `@OwnerWritable()` on a controller with mixed GET/POST methods does not weaken GET.

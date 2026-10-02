@@ -580,7 +580,7 @@ export class AuthService {
     await this.resignAccess(user.id, res);
   }
 
-  async me(principal: RequestUser): Promise<{ id: string; email: string; name: string | null; roles: Role[]; campusId: string | null; campusName: string | null; schoolName: string; modules: string[]; mfaEnabled: boolean; admissionsMode: SchoolSettings['admissionsMode']; campusAdminSeesFees: boolean; feeVoucherApproval: boolean }> {
+  async me(principal: RequestUser): Promise<{ id: string; email: string; name: string | null; roles: Role[]; campusId: string | null; campusName: string | null; schoolName: string; modules: string[]; mfaEnabled: boolean; admissionsMode: SchoolSettings['admissionsMode']; campusAdminSeesFees: boolean; feeVoucherApproval: boolean; children?: Array<{ studentId: string; fullName: string; grNumber: string; className: string; sectionName: string; status: string }> }> {
     // SA5: a break-glass session has no tenant user row — synthesise a read-only "me" so the shell
     // loads (roles come from the token; every write is blocked by the BreakGlassReadonlyGuard).
     if (principal.breakGlass) {
@@ -620,6 +620,36 @@ export class AuthService {
       });
       campusName = enrollment?.campus?.name ?? null;
     }
+    let children: Array<{ studentId: string; fullName: string; grNumber: string; className: string; sectionName: string; status: string }> | undefined;
+    if (user.roles.includes('PARENT' as Role)) {
+      const parent = await this.db.parentProfile.findFirst({ where: { userId: user.id }, select: { id: true } });
+      if (parent) {
+        const links = await this.db.studentGuardian.findMany({
+          where: { parentId: parent.id },
+          select: {
+            student: {
+              select: {
+                id: true, fullName: true, grNumber: true, status: true,
+                enrollments: {
+                  where: { status: 'ACTIVE' },
+                  take: 1,
+                  select: { section: { select: { name: true, class: { select: { name: true } } } } },
+                },
+              },
+            },
+          },
+        });
+        children = links.map((l) => ({
+          studentId: l.student.id,
+          fullName: l.student.fullName,
+          grNumber: l.student.grNumber,
+          className: l.student.enrollments[0]?.section?.class?.name ?? '',
+          sectionName: l.student.enrollments[0]?.section?.name ?? '',
+          status: l.student.status,
+        }));
+      }
+    }
+
     return {
       id: user.id, email: user.email, name: staff?.fullName ?? user.fullName ?? null,
       roles: user.roles, campusId: user.campusId, campusName,
@@ -627,6 +657,7 @@ export class AuthService {
       modules, mfaEnabled: user.mfaEnabled,
       admissionsMode: settings.admissionsMode, campusAdminSeesFees: settings.campusAdminSeesFees,
       feeVoucherApproval: settings.feeVoucherApproval,
+      ...(children ? { children } : {}),
     };
   }
 

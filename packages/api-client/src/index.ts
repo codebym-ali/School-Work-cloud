@@ -638,14 +638,21 @@ export interface ReportCard {
   overallPercent: string; gradeLabel: string; sectionRank: number | null; documentId: string;
 }
 
-// ── Student self-service portal (§28) ────────────────────────────────────────
+// ── Parent portal (§28) ──────────────────────────────────────────────────────
+export interface PortalChild {
+  id: string; fullName: string; grNumber: string;
+  className: string | null; sectionName: string | null;
+  photoUrl: string | null; status: string; isCurrent: boolean;
+}
 export interface PortalOverview {
   student: {
-    fullName: string; grNumber: string; gender: string; dateOfBirth: string;
+    id: string; fullName: string; grNumber: string; gender: string; dateOfBirth: string;
     status: StudentStatus; statusReason: string | null; statusEndsOn: string | null;
+    religion: string | null; bloodGroup: string | null; medicalNotes: string | null;
+    addressLine: string | null; city: string | null; photoUrl: string | null;
   };
-  enrollment: { className: string; sectionName: string; rollNumber: number | null; year: string } | null;
-  guardians: Array<{ name: string; phone: string; relation: string; isPrimary: boolean }>;
+  enrollment: { className: string; sectionName: string; campusName: string; rollNumber: number | null; year: string; admissionDate: string } | null;
+  guardians: Array<{ name: string; phone: string; relation: string; isPrimary: boolean; email: string | null; occupation: string | null }>;
   attendancePercent: number | null;
   outstandingFees: number;
   reportCards: number;
@@ -1457,19 +1464,20 @@ export const api = {
   // Parent portal sign-in: child's registration-no + guardian CNIC (no password), §28.
   parentPortal: {
     login: (registrationNo: string, cnic: string) => apiPost<{ user: Me }>('/portal/auth/login', { registrationNo, cnic }),
-    overview: () => apiGet<any>('/portal/overview'),
-    children: () => apiGet<any[]>('/portal/children'),
-    switchChild: (studentId: string) => apiPost<any[]>('/portal/switch-child', { studentId }),
+    overview: () => apiGet<PortalOverview>('/portal/overview'),
+    children: () => apiGet<PortalChild[]>('/portal/children'),
+    switchChild: (studentId: string) => apiPost<PortalChild[]>('/portal/switch-child', { studentId }),
     photo: () => apiGet<{ url: string; expiresInSeconds: number }>('/portal/photo'),
-    notifications: () => apiGet<any>('/portal/notifications'),
-    markSeen: () => apiPost<{ ok: true }>('/portal/notifications/seen', {}),
-    attendance: () => apiGet<any[]>('/portal/attendance'),
-    attendanceSummary: () => apiGet<any>('/portal/attendance/summary'),
-    performance: () => apiGet<any>('/portal/performance'),
-    results: () => apiGet<any[]>('/portal/results'),
-    termResult: (termId: string) => apiGet<any>(`/portal/results/${termId}`),
+    notifications: () => apiGet<Notifications>('/portal/notifications'),
+    notificationsSeen: () => apiPost<{ ok: true }>('/portal/notifications/seen', {}),
+    attendance: () => apiGet<PortalAttendance[]>('/portal/attendance'),
+    attendanceSummary: () => apiGet<PortalAttendanceSummary>('/portal/attendance/summary'),
+    performance: () => apiGet<PortalPerformance>('/portal/performance'),
+    results: () => apiGet<PortalResult[]>('/portal/results'),
+    termResult: (termId: string) => apiGet<PortalTermResult>(`/portal/results/${termId}`),
     termResultFile: (termId: string) => apiGet<{ url: string; expiresInSeconds: number }>(`/portal/results/${termId}/file`),
-    fees: () => apiGet<any[]>('/portal/fees'),
+    fees: () => apiGet<PortalFee[]>('/portal/fees'),
+    receipt: (paymentId: string) => apiGet<{ url: string }>(`/portal/fees/payments/${paymentId}/receipt`),
   },
   /**
    * The activity log (GAP-06). Cursor-paged: pass back `nextCursor` for the next older batch. There are no
@@ -1612,25 +1620,4 @@ export const api = {
   // `studentLeaves` was removed 2026-08-07. It was kept after the parent portal went (2026-07-28)
   // on the explicit condition "delete it if the admin leave screen is never built" — that screen
   // was built, and it reads `leaveQueue` above, so the condition resolved the other way.
-  portal: {
-    overview: () => apiGet<PortalOverview>('/portal/overview'),
-    attendance: () => apiGet<PortalAttendance[]>('/portal/attendance'),
-    results: () => apiGet<PortalResult[]>('/portal/results'),
-    /** One term in full — every subject's marks, total, percent and grade. */
-    termResult: (termId: string) => apiGet<PortalTermResult>(`/portal/results/${termId}`),
-    /** A short-lived link to the student's OWN report-card PDF for a term. */
-    termResultFile: (termId: string) => apiGet<{ url: string; expiresInSeconds: number }>(`/portal/results/${termId}/file`),
-    performance: () => apiGet<PortalPerformance>('/portal/performance'),
-    attendanceSummary: () => apiGet<PortalAttendanceSummary>('/portal/attendance/summary'),
-    fees: () => apiGet<PortalFee[]>('/portal/fees'),
-    /** A short-lived presigned link to the student's OWN receipt; the server checks ownership. */
-    receipt: (paymentId: string) => apiGet<{ url: string }>(`/portal/fees/payments/${paymentId}/receipt`),
-    /**
-     * ⚠️ A separate endpoint from `notifications.list()`, not a filtered view of it. A student is a
-     * different audience, not a staff member with fewer rows — nothing about unpaid fees belongs
-     * here, because a child is not the person who pays.
-     */
-    notifications: () => apiGet<Notifications>('/portal/notifications'),
-    notificationsSeen: () => apiPost<{ ok: true }>('/portal/notifications/seen', {}),
-  },
 };

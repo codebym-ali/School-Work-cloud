@@ -1,17 +1,13 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { api, ApiError, type Me } from '@sw/api-client';
 import { Icon, type IconName } from '@sw/ui';
 import { ParentBell } from './parent-bell';
+import { ChildSwitcher } from './child-switcher';
 
-/**
- * The parent portal's client shell — auth gate + navigation across the five read-only pages.
- * On this dedicated origin the login page renders bare (the `isPublic` bypass); everything else needs
- * a student session (the API's STUDENT-scoped `/portal/*`), and a 401 sends them to /login.
- */
 const NAV: Array<{ href: string; label: string; icon: IconName }> = [
   { href: '/', label: 'Home', icon: 'home' },
   { href: '/attendance', label: 'Attendance', icon: 'attendance' },
@@ -26,6 +22,7 @@ export function ParentShell({ children }: { children: React.ReactNode }) {
   const isPublic = pathname === '/login';
   const [me, setMe] = useState<Me | null>(null);
   const [ready, setReady] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
     if (isPublic) { setReady(true); return; }
@@ -35,6 +32,11 @@ export function ParentShell({ children }: { children: React.ReactNode }) {
       .finally(() => setReady(true));
   }, [router, isPublic]);
 
+  const handleChildSwitch = useCallback(() => {
+    setRefreshKey((k) => k + 1);
+    router.refresh();
+  }, [router]);
+
   if (isPublic) return <>{children}</>;
   if (!ready) return <main className="container"><p className="muted">Loading…</p></main>;
   if (!me) return null;
@@ -42,7 +44,7 @@ export function ParentShell({ children }: { children: React.ReactNode }) {
   const isActive = (href: string) => (href === '/' ? pathname === '/' : pathname === href || pathname.startsWith(`${href}/`));
 
   return (
-    <div className="sp">
+    <div className="sp" key={refreshKey}>
       <header className="sp-top">
         <Link href="/" className="sp-brand">
           <Icon name="school" size={22} />
@@ -54,6 +56,7 @@ export function ParentShell({ children }: { children: React.ReactNode }) {
           ))}
         </nav>
         <div className="sp-actions">
+          <ChildSwitcher onSwitch={handleChildSwitch} />
           <ParentBell />
           <button type="button" className="ghost small" onClick={async () => { await api.logout().catch(() => {}); router.replace('/login'); }}>
             Sign out

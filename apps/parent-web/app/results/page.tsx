@@ -53,7 +53,7 @@ export default function MyResults() {
   const pushed = useRef(false);
 
   useEffect(() => {
-    Promise.all([api.portal.performance(), api.portal.results()])
+    Promise.all([api.parentPortal.performance(), api.parentPortal.results()])
       .then(([p, r]) => {
         setPerf(p);
         setCards(r);
@@ -207,13 +207,13 @@ function TermDetail({ termId, onBack }: { termId: string; onBack: () => void }) 
   useEffect(() => {
     let alive = true;
     setD(null); setErr(false);
-    api.portal.termResult(termId).then((r) => { if (alive) setD(r); }).catch(() => { if (alive) setErr(true); });
+    api.parentPortal.termResult(termId).then((r) => { if (alive) setD(r); }).catch(() => { if (alive) setErr(true); });
     return () => { alive = false; };
   }, [termId]);
 
   async function download() {
     setFileErr(false);
-    try { window.open((await api.portal.termResultFile(termId)).url, '_blank', 'noopener'); } catch { setFileErr(true); }
+    try { window.open((await api.parentPortal.termResultFile(termId)).url, '_blank', 'noopener'); } catch { setFileErr(true); }
   }
 
   const back = <button type="button" className="ghost small" onClick={onBack} style={{ alignSelf: 'flex-start' }}>← All results</button>;

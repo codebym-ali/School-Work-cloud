@@ -21,7 +21,7 @@ export function ParentBell() {
   const load = useCallback(async () => {
     // Fails silently. A bell is never worth breaking the portal around.
     try {
-      const res = await api.portal.notifications();
+      const res = await api.parentPortal.notifications();
       setItems(res.items);
       setUnread(res.unread);
     } catch { /* leave the bell hidden */ }
@@ -51,7 +51,7 @@ export function ParentBell() {
     if (!next || unread === 0) return;
     setUnread(0);
     setItems((prev) => prev.map((i) => ({ ...i, isNew: false })));
-    await api.portal.notificationsSeen().catch(() => { /* the next load corrects it */ });
+    await api.parentPortal.notificationsSeen().catch(() => { /* the next load corrects it */ });
   }
 
   return (

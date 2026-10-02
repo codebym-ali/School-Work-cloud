@@ -16,7 +16,7 @@ export default function MyFees() {
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
 
-  useEffect(() => { api.portal.fees().then(setRows).catch(() => setErr(true)); }, []);
+  useEffect(() => { api.parentPortal.fees().then(setRows).catch(() => setErr(true)); }, []);
 
   /** Opens the PDF in a new tab. The link is presigned and short-lived, so it is fetched on the
    *  click rather than rendered as an href that would be stale by the time anyone used it. */
@@ -24,7 +24,7 @@ export default function MyFees() {
     setBusy(paymentId);
     setMsg(null);
     try {
-      const { url } = await api.portal.receipt(paymentId);
+      const { url } = await api.parentPortal.receipt(paymentId);
       window.open(url, '_blank', 'noopener');
     } catch (e) {
       setMsg(e instanceof ApiError ? e.message : 'Could not open that receipt.');

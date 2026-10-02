@@ -17,7 +17,7 @@ export default function MyAttendance() {
   const [data, setData] = useState<PortalAttendanceSummary | null>(null);
   const [err, setErr] = useState(false);
 
-  useEffect(() => { api.portal.attendanceSummary().then(setData).catch(() => setErr(true)); }, []);
+  useEffect(() => { api.parentPortal.attendanceSummary().then(setData).catch(() => setErr(true)); }, []);
 
   if (err) return <p className="error">Couldn&apos;t load your attendance.</p>;
   if (!data) return <p className="muted">Loading…</p>;

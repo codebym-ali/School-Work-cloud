@@ -5,11 +5,20 @@ import { api, type PortalOverview } from '@sw/api-client';
 import { MetricLink } from '@/components/metric';
 import { STUDENT_STATUS, statusStyle } from '@sw/ui';
 
-export default function MyDashboard() {
+type DetailTab = 'academic' | 'personal' | 'guardians';
+
+const TABS: Array<{ key: DetailTab; label: string }> = [
+  { key: 'academic', label: 'Academic' },
+  { key: 'personal', label: 'Personal' },
+  { key: 'guardians', label: 'Guardians' },
+];
+
+export default function ParentHome() {
   const [data, setData] = useState<PortalOverview | null>(null);
   const [err, setErr] = useState(false);
+  const [tab, setTab] = useState<DetailTab>('academic');
 
-  useEffect(() => { api.portal.overview().then(setData).catch(() => setErr(true)); }, []);
+  useEffect(() => { api.parentPortal.overview().then(setData).catch(() => setErr(true)); }, []);
 
   if (err) return <p className="error">Couldn&apos;t load your dashboard.</p>;
   if (!data) return <p className="muted">Loading…</p>;
@@ -17,15 +26,42 @@ export default function MyDashboard() {
 
   return (
     <div className="stack">
-      <h1>Welcome, {s.fullName}</h1>
+      {/* Profile hero — photo, name, class badge */}
+      <div className="card">
+        <div className="profile-hero">
+          {s.photoUrl ? (
+            <img src={s.photoUrl} alt={s.fullName} className="profile-photo" />
+          ) : (
+            <span className="profile-photo--fallback">{initials(s.fullName)}</span>
+          )}
+          <div className="profile-info">
+            <h1>{s.fullName}</h1>
+            <p className="profile-class">
+              {data.enrollment
+                ? `${data.enrollment.className} — ${data.enrollment.sectionName}`
+                : 'Not enrolled'}
+              {data.enrollment?.rollNumber ? ` · Roll #${data.enrollment.rollNumber}` : ''}
+            </p>
+            <div className="profile-badges">
+              <span className="badge">{s.grNumber}</span>
+              {data.enrollment && <span className="badge">{data.enrollment.year}</span>}
+              {data.enrollment?.campusName && <span className="badge">{data.enrollment.campusName}</span>}
+              {s.status !== 'ACTIVE' && (
+                <span className={`badge ${s.status === 'SUSPENDED' ? 'warn' : 'bad'}`}>
+                  {STUDENT_STATUS[s.status]?.label ?? s.status}
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
 
-      {/* A suspended student keeps portal access precisely so they can read this. */}
       {s.status !== 'ACTIVE' && (
         <div className="card stack" style={{ ...statusStyle(s.status), gap: 6 }}>
-          <strong>Status: {STUDENT_STATUS[s.status].label}</strong>
+          <strong>Status: {STUDENT_STATUS[s.status]?.label ?? s.status}</strong>
           {s.status === 'SUSPENDED' && (
             <span>
-              You are suspended{s.statusEndsOn ? ` until ${new Date(s.statusEndsOn).toLocaleDateString()}` : ''}.
+              Suspended{s.statusEndsOn ? ` until ${new Date(s.statusEndsOn).toLocaleDateString()}` : ''}.
               Please contact the school office.
             </span>
           )}
@@ -33,10 +69,8 @@ export default function MyDashboard() {
         </div>
       )}
 
+      {/* Quick stats — each is a link to its full page */}
       <div className="grid">
-        {/* The clearest case in the product for Law 1: every one of these already HAS a screen
-            behind it, and a student reading "Rs 4,500 outstanding" wants the invoice, not the
-            number. Each tile is the front door of the page it summarises. */}
         <MetricLink label="Attendance" href="/attendance"
           value={data.attendancePercent == null ? '—' : `${data.attendancePercent}%`} />
         <MetricLink label="Outstanding fees" href="/fees" alert={data.outstandingFees > 0}
@@ -44,38 +78,75 @@ export default function MyDashboard() {
         <MetricLink label="Report cards" href="/results" value={data.reportCards} />
       </div>
 
+      {/* Tabbed details */}
       <div className="card stack">
-        <h2 style={{ margin: 0, fontSize: 17 }}>My details</h2>
-        <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(180px,1fr))' }}>
-          <Field label="GR number" value={s.grNumber} />
-          <Field label="Class" value={data.enrollment ? `${data.enrollment.className} — ${data.enrollment.sectionName}` : '—'} />
-          <Field label="Roll number" value={data.enrollment?.rollNumber ?? '—'} />
-          <Field label="Academic year" value={data.enrollment?.year ?? '—'} />
-          <Field label="Gender" value={s.gender} />
-          <Field label="Date of birth" value={new Date(s.dateOfBirth).toLocaleDateString()} />
+        <div className="detail-tabs" role="tablist" aria-label="Details">
+          {TABS.map((t) => (
+            <button key={t.key} type="button" role="tab" aria-selected={tab === t.key}
+              tabIndex={tab === t.key ? 0 : -1} onClick={() => setTab(t.key)}>{t.label}</button>
+          ))}
         </div>
-      </div>
 
-      <div className="card stack">
-        <h2 style={{ margin: 0, fontSize: 17 }}>Guardians</h2>
-        <table className="stacked">
-          <thead><tr><th>Name</th><th>Relation</th><th>Phone</th></tr></thead>
-          <tbody>
+        {tab === 'academic' && (
+          <div className="detail-grid">
+            <Field label="GR number" value={s.grNumber} />
+            <Field label="Class" value={data.enrollment ? `${data.enrollment.className} — ${data.enrollment.sectionName}` : '—'} />
+            <Field label="Roll number" value={data.enrollment?.rollNumber ?? '—'} />
+            <Field label="Academic year" value={data.enrollment?.year ?? '—'} />
+            <Field label="Campus" value={data.enrollment?.campusName ?? '—'} />
+            <Field label="Admission date" value={data.enrollment?.admissionDate ? new Date(data.enrollment.admissionDate).toLocaleDateString() : '—'} />
+          </div>
+        )}
+
+        {tab === 'personal' && (
+          <div className="detail-grid">
+            <Field label="Gender" value={s.gender} />
+            <Field label="Date of birth" value={new Date(s.dateOfBirth).toLocaleDateString()} />
+            <Field label="Religion" value={s.religion ?? '—'} />
+            <Field label="Blood group" value={s.bloodGroup ?? '—'} />
+            <Field label="Address" value={[s.addressLine, s.city].filter(Boolean).join(', ') || '—'} />
+            {s.medicalNotes && <Field label="Medical notes" value={s.medicalNotes} />}
+          </div>
+        )}
+
+        {tab === 'guardians' && (
+          <div className="stack" style={{ gap: 10 }}>
+            {data.guardians.length === 0 && <p className="muted">No guardians on file.</p>}
             {data.guardians.map((g, i) => (
-              <tr key={i}>
-                <td data-label="Name">{g.name}{g.isPrimary && <span className="badge ok" style={{ marginLeft: 6 }}>primary</span>}</td>
-                <td data-label="Relation">{g.relation}</td>
-                <td data-label="Phone">{g.phone}</td>
-              </tr>
+              <div key={i} className="card" style={{ padding: 14 }}>
+                <div className="row" style={{ marginBottom: 8 }}>
+                  <strong>{g.name}</strong>
+                  <div className="chips">
+                    <span className="badge">{g.relation}</span>
+                    {g.isPrimary && <span className="badge ok">Primary</span>}
+                  </div>
+                </div>
+                <div className="detail-grid">
+                  <Field label="Phone" value={g.phone} />
+                  {g.email && <Field label="Email" value={g.email} />}
+                  {g.occupation && <Field label="Occupation" value={g.occupation} />}
+                </div>
+              </div>
             ))}
-            {data.guardians.length === 0 && <tr><td colSpan={3} className="muted">No guardians on file.</td></tr>}
-          </tbody>
-        </table>
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
 function Field({ label, value }: { label: string; value: ReactNode }) {
-  return <div><div className="muted" style={{ fontSize: 12 }}>{label}</div><div>{value}</div></div>;
+  return (
+    <div className="detail-field">
+      <div className="detail-label">{label}</div>
+      <div className="detail-value">{value}</div>
+    </div>
+  );
+}
+
+function initials(name: string): string {
+  const parts = name.trim().split(/\s+/);
+  return parts.length >= 2
+    ? (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+    : (parts[0]?.[0] ?? '').toUpperCase();
 }

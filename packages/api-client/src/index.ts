@@ -1627,7 +1627,7 @@ export const api = {
     notificationsSeen: () => apiPost<{ ok: true }>('/portal/notifications/seen', {}),
   },
   parentPortal: {
-    login: (registrationNo: string, cnic: string) => apiPost<{ user: Me }>('/portal/auth/login', { registrationNo, cnic }),
+    login: (email: string, password: string) => apiPost<LoginResult>('/auth/parent-login', { email, password }),
     children: () => apiGet<ParentChild[]>('/portal/children'),
     switchChild: (studentId: string) => apiPost<{ ok: true }>('/portal/switch-child', { studentId }),
     overview: () => apiGet<PortalOverview>('/portal/overview'),

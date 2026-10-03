@@ -1,9 +1,10 @@
-import { HttpStatus, Injectable, Logger } from '@nestjs/common';
+import { HttpStatus, Inject, Injectable, Logger } from '@nestjs/common';
 import { randomBytes } from 'node:crypto';
-import { AppError, AuditActions, ErrorCodes, TenantContext } from '@common';
+import { AppError, AuditActions, ENV, ErrorCodes, TenantContext, type Env } from '@common';
 import { AuditService, TenantPrismaService } from '@database';
 import { PasswordService } from '../auth/password.service';
 import { TokenService } from '../auth/token.service';
+import { MailerService } from '../mail/mail.service';
 
 @Injectable()
 export class PortalCredentialsService {
@@ -14,6 +15,8 @@ export class PortalCredentialsService {
     private readonly ctx: TenantContext,
     private readonly passwords: PasswordService,
     private readonly audit: AuditService,
+    private readonly mailer: MailerService,
+    @Inject(ENV) private readonly env: Env,
   ) {}
 
   private get db() {
@@ -101,9 +104,16 @@ export class PortalCredentialsService {
       newValue: { studentId, method: 'INVITE_LINK' },
     });
 
+    const setPasswordUrl = `${this.env.PARENT_PORTAL_URL}/set-password?token=${raw}`;
+    this.mailer.send({
+      to: parent.email,
+      subject: 'Set up your parent portal account',
+      text: `Your school has created a parent portal account for you. Click this link to set your password (expires in 48 hours):\n\n${setPasswordUrl}\n\nOnce set, you can log in to view your child's attendance, results, and fees.`,
+      html: `<p>Your school has created a parent portal account for you.</p><p>Click the link below to set your password (expires in 48 hours):</p><p><a href="${setPasswordUrl}">${setPasswordUrl}</a></p><p>Once set, you can log in to view your child's attendance, results, and fees.</p>`,
+    }).catch((err) => this.logger.error({ err, email: parent.email }, 'Failed to send portal invite email'));
     this.logger.debug({ email: parent.email, userId: user.id }, 'Parent portal invite link generated');
 
-    return { email: parent.email, message: 'Login link sent', token: raw };
+    return { email: parent.email, message: 'Invite email sent', token: raw };
   }
 
   async resetPassword(studentId: string, guardianId: string, body: { password?: string; sendLink?: boolean }) {
@@ -134,6 +144,15 @@ export class PortalCredentialsService {
         where: { id: userId },
         data: { status: 'MUST_SET_PASSWORD' },
       });
+      if (guardian.parent.email) {
+        const resetUrl = `${this.env.PARENT_PORTAL_URL}/set-password?token=${raw}`;
+        this.mailer.send({
+          to: guardian.parent.email,
+          subject: 'Reset your parent portal password',
+          text: `Your school has reset your parent portal password. Click this link to set a new password (expires in 48 hours):\n\n${resetUrl}`,
+          html: `<p>Your school has reset your parent portal password.</p><p>Click the link below to set a new password (expires in 48 hours):</p><p><a href="${resetUrl}">${resetUrl}</a></p>`,
+        }).catch((err) => this.logger.error({ err, email: guardian.parent.email }, 'Failed to send portal reset email'));
+      }
       this.logger.debug({ email: guardian.parent.email, userId }, 'Parent portal reset link generated');
     } else if (body.password) {
       const passwordHash = await this.passwords.hash(body.password);

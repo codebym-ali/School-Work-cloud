@@ -18,6 +18,7 @@ import {
 } from '@common';
 import { AuditService, TenantPrismaService } from '@database';
 import { doorAllows, type LoginDoor } from './login-door';
+import { MailerService } from '../mail/mail.service';
 import { PasswordService } from './password.service';
 import { TokenService, type DecodedAccess } from './token.service';
 import { AccessService } from '../access/access.service';
@@ -67,6 +68,7 @@ export class AuthService {
     @Inject(FIELD_ENCRYPTION) private readonly crypto: FieldEncryption,
     @Inject(ENV) private readonly env: Env,
     private readonly audit: AuditService,
+    private readonly mailer: MailerService,
   ) {}
 
   private get db() {
@@ -337,6 +339,13 @@ export class AuthService {
             expiresAt: new Date(Date.now() + 30 * 60 * 1000),
           },
         });
+        const resetUrl = `${this.env.PARENT_PORTAL_URL}/set-password?token=${raw}`;
+        this.mailer.send({
+          to: email,
+          subject: 'Reset your parent portal password',
+          text: `You requested a password reset. Click this link to set a new password (expires in 30 minutes):\n\n${resetUrl}\n\nIf you did not request this, ignore this email.`,
+          html: `<p>You requested a password reset. Click the link below to set a new password (expires in 30 minutes):</p><p><a href="${resetUrl}">${resetUrl}</a></p><p>If you did not request this, ignore this email.</p>`,
+        }).catch((err) => this.logger.error({ err, email }, 'Failed to send password reset email'));
         this.logger.debug({ userId: user.id }, 'Parent portal password reset token issued');
       }
     }

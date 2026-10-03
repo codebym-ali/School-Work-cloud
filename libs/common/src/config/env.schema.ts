@@ -125,6 +125,8 @@ export const envSchema = z.object({
   SMTP_PASS: z.string().optional(),
   /** From address on outbound mail; falls back to SMTP_USER when unset. */
   SMTP_FROM: z.string().optional(),
+  /** Base URL of the parent portal web app (used in invite/reset emails). */
+  PARENT_PORTAL_URL: z.string().default('http://localhost:3002'),
   /** Where new-lead / demo-request notifications are sent (SA8). Defaults to the owner's address. */
   LEAD_NOTIFY_EMAIL: z.string().default('mutaharaslam@gmail.com'),
 

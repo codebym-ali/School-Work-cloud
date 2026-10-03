@@ -251,7 +251,7 @@ export function DirectAdmission({
         <div><label>City</label><input value={f.city ?? ''} onChange={(e) => set('city', e.target.value)} /></div>
       </div>
       <p className="muted" style={{ margin: 0, fontSize: 12 }}>
-        A CNIC provisions the read-only portal login (registration-no + CNIC). GR &amp; registration numbers are assigned on save.
+        GR &amp; registration numbers are assigned on save. Guardian CNIC is used to match existing parents (sibling detection).
       </p>
 
       {/* Guardians — Father, Mother, and anyone else. Each optional; the first filled is primary. */}
@@ -441,8 +441,8 @@ function GuardianSection({ value, onChange, index, onRemove }: {
               <input value={value.fullName ?? ''} onChange={(e) => onChange({ ...value, fullName: e.target.value })} /></div>
             <div><label>Guardian phone</label>
               <input value={value.phone ?? phone} onChange={(e) => onChange({ ...value, phone: e.target.value })} placeholder="03001234567" /></div>
-            <div><label>CNIC (optional)</label>
-              <input value={value.cnic ?? ''} onChange={(e) => onChange({ ...value, cnic: e.target.value })} /></div>
+            <div><label>CNIC</label>
+              <input value={value.cnic ?? ''} onChange={(e) => onChange({ ...value, cnic: e.target.value })} placeholder="12345-1234567-1" required /></div>
             <div><label>Email (optional)</label>
               <input value={value.email ?? ''} onChange={(e) => onChange({ ...value, email: e.target.value })} /></div>
             {/* CREATE only: linking an existing parent must not rewrite their record from a form

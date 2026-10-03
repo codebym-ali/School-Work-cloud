@@ -9,12 +9,13 @@ updated: 2026-08-20
 The locked, cross-cutting decisions every note and every developer must respect.
 Full ledger: [[consistency-register]] (LOCKED). This is the digest.
 
-## Parents DO get logins — reversal of blueprint §24 (2026-10-01)
-- **Decision:** Parents now get portal access (email + password login on `apps/parent-web`, port 3007). This reverses the locked blueprint decision from 2026-07-28 ("parents do NOT get logins").
-- **Data model:** No schema migration — `ParentProfile.userId` (nullable) is populated when staff enables portal access; `StudentGuardian` provides the many-to-many link; `PARENT` role (already in enum) is now granted.
-- **Security boundary:** `resolveChild(studentId)` validates the guardian link on every API call (not just login); blocked student statuses re-checked on every read.
-- **Student portal unchanged:** students still log in with reg-no + CNIC on `apps/student-web` (:3003). Both portals coexist.
-- **Why:** School owners requested it — parents want to see their children's attendance and fees without calling the office.
+## Parent auto-match uses CNIC hash as definitive identifier (2026-10-02)
+- **Decision:** CNIC (national ID) is the definitive parent match key for FATHER and MOTHER relations. Phone is tier-2 (possible match) for GUARDIAN only.
+- **CNIC is compulsory** for both Father and Mother on CREATE (not optional). GUARDIAN relation uses phone-only matching.
+- **Phone uniqueness relaxed:** duplicate phone on CREATE is a soft warning (409 with `phoneConflict` flag), not a hard block. Frontend sends `phoneConflictAck: true` to proceed. Handles shared-phone households.
+- **Progressive fill on LINK:** when linking to an existing parent, NULL fields (cnicHash, fatherName, DOB, norms) are backfilled from the form without overwriting existing values. Audit-logged.
+- **CNIC hash storage:** HMAC-SHA256 of normalised 13-digit CNIC using `ENCRYPTION_MASTER_KEY`. Stored as `cnicHash` on `ParentProfile`, indexed with `schoolId`.
+- **Name normalisation:** Pakistani name variants (Muhammad/Mohammad/Mohd → muhammad, Abd/Abdl → abdul) normalised for matching via `normalizePkName()`.
 
 ## @OwnerWritable is the opt-in for owner writes, not @Roles (2026-10-01)
 - **Rule:** `OwnerReadOnlyGuard` (global) blocks POST/PUT/PATCH/DELETE for a pure `OWNER_ADMIN` user unless the handler or controller carries `@OwnerWritable()`. `@Roles('OWNER_ADMIN', …)` on a mutating method means the owner *should* be able to use it, but without `@OwnerWritable` the guard refuses it — a 403 that looks like a role problem but is a decorator gap.

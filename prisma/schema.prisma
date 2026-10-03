@@ -234,6 +234,7 @@ enum UserStatus {
   ACTIVE
   LOCKED
   DISABLED
+  MUST_SET_PASSWORD
 }
 
 enum PayrollRunStatus {
@@ -856,6 +857,14 @@ model ParentProfile {
   otpAttempts     Int       @default(0) @map("otp_attempts")
   smsOptOut       Boolean   @default(false) @map("sms_opt_out")
   cnicEnc         String?   @map("cnic_enc") // AES-256-GCM, per-tenant KMS data key
+  /// HMAC-SHA256 of the normalized 13-digit CNIC — queryable lookup for sibling detection.
+  cnicHash        String?   @map("cnic_hash")
+  /// Guardian's father's name — standard Pakistani form field, used for parent matching.
+  fatherName      String?   @map("father_name")
+  dateOfBirth     DateTime? @map("date_of_birth") @db.Date
+  /// Lowercased, Muhammad-canonical — for fuzzy name matching during sibling detection.
+  fullNameNorm    String?   @map("full_name_norm")
+  fatherNameNorm  String?   @map("father_name_norm")
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
 
@@ -865,6 +874,7 @@ model ParentProfile {
   @@unique([userId])
   @@unique([userId, schoolId]) // composite target for one-to-one relation from User
   @@index([schoolId, phone])
+  @@index([schoolId, cnicHash])
   @@map("parent_profiles")
 }
 

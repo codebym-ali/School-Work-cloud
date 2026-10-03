@@ -35,40 +35,20 @@ export class ParentPortalService {
    *  banner instead; RESTRICTED is the opposite case, still attending but cut off here. */
   private static readonly PORTAL_BLOCKED = ['RESTRICTED', 'STRUCK_OFF', 'WITHDRAWN'] as const;
 
-  /** The Student row for the active child (or the login child if none is selected).
-   *  When `activeChildId` is provided (from the cookie), it is validated against the
-   *  sibling graph — a parent can only view children linked via StudentGuardian. */
+  /** The Student row for the active child.
+   *  PARENT role → resolve via ParentProfile → StudentGuardian links.
+   *  STUDENT role (legacy) → resolve via Student.userId. */
   private async self(activeChildId?: string | null) {
     const userId = this.ctx.user?.userId;
-    if (!userId) throw new AppError(ErrorCodes.FORBIDDEN, HttpStatus.FORBIDDEN, 'Not authenticated');
+    const roles = this.ctx.user?.roles ?? [];
 
-    // Try student login first (Student.userId), then parent login (ParentProfile.userId → StudentGuardian → Student).
-    const loginStudent = await this.db.student.findFirst({ where: { userId, deletedAt: null } });
-
-    if (!loginStudent) {
-      // Parent login path: resolve through ParentProfile → StudentGuardian → Student
-      const parentProfile = await this.db.parentProfile.findFirst({ where: { userId } });
-      if (!parentProfile) throw new AppError(ErrorCodes.FORBIDDEN, HttpStatus.FORBIDDEN, 'No student or parent profile is linked to this account');
-
-      const guardianLinks = await this.db.studentGuardian.findMany({
-        where: { parentId: parentProfile.id },
-        include: { student: true },
-        orderBy: { isPrimary: 'desc' },
-      });
-      const children = guardianLinks.map((g) => g.student).filter((s) => s.deletedAt === null);
-      if (children.length === 0) throw new AppError(ErrorCodes.FORBIDDEN, HttpStatus.FORBIDDEN, 'No children linked to this parent');
-
-      let student = children[0];
-      if (activeChildId) {
-        const target = children.find((c) => c.id === activeChildId);
-        if (target) student = target;
-      }
-
-      if ((ParentPortalService.PORTAL_BLOCKED as readonly string[]).includes(student.status)) {
-        throw new AppError(ErrorCodes.FORBIDDEN, HttpStatus.FORBIDDEN, 'Your portal access has been restricted. Please contact the school office.');
-      }
-      return student;
+    if (roles.includes('PARENT' as any)) {
+      return this.selfFromParent(userId!, activeChildId);
     }
+
+    // Legacy STUDENT role path
+    const loginStudent = userId ? await this.db.student.findFirst({ where: { userId, deletedAt: null } }) : null;
+    if (!loginStudent) throw new AppError(ErrorCodes.FORBIDDEN, HttpStatus.FORBIDDEN, 'No student is linked to this account');
 
     let student = loginStudent;
     if (activeChildId && activeChildId !== loginStudent.id) {
@@ -81,9 +61,47 @@ export class ParentPortalService {
     }
 
     if ((ParentPortalService.PORTAL_BLOCKED as readonly string[]).includes(student.status)) {
-      throw new AppError(ErrorCodes.FORBIDDEN, HttpStatus.FORBIDDEN, 'Your portal access has been restricted. Please contact the school office.');
+      throw new AppError(
+        ErrorCodes.FORBIDDEN,
+        HttpStatus.FORBIDDEN,
+        'Your portal access has been restricted. Please contact the school office.',
+      );
     }
     return student;
+  }
+
+  private async selfFromParent(userId: string, activeChildId?: string | null) {
+    const parent = await this.db.parentProfile.findFirst({
+      where: { userId },
+      select: { id: true },
+    });
+    if (!parent) throw new AppError(ErrorCodes.FORBIDDEN, HttpStatus.FORBIDDEN, 'No parent profile linked');
+
+    const guardianLinks = await this.db.studentGuardian.findMany({
+      where: { parentId: parent.id },
+      select: { studentId: true },
+    });
+    if (guardianLinks.length === 0) throw new AppError(ErrorCodes.FORBIDDEN, HttpStatus.FORBIDDEN, 'No children linked');
+
+    const studentIds = guardianLinks.map((g) => g.studentId);
+    const children = await this.db.student.findMany({
+      where: { id: { in: studentIds }, deletedAt: null },
+    });
+
+    const active = activeChildId
+      ? children.find((c) => c.id === activeChildId)
+      : children.find((c) => !(ParentPortalService.PORTAL_BLOCKED as readonly string[]).includes(c.status)) ?? children[0];
+
+    if (!active) throw new AppError(ErrorCodes.FORBIDDEN, HttpStatus.FORBIDDEN, 'No active children');
+
+    if ((ParentPortalService.PORTAL_BLOCKED as readonly string[]).includes(active.status)) {
+      throw new AppError(
+        ErrorCodes.FORBIDDEN,
+        HttpStatus.FORBIDDEN,
+        'Your portal access has been restricted. Please contact the school office.',
+      );
+    }
+    return active;
   }
 
   /**
@@ -115,15 +133,35 @@ export class ParentPortalService {
   }
 
   /** All children the logged-in parent can see, with enrollment info and photo URLs. */
-  async children(activeChildId?: string | null) {
-    const userId = this.ctx.user?.userId;
-    if (!userId) throw new AppError(ErrorCodes.FORBIDDEN, HttpStatus.FORBIDDEN, 'Not authenticated');
+  async children() {
+    const roles = this.ctx.user?.roles ?? [];
+    const currentChild = await this.self();
+    let siblings: Array<{ id: string; fullName: string; grNumber: string; photoKey: string | null; status: string }>;
 
-    const allChildren = await this.resolveChildren(userId);
-    const activeStudent = await this.self(activeChildId);
+    if (roles.includes('PARENT' as any)) {
+      const parent = await this.db.parentProfile.findFirst({
+        where: { userId: this.ctx.user!.userId },
+        select: { id: true },
+      });
+      if (!parent) return [];
+      const links = await this.db.studentGuardian.findMany({
+        where: { parentId: parent.id },
+        select: { studentId: true },
+      });
+      siblings = await this.db.student.findMany({
+        where: {
+          id: { in: links.map((l) => l.studentId) },
+          deletedAt: null,
+          status: { notIn: ['STRUCK_OFF', 'WITHDRAWN'] },
+        },
+        select: { id: true, fullName: true, grNumber: true, photoKey: true, status: true },
+      });
+    } else {
+      siblings = await this.findSiblings(currentChild.id);
+    }
 
     const result = await Promise.all(
-      allChildren.map(async (s) => {
+      siblings.map(async (s) => {
         const enrollment = await this.db.studentEnrollment.findFirst({
           where: { studentId: s.id, status: 'ACTIVE' },
           include: { section: { include: { class: { select: { name: true } } } } },
@@ -137,7 +175,7 @@ export class ParentPortalService {
           sectionName: enrollment?.section.name ?? null,
           photoUrl: s.photoKey ? await this.storage.presignGet(s.photoKey, 600) : null,
           status: s.status,
-          isCurrent: s.id === activeStudent.id,
+          isCurrent: s.id === currentChild.id,
         };
       }),
     );
@@ -145,32 +183,17 @@ export class ParentPortalService {
     return result;
   }
 
-  /** Resolve all children for a user — either via Student.userId (student login) or ParentProfile → StudentGuardian (parent login). */
-  private async resolveChildren(userId: string) {
-    // Student login: find siblings via guardian graph
-    const loginStudent = await this.db.student.findFirst({ where: { userId, deletedAt: null } });
-    if (loginStudent) return this.findSiblings(loginStudent.id);
-
-    // Parent login: find children via ParentProfile
-    const parentProfile = await this.db.parentProfile.findFirst({ where: { userId } });
-    if (!parentProfile) return [];
-
-    const guardianLinks = await this.db.studentGuardian.findMany({
-      where: { parentId: parentProfile.id },
-      include: { student: { select: { id: true, fullName: true, grNumber: true, photoKey: true, status: true, deletedAt: true } } },
-      orderBy: { isPrimary: 'desc' },
-    });
-    return guardianLinks.map((g) => g.student).filter((s) => s.deletedAt === null);
-  }
-
   /** Validate and switch to a sibling. Returns the updated children list. */
   async switchChild(studentId: string) {
-    const allChildren = await this.resolveChildren(this.ctx.user!.userId);
-    if (!allChildren.find((s) => s.id === studentId)) {
+    const loginStudent = await this.self();
+    if (studentId === loginStudent.id) return this.children();
+
+    const siblings = await this.findSiblings(loginStudent.id);
+    if (!siblings.find((s) => s.id === studentId)) {
       throw new AppError(ErrorCodes.FORBIDDEN, HttpStatus.FORBIDDEN, 'Not your child');
     }
 
-    return this.children(studentId);
+    return this.children();
   }
 
   /** Presigned URL for the active child's photo. */

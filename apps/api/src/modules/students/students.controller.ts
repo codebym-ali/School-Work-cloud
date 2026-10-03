@@ -17,6 +17,7 @@ import { StudentsService } from './students.service';
 import { GuardiansService } from './guardians.service';
 import { StudentsImportService } from './students-import.service';
 import { PhoneVerificationService } from './phone-verification.service';
+import { PortalCredentialsService } from './portal-credentials.service';
 import {
   AddGuardianDto,
   SetStudentCnicDto,
@@ -24,6 +25,7 @@ import {
   ConfirmOtpDto,
   CreateStudentDto,
   ImportStudentsDto,
+  ParentMatchQuery,
   StudentSearchQuery,
   StudentSummaryQuery,
   UpdateGuardianContactDto,
@@ -44,6 +46,7 @@ export class StudentsController {
     private readonly guardians: GuardiansService,
     private readonly importer: StudentsImportService,
     private readonly phoneVerify: PhoneVerificationService,
+    private readonly portalCreds: PortalCredentialsService,
   ) {}
 
   @Get()
@@ -61,6 +64,12 @@ export class StudentsController {
   @Get('parents/search')
   findParents(@Query('phone') phone: string) {
     return this.guardians.findByPhone(phone ?? '');
+  }
+
+  /** Tiered parent match for sibling detection during admission. */
+  @Get('parents/match')
+  matchParent(@Query() q: ParentMatchQuery) {
+    return this.guardians.matchParent(q);
   }
 
   // Only the admission controller may ADD a student (segregation of duties, not owner/campus).
@@ -238,10 +247,36 @@ export class StudentsController {
     await this.students.removeGuardian(id, guardianId);
   }
 
-  /** Create a User(PARENT) for a guardian so they can log into the parent portal. */
+  // ── Portal credentials ──────────────────────────────────────────────────
+
+  @Post(':id/portal-credentials')
+  @HttpCode(HttpStatus.CREATED)
+  createPortalCredentials(
+    @Param('id') id: string,
+    @Body() body: { password: string; confirmPassword: string },
+  ) {
+    return this.portalCreds.createCredentials(id, body.password, body.confirmPassword);
+  }
+
+  @Post(':id/portal-invite')
+  @HttpCode(HttpStatus.OK)
+  sendPortalInvite(@Param('id') id: string) {
+    return this.portalCreds.sendInvite(id);
+  }
+
   @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
-  @Post(':id/guardians/:parentId/enable-portal')
-  enablePortal(@Param('id') id: string, @Param('parentId') parentId: string) {
-    return this.guardians.enablePortal(id, parentId);
+  @Post(':id/guardians/:guardianId/reset-portal-password')
+  @HttpCode(HttpStatus.OK)
+  resetPortalPassword(
+    @Param('id') id: string,
+    @Param('guardianId') guardianId: string,
+    @Body() body: { password?: string; sendLink?: boolean },
+  ) {
+    return this.portalCreds.resetPassword(id, guardianId, body);
+  }
+
+  @Get(':id/portal-status')
+  portalStatus(@Param('id') id: string) {
+    return this.portalCreds.portalStatus(id);
   }
 }

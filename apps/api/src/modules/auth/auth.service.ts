@@ -1,6 +1,6 @@
 import { HttpStatus, Inject, Injectable, Logger } from '@nestjs/common';
 import type { Response } from 'express';
-import { createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { authenticator } from 'otplib';
 import type { Role, User } from '@prisma/client';
 import {
@@ -18,6 +18,7 @@ import {
 } from '@common';
 import { AuditService, TenantPrismaService } from '@database';
 import { doorAllows, type LoginDoor } from './login-door';
+import { MailerService } from '../mail/mail.service';
 import { PasswordService } from './password.service';
 import { TokenService, type DecodedAccess } from './token.service';
 import { AccessService } from '../access/access.service';
@@ -35,7 +36,9 @@ import type {
   MfaChallengeDto,
   MfaVerifyDto,
   ResetPasswordDto,
-  StudentLoginDto,
+  ParentLoginDto,
+  SetPortalPasswordDto,
+  ParentForgotPasswordDto,
 } from './dto/auth.dto';
 
 const MAX_FAILED = 10;
@@ -65,6 +68,7 @@ export class AuthService {
     @Inject(FIELD_ENCRYPTION) private readonly crypto: FieldEncryption,
     @Inject(ENV) private readonly env: Env,
     private readonly audit: AuditService,
+    private readonly mailer: MailerService,
   ) {}
 
   private get db() {
@@ -192,35 +196,94 @@ export class AuthService {
     );
   }
 
-  // ── Parent portal login: child's registration no + guardian CNIC (§28) ──────
-  async parentLogin(dto: StudentLoginDto, res: Response): Promise<SessionResult> {
+  // ── Parent portal login: email + password ──────────────────────────────────
+  async parentLogin(dto: ParentLoginDto, res: Response): Promise<SessionResult | { mustSetPassword: true; token: string }> {
     const invalid = () =>
-      new AppError(ErrorCodes.INVALID_CREDENTIALS, HttpStatus.UNAUTHORIZED, 'Invalid registration number or CNIC');
+      new AppError(ErrorCodes.INVALID_CREDENTIALS, HttpStatus.UNAUTHORIZED, 'Invalid email or password');
 
-    const provided = this.hashCnic(dto.cnic); // always spend the HMAC time (timing-safe)
-    const student = await this.db.student.findFirst({
-      where: { registrationNo: dto.registrationNo, deletedAt: null, userId: { not: null } },
-      select: { userId: true, cnicHash: true },
+    const email = dto.email.toLowerCase();
+
+    const parentProfile = await this.db.parentProfile.findFirst({
+      where: { email },
+      select: { id: true, userId: true },
     });
-    if (!student?.userId || !student.cnicHash) throw invalid();
 
-    const user = await this.db.user.findFirst({ where: { id: student.userId } });
-    if (!user || user.status === 'DISABLED' || user.deletedAt) throw invalid();
+    if (!parentProfile?.userId) {
+      await this.passwords.verify(
+        '$argon2id$v=19$m=65536,t=3,p=1$AAAAAAAAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+        dto.password,
+      );
+      throw invalid();
+    }
+
+    const user = await this.db.user.findFirst({ where: { id: parentProfile.userId, deletedAt: null } });
+    if (!user || user.status === 'DISABLED') {
+      await this.passwords.verify(
+        '$argon2id$v=19$m=65536,t=3,p=1$AAAAAAAAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+        dto.password,
+      );
+      throw invalid();
+    }
 
     const now = new Date();
     if (user.status === 'LOCKED') {
       if (user.lockedUntil && user.lockedUntil > now) {
         throw new AppError(ErrorCodes.ACCOUNT_LOCKED, HttpStatus.UNAUTHORIZED, 'Account locked; try later');
       }
-      await this.db.user.update({ where: { id: user.id }, data: { status: 'ACTIVE', failedLoginCount: 0, lockedUntil: null } });
+      await this.tenantPrisma.outsideRequestTransaction((tx) =>
+        tx.user.update({
+          where: { id: user.id },
+          data: { status: 'ACTIVE', failedLoginCount: 0, lockedUntil: null },
+        }),
+      );
       user.failedLoginCount = 0;
       user.status = 'ACTIVE';
     }
 
-    const stored = student.cnicHash;
-    const match = provided.length === stored.length && timingSafeEqual(Buffer.from(provided), Buffer.from(stored));
-    if (!match) {
+    if (user.status === 'MUST_SET_PASSWORD') {
+      if (!user.passwordHash) {
+        await this.passwords.verify(
+          '$argon2id$v=19$m=65536,t=3,p=1$AAAAAAAAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+          dto.password,
+        );
+        const raw = randomBytes(32).toString('base64url');
+        await this.db.passwordResetToken.create({
+          data: {
+            schoolId: user.schoolId,
+            userId: user.id,
+            tokenHash: TokenService.hashRefresh(raw),
+            expiresAt: new Date(Date.now() + 48 * 60 * 60 * 1000),
+          },
+        });
+        return { mustSetPassword: true, token: raw };
+      }
+    }
+
+    if (!user.passwordHash) {
+      await this.passwords.verify(
+        '$argon2id$v=19$m=65536,t=3,p=1$AAAAAAAAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+        dto.password,
+      );
+      throw invalid();
+    }
+
+    const ok = await this.passwords.verify(user.passwordHash, dto.password);
+    if (!ok) {
       await this.registerFailure(user);
+      throw invalid();
+    }
+
+    if (!doorAllows('parent', user.roles)) {
+      await this.registerFailure(user);
+      await this.tenantPrisma.outsideRequestTransaction(() =>
+        this.audit.record({
+          action: AuditActions.LOGIN_WRONG_DOOR,
+          entityType: 'User',
+          entityId: user.id,
+          actorId: user.id,
+          newValue: { door: 'parent', roles: user.roles },
+        }),
+      );
       throw invalid();
     }
 
@@ -231,10 +294,64 @@ export class AuthService {
     return this.issueSession(user, res);
   }
 
-  /** HMAC of the normalized CNIC/B-Form — matches how the direct-admission flow stores it. */
-  private hashCnic(cnic: string): string {
-    return createHmac('sha256', this.env.ENCRYPTION_MASTER_KEY).update(cnic.replace(/\D/g, '')).digest('hex');
+  // ── Parent portal: set password from invite link ──────────────────────────
+  async setPortalPassword(dto: SetPortalPasswordDto, res: Response): Promise<SessionResult> {
+    if (dto.password !== dto.confirmPassword) {
+      throw new AppError(ErrorCodes.VALIDATION_FAILED, HttpStatus.UNPROCESSABLE_ENTITY, 'Passwords do not match');
+    }
+    const hash = TokenService.hashRefresh(dto.token);
+    const record = await this.db.passwordResetToken.findFirst({ where: { tokenHash: hash } });
+    if (!record || record.usedAt || record.expiresAt < new Date()) {
+      throw new AppError(ErrorCodes.VALIDATION_FAILED, HttpStatus.UNPROCESSABLE_ENTITY, 'Invalid or expired token');
+    }
+    const user = await this.db.user.findFirst({ where: { id: record.userId, deletedAt: null } });
+    if (!user) {
+      throw new AppError(ErrorCodes.VALIDATION_FAILED, HttpStatus.UNPROCESSABLE_ENTITY, 'Invalid or expired token');
+    }
+    const newHash = await this.passwords.hash(dto.password);
+    await this.db.user.update({
+      where: { id: user.id },
+      data: { passwordHash: newHash, passwordChangedAt: new Date(), status: 'ACTIVE', failedLoginCount: 0, lockedUntil: null },
+    });
+    await this.db.passwordResetToken.update({ where: { id: record.id }, data: { usedAt: new Date() } });
+    await this.db.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
+    return this.issueSession({ ...user, status: 'ACTIVE' }, res);
   }
+
+  // ── Parent portal: forgot password ────────────────────────────────────────
+  async parentForgotPassword(dto: ParentForgotPasswordDto): Promise<void> {
+    const email = dto.email.toLowerCase();
+    const parentProfile = await this.db.parentProfile.findFirst({
+      where: { email },
+      select: { userId: true },
+    });
+    if (parentProfile?.userId) {
+      const user = await this.db.user.findFirst({
+        where: { id: parentProfile.userId, deletedAt: null, roles: { has: 'PARENT' } },
+      });
+      if (user) {
+        const raw = randomBytes(32).toString('base64url');
+        await this.db.passwordResetToken.create({
+          data: {
+            schoolId: user.schoolId,
+            userId: user.id,
+            tokenHash: TokenService.hashRefresh(raw),
+            expiresAt: new Date(Date.now() + 30 * 60 * 1000),
+          },
+        });
+        const resetUrl = `${this.env.PARENT_PORTAL_URL}/set-password?token=${raw}`;
+        this.mailer.send({
+          to: email,
+          subject: 'Reset your parent portal password',
+          text: `You requested a password reset. Click this link to set a new password (expires in 30 minutes):\n\n${resetUrl}\n\nIf you did not request this, ignore this email.`,
+          html: `<p>You requested a password reset. Click the link below to set a new password (expires in 30 minutes):</p><p><a href="${resetUrl}">${resetUrl}</a></p><p>If you did not request this, ignore this email.</p>`,
+        }).catch((err) => this.logger.error({ err, email }, 'Failed to send password reset email'));
+        this.logger.debug({ userId: user.id }, 'Parent portal password reset token issued');
+      }
+    }
+    // Always 200 — never reveal whether the email exists.
+  }
+
 
   // ── MFA challenge (step 2 of two-step login) ────────────────────────────────
   async mfaChallenge(dto: MfaChallengeDto, res: Response): Promise<SessionResult> {

@@ -28,8 +28,8 @@ export class ParentPortalController {
   }
 
   @Get('children')
-  children(@Req() req: Request) {
-    return this.portal.children(this.activeChild(req));
+  children() {
+    return this.portal.children();
   }
 
   @Post('switch-child')

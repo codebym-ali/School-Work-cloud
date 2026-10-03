@@ -50,3 +50,5 @@ export * from './observability/metrics.service';
 export * from './observability/metrics.middleware';
 export * from './observability/metrics.module';
 export * from './antivirus/clamav.service';
+export * from './util/normalize-name';
+export * from './util/validate-cnic';

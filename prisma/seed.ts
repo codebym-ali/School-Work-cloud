@@ -1,13 +1,10 @@
 /**
  * Dev seed: provisions a demo tenant so you can log in and exercise the API locally.
- * Idempotent — re-running tops up missing fixtures without touching existing ones.
+ * Idempotent — re-running is a no-op if the `demo` subdomain already exists.
  *
  *   pnpm db:seed
- *
- * Logins created:
- *   Owner:   owner@demo.pk / Owner!Secret12       → http://parent.localhost:3005
- *   Parent:  parent@demo.pk / Parent!Secret12      → http://parent.localhost:3003
- *   Staff:   see console output after run
+ *   Then: POST http://localhost:3000/api/v1/auth/login  (Host: demo.localhost)
+ *         { "email": "owner@demo.pk", "password": "Owner!Secret12" }
  *
  * Uses the platform (BYPASSRLS) connection since it creates a brand-new tenant.
  */
@@ -15,8 +12,9 @@ import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { PrismaClient } from '@prisma/client';
 import * as argon2 from 'argon2';
-import { randomBytes, randomInt } from 'node:crypto';
+import { createHmac, randomBytes, randomInt } from 'node:crypto';
 import type { Role, StaffType } from '@prisma/client';
+
 
 // Minimal .env loader (scripts don't get node --env-file automatically).
 const envPath = join(process.cwd(), '.env');
@@ -36,8 +34,7 @@ const OWNER_EMAIL = 'owner@demo.pk';
 const OWNER_PASSWORD = 'Owner!Secret12';
 const PLATFORM_EMAIL = 'admin@platform.pk';
 const PLATFORM_PASSWORD = 'Admin!Secret12';
-const PARENT_EMAIL = 'parent@demo.pk';
-const PARENT_PASSWORD = 'Parent!Secret12';
+
 
 type StaffSpec = { email: string; roles: Role[]; staffType: StaffType; designation: string };
 
@@ -50,13 +47,23 @@ const STAFF: StaffSpec[] = [
   { email: `assistant@${SUBDOMAIN}.pk`, roles: ['STAFF'], staffType: 'CLERK', designation: 'Office Assistant' },
 ];
 
-const SEAT_ROLES: Role[] = ['CAMPUS_ADMIN', 'ADMISSION_CONTROLLER', 'ACCOUNTANT'];
-
-async function ensureStaff(
-  prisma: PrismaClient,
-  schoolId: string,
-  campuses: Array<{ id: string; name: string }>,
-): Promise<{ created: StaffSpec[]; password?: string }> {
+/**
+ * Create any staff account that does not exist yet, and return the generated password if it made
+ * one. Idempotent PER USER, deliberately.
+ *
+ * ⚠️ The seed used to create ONLY an owner, which left the staff door untestable in every
+ * environment — laptop, CI and deployed demo alike. It is a hole in the seed, not missing data on
+ * one box: the owner is REJECTED by the staff login (`auth/login`), because the owner door has its
+ * own endpoint (`auth/owner-login`), so an owner account cannot stand in for staff.
+ *
+ * ⚠️ Per-USER rather than per-tenant idempotence matters: the seed returns early when the tenant
+ * exists, so before this, adding fixtures could never reach an environment that had already been
+ * seeded once — the change would be invisible exactly where it was needed.
+ *
+ * ⚠️ ACCOUNTANT and ADMISSION_CONTROLLER are per-campus SEATS, one each; a second on the same
+ * campus is a 409 by design, which is why exactly one of each appears above.
+ */
+async function ensureStaff(prisma: PrismaClient, schoolId: string, campusId: string): Promise<{ created: StaffSpec[]; password?: string }> {
   const existing = await prisma.user.findMany({
     where: { schoolId, email: { in: STAFF.map((s) => s.email) } },
     select: { email: true },
@@ -65,40 +72,19 @@ async function ensureStaff(
   const missing = STAFF.filter((s) => !have.has(s.email));
   if (missing.length === 0) return { created: [] };
 
+  // Generated per run and printed once. A literal would be published in the repo — which is how the
+  // old `Owner!Secret12` came to need rotation on a public box before it could be shown to anyone.
   const password = `Sw-${randomBytes(9).toString('base64url').replace(/[-_]/g, '')}-${randomInt(1000, 9999)}`;
   const passwordHash = await argon2.hash(password, { type: argon2.argon2id });
 
   const used = await prisma.staffProfile.count({ where: { schoolId } });
   let code = used + 1;
-  const created: StaffSpec[] = [];
-
   for (const person of missing) {
-    const seatRole = person.roles.find((r) => SEAT_ROLES.includes(r));
-    let campusId: string | null = null;
-
-    if (seatRole) {
-      let found = false;
-      for (const c of campuses) {
-        const holder = await prisma.user.findFirst({
-          where: { schoolId, campusId: c.id, deletedAt: null, roles: { has: seatRole } },
-        });
-        if (!holder) {
-          campusId = c.id;
-          found = true;
-          break;
-        }
-      }
-      if (!found) {
-        console.log(`• ${person.email} skipped — every campus already has a ${seatRole}`);
-        continue;
-      }
-    } else {
-      campusId = campuses[0].id;
-    }
-
     const user = await prisma.user.create({
       data: { schoolId, campusId, email: person.email, roles: person.roles, status: 'ACTIVE', passwordHash },
     });
+    // A staff PROFILE as well as a login: the directory, payroll and attendance all key off it, so a
+    // user without one is a person the school cannot roster, pay, or mark present.
     await prisma.staffProfile.create({
       data: {
         schoolId,
@@ -110,71 +96,40 @@ async function ensureStaff(
         joinedAt: new Date('2026-04-01'),
       },
     });
-    created.push(person);
   }
-  return { created, password: created.length > 0 ? password : undefined };
+  return { created: missing, password: missing.length > 0 ? password : undefined };
 }
 
-const SIBLING_GR = 'GR-0002';
-const SIBLING_NAME = 'Fatima Butt';
+const PARENT_EMAIL = 'parent@demo.pk';
+const PARENT_PASSWORD = 'Parent!Secret12';
+const PARENT_CHILD_REG = 'REG-0001';
+const PARENT_PHONE = '03001234567';
 
-async function ensureParent(prisma: PrismaClient, schoolId: string): Promise<void> {
-  const existing = await prisma.user.findFirst({ where: { schoolId, email: PARENT_EMAIL } });
+function seedHashCnic(cnic: string): string {
+  const key = process.env.ENCRYPTION_MASTER_KEY;
+  if (!key) throw new Error('ENCRYPTION_MASTER_KEY must be set to seed parent portal login');
+  return createHmac('sha256', key).update(cnic.replace(/\D/g, '')).digest('hex');
+}
+
+async function ensureParentPortal(
+  prisma: PrismaClient,
+  schoolId: string,
+  campusId: string,
+  yearId: string,
+): Promise<void> {
+  const existing = await prisma.student.findFirst({
+    where: { schoolId, registrationNo: PARENT_CHILD_REG, deletedAt: null },
+  });
   if (existing) {
-    console.log(`• ${PARENT_EMAIL} already exists`);
-    // Still ensure the sibling exists even if the parent was created in a previous run.
-    const profile = await prisma.parentProfile.findFirst({ where: { schoolId, userId: existing.id } });
-    if (profile) await ensureSibling(prisma, schoolId, profile.id);
+    console.log(`  • Parent portal student (${PARENT_CHILD_REG}) already exists — skipped`);
     return;
   }
 
-  const passwordHash = await argon2.hash(PARENT_PASSWORD, { type: argon2.argon2id });
-  const user = await prisma.user.create({
-    data: { schoolId, email: PARENT_EMAIL, passwordHash, roles: ['PARENT'], status: 'ACTIVE' },
-  });
-  const profile = await prisma.parentProfile.create({
-    data: { schoolId, userId: user.id, fullName: 'Test Parent', phone: '03000000001', phoneVerifiedAt: new Date() },
-  });
-  const student = await prisma.student.findFirst({ where: { schoolId, deletedAt: null }, orderBy: { createdAt: 'asc' } });
-  if (student) {
-    await prisma.studentGuardian.create({
-      data: { schoolId, studentId: student.id, parentId: profile.id, relation: 'GUARDIAN', isPrimary: true },
-    });
-  }
-  console.log(`✔ ${PARENT_EMAIL} / ${PARENT_PASSWORD}  [PARENT${student ? ` → guardian of ${student.fullName}` : ''}]`);
-
-  await ensureSibling(prisma, schoolId, profile.id);
-}
-
-async function ensureSibling(prisma: PrismaClient, schoolId: string, parentProfileId: string): Promise<void> {
-  const existingSibling = await prisma.student.findFirst({ where: { schoolId, grNumber: SIBLING_GR, deletedAt: null } });
-  if (existingSibling) {
-    // Ensure guardian link exists
-    const link = await prisma.studentGuardian.findFirst({ where: { schoolId, studentId: existingSibling.id, parentId: parentProfileId } });
-    if (!link) {
-      await prisma.studentGuardian.create({
-        data: { schoolId, studentId: existingSibling.id, parentId: parentProfileId, relation: 'GUARDIAN', isPrimary: false },
-      });
-      console.log(`  ✔ linked ${SIBLING_NAME} to parent`);
-    } else {
-      console.log(`  • ${SIBLING_NAME} (${SIBLING_GR}) already exists and linked — skipped`);
-    }
-    return;
-  }
-
-  // Find the campus, academic year, and a class/section for the sibling
-  const campus = await prisma.campus.findFirst({ where: { schoolId }, orderBy: { name: 'asc' } });
-  const year = await prisma.academicYear.findFirst({ where: { schoolId, isCurrent: true } });
-  if (!campus || !year) {
-    console.log(`  • skipped sibling — no campus or academic year`);
-    return;
-  }
-
-  // Create a separate class for variety (Grade 3) or reuse an existing one
-  let klass = await prisma.class.findFirst({ where: { schoolId, name: 'Grade 3' } });
+  // 1. The student record (no STUDENT-role user — parents use their own login now)
+  let klass = await prisma.class.findFirst({ where: { schoolId, name: 'Grade 1' } });
   if (!klass) {
     klass = await prisma.class.create({
-      data: { schoolId, campusId: campus.id, name: 'Grade 3', order: 3 },
+      data: { schoolId, campusId, name: 'Grade 1', order: 1 },
     });
   }
   let section = await prisma.section.findFirst({ where: { schoolId, classId: klass.id, name: 'A' } });
@@ -184,39 +139,75 @@ async function ensureSibling(prisma: PrismaClient, schoolId: string, parentProfi
     });
   }
 
-  // Create the sibling student
-  const sibling = await prisma.student.create({
+  const student = await prisma.student.create({
     data: {
       schoolId,
-      grNumber: SIBLING_GR,
-      fullName: SIBLING_NAME,
-      gender: 'FEMALE',
-      dateOfBirth: new Date('2018-09-15'),
+      grNumber: 'GR-P001',
+      registrationNo: PARENT_CHILD_REG,
+      fullName: 'Ahmed Khan',
+      gender: 'MALE',
+      dateOfBirth: new Date('2017-03-20'),
       status: 'ACTIVE',
       isActive: true,
     },
   });
 
-  // Enroll in Grade 3 — A
   await prisma.studentEnrollment.create({
     data: {
       schoolId,
-      studentId: sibling.id,
-      academicYearId: year.id,
-      campusId: campus.id,
+      studentId: student.id,
+      academicYearId: yearId,
+      campusId,
       classId: klass.id,
       sectionId: section.id,
-      rollNumber: 1,
+      rollNumber: 10,
       status: 'ACTIVE',
     },
   });
 
-  // Link to the same parent
-  await prisma.studentGuardian.create({
-    data: { schoolId, studentId: sibling.id, parentId: parentProfileId, relation: 'GUARDIAN', isPrimary: false },
+  // 2. Parent user (PARENT role with email + password)
+  const parentUser = await prisma.user.create({
+    data: {
+      schoolId,
+      email: PARENT_EMAIL,
+      roles: ['PARENT'],
+      status: 'ACTIVE',
+      passwordHash: await argon2.hash(PARENT_PASSWORD, { type: argon2.argon2id }),
+    },
   });
 
-  console.log(`  ✔ ${SIBLING_NAME} (${SIBLING_GR}) → Grade 3 — A, linked to parent`);
+  // 3. Parent profile linked to user
+  const parentProfile = await prisma.parentProfile.create({
+    data: {
+      schoolId,
+      userId: parentUser.id,
+      fullName: 'Imran Khan',
+      email: PARENT_EMAIL,
+      phone: PARENT_PHONE,
+      phoneVerifiedAt: new Date(),
+      fullNameNorm: 'imran khan',
+      fatherName: 'Rashid Khan',
+      fatherNameNorm: 'rashid khan',
+      dateOfBirth: new Date('1985-06-15'),
+      cnicHash: seedHashCnic('3520198765432'),
+    },
+  });
+
+  // 4. Link: parent → student
+  await prisma.studentGuardian.create({
+    data: {
+      schoolId,
+      studentId: student.id,
+      parentId: parentProfile.id,
+      relation: 'FATHER',
+      isPrimary: true,
+    },
+  });
+
+  console.log(`  ✔ Parent portal seeded (single child):`);
+  console.log(`    Login: email = ${PARENT_EMAIL}  |  password = ${PARENT_PASSWORD}`);
+  console.log(`    Student: Ahmed Khan (GR-P001) → Grade 1 — A`);
+  console.log(`    Father: Imran Khan (${PARENT_PHONE})`);
 }
 
 async function main(): Promise<void> {
@@ -224,7 +215,8 @@ async function main(): Promise<void> {
     datasourceUrl: process.env.PLATFORM_DATABASE_URL ?? process.env.DATABASE_URL,
   });
   try {
-    // Platform (vendor) admin
+    // Platform (vendor) admin — a cross-tenant operator, seeded independently of the
+    // demo tenant so re-running always ensures it exists.
     const platformAdmin = await prisma.platformUser.findUnique({ where: { email: PLATFORM_EMAIL } });
     if (platformAdmin) {
       console.log(`Platform admin "${PLATFORM_EMAIL}" already exists — nothing to do.`);
@@ -243,20 +235,22 @@ async function main(): Promise<void> {
 
     const existing = await prisma.school.findFirst({ where: { subdomain: SUBDOMAIN } });
     if (existing) {
-      const campuses = await prisma.campus.findMany({ where: { schoolId: existing.id }, orderBy: { name: 'asc' } });
-      if (!campuses.length) {
+      // Top up rather than bail: fixtures added to this file must be able to reach an environment
+      // that was seeded before they existed, which is every long-lived one.
+      const campus = await prisma.campus.findFirst({ where: { schoolId: existing.id }, select: { id: true } });
+      if (!campus) {
         console.log(`Demo tenant "${SUBDOMAIN}" exists but has no campus — nothing to top up.`);
         return;
       }
-      const { created, password } = await ensureStaff(prisma, existing.id, campuses);
+      const { created, password } = await ensureStaff(prisma, existing.id, campus.id);
       if (created.length > 0) {
         console.log(`✔ Added ${created.length} staff account(s) to existing tenant "${SUBDOMAIN}"`);
         console.log(`  password (all of them): ${password}`);
         for (const p of created) console.log(`  ${p.email.padEnd(28)} ${p.roles.join(', ')}`);
-      } else {
-        console.log(`Demo tenant "${SUBDOMAIN}" staff fixtures are present.`);
       }
-      await ensureParent(prisma, existing.id);
+      const year = await prisma.academicYear.findFirst({ where: { schoolId: existing.id, isCurrent: true } });
+      if (year) await ensureParentPortal(prisma, existing.id, campus.id, year.id);
+      if (created.length === 0) console.log(`Demo tenant "${SUBDOMAIN}" already exists — topped up.`);
       return;
     }
 
@@ -285,18 +279,15 @@ async function main(): Promise<void> {
     });
     await prisma.section.create({ data: { schoolId: school.id, classId: klass.id, name: 'A' } });
 
-    const seededStaff = await ensureStaff(prisma, school.id, [campus]);
-    await ensureParent(prisma, school.id);
+    const seededStaff = await ensureStaff(prisma, school.id, campus.id);
+    await ensureParentPortal(prisma, school.id, campus.id, year.id);
 
-    console.log('\n✔ Seeded demo tenant');
+    console.log('✔ Seeded demo tenant');
     console.log(`  host:     ${SUBDOMAIN}.localhost (map to 127.0.0.1, or set Host header)`);
-    console.log(`  owner:    ${OWNER_EMAIL} / ${OWNER_PASSWORD}`);
-    console.log(`  parent:   ${PARENT_EMAIL} / ${PARENT_PASSWORD}`);
+    console.log(`  login:    ${OWNER_EMAIL} / ${OWNER_PASSWORD}`);
     console.log(`  year:     ${year.name} (current), campus "${campus.name}", class "Grade 1" section "A"`);
-    if (seededStaff.created.length > 0) {
-      console.log(`  staff:    ${seededStaff.created.length} accounts, password: ${seededStaff.password}`);
-      for (const p of seededStaff.created) console.log(`              ${p.email.padEnd(28)} ${p.roles.join(', ')}`);
-    }
+    console.log(`  staff:    ${seededStaff.created.length} accounts at the STAFF door, password: ${seededStaff.password}`);
+    for (const p of seededStaff.created) console.log(`              ${p.email.padEnd(28)} ${p.roles.join(', ')}`);
   } finally {
     await prisma.$disconnect();
   }

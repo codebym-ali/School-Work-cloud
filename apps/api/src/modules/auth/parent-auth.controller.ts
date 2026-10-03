@@ -2,12 +2,8 @@ import { Body, Controller, HttpCode, HttpStatus, Post, Res } from '@nestjs/commo
 import type { Response } from 'express';
 import { Public, RateLimit } from '@common';
 import { AuthService } from './auth.service';
-import { StudentLoginDto } from './dto/auth.dto';
+import { ParentLoginDto, SetPortalPasswordDto, ParentForgotPasswordDto } from './dto/auth.dto';
 
-/**
- * Parent portal sign-in (§28) — child's registration number + guardian CNIC, separate from
- * the staff email+password path. Public (no session yet) but tenant-resolved by host; rate-limited.
- */
 @Public()
 @Controller('portal/auth')
 export class ParentAuthController {
@@ -16,7 +12,21 @@ export class ParentAuthController {
   @RateLimit('login')
   @Post('login')
   @HttpCode(HttpStatus.OK)
-  login(@Body() dto: StudentLoginDto, @Res({ passthrough: true }) res: Response) {
+  login(@Body() dto: ParentLoginDto, @Res({ passthrough: true }) res: Response) {
     return this.auth.parentLogin(dto, res);
+  }
+
+  @RateLimit('login')
+  @Post('set-password')
+  @HttpCode(HttpStatus.OK)
+  setPassword(@Body() dto: SetPortalPasswordDto, @Res({ passthrough: true }) res: Response) {
+    return this.auth.setPortalPassword(dto, res);
+  }
+
+  @RateLimit('login')
+  @Post('forgot-password')
+  @HttpCode(HttpStatus.OK)
+  forgotPassword(@Body() dto: ParentForgotPasswordDto) {
+    return this.auth.parentForgotPassword(dto);
   }
 }

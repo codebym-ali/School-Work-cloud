@@ -17,7 +17,11 @@ export default function ParentLoginPage() {
     setBusy(true);
     setError(null);
     try {
-      await api.parentPortal.login(email.trim().toLowerCase(), password);
+      const result = await api.parentPortal.login(email.trim(), password);
+      if ('mustSetPassword' in result && result.mustSetPassword) {
+        router.push(`/set-password?token=${encodeURIComponent(result.token)}`);
+        return;
+      }
       router.push('/');
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Sign in failed');
@@ -36,7 +40,7 @@ export default function ParentLoginPage() {
         <div>
           <label htmlFor="email">Email</label>
           <input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)}
-            autoComplete="email" autoFocus required />
+            autoComplete="username" autoFocus required />
         </div>
         <div>
           <label htmlFor="password">Password</label>
@@ -47,6 +51,9 @@ export default function ParentLoginPage() {
         <button type="submit" disabled={busy || !email.trim() || !password}>
           {busy ? 'Signing in…' : 'Sign in'}
         </button>
+        <p style={{ textAlign: 'center', fontSize: '0.875rem' }}>
+          <a href="/forgot-password">Forgot password?</a>
+        </p>
       </form>
     </main>
   );

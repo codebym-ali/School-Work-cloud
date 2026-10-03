@@ -1,18 +1,21 @@
 import { HttpStatus, Inject, Injectable } from '@nestjs/common';
-import { randomBytes } from 'node:crypto';
-import { Prisma, Role, type GuardianRelation } from '@prisma/client';
+import { createHmac } from 'node:crypto';
+import { Prisma, type GuardianRelation } from '@prisma/client';
 import {
   AppError,
   ErrorCodes,
   FIELD_ENCRYPTION,
   FieldEncryption,
   normalizePkPhone,
+  normalizePkName,
+  normalizeCnic,
   AuditActions,
   TenantContext,
+  ENV,
+  type Env,
 } from '@common';
 import { AuditService, TenantPrismaService } from '@database';
-import { PasswordService } from '../auth/password.service';
-import type { GuardianResolutionDto, UpdateGuardianContactDto } from './dto/student.dto';
+import type { GuardianResolutionDto, ParentMatchQuery, UpdateGuardianContactDto } from './dto/student.dto';
 
 /**
  * Parent-account resolution + student↔guardian links (blueprint §8).
@@ -26,8 +29,8 @@ export class GuardiansService {
     private readonly tenantPrisma: TenantPrismaService,
     private readonly ctx: TenantContext,
     @Inject(FIELD_ENCRYPTION) private readonly crypto: FieldEncryption,
+    @Inject(ENV) private readonly env: Env,
     private readonly audit: AuditService,
-    private readonly passwords: PasswordService,
   ) {}
 
   private get db() {
@@ -36,6 +39,11 @@ export class GuardiansService {
 
   private get sid(): string {
     return this.ctx.requireSchoolId();
+  }
+
+  private hashCnic(cnic: string): string {
+    const normalized = normalizeCnic(cnic);
+    return createHmac('sha256', this.env.ENCRYPTION_MASTER_KEY).update(normalized ?? cnic).digest('hex');
   }
 
   /** Find existing parents by normalized phone (feeds the admit "link?" UI). */
@@ -48,11 +56,79 @@ export class GuardiansService {
     });
   }
 
+  /**
+   * Tiered parent matching for sibling detection during admission.
+   * FATHER/MOTHER: CNIC hash (definitive). GUARDIAN: phone (possible).
+   */
+  async matchParent(q: ParentMatchQuery) {
+    const select = {
+      id: true, fullName: true, phone: true, fatherName: true,
+      dateOfBirth: true, fullNameNorm: true,
+      guardianLinks: {
+        select: { student: { select: { id: true, fullName: true } } },
+      },
+    } as const;
+
+    // Tier 1: CNIC hash match (Father / Mother)
+    if (q.cnic && (q.relation === 'FATHER' || q.relation === 'MOTHER')) {
+      const hash = this.hashCnic(q.cnic);
+      const match = await this.db.parentProfile.findFirst({
+        where: { cnicHash: hash },
+        select,
+      });
+      if (match) {
+        return {
+          matches: [this.toMatchResult(match, 'definitive')],
+          matchedBy: 'cnic' as const,
+        };
+      }
+    }
+
+    // Tier 2: Phone match (Guardian, or fallback for Father/Mother with no CNIC match)
+    if (q.phone) {
+      const phone = normalizePkPhone(q.phone);
+      if (phone) {
+        const byPhone = await this.db.parentProfile.findMany({
+          where: { phone },
+          select,
+        });
+        if (byPhone.length > 0) {
+          return {
+            matches: byPhone.map((p) => this.toMatchResult(p, 'possible')),
+            matchedBy: 'phone' as const,
+          };
+        }
+      }
+    }
+
+    return { matches: [], matchedBy: null };
+  }
+
+  private toMatchResult(
+    p: { id: string; fullName: string; phone: string; fatherName: string | null; dateOfBirth: Date | null; guardianLinks: Array<{ student: { id: string; fullName: string } }> },
+    confidence: 'definitive' | 'possible',
+  ) {
+    return {
+      id: p.id,
+      fullName: p.fullName,
+      phone: p.phone.replace(/(\d{4})\d{3}(\d{4})/, '$1-xxx-$2'),
+      fatherName: p.fatherName,
+      dateOfBirth: p.dateOfBirth,
+      childCount: p.guardianLinks.length,
+      children: p.guardianLinks.map((l) => ({ id: l.student.id, fullName: l.student.fullName })),
+      confidence,
+    };
+  }
+
   /** Resolve a guardian to a parentId per the explicit LINK/CREATE choice (§8). */
   async resolveParent(res: GuardianResolutionDto): Promise<string> {
     if (res.mode === 'LINK') {
-      const parent = await this.db.parentProfile.findFirst({ where: { id: res.parentId } });
+      const parent = await this.db.parentProfile.findFirst({
+        where: { id: res.parentId },
+        select: { id: true, cnicHash: true, cnicEnc: true, fatherName: true, fatherNameNorm: true, dateOfBirth: true, fullNameNorm: true },
+      });
       if (!parent) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'Parent not found');
+      await this.progressiveFill(parent, res);
       return parent.id;
     }
 
@@ -60,35 +136,92 @@ export class GuardiansService {
     if (!phone) {
       throw new AppError(ErrorCodes.VALIDATION_FAILED, HttpStatus.UNPROCESSABLE_ENTITY, 'Invalid phone number');
     }
-    const existing = await this.db.parentProfile.findFirst({ where: { phone } });
-    if (existing) {
+    const cnicHash = res.cnic ? this.hashCnic(res.cnic) : null;
+    if (cnicHash) {
+      const byCnic = await this.db.parentProfile.findFirst({
+        where: { cnicHash },
+        select: { id: true, fullName: true },
+      });
+      if (byCnic) {
+        throw new AppError(
+          ErrorCodes.CONFLICT,
+          HttpStatus.CONFLICT,
+          `A parent with this CNIC already exists (${byCnic.fullName}) — link instead of creating`,
+          [{ field: 'parentId', issue: byCnic.id }],
+        );
+      }
+    }
+
+    const existing = await this.db.parentProfile.findFirst({
+      where: { phone },
+      select: { id: true, fullName: true },
+    });
+    if (existing && !(res as any).phoneConflictAck) {
       throw new AppError(
         ErrorCodes.CONFLICT,
         HttpStatus.CONFLICT,
-        'A parent with this phone already exists — link instead of creating',
+        `A parent with this phone already exists (${existing.fullName}). Link them, or re-submit with phoneConflictAck to create anyway.`,
         [{ field: 'parentId', issue: existing.id }],
       );
     }
 
-    // A guardian is a ParentProfile and nothing else — no User row (scope B, 2026-07-29).
-    // Parents do not get logins (locked decision in Key Decisions), so minting one per guardian
-    // created a login-less INVITED account with a synthetic `p-<uuid>@invite.local` address that
-    // nothing could ever use. It also made the guardian's email collide with the staff/admin
-    // namespace, so a real address already held by a live account returned a 409 the front desk
-    // could not clear. Both the placeholder and that entire failure mode are gone with the row.
     const parent = await this.db.parentProfile.create({
       data: {
         schoolId: this.sid,
         fullName: res.fullName!,
+        fullNameNorm: normalizePkName(res.fullName!),
         email: res.email?.toLowerCase() ?? null,
         phone,
-        // CREATE only — a LINK must never rewrite an existing parent's record from a form filled
-        // in about a different child.
         occupation: res.occupation ?? null,
         cnicEnc: res.cnic ? this.crypto.encrypt(res.cnic, this.sid) : null,
+        cnicHash,
+        fatherName: res.fatherName ?? null,
+        fatherNameNorm: res.fatherName ? normalizePkName(res.fatherName) : null,
+        dateOfBirth: res.dateOfBirth ? new Date(res.dateOfBirth) : null,
       },
     });
     return parent.id;
+  }
+
+  /**
+   * Fill NULL fields on an existing parent from new form data (LINK mode only).
+   * Never overwrites a non-null value — the first admission's data wins.
+   */
+  private async progressiveFill(
+    parent: { id: string; cnicHash: string | null; cnicEnc: string | null; fatherName: string | null; fatherNameNorm: string | null; dateOfBirth: Date | null; fullNameNorm: string | null },
+    res: GuardianResolutionDto,
+  ): Promise<void> {
+    const data: Prisma.ParentProfileUpdateInput = {};
+    const filled: string[] = [];
+
+    if (!parent.cnicHash && res.cnic) {
+      data.cnicHash = this.hashCnic(res.cnic);
+      data.cnicEnc = this.crypto.encrypt(res.cnic, this.sid);
+      filled.push('cnic');
+    }
+    if (!parent.fatherName && res.fatherName) {
+      data.fatherName = res.fatherName;
+      data.fatherNameNorm = normalizePkName(res.fatherName);
+      filled.push('fatherName');
+    }
+    if (!parent.dateOfBirth && res.dateOfBirth) {
+      data.dateOfBirth = new Date(res.dateOfBirth);
+      filled.push('dateOfBirth');
+    }
+    if (!parent.fullNameNorm && res.fullName) {
+      data.fullNameNorm = normalizePkName(res.fullName);
+      filled.push('fullNameNorm');
+    }
+
+    if (filled.length > 0) {
+      await this.db.parentProfile.update({ where: { id: parent.id }, data });
+      await this.audit.record({
+        action: AuditActions.GUARDIAN_PROGRESSIVE_FILL,
+        entityType: 'ParentProfile',
+        entityId: parent.id,
+        newValue: { filledFields: filled },
+      });
+    }
   }
 
   /** Link a parent to a student; enforce exactly one primary per student (§8.3). */
@@ -197,7 +330,10 @@ export class GuardiansService {
     const parent = link.parent;
 
     const data: Prisma.ParentProfileUpdateInput = {};
-    if (dto.fullName !== undefined) data.fullName = dto.fullName.trim();
+    if (dto.fullName !== undefined) {
+      data.fullName = dto.fullName.trim();
+      data.fullNameNorm = normalizePkName(dto.fullName.trim());
+    }
     if (dto.email !== undefined) data.email = dto.email.trim() === '' ? null : dto.email.trim().toLowerCase();
     if (dto.occupation !== undefined) data.occupation = dto.occupation.trim() === '' ? null : dto.occupation.trim();
 
@@ -258,54 +394,5 @@ export class GuardiansService {
       entityId: studentId,
       oldValue: { parentId: link.parentId, name: parent?.fullName, phone: parent?.phone, relation: link.relation },
     });
-  }
-
-  /**
-   * Create a User(PARENT) for a guardian so they can log into the parent portal.
-   * Requires the guardian to have an email on their ParentProfile.
-   */
-  async enablePortal(studentId: string, parentId: string): Promise<{ email: string; temporaryPassword: string }> {
-    const link = await this.db.studentGuardian.findFirst({
-      where: { studentId, parentId },
-      select: { parent: { select: { id: true, fullName: true, email: true, userId: true, schoolId: true } } },
-    });
-    if (!link) throw new AppError(ErrorCodes.NOT_FOUND, HttpStatus.NOT_FOUND, 'Guardian not found for this student');
-
-    const parent = link.parent;
-    if (parent.userId) {
-      const existing = await this.db.user.findFirst({ where: { id: parent.userId }, select: { email: true } });
-      throw new AppError(ErrorCodes.CONFLICT, HttpStatus.CONFLICT, `Portal access already enabled (${existing?.email ?? parent.email})`);
-    }
-    if (!parent.email) {
-      throw new AppError(ErrorCodes.VALIDATION_FAILED, HttpStatus.BAD_REQUEST, 'Add an email to this guardian before enabling portal access');
-    }
-
-    const existingUser = await this.db.user.findFirst({ where: { email: parent.email.toLowerCase(), deletedAt: null }, select: { id: true } });
-    if (existingUser) {
-      throw new AppError(ErrorCodes.CONFLICT, HttpStatus.CONFLICT, 'A user with this email already exists');
-    }
-
-    const tempPassword = randomBytes(6).toString('base64url');
-    const passwordHash = await this.passwords.hash(tempPassword);
-    const user = await this.db.user.create({
-      data: {
-        schoolId: parent.schoolId,
-        email: parent.email.toLowerCase(),
-        fullName: parent.fullName,
-        passwordHash,
-        roles: [Role.PARENT],
-        status: 'ACTIVE',
-      },
-    });
-    await this.db.parentProfile.update({ where: { id: parent.id }, data: { userId: user.id } });
-
-    await this.audit.record({
-      action: 'PARENT_PORTAL_ENABLED' as never,
-      entityType: 'ParentProfile',
-      entityId: parent.id,
-      newValue: { userId: user.id, email: parent.email },
-    });
-
-    return { email: parent.email, temporaryPassword: tempPassword };
   }
 }

@@ -48,8 +48,20 @@ export class GuardianResolutionDto {
   @IsEnum(GuardianRelation)
   relation!: GuardianRelation;
 
-  @IsOptional() @IsString() @MaxLength(20)
+  /** CNIC — required for FATHER and MOTHER on CREATE (sibling matching key). */
+  @ValidateIf((o: GuardianResolutionDto) => o.mode === 'CREATE' && (o.relation === 'FATHER' || o.relation === 'MOTHER'))
+  @IsString() @Matches(/^\d{5}-?\d{7}-?\d$/, { message: 'CNIC must be 13 digits (XXXXX-XXXXXXX-X)' })
   cnic?: string;
+
+  /** Date of birth — required for FATHER and MOTHER on CREATE. */
+  @ValidateIf((o: GuardianResolutionDto) => o.mode === 'CREATE' && (o.relation === 'FATHER' || o.relation === 'MOTHER'))
+  @IsDateString()
+  dateOfBirth?: string;
+
+  /** Father's name — required for FATHER on CREATE (standard Pakistani form field). */
+  @ValidateIf((o: GuardianResolutionDto) => o.mode === 'CREATE' && o.relation === 'FATHER')
+  @IsString() @MinLength(1) @MaxLength(120)
+  fatherName?: string;
 
   @IsOptional() @IsEmail()
   email?: string;
@@ -58,6 +70,10 @@ export class GuardianResolutionDto {
    *  CREATE — linking an existing parent must not silently rewrite their record from a new form. */
   @IsOptional() @IsString() @MaxLength(120)
   occupation?: string;
+
+  /** Acknowledge a phone-number conflict and proceed with CREATE anyway. */
+  @IsOptional() @IsBoolean()
+  phoneConflictAck?: boolean;
 }
 
 export class CreateStudentDto {
@@ -367,6 +383,23 @@ export class StudentSummaryQuery {
 
   @IsOptional() @IsUUID()
   sectionId?: string;
+}
+
+export class ParentMatchQuery {
+  @IsOptional() @IsString() @MaxLength(20)
+  cnic?: string;
+
+  @IsOptional() @IsString()
+  phone?: string;
+
+  @IsOptional() @IsString() @MaxLength(120)
+  fullName?: string;
+
+  @IsOptional() @IsDateString()
+  dateOfBirth?: string;
+
+  @IsEnum(GuardianRelation)
+  relation!: GuardianRelation;
 }
 
 export class AddGuardianDto extends GuardianResolutionDto {

@@ -158,6 +158,10 @@ export const AuditActions = {
 
   // A salary recorded as handed over. Cash leaves no bank trail, so this row is the trail.
   PAYSLIP_MARKED_PAID: 'PAYSLIP_MARKED_PAID',
+
+  // Parent portal login provisioning
+  PARENT_LOGIN_PROVISIONED: 'PARENT_LOGIN_PROVISIONED',
+  PARENT_PASSWORD_RESET: 'PARENT_PASSWORD_RESET',
 } as const;
 
 export type AuditAction = (typeof AuditActions)[keyof typeof AuditActions];

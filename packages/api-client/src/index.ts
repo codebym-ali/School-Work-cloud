@@ -1461,9 +1461,11 @@ export const api = {
     setDocument: (id: string, type: string, body: { received: boolean; fileKey?: string; note?: string }) =>
       apiPut<StudentDocumentRow>(`/students/${id}/documents/${type}`, body),
   },
-  // Parent portal sign-in: child's registration-no + guardian CNIC (no password), §28.
+  // Parent portal sign-in: parent's email + password.
   parentPortal: {
-    login: (registrationNo: string, cnic: string) => apiPost<{ user: Me }>('/portal/auth/login', { registrationNo, cnic }),
+    login: (email: string, password: string) => apiPost<{ user: Me } | { mustSetPassword: true; token: string }>('/portal/auth/login', { email, password }),
+    setPassword: (token: string, password: string, confirmPassword: string) => apiPost<{ user: Me }>('/portal/auth/set-password', { token, password, confirmPassword }),
+    forgotPassword: (email: string) => apiPost<void>('/portal/auth/forgot-password', { email }),
     overview: () => apiGet<PortalOverview>('/portal/overview'),
     children: () => apiGet<PortalChild[]>('/portal/children'),
     switchChild: (studentId: string) => apiPost<PortalChild[]>('/portal/switch-child', { studentId }),

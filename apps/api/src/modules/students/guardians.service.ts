@@ -1,6 +1,6 @@
 import { HttpStatus, Inject, Injectable } from '@nestjs/common';
-import { createHmac, randomBytes } from 'node:crypto';
-import { Prisma, Role, type GuardianRelation } from '@prisma/client';
+import { createHmac } from 'node:crypto';
+import { Prisma, type GuardianRelation } from '@prisma/client';
 import {
   AppError,
   ErrorCodes,

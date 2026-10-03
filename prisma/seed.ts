@@ -97,10 +97,11 @@ async function ensureStaff(prisma: PrismaClient, schoolId: string, campusId: str
       },
     });
   }
-  return { created, password: created.length > 0 ? password : undefined };
+  return { created: missing, password: missing.length > 0 ? password : undefined };
 }
 
-const PARENT_CHILD_CNIC = '3520112345671';
+const PARENT_EMAIL = 'parent@demo.pk';
+const PARENT_PASSWORD = 'Parent!Secret12';
 const PARENT_CHILD_REG = 'REG-0001';
 const PARENT_PHONE = '03001234567';
 
@@ -124,19 +125,7 @@ async function ensureParentPortal(
     return;
   }
 
-  const cnicHash = seedHashCnic(PARENT_CHILD_CNIC);
-
-  // 1. Student user (STUDENT role — the portal auth resolves this)
-  const studentUser = await prisma.user.create({
-    data: {
-      schoolId,
-      email: `s-${PARENT_CHILD_REG.toLowerCase()}@student.local`,
-      roles: ['STUDENT'],
-      status: 'ACTIVE',
-    },
-  });
-
-  // 2. The student record
+  // 1. The student record (no STUDENT-role user — parents use their own login now)
   let klass = await prisma.class.findFirst({ where: { schoolId, name: 'Grade 1' } });
   if (!klass) {
     klass = await prisma.class.create({
@@ -160,8 +149,6 @@ async function ensureParentPortal(
       dateOfBirth: new Date('2017-03-20'),
       status: 'ACTIVE',
       isActive: true,
-      cnicHash,
-      userId: studentUser.id,
     },
   });
 
@@ -178,21 +165,24 @@ async function ensureParentPortal(
     },
   });
 
-  // 3. Parent user + profile
+  // 2. Parent user (PARENT role with email + password)
   const parentUser = await prisma.user.create({
     data: {
       schoolId,
-      email: `parent-khan@student.local`,
+      email: PARENT_EMAIL,
       roles: ['PARENT'],
       status: 'ACTIVE',
+      passwordHash: await argon2.hash(PARENT_PASSWORD, { type: argon2.argon2id }),
     },
   });
 
+  // 3. Parent profile linked to user
   const parentProfile = await prisma.parentProfile.create({
     data: {
       schoolId,
       userId: parentUser.id,
       fullName: 'Imran Khan',
+      email: PARENT_EMAIL,
       phone: PARENT_PHONE,
       phoneVerifiedAt: new Date(),
       fullNameNorm: 'imran khan',
@@ -215,7 +205,7 @@ async function ensureParentPortal(
   });
 
   console.log(`  ✔ Parent portal seeded (single child):`);
-  console.log(`    Login: registration no = ${PARENT_CHILD_REG}  |  CNIC = ${PARENT_CHILD_CNIC}`);
+  console.log(`    Login: email = ${PARENT_EMAIL}  |  password = ${PARENT_PASSWORD}`);
   console.log(`    Student: Ahmed Khan (GR-P001) → Grade 1 — A`);
   console.log(`    Father: Imran Khan (${PARENT_PHONE})`);
 }

@@ -35,11 +35,18 @@ export class ParentPortalService {
    *  banner instead; RESTRICTED is the opposite case, still attending but cut off here. */
   private static readonly PORTAL_BLOCKED = ['RESTRICTED', 'STRUCK_OFF', 'WITHDRAWN'] as const;
 
-  /** The Student row for the active child (or the login child if none is selected).
-   *  When `activeChildId` is provided (from the cookie), it is validated against the
-   *  sibling graph — a parent can only view children linked via StudentGuardian. */
+  /** The Student row for the active child.
+   *  PARENT role → resolve via ParentProfile → StudentGuardian links.
+   *  STUDENT role (legacy) → resolve via Student.userId. */
   private async self(activeChildId?: string | null) {
     const userId = this.ctx.user?.userId;
+    const roles = this.ctx.user?.roles ?? [];
+
+    if (roles.includes('PARENT' as any)) {
+      return this.selfFromParent(userId!, activeChildId);
+    }
+
+    // Legacy STUDENT role path
     const loginStudent = userId ? await this.db.student.findFirst({ where: { userId, deletedAt: null } }) : null;
     if (!loginStudent) throw new AppError(ErrorCodes.FORBIDDEN, HttpStatus.FORBIDDEN, 'No student is linked to this account');
 
@@ -61,6 +68,40 @@ export class ParentPortalService {
       );
     }
     return student;
+  }
+
+  private async selfFromParent(userId: string, activeChildId?: string | null) {
+    const parent = await this.db.parentProfile.findFirst({
+      where: { userId },
+      select: { id: true },
+    });
+    if (!parent) throw new AppError(ErrorCodes.FORBIDDEN, HttpStatus.FORBIDDEN, 'No parent profile linked');
+
+    const guardianLinks = await this.db.studentGuardian.findMany({
+      where: { parentId: parent.id },
+      select: { studentId: true },
+    });
+    if (guardianLinks.length === 0) throw new AppError(ErrorCodes.FORBIDDEN, HttpStatus.FORBIDDEN, 'No children linked');
+
+    const studentIds = guardianLinks.map((g) => g.studentId);
+    const children = await this.db.student.findMany({
+      where: { id: { in: studentIds }, deletedAt: null },
+    });
+
+    const active = activeChildId
+      ? children.find((c) => c.id === activeChildId)
+      : children.find((c) => !(ParentPortalService.PORTAL_BLOCKED as readonly string[]).includes(c.status)) ?? children[0];
+
+    if (!active) throw new AppError(ErrorCodes.FORBIDDEN, HttpStatus.FORBIDDEN, 'No active children');
+
+    if ((ParentPortalService.PORTAL_BLOCKED as readonly string[]).includes(active.status)) {
+      throw new AppError(
+        ErrorCodes.FORBIDDEN,
+        HttpStatus.FORBIDDEN,
+        'Your portal access has been restricted. Please contact the school office.',
+      );
+    }
+    return active;
   }
 
   /**
@@ -93,8 +134,31 @@ export class ParentPortalService {
 
   /** All children the logged-in parent can see, with enrollment info and photo URLs. */
   async children() {
-    const loginStudent = await this.self();
-    const siblings = await this.findSiblings(loginStudent.id);
+    const roles = this.ctx.user?.roles ?? [];
+    const currentChild = await this.self();
+    let siblings: Array<{ id: string; fullName: string; grNumber: string; photoKey: string | null; status: string }>;
+
+    if (roles.includes('PARENT' as any)) {
+      const parent = await this.db.parentProfile.findFirst({
+        where: { userId: this.ctx.user!.userId },
+        select: { id: true },
+      });
+      if (!parent) return [];
+      const links = await this.db.studentGuardian.findMany({
+        where: { parentId: parent.id },
+        select: { studentId: true },
+      });
+      siblings = await this.db.student.findMany({
+        where: {
+          id: { in: links.map((l) => l.studentId) },
+          deletedAt: null,
+          status: { notIn: ['STRUCK_OFF', 'WITHDRAWN'] },
+        },
+        select: { id: true, fullName: true, grNumber: true, photoKey: true, status: true },
+      });
+    } else {
+      siblings = await this.findSiblings(currentChild.id);
+    }
 
     const result = await Promise.all(
       siblings.map(async (s) => {
@@ -111,7 +175,7 @@ export class ParentPortalService {
           sectionName: enrollment?.section.name ?? null,
           photoUrl: s.photoKey ? await this.storage.presignGet(s.photoKey, 600) : null,
           status: s.status,
-          isCurrent: s.id === loginStudent.id,
+          isCurrent: s.id === currentChild.id,
         };
       }),
     );

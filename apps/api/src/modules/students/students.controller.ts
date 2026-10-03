@@ -17,6 +17,7 @@ import { StudentsService } from './students.service';
 import { GuardiansService } from './guardians.service';
 import { StudentsImportService } from './students-import.service';
 import { PhoneVerificationService } from './phone-verification.service';
+import { PortalCredentialsService } from './portal-credentials.service';
 import {
   AddGuardianDto,
   SetStudentCnicDto,
@@ -45,6 +46,7 @@ export class StudentsController {
     private readonly guardians: GuardiansService,
     private readonly importer: StudentsImportService,
     private readonly phoneVerify: PhoneVerificationService,
+    private readonly portalCreds: PortalCredentialsService,
   ) {}
 
   @Get()
@@ -243,5 +245,38 @@ export class StudentsController {
   @HttpCode(HttpStatus.NO_CONTENT)
   async removeGuardian(@Param('id') id: string, @Param('guardianId') guardianId: string) {
     await this.students.removeGuardian(id, guardianId);
+  }
+
+  // ── Portal credentials ──────────────────────────────────────────────────
+
+  @Post(':id/portal-credentials')
+  @HttpCode(HttpStatus.CREATED)
+  createPortalCredentials(
+    @Param('id') id: string,
+    @Body() body: { password: string; confirmPassword: string },
+  ) {
+    return this.portalCreds.createCredentials(id, body.password, body.confirmPassword);
+  }
+
+  @Post(':id/portal-invite')
+  @HttpCode(HttpStatus.OK)
+  sendPortalInvite(@Param('id') id: string) {
+    return this.portalCreds.sendInvite(id);
+  }
+
+  @Roles('OWNER_ADMIN', 'CAMPUS_ADMIN')
+  @Post(':id/guardians/:guardianId/reset-portal-password')
+  @HttpCode(HttpStatus.OK)
+  resetPortalPassword(
+    @Param('id') id: string,
+    @Param('guardianId') guardianId: string,
+    @Body() body: { password?: string; sendLink?: boolean },
+  ) {
+    return this.portalCreds.resetPassword(id, guardianId, body);
+  }
+
+  @Get(':id/portal-status')
+  portalStatus(@Param('id') id: string) {
+    return this.portalCreds.portalStatus(id);
   }
 }

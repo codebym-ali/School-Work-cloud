@@ -15,7 +15,7 @@ export class SwitchChildDto {
   studentId!: string;
 }
 
-/** Student portal sign-in: registration number + CNIC/B-Form (no email/password). */
+/** @deprecated Legacy student-centric login — replaced by ParentLoginDto. Kept for old STUDENT-role transition. */
 export class StudentLoginDto {
   @IsString()
   @MinLength(1)
@@ -24,6 +24,45 @@ export class StudentLoginDto {
   @IsString()
   @Matches(/^\d{5}-?\d{7}-?\d$/, { message: 'CNIC/B-Form must be 13 digits' })
   cnic!: string;
+}
+
+/** Parent portal sign-in: parent's own email + password. */
+export class ParentLoginDto {
+  @IsEmail()
+  email!: string;
+
+  @IsString()
+  @MinLength(1)
+  password!: string;
+}
+
+/** Set password from an invite link (parent portal). */
+export class SetPortalPasswordDto {
+  @IsString()
+  token!: string;
+
+  @IsString()
+  @Matches(/^(?=.*[A-Z])(?=.*\d).{8,}$/, { message: 'Password must be at least 8 characters with 1 uppercase letter and 1 digit' })
+  password!: string;
+
+  @IsString()
+  confirmPassword!: string;
+}
+
+/** Forgot password for parent portal. */
+export class ParentForgotPasswordDto {
+  @IsEmail()
+  email!: string;
+}
+
+/** Officer sets portal credentials during admission. */
+export class CreatePortalCredentialsDto {
+  @IsString()
+  @Matches(/^(?=.*[A-Z])(?=.*\d).{8,}$/, { message: 'Password must be at least 8 characters with 1 uppercase letter and 1 digit' })
+  password!: string;
+
+  @IsString()
+  confirmPassword!: string;
 }
 
 export class MfaChallengeDto {
